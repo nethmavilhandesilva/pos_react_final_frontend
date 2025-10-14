@@ -7,6 +7,10 @@ import EditItem from './components/Items/EditItem';
 import SupplierList from './components/Suppliers/SupplierList';
 import CreateSupplier from './components/Suppliers/CreateSupplier';
 import EditSupplier from './components/Suppliers/EditSupplier';
+import GrnList from './components/Grn/GrnList';
+import CreateGrn from './components/Grn/CreateGrn';
+import EditGrn from './components/Grn/EditGrn';
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -25,7 +29,13 @@ export default function App() {
         <Route path="/suppliers" element={<SupplierList />} />
         <Route path="/suppliers/create" element={<CreateSupplier />} />
         <Route path="/suppliers/edit/:id" element={<EditSupplier />} />
-
+       {/* GRN Routes */}
+        <Route path="/grn" element={<GrnList />} />
+        <Route path="/grn/create" element={<CreateGrn />} />
+        <Route path="/grn/edit/:id" element={<EditGrn />} />
+        
+        {/* Default Route */}
+        <Route path="/" element={<GrnList />} />
       </Routes>
     </BrowserRouter>
   );
