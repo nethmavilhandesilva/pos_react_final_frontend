@@ -10,6 +10,7 @@ import EditSupplier from './components/Suppliers/EditSupplier';
 import GrnList from './components/Grn/GrnList';
 import CreateGrn from './components/Grn/CreateGrn';
 import EditGrn from './components/Grn/EditGrn';
+import CustomersLoanList from './components/CustomersLoans/CustomersLoanList';
 
 export default function App() {
   return (
@@ -36,6 +37,11 @@ export default function App() {
         
         {/* Default Route */}
         <Route path="/" element={<GrnList />} />
+         {/* Customers Loans Routes */}
+        <Route path="/customers-loans" element={<CustomersLoanList />} />
+        
+        {/* Default Route */}
+        <Route path="/" element={<CustomersLoanList />} />
       </Routes>
     </BrowserRouter>
   );
