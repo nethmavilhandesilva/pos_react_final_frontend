@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import CustomerList from './components/CustomerList';
-import CustomerForm from './components/CustomerForm';
+import CustomerList from './components/Customers/CustomerList';
+import CustomerForm from './components/Customers/CustomerForm';
 import ItemList from './components/Items/ItemList';
 import CreateItem from './components/Items/CreateItem';
 import EditItem from './components/Items/EditItem';
