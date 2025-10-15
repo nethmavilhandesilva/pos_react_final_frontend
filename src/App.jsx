@@ -15,6 +15,9 @@ import CustomersLoanList from './components/CustomersLoans/CustomersLoanList';
 import GrnEntryForm from './components/Grn/GrnEntryForm';
 import GrnEntriesTable from './components/Grn/GrnEntriesTable';
 import { fetchGrnBalances, fetchNotChangingGRNs } from './services/api';
+import Layout from './components/Layout/Layout';
+import Dashboard from './components/Dashboard/Dashboard';
+
 
 // Create a new component for the GRN Entry page
 function GrnEntryPage() {
@@ -86,6 +89,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+          <Route path="/" element={<Dashboard />} />
         {/* CUSTOMERS */}
         <Route path="/customers" element={<CustomerList />} />
         <Route path="/customers/create" element={<CustomerForm mode="create" />} />
@@ -112,8 +116,9 @@ export default function App() {
         {/* CUSTOMERS LOANS Routes */}
         <Route path="/customers-loans" element={<CustomersLoanList />} />
         
-        {/* DEFAULT ROUTE - You can choose which page to show as default */}
-        <Route path="/" element={<GrnEntryPage />} /> {/* or <GrnList /> or <CustomersLoanList /> */}
+        
+       
+        
       </Routes>
     </BrowserRouter>
   );
