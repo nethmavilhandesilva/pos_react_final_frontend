@@ -13,15 +13,7 @@ import CreateGrn from './components/Grn/CreateGrn';
 import EditGrn from './components/Grn/EditGrn';
 import CustomersLoanList from './components/CustomersLoans/CustomersLoanList';
 import GrnEntryForm from './components/Grn/GrnEntryForm';
-import GrnEntriesTable from './components/Grn/GrnEntriesTable';
-import { fetchGrnBalances, fetchNotChangingGRNs } from './services/api';
 import Dashboard from './components/Dashboard/Dashboard';
-
-
-
-
-
-
 
 export default function App() {
   return (

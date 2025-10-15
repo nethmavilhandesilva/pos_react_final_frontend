@@ -1,24 +1,34 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import ItemReportModal from '../Itemrepo/ItemReportModal'; // Your file path
+import ItemReportModal from '../Itemrepo/ItemReportModal';
+import WeightReportModal from '../WeightReport/WeightReportModal';
 
 const Layout = ({ children }) => {
   const location = useLocation();
   const [isItemReportModalOpen, setIsItemReportModalOpen] = useState(false);
+  const [isWeightReportModalOpen, setIsWeightReportModalOpen] = useState(false);
 
   // Open the modal
   const openItemReportModal = () => {
     setIsItemReportModalOpen(true);
   };
 
-  // Close the modal
+  const openWeightReportModal = () => {
+    setIsWeightReportModalOpen(true);
+  };
+
+  // Close the modals
   const closeItemReportModal = () => {
     setIsItemReportModalOpen(false);
   };
 
+  const closeWeightReportModal = () => {
+    setIsWeightReportModalOpen(false);
+  };
+
   return (
     <div>
-      {/* Navigation Bar */}
+      {/* Top Navigation Bar */}
       <nav
         className="navbar navbar-expand-lg navbar-dark fixed-top"
         style={{ backgroundColor: '#004d00', width: '100%' }}
@@ -78,32 +88,57 @@ const Layout = ({ children }) => {
                 <i className="material-icons align-middle me-1">add_box</i>
                 GRN Entries
               </Link>
-
-              {/* Button to open Item Report Modal */}
-              <button
-                type="button"
-                className="btn btn-outline-warning btn-sm mx-1"
-                onClick={openItemReportModal}
-              >
-                <i className="material-icons align-middle me-1">analytics</i>
-                Item Report
-              </button>
             </div>
           </div>
         </div>
       </nav>
 
       {/* Main Content */}
-      <main className="container-fluid py-4" style={{ marginTop: '70px' }}>
+      <main className="container-fluid py-4" style={{ marginTop: '70px', marginBottom: '80px' }}>
         {children}
       </main>
+
+      {/* Bottom Navigation Bar */}
+      <nav
+        className="navbar navbar-expand-lg navbar-dark fixed-bottom"
+        style={{ backgroundColor: '#004d00', width: '100%' }}
+      >
+        <div className="container-fluid d-flex justify-content-center">
+          <div className="navbar-nav d-flex flex-row align-items-center">
+            {/* Report Buttons */}
+            <button
+              type="button"
+              className="btn btn-outline-warning btn-sm mx-2"
+              onClick={openItemReportModal}
+            >
+              <i className="material-icons align-middle me-1">analytics</i>
+              Item Report
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-outline-info btn-sm mx-2"
+              onClick={openWeightReportModal}
+            >
+              <i className="material-icons align-middle me-1">scale</i>
+              Weight Report
+            </button>
+          </div>
+        </div>
+      </nav>
 
       {/* Item Report Modal */}
       <ItemReportModal
         isOpen={isItemReportModalOpen}
         onClose={closeItemReportModal}
-        onGenerateReport={() => {}} // Empty function since you don't need it
+        onGenerateReport={() => {}}
         loading={false}
+      />
+
+      {/* Weight Report Modal */}
+      <WeightReportModal
+        isOpen={isWeightReportModalOpen}
+        onClose={closeWeightReportModal}
       />
     </div>
   );
