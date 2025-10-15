@@ -40,3 +40,37 @@
 .read-the-docs {
   color: #888;
 }
+/* Add to your main CSS file */
+body {
+  background-color: #99ff99;
+}
+
+.react-select-container .react-select__control {
+  font-size: 0.875rem;
+  min-height: calc(1.5em + 0.5rem + 2px);
+}
+
+.react-select-container .react-select__value-container {
+  padding: 0.25rem 0.5rem;
+}
+
+.react-select-container .react-select__input input {
+  text-transform: uppercase !important;
+}
+
+.react-select-container .react-select__menu {
+  font-size: 0.875rem;
+}
+
+.balances {
+  font-size: 25px;
+}
+
+.form-label {
+  margin-bottom: 0.25rem;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
