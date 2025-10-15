@@ -1,4 +1,5 @@
 const API_BASE = 'http://localhost:8000/api';
+import axios from 'axios';
 
 export const fetchNotChangingGRNs = async () => {
   const response = await fetch(`${API_BASE}/not-changing-grns`);
@@ -30,7 +31,9 @@ export const submitGrnEntry = async (formData) => {
   
   return response.json();
 };
-
+export const getGrnEntriesByCode = async (code) => {
+  return await axios.get(`${API_BASE}/grn-entries/code/${code}`);
+};
 export const deleteGrnEntry = async (id) => {
   const response = await fetch(`${API_BASE}/grn/delete/update/${id}`, {
     method: 'DELETE',
@@ -46,6 +49,7 @@ export const deleteGrnEntry = async (id) => {
     const errorData = await response.json();
     throw new Error(errorData.message || 'Failed to delete entry');
   }
+  
   
   return response.json();
 };
