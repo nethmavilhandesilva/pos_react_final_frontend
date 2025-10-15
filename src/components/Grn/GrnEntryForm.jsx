@@ -1,9 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { submitGrnEntry, getGrnEntriesByCode } from '../../services/api';
-import { deleteGrnEntry } from '../../services/api';
-import axios from 'axios';
+import { 
+  submitGrnEntry, 
+  getGrnEntriesByCode, 
+  deleteGrnEntry, 
+  fetchGrnBalances, 
+  fetchNotChangingGRNs 
+} from '../../services/api';
+import GrnEntriesTable from './GrnEntriesTable';
 
-const GrnEntryForm = ({ notChangingGRNs, onCodeSelect, onEntryAdded, selectedCode, updateBalances }) => {
+const GrnEntryForm = () => {
+  // === Shared State (from GrnEntryPage) ===
+  const [notChangingGRNs, setNotChangingGRNs] = useState([]);
+  const [grnEntries, setGrnEntries] = useState([]);
+  const [selectedCode, setSelectedCode] = useState('');
+  const [balances, setBalances] = useState({ total_packs: 0, total_weight: 0 });
+
+  // === Local Form State ===
   const [formData, setFormData] = useState({
     code: '',
     packs: '',
@@ -15,11 +27,51 @@ const GrnEntryForm = ({ notChangingGRNs, onCodeSelect, onEntryAdded, selectedCod
   const [relatedEntries, setRelatedEntries] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+
   const packsRef = useRef(null);
   const weightRef = useRef(null);
   const priceRef = useRef(null);
   const codeSelectRef = useRef(null);
 
+  // === Initial Load ===
+  useEffect(() => {
+    loadNotChangingGRNs();
+  }, []);
+
+  const loadNotChangingGRNs = async () => {
+    try {
+      const data = await fetchNotChangingGRNs();
+      setNotChangingGRNs(data);
+    } catch (error) {
+      console.error('Failed to load GRNs:', error);
+    }
+  };
+
+  // === Balance & Entry Management ===
+  const updateBalances = async (code) => {
+    if (!code) return;
+    try {
+      const balanceData = await fetchGrnBalances(code);
+      setBalances(balanceData);
+    } catch (error) {
+      console.error('Failed to fetch balances:', error);
+    }
+  };
+
+  const handleCodeSelect = (code) => {
+    setSelectedCode(code);
+    updateBalances(code);
+  };
+
+  const addGrnEntry = (newEntry) => {
+    setGrnEntries(prev => [newEntry, ...prev]);
+  };
+
+  const removeGrnEntry = (id) => {
+    setGrnEntries(prev => prev.filter(entry => entry.id !== id));
+  };
+
+  // === Form Logic ===
   useEffect(() => {
     if (codeSelectRef.current) codeSelectRef.current.focus();
   }, []);
@@ -36,7 +88,6 @@ const GrnEntryForm = ({ notChangingGRNs, onCodeSelect, onEntryAdded, selectedCod
   const handleCodeChange = async (e) => {
     const selectedValue = e.target.value;
     const selectedOption = e.target.options[e.target.selectedIndex];
-
     setFormData(prev => ({ ...prev, code: selectedValue }));
 
     if (selectedValue) {
@@ -51,13 +102,10 @@ const GrnEntryForm = ({ notChangingGRNs, onCodeSelect, onEntryAdded, selectedCod
         grn_no: grnNo || ''
       }));
       setItemInfo(itemName || '');
-      onCodeSelect(selectedValue);
+      handleCodeSelect(selectedValue);
 
       await fetchRelatedEntries(selectedValue);
-
-      setTimeout(() => {
-        if (packsRef.current) packsRef.current.focus();
-      }, 100);
+      setTimeout(() => packsRef.current?.focus(), 100);
     } else {
       setFormData(prev => ({ ...prev, per_kg_price: '', grn_no: '' }));
       setItemInfo('');
@@ -71,36 +119,33 @@ const GrnEntryForm = ({ notChangingGRNs, onCodeSelect, onEntryAdded, selectedCod
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const newEntry = await submitGrnEntry(formData);
-      onEntryAdded(newEntry.entry);
-      setFormData(prev => ({ ...prev, packs: '', weight: '', per_kg_price: '' }));
-      setItemInfo('');
-      updateBalances(formData.code);
-      await fetchRelatedEntries(formData.code);
-      if (codeSelectRef.current) {
-        codeSelectRef.current.value = '';
-        codeSelectRef.current.focus();
-      }
-    } catch (error) {
-      alert('Error adding entry: ' + error.message);
-    }
-  };
-const handleDelete = async (id) => {
-  if (window.confirm('Are you sure you want to delete this entry?')) {
-    try {
-      // Use your exported deleteGrnEntry function
-      await deleteGrnEntry(id);
-
-      // Update state after successful deletion
-      setRelatedEntries(prev => prev.filter(entry => entry.id !== id));
-    } catch (err) {
-      console.error('Error deleting entry:', err);
-      alert(err.message || 'Failed to delete entry');
-    }
+  e.preventDefault();
+  try {
+    const newEntry = await submitGrnEntry(formData);
+    addGrnEntry(newEntry.entry);
+    setFormData(prev => ({ ...prev, packs: '', weight: '', per_kg_price: '' }));
+    setItemInfo('');
+    updateBalances(formData.code);
+    await fetchRelatedEntries(formData.code);
+    setSearchTerm(''); // clear the input
+  } catch (error) {
+    alert('Error adding entry: ' + error.message);
   }
 };
+
+
+  const handleDelete = async (id) => {
+    if (window.confirm('Are you sure you want to delete this entry?')) {
+      try {
+        await deleteGrnEntry(id);
+        removeGrnEntry(id);
+        setRelatedEntries(prev => prev.filter(entry => entry.id !== id));
+      } catch (err) {
+        console.error('Error deleting entry:', err);
+        alert(err.message || 'Failed to delete entry');
+      }
+    }
+  };
 
   const handleKeyDown = (e, nextField) => {
     if (e.key === 'Enter') {
@@ -110,6 +155,7 @@ const handleDelete = async (id) => {
     }
   };
 
+  // === Search Dropdown ===
   const filteredOptions = notChangingGRNs.filter(grn =>
     grn.code.toUpperCase().includes(searchTerm.toUpperCase()) ||
     grn.item_name.toUpperCase().includes(searchTerm.toUpperCase())
@@ -128,21 +174,28 @@ const handleDelete = async (id) => {
       grn_no: grn.grn_no || ''
     }));
     setItemInfo(grn.item_name);
-    onCodeSelect(grn.code);
+    handleCodeSelect(grn.code);
     setSearchTerm(`${grn.code} - ${grn.item_name}`);
     setShowDropdown(false);
     fetchRelatedEntries(grn.code);
-    setTimeout(() => {
-      if (packsRef.current) packsRef.current.focus();
-    }, 100);
+    setTimeout(() => packsRef.current?.focus(), 100);
   };
 
+  // === Render ===
   return (
-    <div className="container-fluid mt-3">
-      <form id="grn_form" onSubmit={handleSubmit} className="p-3 bg-light rounded shadow-sm">
+    <div className="container mt-4">
+      <h3>
+        GRN Entries{' '}
+        <span className="balances">
+          (Balanced Packs: {balances.total_packs}, Balanced Weight: {parseFloat(balances.total_weight).toFixed(2)} kg)
+        </span>
+      </h3>
+
+      <form id="grn_form" onSubmit={handleSubmit} className="p-3 bg-light rounded shadow-sm mt-3">
+        {/* Code Search Section */}
         <div className="row g-3 mb-3">
           <div className="col-md-3">
-            <label htmlFor="nc_code" className="form-label fw-bold">Code</label>
+            <label className="form-label fw-bold">Code</label>
             <div className="position-relative">
               <input
                 type="text"
@@ -154,66 +207,65 @@ const handleDelete = async (id) => {
                 style={{ textTransform: 'uppercase' }}
               />
               {showDropdown && searchTerm && (
-                <div className="position-absolute w-100 bg-white border mt-1 shadow-sm" style={{ zIndex: 1000, maxHeight: '200px', overflowY: 'auto' }}>
+                <div className="position-absolute w-100 bg-white border mt-1 shadow-sm"
+                     style={{ zIndex: 1000, maxHeight: '200px', overflowY: 'auto' }}>
                   {filteredOptions.map(grn => (
-                    <div
-                      key={grn.code}
-                      className="dropdown-item p-2 cursor-pointer"
-                      onClick={() => handleOptionSelect(grn)}
-                      style={{ cursor: 'pointer', fontSize: '0.875rem' }}
-                    >
+                    <div key={grn.code} className="dropdown-item p-2" 
+                         style={{ cursor: 'pointer', fontSize: '0.875rem' }}
+                         onClick={() => handleOptionSelect(grn)}>
                       {grn.code} - {grn.item_name}
                     </div>
                   ))}
-                  {filteredOptions.length === 0 && <div className="dropdown-item p-2 text-muted">No results found</div>}
+                  {filteredOptions.length === 0 && (
+                    <div className="dropdown-item p-2 text-muted">No results found</div>
+                  )}
                 </div>
               )}
             </div>
-            <select ref={codeSelectRef} id="nc_code" name="code" className="form-control form-control-sm d-none" value={formData.code} onChange={handleCodeChange}>
-              <option value="" disabled>-- Select Code --</option>
-              {notChangingGRNs.map(grn => (
-                <option key={grn.code} value={grn.code} data-item-code={grn.item_code} data-item-name={grn.item_name} data-grn-no={grn.grn_no} data-perkg-price={grn.PerKGPrice}>
-                  {grn.code} - {grn.item_name}
-                </option>
-              ))}
-            </select>
           </div>
 
           <div className="col-md-2">
-            <label htmlFor="start_date" className="form-label fw-bold">Start Date</label>
-            <input type="date" id="start_date" className="form-control form-control-sm" />
+            <label className="form-label fw-bold">Start Date</label>
+            <input type="date" className="form-control form-control-sm" />
           </div>
 
           <div className="col-md-2">
-            <label htmlFor="end_date" className="form-label fw-bold">End Date</label>
-            <input type="date" id="end_date" className="form-control form-control-sm" />
+            <label className="form-label fw-bold">End Date</label>
+            <input type="date" className="form-control form-control-sm" />
           </div>
         </div>
 
-        <div className="row g-2 mb-3 align-items-end mt-2">
+        {/* Entry Fields */}
+        <div className="row g-2 mb-3 align-items-end">
           <div className="col-md-3">
-            <label htmlFor="nc_item" className="form-label fw-bold">Item</label>
-            <input type="text" id="nc_item" value={itemInfo} className="form-control form-control-sm" readOnly />
+            <label className="form-label fw-bold">Item</label>
+            <input type="text" value={itemInfo} className="form-control form-control-sm" readOnly />
           </div>
 
           <div className="col-md-2">
-            <label htmlFor="nc_packs" className="form-label fw-bold">Packs</label>
-            <input ref={packsRef} type="number" id="nc_packs" name="packs" value={formData.packs} onChange={handleInputChange} className="form-control form-control-sm" min="1" onKeyDown={(e) => handleKeyDown(e, { current: weightRef.current })} />
+            <label className="form-label fw-bold">Packs</label>
+            <input ref={packsRef} type="number" name="packs" value={formData.packs} onChange={handleInputChange}
+              className="form-control form-control-sm" min="1"
+              onKeyDown={(e) => handleKeyDown(e, weightRef)} />
           </div>
 
           <div className="col-md-2">
-            <label htmlFor="nc_weight" className="form-label fw-bold">Weight (kg)</label>
-            <input ref={weightRef} type="number" id="nc_weight" name="weight" value={formData.weight} onChange={handleInputChange} className="form-control form-control-sm" step="0.01" onKeyDown={(e) => handleKeyDown(e, { current: priceRef.current })} />
+            <label className="form-label fw-bold">Weight (kg)</label>
+            <input ref={weightRef} type="number" name="weight" value={formData.weight} onChange={handleInputChange}
+              className="form-control form-control-sm" step="0.01"
+              onKeyDown={(e) => handleKeyDown(e, priceRef)} />
           </div>
 
           <div className="col-md-2">
-            <label htmlFor="nc_perkg_price" className="form-label fw-bold">Per KG Price</label>
-            <input ref={priceRef} type="number" id="nc_perkg_price" name="per_kg_price" value={formData.per_kg_price} onChange={handleInputChange} className="form-control form-control-sm" step="0.01" onKeyDown={(e) => handleKeyDown(e, 'submit')} />
+            <label className="form-label fw-bold">Per KG Price</label>
+            <input ref={priceRef} type="number" name="per_kg_price" value={formData.per_kg_price} onChange={handleInputChange}
+              className="form-control form-control-sm" step="0.01"
+              onKeyDown={(e) => handleKeyDown(e, 'submit')} />
           </div>
 
           <div className="col-md-3">
-            <label htmlFor="nc_grn_no" className="form-label fw-bold">GRN No</label>
-            <input type="text" id="nc_grn_no" name="grn_no" value={formData.grn_no} onChange={handleInputChange} className="form-control form-control-sm" readOnly />
+            <label className="form-label fw-bold">GRN No</label>
+            <input type="text" name="grn_no" value={formData.grn_no} className="form-control form-control-sm" readOnly />
           </div>
         </div>
 
@@ -221,17 +273,15 @@ const handleDelete = async (id) => {
           <button type="submit" className="btn btn-primary btn-sm">
             <i className="material-icons align-middle me-1">check_circle</i> Update GRN
           </button>
-
           <a href="/grn/create" className="btn btn-secondary btn-sm">
             <i className="material-icons align-middle me-1">add_circle</i> New GRN
           </a>
-
           <button type="button" className="btn btn-success btn-sm">Export Excel</button>
           <button type="button" className="btn btn-danger btn-sm">Export PDF</button>
         </div>
       </form>
 
-      {/* Related GRN entries table */}
+      {/* Related Entries */}
       {relatedEntries.length > 0 && (
         <div className="mt-4 p-3 bg-white rounded shadow-sm">
           <h5>Related GRN Entries</h5>
@@ -267,6 +317,13 @@ const handleDelete = async (id) => {
           </div>
         </div>
       )}
+
+      {/* Bottom GRN Table */}
+      <GrnEntriesTable
+        entries={grnEntries}
+        selectedCode={selectedCode}
+        onEntryDeleted={removeGrnEntry}
+      />
     </div>
   );
 };
