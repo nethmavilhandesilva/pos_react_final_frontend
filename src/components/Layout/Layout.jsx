@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
+import GrnSaleReportModal from '../GrnSale/ReportModal';
 
 const Layout = ({ children }) => {
   const location = useLocation();
   const [isItemReportModalOpen, setIsItemReportModalOpen] = useState(false);
   const [isWeightReportModalOpen, setIsWeightReportModalOpen] = useState(false);
+  const [isGrnSaleReportModalOpen, setIsGrnSaleReportModalOpen] = useState(false);
 
   // Open the modal
   const openItemReportModal = () => {
@@ -24,6 +26,12 @@ const Layout = ({ children }) => {
 
   const closeWeightReportModal = () => {
     setIsWeightReportModalOpen(false);
+  };
+  const openGrnSaleReportModal = () => {
+    setIsGrnSaleReportModalOpen(true);
+  };
+  const closeGrnSaleReportModal = () => {
+    setIsGrnSaleReportModalOpen(false);
   };
 
   return (
@@ -45,45 +53,40 @@ const Layout = ({ children }) => {
             <div className="navbar-nav d-flex flex-row align-items-center">
               <Link
                 to="/customers"
-                className={`nav-link btn btn-outline-light btn-sm mx-1 ${
-                  location.pathname === '/customers' ? 'active' : ''
-                }`}
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/customers' ? 'active' : ''
+                  }`}
               >
                 <i className="material-icons align-middle me-1">people</i>
                 Customers
               </Link>
               <Link
                 to="/items"
-                className={`nav-link btn btn-outline-light btn-sm mx-1 ${
-                  location.pathname === '/items' ? 'active' : ''
-                }`}
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/items' ? 'active' : ''
+                  }`}
               >
                 <i className="material-icons align-middle me-1">inventory_2</i>
                 Items
               </Link>
               <Link
                 to="/suppliers"
-                className={`nav-link btn btn-outline-light btn-sm mx-1 ${
-                  location.pathname === '/suppliers' ? 'active' : ''
-                }`}
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/suppliers' ? 'active' : ''
+                  }`}
               >
                 <i className="material-icons align-middle me-1">local_shipping</i>
                 Suppliers
               </Link>
               <Link
                 to="/grn"
-                className={`nav-link btn btn-outline-light btn-sm mx-1 ${
-                  location.pathname === '/grn' ? 'active' : ''
-                }`}
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn' ? 'active' : ''
+                  }`}
               >
                 <i className="material-icons align-middle me-1">receipt</i>
                 GRN List
               </Link>
               <Link
                 to="/grn/entries"
-                className={`nav-link btn btn-outline-light btn-sm mx-1 ${
-                  location.pathname === '/grn/entries' ? 'active' : ''
-                }`}
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn/entries' ? 'active' : ''
+                  }`}
               >
                 <i className="material-icons align-middle me-1">add_box</i>
                 GRN Entries
@@ -123,6 +126,15 @@ const Layout = ({ children }) => {
               <i className="material-icons align-middle me-1">scale</i>
               Weight Report
             </button>
+             {/* NEW: GRN Sale Report Button */}
+            <button
+              type="button"
+              className="btn btn-outline-light btn-sm mx-2"
+              onClick={openGrnSaleReportModal}
+            >
+              <i className="material-icons align-middle me-1">receipt</i>
+              GRN Sales Report
+            </button>
           </div>
         </div>
       </nav>
@@ -131,7 +143,7 @@ const Layout = ({ children }) => {
       <ItemReportModal
         isOpen={isItemReportModalOpen}
         onClose={closeItemReportModal}
-        onGenerateReport={() => {}}
+        onGenerateReport={() => { }}
         loading={false}
       />
 
@@ -139,6 +151,11 @@ const Layout = ({ children }) => {
       <WeightReportModal
         isOpen={isWeightReportModalOpen}
         onClose={closeWeightReportModal}
+      />
+      {/* NEW: GRN Sale Report Modal */}
+      <GrnSaleReportModal
+        isOpen={isGrnSaleReportModalOpen}
+        onClose={closeGrnSaleReportModal}
       />
     </div>
   );
