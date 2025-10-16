@@ -3,12 +3,14 @@ import { Link, useLocation } from 'react-router-dom';
 import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
 import GrnSaleReportModal from '../GrnSale/ReportModal';
+import SalesAdjustmentReportModal from '../SalesAdjustmentReport/SalesAdjustmentReportModal';
 
 const Layout = ({ children }) => {
   const location = useLocation();
   const [isItemReportModalOpen, setIsItemReportModalOpen] = useState(false);
   const [isWeightReportModalOpen, setIsWeightReportModalOpen] = useState(false);
   const [isGrnSaleReportModalOpen, setIsGrnSaleReportModalOpen] = useState(false);
+  const [isSalesAdjustmentReportModalOpen, setIsSalesAdjustmentReportModalOpen] = useState(false); 
 
   // Open the modal
   const openItemReportModal = () => {
@@ -32,6 +34,12 @@ const Layout = ({ children }) => {
   };
   const closeGrnSaleReportModal = () => {
     setIsGrnSaleReportModalOpen(false);
+  };
+    const openSalesAdjustmentReportModal = () => {
+    setIsSalesAdjustmentReportModalOpen(true);
+  };
+   const closeSalesAdjustmentReportModal = () => {
+    setIsSalesAdjustmentReportModalOpen(false);
   };
 
   return (
@@ -135,6 +143,15 @@ const Layout = ({ children }) => {
               <i className="material-icons align-middle me-1">receipt</i>
               GRN Sales Report
             </button>
+            {/* NEW: Sales Adjustment Report Button */}
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm mx-2"
+              onClick={openSalesAdjustmentReportModal}
+            >
+              <i className="material-icons align-middle me-1">edit</i>
+              Sales Adjustment
+            </button>
           </div>
         </div>
       </nav>
@@ -156,6 +173,11 @@ const Layout = ({ children }) => {
       <GrnSaleReportModal
         isOpen={isGrnSaleReportModalOpen}
         onClose={closeGrnSaleReportModal}
+      />
+       {/* NEW: Sales Adjustment Report Modal */}
+      <SalesAdjustmentReportModal
+        isOpen={isSalesAdjustmentReportModalOpen}
+        onClose={closeSalesAdjustmentReportModal}
       />
     </div>
   );

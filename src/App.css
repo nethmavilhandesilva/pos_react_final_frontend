@@ -109,3 +109,37 @@ body {
     font-size: 0.8rem;
   }
 }
+/* Sales Adjustment Report Specific Styles */
+.table-success {
+    background-color: #d1e7dd !important;
+}
+
+.table-warning {
+    background-color: #fff3cd !important;
+}
+
+.table-danger {
+    background-color: #f8d7da !important;
+}
+
+.changed {
+    color: red !important;
+    font-weight: bold;
+}
+
+.pagination {
+    margin-bottom: 0;
+}
+
+.page-item.active .page-link {
+    background-color: #004d00;
+    border-color: #004d00;
+}
+
+.page-link {
+    color: #004d00;
+}
+
+.page-link:hover {
+    color: #003300;
+}
