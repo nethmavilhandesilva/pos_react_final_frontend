@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 
 const BACKEND_URL = 'http://localhost:8000/api';
 
@@ -7,6 +8,13 @@ const GrnSalesOverviewReport = ({ isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [companyName, setCompanyName] = useState('Default Company');
   const [settingDate, setSettingDate] = useState('');
+  const [isClient, setIsClient] = useState(false);
+  const printRef = useRef();
+
+  // Ensure we're on client side before printing
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -124,6 +132,224 @@ const GrnSalesOverviewReport = ({ isOpen, onClose }) => {
     return Object.values(grouped).sort((a, b) => a.itemName.localeCompare(b.itemName));
   };
 
+  // PDF Export functionality
+  const handlePrint = () => {
+    if (!isClient) return;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow popups for printing');
+      return;
+    }
+
+    const groupedData = getGroupedData();
+    const grandTotals = calculateGrandTotals();
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>GRN Sales Overview Report</title>
+          <style>
+              body { 
+                  font-family: 'notosanssinhala', sans-serif; 
+                  font-size: 11px; 
+                  line-height: 1.3;
+                  margin: 15px;
+                  background-color: #99ff99;
+              }
+              .header { 
+                  text-align: center; 
+                  margin-bottom: 20px;
+                  border-bottom: 2px solid #333;
+                  padding-bottom: 10px;
+                  background-color: #004d00;
+                  color: white;
+                  padding: 15px;
+                  border-radius: 5px;
+              }
+              table { 
+                  width: 100%; 
+                  border-collapse: collapse; 
+                  margin-top: 15px;
+                  background-color: white;
+              }
+              th, td { 
+                  border: 1px solid #000; 
+                  padding: 6px; 
+                  text-align: center; 
+                  vertical-align: middle;
+              }
+              th { 
+                  background-color: #f2f2f2; 
+                  font-weight: bold;
+              }
+              .text-end { text-align: right; }
+              .text-center { text-align: center; }
+              .total-row { 
+                  font-weight: bold; 
+                  background-color: #e9ecef;
+              }
+              .item-summary-row { 
+                  background-color: #f8f9fa;
+              }
+              .no-data { 
+                  text-align: center; 
+                  color: #6c757d; 
+                  padding: 20px;
+                  background-color: #f8f9fa;
+              }
+              .company-name {
+                  font-size: 18px;
+                  font-weight: bold;
+                  margin-bottom: 5px;
+              }
+              .report-title {
+                  font-size: 16px;
+                  font-weight: bold;
+                  margin-bottom: 5px;
+              }
+          </style>
+      </head>
+      <body>
+          <div class="header">
+              <div class="company-name">${companyName}</div>
+              <div class="report-title">📦 විකිුණුම්/බර මත්තෙහි ඉතිරි වාර්තාව</div>
+              <div>Report Date: ${settingDate}</div>
+          </div>
+
+          <table>
+              <thead>
+                  <tr>
+                      <th rowspan="2">වර්ගය</th>
+                      <th rowspan="2">price</th>
+                      <th colspan="2">මිලදී ගැනීම</th>
+                      <th colspan="2">විකුණුම්</th>
+                      <th rowspan="2">එකතුව</th>
+                      <th colspan="2">ඉතිරි</th>
+                  </tr>
+                  <tr>
+                      <th>බර</th>
+                      <th>මලු</th>
+                      <th>බර</th>
+                      <th>මලු</th>
+                      <th>බර</th>
+                      <th>මලු</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${groupedData.length > 0 ? groupedData.map((item, index) => `
+                      <tr class="item-summary-row">
+                          <td style="text-align: left;"><strong>${item.itemName} (${item.grnCode})</strong></td>
+                          <td><strong>${Number(item.sp).toFixed(2)}</strong></td>
+                          <td><strong>${Number(item.original_weight).toFixed(2)}</strong></td>
+                          <td><strong>${Number(item.original_packs).toFixed(0)}</strong></td>
+                          <td><strong>${Number(item.sold_weight).toFixed(2)}</strong></td>
+                          <td><strong>${Number(item.sold_packs).toFixed(0)}</strong></td>
+                          <td><strong>Rs. ${Number(item.total_sales_value).toFixed(2)}</strong></td>
+                          <td><strong>${Number(item.remaining_weight).toFixed(2)}</strong></td>
+                          <td><strong>${Number(item.remaining_packs).toFixed(0)}</strong></td>
+                      </tr>
+                  `).join('') : `
+                      <tr>
+                          <td colspan="9" class="no-data">දත්ත නොමැත.</td>
+                      </tr>
+                  `}
+                  
+                  ${groupedData.length > 0 ? `
+                      <tr class="total-row">
+                          <td style="text-align: right;"><strong>සමස්ත එකතුව:</strong></td>
+                          <td><strong>${Number(grandTotals.grandTotalPrice).toFixed(2)}</strong></td>
+                          <td><strong>${Number(grandTotals.grandTotalOriginalWeight).toFixed(2)}</strong></td>
+                          <td><strong>${Number(grandTotals.grandTotalOriginalPacks).toFixed(0)}</strong></td>
+                          <td><strong>${Number(grandTotals.grandTotalSoldWeight).toFixed(2)}</strong></td>
+                          <td><strong>${Number(grandTotals.grandTotalSoldPacks).toFixed(0)}</strong></td>
+                          <td><strong>Rs. ${Number(grandTotals.grandTotalSalesValue).toFixed(2)}</strong></td>
+                          <td><strong>${Number(grandTotals.grandTotalRemainingWeight).toFixed(2)}</strong></td>
+                          <td><strong>${Number(grandTotals.grandTotalRemainingPacks).toFixed(0)}</strong></td>
+                      </tr>
+                  ` : ''}
+              </tbody>
+          </table>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+  };
+
+  // Excel Export functionality
+  const handleExportExcel = () => {
+    const groupedData = getGroupedData();
+    const grandTotals = calculateGrandTotals();
+
+    const excelData = [];
+    
+    // Add headers
+    const headers = [
+      'වර්ගය', 
+      'price', 
+      'මිලදී ගැනීම - බර', 
+      'මිලදී ගැනීම - මලු', 
+      'විකුණුම් - බර', 
+      'විකුණුම් - මලු', 
+      'එකතුව', 
+      'ඉතිරි - බර', 
+      'ඉතිරි - මලු'
+    ];
+    excelData.push(headers);
+    
+    // Add data rows
+    if (groupedData.length > 0) {
+      groupedData.forEach(item => {
+        excelData.push([
+          `${item.itemName} (${item.grnCode})`,
+          Number(item.sp).toFixed(2),
+          Number(item.original_weight).toFixed(2),
+          Number(item.original_packs).toFixed(0),
+          Number(item.sold_weight).toFixed(2),
+          Number(item.sold_packs).toFixed(0),
+          Number(item.total_sales_value).toFixed(2),
+          Number(item.remaining_weight).toFixed(2),
+          Number(item.remaining_packs).toFixed(0)
+        ]);
+      });
+      
+      // Add empty row
+      excelData.push([]);
+      
+      // Add totals row
+      excelData.push([
+        'සමස්ත එකතුව:',
+        Number(grandTotals.grandTotalPrice).toFixed(2),
+        Number(grandTotals.grandTotalOriginalWeight).toFixed(2),
+        Number(grandTotals.grandTotalOriginalPacks).toFixed(0),
+        Number(grandTotals.grandTotalSoldWeight).toFixed(2),
+        Number(grandTotals.grandTotalSoldPacks).toFixed(0),
+        Number(grandTotals.grandTotalSalesValue).toFixed(2),
+        Number(grandTotals.grandTotalRemainingWeight).toFixed(2),
+        Number(grandTotals.grandTotalRemainingPacks).toFixed(0)
+      ]);
+    }
+
+    // Create workbook and export
+    const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'GRN Sales Overview');
+    XLSX.writeFile(workbook, `GRN_Sales_Overview_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // Simple browser print (fallback)
+  const handleSimplePrint = () => {
+    window.print();
+  };
+
   if (!isOpen) return null;
 
   const groupedData = getGroupedData();
@@ -153,18 +379,33 @@ const GrnSalesOverviewReport = ({ isOpen, onClose }) => {
                 <p className="mt-2">Loading report data...</p>
               </div>
             ) : (
-              <div className="container-fluid py-4">
+              <div className="container-fluid py-4" ref={printRef}>
+                {/* Export Buttons */}
+                <div className="d-flex justify-content-between mb-3">
+                  <div>
+                    <button className="btn btn-success me-2" onClick={handleExportExcel}>
+                      📊 Export Excel
+                    </button>
+                    <button className="btn btn-primary me-2" onClick={handlePrint}>
+                      📄 Export PDF
+                    </button>
+                    <button className="btn btn-info me-2" onClick={handleSimplePrint}>
+                      🖨️ Quick Print
+                    </button>
+                  </div>
+                  <button className="btn btn-secondary" onClick={onClose}>
+                    Close Report
+                  </button>
+                </div>
+
                 <div className="card shadow-sm mb-4">
                   <div className="card-header text-center" style={{ backgroundColor: '#004d00' }}>
                     <div className="report-title-bar">
-                      <h2 className="company-name">{companyName}</h2>
+                      <h2 className="company-name text-white">{companyName}</h2>
                       <h4 className="fw-bold text-white">📦 විකිුණුම්/බර මත්තෙහි ඉතිරි වාර්තාව</h4>
                       <span className="right-info text-white">
                         {settingDate}
                       </span>
-                      <button className="print-btn" onClick={() => window.print()}>
-                        🖨️ මුද්‍රණය
-                      </button>
                     </div>
                   </div>
 
@@ -229,17 +470,37 @@ const GrnSalesOverviewReport = ({ isOpen, onClose }) => {
                   </div>
                 </div>
 
-                <div className="mt-3">
-                  <button className="btn btn-success me-2" onClick={() => alert('Excel download functionality would go here')}>
-                    Download Excel
-                  </button>
-                  <button className="btn btn-danger me-2" onClick={() => alert('PDF download functionality would go here')}>
-                    Download PDF
-                  </button>
-                  <button className="btn btn-info" onClick={() => alert('Email functionality would go here')}>
-                    📧 Email Report
-                  </button>
-                </div>
+                {/* Print Styles */}
+                <style jsx>{`
+                  @media print {
+                    .btn { display: none !important; }
+                    .modal-header { display: none !important; }
+                    .modal-content { 
+                      border: none !important; 
+                      box-shadow: none !important; 
+                    }
+                    .modal-body { 
+                      background-color: #99ff99 !important;
+                      padding: 0 !important;
+                    }
+                    .card {
+                      border: none !important;
+                      box-shadow: none !important;
+                    }
+                    .card-header {
+                      background-color: #004d00 !important;
+                      color: white !important;
+                    }
+                    table {
+                      width: 100%;
+                      border-collapse: collapse;
+                    }
+                    th, td {
+                      border: 1px solid #000 !important;
+                      padding: 4px;
+                    }
+                  }
+                `}</style>
               </div>
             )}
           </div>

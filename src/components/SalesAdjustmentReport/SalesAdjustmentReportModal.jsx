@@ -184,22 +184,6 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
           <form onSubmit={handleSubmit}>
             <div className="modal-body">
               <div className="mb-3">
-                <label htmlFor="adjustment_code" className="form-label" style={{ fontWeight: 'bold', color: 'black' }}>
-                  කේතය (විකල්පයකි)
-                </label>
-                <input
-                  type="text"
-                  id="adjustment_code"
-                  name="code"
-                  className="form-control"
-                  placeholder="කේතය"
-                  value={filters.code}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, code: e.target.value }))}
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="mb-3">
                 <label htmlFor="adjustment_password" className="form-label" style={{ fontWeight: 'bold', color: 'black' }}>
                   පස්වර්ඩ් ඇතුල් කරන්න
                 </label>
