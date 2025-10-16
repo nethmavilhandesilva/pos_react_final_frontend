@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
 import CustomerList from './components/Customers/CustomerList';
 import CustomerForm from './components/Customers/CustomerForm';
 import ItemList from './components/Items/ItemList';
@@ -14,38 +15,160 @@ import EditGrn from './components/Grn/EditGrn';
 import CustomersLoanList from './components/CustomersLoans/CustomersLoanList';
 import GrnEntryForm from './components/Grn/GrnEntryForm';
 import Dashboard from './components/Dashboard/Dashboard';
+import LoginPage from './components/Auth/LoginPage';
+import RegisterPage from './components/Auth/RegisterPage';
+
+// ✅ ProtectedRoute component — blocks access if user not logged in
+const ProtectedRoute = ({ children }) => {
+  const user = localStorage.getItem('user');
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+};
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-          <Route path="/" element={<Dashboard />} />
+        {/* ✅ Auth Routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+
+        {/* ✅ Protected Routes */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+
         {/* CUSTOMERS */}
-        <Route path="/customers" element={<CustomerList />} />
-        <Route path="/customers/create" element={<CustomerForm mode="create" />} />
-        <Route path="/customers/:id/edit" element={<CustomerForm mode="edit" />} />
-        
+        <Route
+          path="/customers"
+          element={
+            <ProtectedRoute>
+              <CustomerList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customers/create"
+          element={
+            <ProtectedRoute>
+              <CustomerForm mode="create" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customers/:id/edit"
+          element={
+            <ProtectedRoute>
+              <CustomerForm mode="edit" />
+            </ProtectedRoute>
+          }
+        />
+
         {/* ITEMS */}
-        <Route path="/items" element={<ItemList />} />
-        <Route path="/items/create" element={<CreateItem />} />
-        <Route path="/items/edit/:id" element={<EditItem />} />
+        <Route
+          path="/items"
+          element={
+            <ProtectedRoute>
+              <ItemList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/items/create"
+          element={
+            <ProtectedRoute>
+              <CreateItem />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/items/edit/:id"
+          element={
+            <ProtectedRoute>
+              <EditItem />
+            </ProtectedRoute>
+          }
+        />
 
         {/* SUPPLIERS */}
-        <Route path="/suppliers" element={<SupplierList />} />
-        <Route path="/suppliers/create" element={<CreateSupplier />} />
-        <Route path="/suppliers/edit/:id" element={<EditSupplier />} />
-       
+        <Route
+          path="/suppliers"
+          element={
+            <ProtectedRoute>
+              <SupplierList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/suppliers/create"
+          element={
+            <ProtectedRoute>
+              <CreateSupplier />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/suppliers/edit/:id"
+          element={
+            <ProtectedRoute>
+              <EditSupplier />
+            </ProtectedRoute>
+          }
+        />
+
         {/* GRN Routes */}
-        <Route path="/grn" element={<GrnList />} />
-        <Route path="/grn/create" element={<CreateGrn />} />
-        <Route path="/grn/edit/:id" element={<EditGrn />} />
-        
-        {/* NEW GRN ENTRY ROUTE (your converted functionality) */}
-        <Route path="/grn/entries" element={<GrnEntryForm />} />
-        
-        
-        {/* CUSTOMERS LOANS Routes */}
-        <Route path="/customers-loans" element={<CustomersLoanList />} />
+        <Route
+          path="/grn"
+          element={
+            <ProtectedRoute>
+              <GrnList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/grn/create"
+          element={
+            <ProtectedRoute>
+              <CreateGrn />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/grn/edit/:id"
+          element={
+            <ProtectedRoute>
+              <EditGrn />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/grn/entries"
+          element={
+            <ProtectedRoute>
+              <GrnEntryForm />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* CUSTOMERS LOANS */}
+        <Route
+          path="/customers-loans"
+          element={
+            <ProtectedRoute>
+              <CustomersLoanList />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Fallback route */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
