@@ -5,6 +5,8 @@ import WeightReportModal from '../WeightReport/WeightReportModal';
 import GrnSaleReportModal from '../GrnSale/ReportModal';
 import SalesAdjustmentReportModal from '../SalesAdjustmentReport/SalesAdjustmentReportModal';
 import GrnSalesOverviewReport from '../GrnSalesOverview/GrnSalesOverviewReport';
+import GrnSalesOverviewReport2 from '../GrnSalesOverview/GrnSalesOverviewReport2';
+import SalesReportModal from '../SalesReport/SalesReportModal';
 
 const Layout = ({ children }) => {
   const location = useLocation();
@@ -13,6 +15,8 @@ const Layout = ({ children }) => {
   const [isGrnSaleReportModalOpen, setIsGrnSaleReportModalOpen] = useState(false);
   const [isSalesAdjustmentReportModalOpen, setIsSalesAdjustmentReportModalOpen] = useState(false);
   const [isGrnSalesOverviewReportOpen, setIsGrnSalesOverviewReportOpen] = useState(false); 
+  const [isGrnSalesOverviewReport2Open, setIsGrnSalesOverviewReport2Open] = useState(false);
+  const [isSalesReportModalOpen, setIsSalesReportModalOpen] = useState(false);
 
   // Open the modal
   const openItemReportModal = () => {
@@ -49,6 +53,19 @@ const Layout = ({ children }) => {
   const closeGrnSalesOverviewReport = () => {
     setIsGrnSalesOverviewReportOpen(false);
   };
+  const openGrnSalesOverviewReport2 = () => {
+    setIsGrnSalesOverviewReport2Open(true);
+  };
+  const closeGrnSalesOverviewReport2 = () => {
+    setIsGrnSalesOverviewReport2Open(false);
+  };
+  const openSalesReportModal = () => {
+    setIsSalesReportModalOpen(true);
+  };
+  const closeSalesReportModal = () => {
+    setIsSalesReportModalOpen(false);
+  };
+
 
   return (
     <div>
@@ -169,6 +186,24 @@ const Layout = ({ children }) => {
               <i className="material-icons align-middle me-1">dashboard</i>
               GRN Sales Overview
             </button>
+             {/* NEW: GRN Sales Overview 2 Button */}
+            <button
+              type="button"
+              className="btn btn-outline-primary btn-sm mx-2"
+              onClick={openGrnSalesOverviewReport2}
+            >
+              <i className="material-icons align-middle me-1">summarize</i>
+              GRN Overview 2
+            </button>
+             {/* NEW: Sales Report Button */}
+            <button
+              type="button"
+              className="btn btn-outline-light btn-sm mx-2"
+              onClick={openSalesReportModal}
+            >
+              <i className="material-icons align-middle me-1">shopping_cart</i>
+              Sales Report
+            </button>
           </div>
         </div>
       </nav>
@@ -200,6 +235,16 @@ const Layout = ({ children }) => {
       <GrnSalesOverviewReport
         isOpen={isGrnSalesOverviewReportOpen}
         onClose={closeGrnSalesOverviewReport}
+      />
+       {/* NEW: GRN Sales Overview Report 2 */}
+      <GrnSalesOverviewReport2
+        isOpen={isGrnSalesOverviewReport2Open}
+        onClose={closeGrnSalesOverviewReport2}
+      />
+        {/* NEW: Sales Report Modal */}
+      <SalesReportModal
+        isOpen={isSalesReportModalOpen}
+        onClose={closeSalesReportModal}
       />
     </div>
   );
