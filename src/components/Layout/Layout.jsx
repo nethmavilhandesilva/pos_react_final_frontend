@@ -4,13 +4,15 @@ import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
 import GrnSaleReportModal from '../GrnSale/ReportModal';
 import SalesAdjustmentReportModal from '../SalesAdjustmentReport/SalesAdjustmentReportModal';
+import GrnSalesOverviewReport from '../GrnSalesOverview/GrnSalesOverviewReport';
 
 const Layout = ({ children }) => {
   const location = useLocation();
   const [isItemReportModalOpen, setIsItemReportModalOpen] = useState(false);
   const [isWeightReportModalOpen, setIsWeightReportModalOpen] = useState(false);
   const [isGrnSaleReportModalOpen, setIsGrnSaleReportModalOpen] = useState(false);
-  const [isSalesAdjustmentReportModalOpen, setIsSalesAdjustmentReportModalOpen] = useState(false); 
+  const [isSalesAdjustmentReportModalOpen, setIsSalesAdjustmentReportModalOpen] = useState(false);
+  const [isGrnSalesOverviewReportOpen, setIsGrnSalesOverviewReportOpen] = useState(false); 
 
   // Open the modal
   const openItemReportModal = () => {
@@ -40,6 +42,12 @@ const Layout = ({ children }) => {
   };
    const closeSalesAdjustmentReportModal = () => {
     setIsSalesAdjustmentReportModalOpen(false);
+  };
+   const openGrnSalesOverviewReport = () => {
+    setIsGrnSalesOverviewReportOpen(true);
+  };
+  const closeGrnSalesOverviewReport = () => {
+    setIsGrnSalesOverviewReportOpen(false);
   };
 
   return (
@@ -152,6 +160,15 @@ const Layout = ({ children }) => {
               <i className="material-icons align-middle me-1">edit</i>
               Sales Adjustment
             </button>
+            {/* NEW: GRN Sales Overview Button */}
+            <button
+              type="button"
+              className="btn btn-outline-success btn-sm mx-2"
+              onClick={openGrnSalesOverviewReport}
+            >
+              <i className="material-icons align-middle me-1">dashboard</i>
+              GRN Sales Overview
+            </button>
           </div>
         </div>
       </nav>
@@ -178,6 +195,11 @@ const Layout = ({ children }) => {
       <SalesAdjustmentReportModal
         isOpen={isSalesAdjustmentReportModalOpen}
         onClose={closeSalesAdjustmentReportModal}
+      />
+       {/* NEW: GRN Sales Overview Report */}
+      <GrnSalesOverviewReport
+        isOpen={isGrnSalesOverviewReportOpen}
+        onClose={closeGrnSalesOverviewReport}
       />
     </div>
   );
