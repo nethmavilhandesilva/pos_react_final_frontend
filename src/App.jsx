@@ -17,6 +17,7 @@ import GrnEntryForm from './components/Grn/GrnEntryForm';
 import Dashboard from './components/Dashboard/Dashboard';
 import LoginPage from './components/Auth/LoginPage';
 import RegisterPage from './components/Auth/RegisterPage';
+import LoanReportView from './components/LoanReport/LoanReportView';
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
 const ProtectedRoute = ({ children }) => {
@@ -166,6 +167,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/customers-loans/report" element={<LoanReportView />} />
 
         {/* Fallback route */}
         <Route path="*" element={<Navigate to="/" replace />} />

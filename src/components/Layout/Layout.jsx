@@ -117,6 +117,14 @@ const Layout = ({ children }) => {
               >
                 <i className="material-icons align-middle me-1">add_box</i> GRN Entries
               </Link>
+              <button
+                type="button"
+                className="btn btn-outline-warning btn-sm mx-1"
+                onClick={() => window.location.href = '/customers-loans/report'} // Or use React Router
+              >
+                <i className="material-icons align-middle me-1">account_balance</i>
+                Loan Report
+              </button>
             </div>
 
           </div>
