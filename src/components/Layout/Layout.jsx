@@ -66,22 +66,59 @@ const Layout = ({ children }) => {
             </Link>
 
             <div className="navbar-nav d-flex flex-row align-items-center">
-              <Link to="/customers" className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/customers' ? 'active' : ''}`}>
-                <i className="material-icons align-middle me-1">people</i> Customers
-              </Link>
-              <Link to="/items" className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/items' ? 'active' : ''}`}>
-                <i className="material-icons align-middle me-1">inventory_2</i> Items
-              </Link>
-              <Link to="/suppliers" className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/suppliers' ? 'active' : ''}`}>
-                <i className="material-icons align-middle me-1">local_shipping</i> Suppliers
-              </Link>
-              <Link to="/grn" className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn' ? 'active' : ''}`}>
+              {/* Master Dropdown */}
+              <div className="nav-item dropdown mx-1">
+                <button
+                  className="btn btn-outline-light btn-sm dropdown-toggle"
+                  id="masterDropdown"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false"
+                >
+                  <i className="material-icons align-middle me-1">menu_book</i> Master
+                </button>
+                <ul className="dropdown-menu dropdown-menu-dark" aria-labelledby="masterDropdown">
+                  <li>
+                    <Link
+                      to="/customers"
+                      className={`dropdown-item ${location.pathname === '/customers' ? 'active' : ''}`}
+                    >
+                      <i className="material-icons align-middle me-1">people</i> Customers
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/items"
+                      className={`dropdown-item ${location.pathname === '/items' ? 'active' : ''}`}
+                    >
+                      <i className="material-icons align-middle me-1">inventory_2</i> Items
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/suppliers"
+                      className={`dropdown-item ${location.pathname === '/suppliers' ? 'active' : ''}`}
+                    >
+                      <i className="material-icons align-middle me-1">local_shipping</i> Suppliers
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Other links remain as they are */}
+              <Link
+                to="/grn"
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn' ? 'active' : ''}`}
+              >
                 <i className="material-icons align-middle me-1">receipt</i> GRN List
               </Link>
-              <Link to="/grn/entries" className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn/entries' ? 'active' : ''}`}>
+              <Link
+                to="/grn/entries"
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn/entries' ? 'active' : ''}`}
+              >
                 <i className="material-icons align-middle me-1">add_box</i> GRN Entries
               </Link>
             </div>
+
           </div>
 
           {/* Right: User Info + Logout */}

@@ -41,7 +41,7 @@ const SalesReportModal = ({ isOpen, onClose }) => {
   const fetchFilterData = async () => {
     try {
       // Fetch suppliers
-      const suppliersResponse = await fetch(`${BACKEND_URL}/suppliers`);
+      const suppliersResponse = await fetch(`${BACKEND_URL}/suppliersall`);
       if (suppliersResponse.ok) {
         const suppliersData = await suppliersResponse.json();
         setSuppliers(suppliersData.suppliers || []);
@@ -55,7 +55,7 @@ const SalesReportModal = ({ isOpen, onClose }) => {
       }
 
       // Fetch customers
-      const customersResponse = await fetch(`${BACKEND_URL}/customers`);
+      const customersResponse = await fetch(`${BACKEND_URL}/customersall`);
       if (customersResponse.ok) {
         const customersData = await customersResponse.json();
         setCustomers(customersData.customers || []);

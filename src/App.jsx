@@ -49,9 +49,9 @@ export default function App() {
         <Route
           path="/customers"
           element={
-            <ProtectedRoute>
+           
               <CustomerList />
-            </ProtectedRoute>
+            
           }
         />
         <Route
