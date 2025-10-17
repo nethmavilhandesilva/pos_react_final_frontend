@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
 import GrnSaleReportModal from '../GrnSale/ReportModal';
+import GrnReportModal from '../GrnReport/GrnReportModal';
 import SalesAdjustmentReportModal from '../SalesAdjustmentReport/SalesAdjustmentReportModal';
 import GrnSalesOverviewReport from '../GrnSalesOverview/GrnSalesOverviewReport';
 import GrnSalesOverviewReport2 from '../GrnSalesOverview/GrnSalesOverviewReport2';
@@ -19,6 +20,7 @@ const Layout = ({ children }) => {
   const [isGrnSalesOverviewReportOpen, setIsGrnSalesOverviewReportOpen] = useState(false);
   const [isGrnSalesOverviewReport2Open, setIsGrnSalesOverviewReport2Open] = useState(false);
   const [isSalesReportModalOpen, setIsSalesReportModalOpen] = useState(false);
+  const [isGrnReportModalOpen, setIsGrnReportModalOpen] = useState(false);
 
   // === User State ===
   const [user, setUser] = useState(null);
@@ -52,6 +54,12 @@ const Layout = ({ children }) => {
   const closeGrnSalesOverviewReport2 = () => setIsGrnSalesOverviewReport2Open(false);
   const openSalesReportModal = () => setIsSalesReportModalOpen(true);
   const closeSalesReportModal = () => setIsSalesReportModalOpen(false);
+  const openGrnReportModal = () => {
+    setIsGrnReportModalOpen(true);
+  };
+  const closeGrnReportModal = () => {
+    setIsGrnReportModalOpen(false);
+  };
 
   return (
     <div>
@@ -76,6 +84,7 @@ const Layout = ({ children }) => {
                 >
                   <i className="material-icons align-middle me-1">menu_book</i> Master
                 </button>
+
                 <ul className="dropdown-menu dropdown-menu-dark" aria-labelledby="masterDropdown">
                   <li>
                     <Link
@@ -101,8 +110,34 @@ const Layout = ({ children }) => {
                       <i className="material-icons align-middle me-1">local_shipping</i> Suppliers
                     </Link>
                   </li>
+
+                  <li><hr className="dropdown-divider" /></li>
+
+                  {/* === New Report Buttons inside Dropdown === */}
+                  <li>
+                    <button
+                      type="button"
+                      className="dropdown-item text-warning"
+                      onClick={() => window.location.href = '/customers-loans/report'}
+                    >
+                      <i className="material-icons align-middle me-1 text-warning">account_balance</i>
+                      Loan Report
+                    </button>
+                  </li>
+
+                  <li>
+                    <button
+                      type="button"
+                      className="dropdown-item text-warning"
+                      onClick={openGrnReportModal}
+                    >
+                      <i className="material-icons align-middle me-1 text-warning">receipt_long</i>
+                      GRN Report
+                    </button>
+                  </li>
                 </ul>
               </div>
+
 
               {/* Other links remain as they are */}
               <Link
@@ -117,14 +152,6 @@ const Layout = ({ children }) => {
               >
                 <i className="material-icons align-middle me-1">add_box</i> GRN Entries
               </Link>
-              <button
-                type="button"
-                className="btn btn-outline-warning btn-sm mx-1"
-                onClick={() => window.location.href = '/customers-loans/report'} // Or use React Router
-              >
-                <i className="material-icons align-middle me-1">account_balance</i>
-                Loan Report
-              </button>
             </div>
 
           </div>
@@ -190,6 +217,10 @@ const Layout = ({ children }) => {
       <GrnSalesOverviewReport isOpen={isGrnSalesOverviewReportOpen} onClose={closeGrnSalesOverviewReport} />
       <GrnSalesOverviewReport2 isOpen={isGrnSalesOverviewReport2Open} onClose={closeGrnSalesOverviewReport2} />
       <SalesReportModal isOpen={isSalesReportModalOpen} onClose={closeSalesReportModal} />
+      <GrnReportModal
+        isOpen={isGrnReportModalOpen}
+        onClose={closeGrnReportModal}
+      />
     </div>
   );
 };
