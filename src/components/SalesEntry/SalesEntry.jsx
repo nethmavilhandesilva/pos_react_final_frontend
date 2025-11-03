@@ -288,7 +288,7 @@ export default function SalesEntry() {
         routes: routes
     };
 
-    //Cursor Focussin order metod  
+    //Cursor Focussin order metod    
     const refs = {
         customerCode: useRef(null), customerSelect: useRef(null), givenAmount: useRef(null),
         grnSelect: useRef(null), itemName: useRef(null), weight: useRef(null),
@@ -378,7 +378,7 @@ export default function SalesEntry() {
         return sales.slice().reverse();
     }, [newSales, unprintedSales, printedSales, selectedUnprintedCustomer, selectedPrintedCustomer]);
 
-    //When a customer is selected, auto-populate the customer_code field if it's empty 
+    //When a customer is selected, auto-populate the customer_code field if it's empty    
     const autoCustomerCode = useMemo(() =>
         displayedSales.length > 0 && !isManualClear ? displayedSales[0].customer_code || "" : "",
         [displayedSales, isManualClear]
@@ -439,7 +439,12 @@ export default function SalesEntry() {
 
             const salesData = salesRes.data || salesRes.sales || salesRes || [];
             const customersData = customersRes.data || customersRes.customers || customersRes || [];
-            const entriesData = entriesRes.data || entriesRes.entries || entriesRes || [];
+            
+            // --- 
+            // --- FIX 2a (Root Cause): Ensure entriesData is always an array
+            // --- 
+            const entriesData = entriesRes.data || entriesRes.entries || [];
+            
             const itemsData = itemsRes.data || itemsRes.items || itemsRes || [];
 
             updateState({
@@ -459,7 +464,12 @@ export default function SalesEntry() {
     const fetchLatestGrnEntries = async () => {
         try {
             const data = await apiCall(routes.getLatestGrnEntries, 'GET');
-            const entries = data.data || data.entries || data || [];
+            
+            // --- 
+            // --- FIX 2b (Root Cause): Ensure entries is always an array
+            // --- 
+            const entries = data.data || data.entries || [];
+            
             updateState({ realTimeGrnEntries: entries });
             return entries;
         } catch (error) {
@@ -499,7 +509,11 @@ export default function SalesEntry() {
     //Update balance info when GRN entry changes
     useEffect(() => {
         if (formData.grn_entry_code) {
-            const matchingEntry = realTimeGrnEntries.find((en) => en.code === formData.grn_entry_code);
+            // Check if realTimeGrnEntries is an array before finding
+            const matchingEntry = Array.isArray(realTimeGrnEntries) 
+                ? realTimeGrnEntries.find((en) => en.code === formData.grn_entry_code) 
+                : undefined;
+            
             updateState({ balanceInfo: matchingEntry ? { balancePacks: matchingEntry.packs || 0, balanceWeight: matchingEntry.weight || 0 } : { balancePacks: 0, balanceWeight: 0 } });
         } else updateState({ balanceInfo: { balancePacks: 0, balanceWeight: 0 } });
     }, [formData.grn_entry_code, realTimeGrnEntries]);
@@ -581,7 +595,10 @@ export default function SalesEntry() {
         }
         // Auto-populate fields based on selected GRN entry
         if (field === 'grn_entry_code') {
-            const grnEntry = realTimeGrnEntries.find(entry => entry.code === value);
+            const grnEntry = Array.isArray(realTimeGrnEntries) 
+                ? realTimeGrnEntries.find(entry => entry.code === value)
+                : undefined;
+                
             if (grnEntry) {
                 const itemCodeToMatch = grnEntry.item_code;
                 const matchingItem = items.find(i => String(i.no) === String(itemCodeToMatch));
@@ -642,7 +659,9 @@ export default function SalesEntry() {
 
     const handleEditClick = (sale) => {
         // Find the GRN entry to get the item_code
-        const grnEntry = realTimeGrnEntries.find(entry => entry.code === (sale.grn_entry_code || sale.code));
+        const grnEntry = Array.isArray(realTimeGrnEntries) 
+            ? realTimeGrnEntries.find(entry => entry.code === (sale.grn_entry_code || sale.code))
+            : undefined;
 
         let fetchedPackDue = sale.pack_due || ""; // Start with existing pack_due
 
@@ -1128,15 +1147,14 @@ export default function SalesEntry() {
   <td style="font-weight:normal;font-size:0.9rem;text-align:left; white-space: nowrap;">
   පෙර ණය: Rs. <span>
     ${globalLoanAmount < 0
-                ? Math.abs(globalLoanAmount).toFixed(2)   // remove minus sign if negative
+                ? Math.abs(globalLoanAmount).toFixed(2)    // remove minus sign if negative
                 : globalLoanAmount.toFixed(2)
             }
   </span>
 </td>
 
   <td style="font-weight:bold;text-align:right;font-size:1.5em;">
-    Rs. ${Math.abs(totalAmount).toFixed(2)}<!-- ✅ removes minus sign only -->
-  </td>
+    Rs. ${Math.abs(totalAmount).toFixed(2)}</td>
 </tr>` : '';
 
         return `<div class="receipt-container" style="width:100%;max-width:300px;margin:0 auto;padding:5px;">
@@ -1313,8 +1331,8 @@ export default function SalesEntry() {
                                                 <button
                                                     onClick={() => handleCustomerClick("printed", customer)}
                                                     className={`w-full py-1 mb-2 rounded-xl border border-black text-left ${selectedPrintedCustomer === customer
-                                                            ? "bg-blue-500 text-white border-blue-600"
-                                                            : "bg-green-100 hover:bg-green-200 border-gray-200"
+                                                        ? "bg-blue-500 text-white border-blue-600"
+                                                        : "bg-green-100 hover:bg-green-200 border-gray-200"
                                                         }`}
                                                     style={{
                                                         backgroundColor:
@@ -1335,7 +1353,7 @@ export default function SalesEntry() {
                     {/* Center Form - Main Transaction Area */}
                     <div className="center-form">
                         {/* Header Section */}
-                        <div className="flex justify-between items-center mb-4">
+                        <div className="flex justify-between items-center mb-4">    
                             <div className="text-2xl font-bold text-red-600 bg-white px-4 py-2 rounded-xl">
                                 Total Sales: Rs. {formatDecimal(mainTotal)}
                             </div>
@@ -1367,26 +1385,52 @@ export default function SalesEntry() {
                                     />
                                 </div>
 
-                                <div>
-                                    <label className="block text-white text-sm font-bold mb-1">SELECT CUSTOMER</label>
-                                    <Select
-                                        id="customer_code_select"
-                                        ref={refs.customerSelect}
-                                        value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null}
-                                        onChange={handleCustomerSelect}
-                                        options={customers.filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map(c => ({ value: c.short_name, label: `${c.short_name}` }))}
-                                        onInputChange={(inputValue, { action }) => { if (action === "input-change") updateState({ customerSearchInput: inputValue.toUpperCase() }); }}
-                                        inputValue={customerSearchInput}
-                                        placeholder="-- Select Customer --"
-                                        isClearable
-                                        isSearchable
-                                        className="rounded-xl"
-                                        styles={{
-                                            control: base => ({ ...base, minHeight: "52px", borderRadius: "0.75rem" }),
-                                            valueContainer: base => ({ ...base, padding: "0 12px" })
-                                        }}
-                                    />
-                                </div>
+                               <div>
+    <label className="block text-white text-sm font-bold mb-1">SELECT CUSTOMER</label>
+    <Select
+        id="customer_code_select"
+        ref={refs.customerSelect}
+        value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null}
+        onChange={handleCustomerSelect}
+
+        // --- UPDATED FILTER LOGIC ---
+        options={customers.filter(c => {
+            // Trim and uppercase both the data and the search input
+            const shortName = String(c.short_name || '').trim().toUpperCase();
+            const search = String(customerSearchInput || '').trim().toUpperCase();
+
+            // Log to the console so you can see the comparison
+            // console.log(`Comparing: ${shortName} starts with ${search}`);
+            
+            // If no search, show all. Otherwise, check if it starts with the search text.
+            return !search || shortName.startsWith(search);
+
+        }).map(c => ({    
+            value: c.short_name,    
+            label: `${c.short_name}`    
+        }))}
+        // --- END UPDATE ---
+
+        onInputChange={(inputValue, { action }) => {    
+            if (action === "input-change") {
+                updateState({ customerSearchInput: inputValue.toUpperCase() });    
+            }
+        }}
+        inputValue={customerSearchInput}
+        placeholder="-- Select Customer --"
+        isClearable
+        isSearchable
+        
+        // This is CRITICAL: it tells react-select "Don't filter. I already did."
+        filterOption={null}
+
+        className="rounded-xl"
+        styles={{
+            control: base => ({ ...base, minHeight: "52px", borderRadius: "0.75rem" }),
+            valueContainer: base => ({ ...base, padding: "0 12px" })
+        }}
+    />
+</div>
 
                                 <div>
                                     <label className="block text-white text-sm font-bold mb-1">LOAN AMOUNT</label>
@@ -1403,14 +1447,54 @@ export default function SalesEntry() {
                             {/* GRN Entry Section */}
                             <div className="mb-4">
                                 <label className="block text-white text-sm font-bold mb-2">SELECT GRN ENTRY</label>
+                                {/* ================================================================
+                                  ===               START: UPDATED GRN SELECT                  ===
+                                  ================================================================
+                                */}
                                 <Select
                                     id="grn_entry_code"
                                     ref={refs.grnSelect}
                                     value={formData.grn_entry_code ? {
                                         value: formData.grn_entry_code,
                                         label: formData.grn_entry_code,
-                                        data: realTimeGrnEntries.find((en) => en.code === formData.grn_entry_code)
+                                        data: (Array.isArray(realTimeGrnEntries) ? realTimeGrnEntries : []).find((en) => en.code === formData.grn_entry_code)
                                     } : null}
+                                    
+                                    // --- 
+                                    // --- FIX 1 (Quick Fix): Check if realTimeGrnEntries is an array
+                                    // --- 
+                                    options={(Array.isArray(realTimeGrnEntries) ? realTimeGrnEntries : [])
+                                        .filter(en => {
+                                            const code = String(en.code || '').trim().toUpperCase();
+                                            const itemName = String(en.item_name || '').trim().toUpperCase();
+                                            const search = String(state.grnSearchInput || '').trim().toUpperCase();
+                                            
+                                            // If no search, show all. Otherwise, check code OR item name.
+                                            return !search || code.startsWith(search) || itemName.startsWith(search);
+                                        })
+                                        .map(entry => ({
+                                            value: entry.code,
+                                            label: `${entry.code} (${entry.item_name || 'N/A'}) - W: ${entry.weight || 0}, P: ${entry.packs || 0}`,
+                                            data: entry // Pass the full entry object
+                                        }))
+                                    }
+
+                                    // 3. Control the search input value from state
+                                    inputValue={state.grnSearchInput}
+
+                                    // 4. Update the search state when the user types
+                                    onInputChange={(inputValue, { action }) => {
+                                        if (action === "input-change") {
+                                            updateState({ grnSearchInput: inputValue.toUpperCase() });
+                                        }
+                                    }}
+
+                                    // 5. Tell react-select we are handling the filtering
+                                    filterOption={null}
+                                    
+                                    // 6. Customize the "No options" message as you wanted
+                                    noOptionsMessage={() => "No matching GRN entries found."}
+                                    
                                     onChange={async (selected) => {
                                         if (selected?.data) {
                                             const entry = selected.data;
@@ -1429,7 +1513,7 @@ export default function SalesEntry() {
                                             }));
 
                                             updateState({
-                                                grnSearchInput: "",
+                                                grnSearchInput: "", // Clear search input on selection
                                                 packCost: parseFloat(entry.pack_cost || 0),
                                                 balanceInfo: {
                                                     balancePacks: entry.packs || 0,
@@ -1440,10 +1524,14 @@ export default function SalesEntry() {
                                             setTimeout(() => refs.weight.current?.focus(), 0);
                                         }
                                     }}
-                                    placeholder="Select GRN Entry"
+                                    placeholder="Type to search GRN Code or Item Name..." // Changed placeholder
                                     isSearchable={true}
                                     className="react-select-container"
                                 />
+                                {/* ================================================================
+                                  ===                 END: UPDATED GRN SELECT                  ===
+                                  ================================================================
+                                */}
                             </div>
 
                             {/* Item Details Row */}
@@ -1602,8 +1690,8 @@ export default function SalesEntry() {
                     {/* Right Sidebar - Unprinted Customers */}
                     <div className="right-sidebar">
                         <div
-  className="w-full shadow-xl rounded-xl border border-black overflow-y-auto overflow-x-hidden"
-  style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}
+    className="w-full shadow-xl rounded-xl border border-black overflow-y-auto overflow-x-hidden"
+    style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}
 >
                             <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
                                 <h2 className="text-base font-bold text-white mb-1 whitespace-nowrap text-center sidebar-header-text">මුද්‍රණය නොකළ</h2>
