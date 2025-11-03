@@ -61,6 +61,9 @@ const Layout = ({ children }) => {
     setIsGrnReportModalOpen(false);
   };
 
+  // Check if current page is SalesEntry to apply full-width layout
+  const isSalesEntryPage = location.pathname === '/sales' || location.pathname === '/sales-entry';
+
   return (
     <div>
       {/* === Top Navigation Bar === */}
@@ -176,7 +179,16 @@ const Layout = ({ children }) => {
       </nav>
 
       {/* === Main Content === */}
-      <main className="container-fluid py-4" style={{ marginTop: '80px', marginBottom: '80px' }}>
+      {/* Remove container-fluid for SalesEntry page to allow full width */}
+      <main 
+        className={isSalesEntryPage ? "p-0" : "container-fluid py-4"} 
+        style={{ 
+          marginTop: '80px', 
+          marginBottom: '80px',
+          width: '100%',
+          maxWidth: isSalesEntryPage ? '100%' : undefined
+        }}
+      >
         {children}
       </main>
 
