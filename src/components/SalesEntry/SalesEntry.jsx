@@ -225,18 +225,18 @@ export default function SalesEntry() {
     routes: routes
   };
 
-  //Cursor Focussin order metod    
+  //Cursor Focussin order metod     
   const refs = {
-    customerCode: useRef(null),    // 0
-    customerSelect: useRef(null),    // 1
-    givenAmount: useRef(null),        // 2
-    supplierCode: useRef(null),      // 3
-    itemCodeSelect: useRef(null),    // 4
-    itemName: useRef(null),          // 5
-    weight: useRef(null),        // 6
-    pricePerKg: useRef(null),        // 7
-    packs: useRef(null),         // 8
-    total: useRef(null)            // 9
+    customerCode: useRef(null),    // 0
+    customerSelect: useRef(null),    // 1
+    givenAmount: useRef(null),        // 2
+    supplierCode: useRef(null),      // 3
+    itemCodeSelect: useRef(null),    // 4
+    itemName: useRef(null),          // 5
+    weight: useRef(null),        // 6
+    pricePerKg: useRef(null),        // 7
+    packs: useRef(null),         // 8
+    total: useRef(null)            // 9
   };
 
   const fieldOrder = ["customer_code_input", "customer_code_select", "given_amount", "supplier_code", "item_code_select", "item_name", "weight", "price_per_kg", "packs", "total"];
@@ -983,11 +983,11 @@ export default function SalesEntry() {
       itemGroups[s.item_name].totalWeight += parseFloat(s.weight) || 0;
       itemGroups[s.item_name].totalPacks += packs;
       return `<tr style="font-size:1.5em;">
-        <td style="text-align:left;">${s.item_name || ""} <br>${packs}</td>
-        <td style="text-align:center; padding-right:20px;">${(parseFloat(s.weight) || 0).toFixed(2)}</td>
-        <td style="text-align:left;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
-        <td style="text-align:right;">${((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)).toFixed(2)}</td>
-      </tr>`;
+        <td style="text-align:left;">${s.item_name || ""} <br>${packs}</td>
+        <td style="text-align:center; padding-right:20px;">${(parseFloat(s.weight) || 0).toFixed(2)}</td>
+        <td style="text-align:left;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
+        <td style="text-align:right;">${((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)).toFixed(2)}</td>
+      </tr>`;
     }).join("");
 
     const totalPrice = totalAmountSum;
@@ -1003,68 +1003,68 @@ export default function SalesEntry() {
       const first = entries[i], second = entries[i + 1];
       itemSummaryHtml += '<div style="display:flex; gap:0.5rem; margin-bottom:0.2rem;">';
       itemSummaryHtml += `<span style="padding:0.1rem 0.3rem;border-radius:0.5rem;background-color:#f3f4f6;font-size:0.6rem;">
-        <strong>${first[0]}</strong>:${first[1].totalWeight}/${first[1].totalPacks}</span>`;
+        <strong>${first[0]}</strong>:${first[1].totalWeight}/${first[1].totalPacks}</span>`;
       if (second) itemSummaryHtml += `<span style="padding:0.1rem 0.3rem;border-radius:0.5rem;background-color:#f3f4f6;font-size:0.6rem;">
-        <strong>${second[0]}</strong>:${second[1].totalWeight}/${second[1].totalPacks}</span>`;
+        <strong>${second[0]}</strong>:${second[1].totalWeight}/${second[1].totalPacks}</span>`;
       itemSummaryHtml += '</div>';
     }
 
     const givenAmountRow = givenAmount > 0 ? `<tr>
-      <td style="width:50%;text-align:left;white-space:nowrap;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold;font-size:0.9rem;">${parseFloat(givenAmount).toFixed(2)}</span></td>
-      <td style="width:50%;text-align:right;white-space:nowrap;font-size:1rem;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold;font-size:1.5rem;">${Math.abs(remaining).toFixed(2)}</span></td>
-    </tr>` : '';
+      <td style="width:50%;text-align:left;white-space:nowrap;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold;font-size:0.9rem;">${parseFloat(givenAmount).toFixed(2)}</span></td>
+      <td style="width:50%;text-align:right;white-space:nowrap;font-size:1rem;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold;font-size:1.5rem;">${Math.abs(remaining).toFixed(2)}</span></td>
+    </tr>` : '';
 
     const totalAmount = Math.abs(globalLoanAmount) + totalPrice;
 
     const loanRow = globalLoanAmount !== 0 ? `<tr>
-  <td style="font-weight:normal;font-size:0.9rem;text-align:left; white-space: nowrap;">
-  පෙර ණය: Rs. <span>
-    ${globalLoanAmount < 0
+  <td style="font-weight:normal;font-size:0.9rem;text-align:left; white-space: nowrap;">
+  පෙර ණය: Rs. <span>
+    ${globalLoanAmount < 0
         ? Math.abs(globalLoanAmount).toFixed(2)
         : globalLoanAmount.toFixed(2)
       }
-  </span>
+  </span>
 </td>
 
-  <td style="font-weight:bold;text-align:right;font-size:1.5em;">
-    Rs. ${Math.abs(totalAmount).toFixed(2)}</td>
+  <td style="font-weight:bold;text-align:right;font-size:1.5em;">
+    Rs. ${Math.abs(totalAmount).toFixed(2)}</td>
 </tr>` : '';
 
     return `<div class="receipt-container" style="width:100%;max-width:300px;margin:0 auto;padding:5px;">
-      <div style="text-align:center;margin-bottom:5px;">
-        <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
-        </div>
-      <div style="text-align:left;margin-bottom:5px;">
-        <table style="width:100%;font-size:9px;border-collapse:collapse;">
-          <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
-          <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
-          <tr><td>බිල් අංකය : <strong>${billNo}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${customerName.toUpperCase()}</strong></td></tr>
-        </table>
-      </div>
-      <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
-      <table style="width:100%;font-size:9px;border-collapse:collapse;">
-        <thead style="font-size:1.8em;">
-          <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
-        </thead>
-        <tbody>
-          <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-          ${itemsHtml}
-          <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-          <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalSalesExcludingPackDue.toFixed(2)}</td></tr>
-        </tbody>
-      </table>
-      <table style="width:100%;font-size:15px;border-collapse:collapse;">
-        <tr><td>ප්‍රවාහන ගාස්තු:</td><td style="text-align:right;font-weight:bold;">00</td></tr>
-        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
-        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(totalPrice).toFixed(2)}</span></td></tr>
-        ${givenAmountRow}${loanRow}
-      </table>
-      <div style="font-size:10px;">${itemSummaryHtml}</div>
-        <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-      <div style="text-align:center;margin-top:10px;font-size:10px;">
-        <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
-      </div>
-    </div>`;
+      <div style="text-align:center;margin-bottom:5px;">
+        <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
+        </div>
+      <div style="text-align:left;margin-bottom:5px;">
+        <table style="width:100%;font-size:9px;border-collapse:collapse;">
+          <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
+          <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
+          <tr><td>බිල් අංකය : <strong>${billNo}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${customerName.toUpperCase()}</strong></td></tr>
+        </table>
+      </div>
+      <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
+      <table style="width:100%;font-size:9px;border-collapse:collapse;">
+        <thead style="font-size:1.8em;">
+          <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+          ${itemsHtml}
+          <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+          <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalSalesExcludingPackDue.toFixed(2)}</td></tr>
+        </tbody>
+      </table>
+      <table style="width:100%;font-size:15px;border-collapse:collapse;">
+        <tr><td>ප්‍රවාහන ගාස්තු:</td><td style="text-align:right;font-weight:bold;">00</td></tr>
+        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
+        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(totalPrice).toFixed(2)}</span></td></tr>
+        ${givenAmountRow}${loanRow}
+      </table>
+      <div style="font-size:10px;">${itemSummaryHtml}</div>
+        <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+      <div style="text-align:center;margin-top:10px;font-size:10px;">
+        <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
+      </div>
+    </div>`;
   };
 
   const handlePrintAndClear = async () => {
@@ -1163,106 +1163,123 @@ export default function SalesEntry() {
     );
   }
 
-  return (
-    <Layout>
-      <div className="sales-layout">
-        <div className="three-column-layout">
+return (
+  <Layout>
+    <div className="sales-layout">
+      <div className="three-column-layout">
 
-          {/* Left Sidebar */}
-          <div className="left-sidebar">
-            <CustomerList customers={printedCustomers} type="printed" searchQuery={searchQueries.printed}
-              onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })}
-              selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer}
-              handleCustomerClick={handleCustomerClick} unprintedTotal={unprintedTotal} formatDecimal={formatDecimal} allSales={allSales} />
-          </div>
+        {/* Left Sidebar */}
+        <div className="left-sidebar">
+          <CustomerList
+            customers={printedCustomers}
+            type="printed"
+            searchQuery={searchQueries.printed}
+            onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })}
+            selectedPrintedCustomer={selectedPrintedCustomer}
+            selectedUnprintedCustomer={selectedUnprintedCustomer}
+            handleCustomerClick={handleCustomerClick}
+            unprintedTotal={unprintedTotal}
+            formatDecimal={formatDecimal}
+            allSales={allSales}
+          />
+        </div>
 
-          {/* Center Form - MODIFIED FOR VERTICAL STACKING based on image_766b6c.png */}
-          <div className="center-form">
-            <form onSubmit={handleSubmit} className="space-y-4">
-
-              {/* === ROW 1: BILL NO & TOTAL SALES (Horizontal and Fixed) === */}
-
-              <div
-                className="w-full flex"
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  width: '100%',
-                  boxSizing: 'border-box',
-                }}
-              >
-                {/* LEFT SIDE — Bill No */}
-                <div style={{ flexShrink: 0, color: 'red', fontWeight: 'bold', fontSize: '1.125rem' }}>
-                  Bill No: {currentBillNo}
-                </div>
-
-                {/* RIGHT SIDE — Total Sales */}
-                <div
-                  style={{
-                    flexShrink: 0,
-                    color: 'red',
-                    fontWeight: 'bold',
-                    fontSize: '1.5rem',
-                    whiteSpace: 'nowrap',
-                    textAlign: 'right',
-                  }}
-                >
-                  Total Sales: Rs. {formatDecimal(mainTotal)}
-                </div>
+        {/* Center Form */}
+        <div className="center-form">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* === ROW 1: BILL NO & TOTAL SALES === */}
+            <div className="w-full flex justify-between items-center">
+              <div className="text-red-600 font-bold text-lg">
+                Bill No: {currentBillNo}
               </div>
+              <div className="text-red-600 font-bold text-xl whitespace-nowrap">
+                Total Sales: Rs. {formatDecimal(mainTotal)}
+              </div>
+            </div>
 
-              {/* === ROW 2: CUSTOMER CODE (Stacked) === */}
-              <div className="w-full">
-                <label htmlFor="customer_code_input" className="block text-sm font-medium mb-1">CUSTOMER CODE</label>
+            {/* === ROW 2: CUSTOMER CODE, SELECT CUSTOMER & LOAN === */}
+            <div className="flex items-end gap-3 w-full">
+              {/* Customer Code */}
+              <div className="flex-1 min-w-0">
                 <input
                   id="customer_code_input"
                   ref={refs.customerCode}
                   name="customer_code"
                   value={formData.customer_code || autoCustomerCode}
-                  onChange={(e) => { const value = e.target.value.toUpperCase(); handleInputChange("customer_code", value); if (value.trim() === "") { setFormData(prev => ({ ...prev, customer_code: "", customer_name: "", given_amount: "" })); updateState({ selectedPrintedCustomer: null, selectedUnprintedCustomer: null }); } }}
+                  onChange={(e) => {
+                    const value = e.target.value.toUpperCase();
+                    handleInputChange("customer_code", value);
+                    if (value.trim() === "") {
+                      setFormData(prev => ({ ...prev, customer_code: "", customer_name: "", given_amount: "" }));
+                      updateState({ selectedPrintedCustomer: null, selectedUnprintedCustomer: null });
+                    }
+                  }}
                   onKeyDown={(e) => handleKeyDown(e, 0)}
                   type="text"
                   maxLength={10}
-                  className="px-4 py-2 uppercase font-bold text-[20px] w-full"
+                  placeholder="CUSTOMER CODE"
+                  className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500"
                 />
               </div>
 
-              {/* === ROW 3: SELECT CUSTOMER (Stacked) === */}
-              <div className="w-full">
+              {/* Customer Select */}
+              <div style={{ flex: '0 0 250px', minWidth: '250px' }}>
                 <Select
                   id="customer_code_select"
                   ref={refs.customerSelect}
                   value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null}
                   onChange={handleCustomerSelect}
-                  options={customers.filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map(c => ({ value: c.short_name, label: `${c.short_name}` }))}
+                  options={customers
+                    .filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase())
+                    .map(c => ({ value: c.short_name, label: `${c.short_name}` }))}
                   onInputChange={(inputValue, { action }) => { if (action === "input-change") updateState({ customerSearchInput: inputValue.toUpperCase() }); }}
                   inputValue={customerSearchInput}
-                  placeholder="-- Select Customer --"
+                  placeholder="SELECT CUSTOMER"
                   isClearable
                   isSearchable
-                  className="react-select-container font-bold text-[20px]"
                   styles={{
-                    control: (base) => ({ ...base, minHeight: "44px", height: "44px" }),
-                    valueContainer: (base) => ({ ...base, padding: "0 8px", height: "44px" }),
-                    placeholder: (base) => ({ ...base, fontSize: "1rem" })
+                    control: (base) => ({ ...base, minHeight: "36px", height: "36px", fontSize: "12px", backgroundColor: "white", borderColor: "#4a5568" }),
+                    valueContainer: (base) => ({ ...base, padding: "0 6px", height: "36px" }),
+                    placeholder: (base) => ({ ...base, fontSize: "12px", color: "gray" }),
+                    input: (base) => ({ ...base, fontSize: "12px", color: "black" }),
+                    singleValue: (base) => ({ ...base, color: "black", fontSize: "12px" })
                   }}
                 />
               </div>
 
-              {/* === ROW 4: LOAN (Stacked) === */}
-              <div className="w-full">
-                {/* Loan Display - Yellow BG, Red Text */}
-                <div className="bg-yellow-100 p-2 rounded-lg mt-1">
-                  <span className="text-red-600 font-bold whitespace-nowrap">
-                    Loan: Rs. {loanAmount < 0 ? formatDecimal(Math.abs(loanAmount)) : formatDecimal(loanAmount)}
+              {/* Loan */}
+              <div className="flex-1 min-w-0">
+                <div
+                  className="p-2 rounded-lg text-center border relative"
+                  style={{
+                    backgroundColor: "white",
+                    flex: "0 0 200px",
+                    marginLeft: "80px"
+                  }}
+                >
+                  <span className="absolute left-2 top-1 text-gray-400 text-xs pointer-events-none">
+                    Loan Amount
+                  </span>
+                  <span className="text-black font-bold text-sm">
+                    Rs. {loanAmount < 0 ? formatDecimal(Math.abs(loanAmount)) : formatDecimal(loanAmount)}
                   </span>
                 </div>
               </div>
+            </div>
 
-              {/* === ROW 5: SUPPLIER (Stacked) === */}
-              <div className="w-full">
-                <label htmlFor="supplier_code" className="block text-sm font-medium mb-1">SUPPLIER</label>
+            {/* === ROW 3: GRID LAYOUT FOR FIELDS === */}
+            <div
+              className="w-full"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(12, 1fr)",
+                columnGap: "8px",
+                alignItems: "end",
+                marginTop: "8px",
+              }}
+            >
+              {/* Supplier */}
+              <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
                 <input
                   id="supplier_code"
                   ref={refs.supplierCode}
@@ -1271,170 +1288,223 @@ export default function SalesEntry() {
                   onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())}
                   onKeyDown={(e) => handleKeyDown(e, 3)}
                   type="text"
-                  className="px-3 py-2 uppercase font-bold text-lg w-full"
-                  maxLength={10}
+                  placeholder="SUPPLIER"
+                  className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full"
                 />
               </div>
 
-              {/* === ROW 6: ITEM SELECT (Stacked) === */}
-              <div className="w-full">
-                <label className="block text-sm font-medium mb-1">&nbsp;</label>
+              {/* Item */}
+              <div style={{ gridColumnStart: 5, gridColumnEnd: 8 }}>
                 <Select
                   id="item_code_select"
                   ref={refs.itemCodeSelect}
-                  value={formData.item_code ? { value: formData.item_code, label: `${formData.item_name} (${formData.item_code})`, item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due } } : null}
+                  value={formData.item_code ? {
+                    value: formData.item_code,
+                    label: `${formData.item_name} (${formData.item_code})`,
+                    item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due },
+                  } : null}
                   onChange={handleItemSelect}
-                  options={items.filter(item => { if (!state.itemSearchInput) return true; const search = state.itemSearchInput.toLowerCase(); return String(item.no).toLowerCase().startsWith(search) || String(item.type).toLowerCase().includes(search); }).map(item => ({ value: item.no, label: `${item.type} (${item.no})`, item }))}
-                  onInputChange={inputValue => updateState({ itemSearchInput: inputValue.toUpperCase() })}
+                  options={items.filter(item => {
+                    if (!state.itemSearchInput) return true;
+                    const search = state.itemSearchInput.toLowerCase();
+                    return String(item.no).toLowerCase().startsWith(search) || String(item.type).toLowerCase().includes(search);
+                  }).map(item => ({ value: item.no, label: `${item.type} (${item.no})`, item }))}
+                  onInputChange={(inputValue) => updateState({ itemSearchInput: inputValue.toUpperCase() })}
                   inputValue={state.itemSearchInput}
-                  onKeyDown={e => handleKeyDown(e, 4)}
-                  placeholder="-- SELECT ITEM --"
-                  isClearable={false}
-                  isSearchable
-                  className="react-select-container font-bold text-lg"
-                  styles={{
-                    control: (base) => ({ ...base, minHeight: "42px", height: "42px" }),
-                    valueContainer: (base) => ({ ...base, padding: "0 8px", height: "42px", textTransform: "uppercase" }),
-                    input: (base) => ({ ...base, textTransform: "uppercase" }),
-                    placeholder: (base) => ({ ...base, fontSize: "1rem" }),
-                    menuList: (base) => ({ ...base, maxHeight: "300px" })
-                  }}
+                  onKeyDown={(e) => handleKeyDown(e, 4)}
+                  placeholder="SELECT ITEM"
+                  className="react-select-container font-bold text-sm w-full"
+                  styles={{ control: (base) => ({ ...base, minHeight: "32px", height: "32px" }) }}
                 />
               </div>
 
-              {/* === ROW 7: DATA ENTRY INPUTS (Horizontal for this row only) === */}
-              <div className="flex items-start justify-start gap-2 mt-6">
-
-                {/* Weight */}
-                <div className="flex flex-col items-center flex-shrink-0 w-24">
-                  <div className="bg-white text-black font-bold py-2 px-6 rounded-lg mb-2 w-full text-center">බර</div>
-                  <input
-                    id="weight" ref={refs.weight} name="weight" type="text"
-                    value={formData.weight}
-                    onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('weight', v); }}
-                    onKeyDown={(e) => handleKeyDown(e, 6)}
-                    className="px-3 py-2 rounded-2xl text-right text-lg font-semibold w-full"
-                    maxLength="7"
-                  />
-                </div>
-
-                {/* Price */}
-                <div className="flex flex-col items-center flex-shrink-0 w-24">
-                  <div className="bg-white text-black font-bold py-2 px-6 rounded-lg mb-2 w-full text-center">මිල</div>
-                  <input
-                    id="price_per_kg" ref={refs.pricePerKg} name="price_per_kg" type="text"
-                    value={formData.price_per_kg}
-                    onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('price_per_kg', v); }}
-                    onKeyDown={(e) => handleKeyDown(e, 7)}
-                    className="px-3 py-2 rounded-2xl text-right text-lg font-semibold w-full"
-                    maxLength="7"
-                  />
-                  <span className="text-red-600 font-bold text-sm mt-1 text-center">
-                    {formatDecimal(packCost)}
-                  </span>
-                </div>
-
-                {/* Packs */}
-                <div className="flex flex-col items-center flex-shrink-0 w-24">
-                  <div className="bg-white text-black font-bold py-2 px-4 rounded-lg mb-2 w-full text-center">අසුරුම්</div>
-                  <input
-                    id="packs" ref={refs.packs} name="packs" type="text"
-                    value={formData.packs}
-                    onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('packs', v); }}
-                    onKeyDown={(e) => handleKeyDown(e, 8)}
-                    className="px-3 py-2 rounded-2xl text-right text-lg font-semibold w-full"
-                    maxLength="4"
-                  />
-                  <span className="text-sm mt-1 text-center invisible">...</span>
-                </div>
-
-                {/* Total */}
-                <div className="flex flex-col items-center flex-shrink-0 w-28">
-                  <div className="bg-white text-black font-bold py-2 px-6 rounded-lg mb-2 w-full text-center">Total</div>
-                  <input
-                    id="total" ref={refs.total} name="total" type="number"
-                    value={formData.total}
-                    readOnly
-                    onKeyDown={(e) => handleKeyDown(e, 9)}
-                    onInput={(e) => e.target.value.length > 6 && (e.target.value = e.target.value.slice(0, 6))}
-                    className="px-3 py-2 rounded-2xl text-right text-lg font-semibold w-full"
-                    maxLength="7"
-                  />
-                  <span className="text-sm mt-1 text-center invisible">...</span>
-                </div>
+              {/* Weight */}
+              <div style={{ gridColumnStart: 9, gridColumnEnd: 10 }}>
+                <input
+                  id="weight"
+                  ref={refs.weight}
+                  name="weight"
+                  type="text"
+                  value={formData.weight}
+                  onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('weight', v); }}
+                  onKeyDown={(e) => handleKeyDown(e, 6)}
+                  placeholder="බර"
+                  className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
+                />
               </div>
 
-
-              <div className="flex space-x-4">
-                <button type="submit" style={{ display: "none" }} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition">
-                  {editingSaleId ? "Update Sales Entry" : "Add Sales Entry"}</button>
-                <button type="button" onClick={handleClearForm} className="hidden py-3 px-6 bg-gray-400 hover:bg-gray-500 text-white font-bold rounded-xl shadow-lg transition">Clear</button>
+              {/* Price */}
+              <div style={{ gridColumnStart: 10, gridColumnEnd: 11 }}>
+                <input
+                  id="price_per_kg"
+                  ref={refs.pricePerKg}
+                  name="price_per_kg"
+                  type="text"
+                  value={formData.price_per_kg}
+                  onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('price_per_kg', v); }}
+                  onKeyDown={(e) => handleKeyDown(e, 7)}
+                  placeholder="මිල"
+                  className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
+                />
               </div>
-            </form>
 
-            {errors.form && <div className="mt-6 p-3 bg-red-100 text-red-700 rounded-xl">{errors.form}</div>}
+              {/* Packs */}
+              <div style={{ gridColumnStart: 11, gridColumnEnd: 12 }}>
+                <input
+                  id="packs"
+                  ref={refs.packs}
+                  name="packs"
+                  type="text"
+                  value={formData.packs}
+                  onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('packs', v); }}
+                  onKeyDown={(e) => handleKeyDown(e, 8)}
+                  placeholder="අසුරුම්"
+                  className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
+                />
+              </div>
 
-            <div className="mt-4">
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-gray-200 rounded-xl text-sm">
-                  <thead>
-                    <tr><th className="px-4 py-2 border">කේතය</th><th className="px-4 py-2 border">අයිතමය</th><th className="px-2 py-2 border w-20">බර(kg)</th><th className="px-2 py-2 border w-20">මිල</th><th className="px-2 py-2 border w-24">සමස්ත</th><th className="px-2 py-2 border w-16">මලු</th><th className="px-2 py-2 border w-16">Actions</th></tr>
-                  </thead>
-                  <tbody>
-                    {displayedSales.map((s, idx) => (
-                      <tr key={s.id || idx} tabIndex={0} className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={() => handleEditClick(s)} onKeyDown={(e) => handleTableRowKeyDown(e, s)}><td className="px-4 py-2 border">{s.item_code}</td><td className="px-4 py-2 border">{s.item_name}</td><td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td><td className="px-2 py-2 border w-20">{formatDecimal(s.price_per_kg)}</td><td className="px-2 py-2 border w-24">{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0))}</td><td className="px-2 py-2 border w-16">{s.packs}</td><td className="px-2 py-2 border w-16"><button onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }} className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition-colors" title="Delete record"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg></button></td></tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                {/* === SUMMARY & GIVEN AMOUNT (REBUILT) === */}
-                <div className="flex items-center justify-between mt-6 mb-4">
-                  <div className="text-lg font-bold text-red-600">
-                    (<span>Sales: Rs. {formatDecimal(displayedSales.reduce((sum, s) =>
-                      sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0)
-                    )}</span><span>+ Pack Cost: Rs. {formatDecimal(displayedSales.reduce((sum, s) => {
-                      const itemCost = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0);
-                      const totalCost = parseFloat(s.total) || 0;
-                      const packCost = totalCost - itemCost;
-                      return sum + Math.max(0, packCost);
-                    }, 0))}</span>)
-                  </div>
-
-                  <input
-                    id="given_amount"
-                    ref={refs.givenAmount}
-                    name="given_amount"
-                    type="number"
-                    step="0.01"
-                    value={formData.given_amount}
-                    onChange={(e) => handleInputChange('given_amount', e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(e, 2)}
-                    placeholder="Given Amount"
-                    className="px-4 py-2 rounded-xl text-right w-40"
-                  />
-                </div>
+              {/* Total */}
+              <div style={{ gridColumnStart: 12, gridColumnEnd: 13, marginLeft: "10px" }}>
+                <input
+                  id="total"
+                  ref={refs.total}
+                  name="total"
+                  type="number"
+                  value={formData.total}
+                  readOnly
+                  placeholder="TOTAL"
+                  className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
+                />
               </div>
             </div>
 
-            {/* === BUTTONS (STYLES KEPT) === */}
-            <div className="flex justify-between items-center mt-6">
-              <div className="flex space-x-3">
-                <button type="button" onClick={handleMarkPrinted} className="px-4 py-1 text-sm bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow transition">F1-PRINT</button>
-                <button type="button" onClick={handleMarkAllProcessed} disabled={selectedPrintedCustomer} className={`px-4 py-1 text-sm text-white font-bold rounded-xl shadow transition ${selectedPrintedCustomer ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}>F5-HOLD</button>
-                <button type="button" onClick={handleFullRefresh} className="px-4 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl shadow transition">F10-Refresh</button>
-              </div>
+            {/* Hidden submit button */}
+            <div className="flex space-x-4">
+              <button type="submit" style={{ display: "none" }}>
+                {editingSaleId ? "Update Sales Entry" : "Add Sales Entry"}
+              </button>
             </div>
-          </div>
+          </form>
 
-          {/* Right Sidebar */}
-          <div className="right-sidebar">
-            <CustomerList customers={unprintedCustomers} type="unprinted" searchQuery={searchQueries.unprinted}
-              onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } })}
-              selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer}
-              handleCustomerClick={handleCustomerClick} unprintedTotal={unprintedTotal} formatDecimal={formatDecimal} allSales={allSales} />
-          </div>
-        </div>
+          {/* Form errors */}
+          {errors.form && <div className="mt-6 p-3 bg-red-100 text-red-700 rounded-xl">{errors.form}</div>}
+
+          {/* Sales table */}
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full border-gray-200 rounded-xl text-sm">
+              <thead>
+                <tr>
+                  <th className="px-4 py-2 border">කේතය</th>
+                  <th className="px-4 py-2 border">අයිතමය</th>
+                  <th className="px-2 py-2 border w-20">බර(kg)</th>
+                  <th className="px-2 py-2 border w-20">මිල</th>
+                  <th className="px-2 py-2 border w-24">සමස්ත</th>
+                  <th className="px-2 py-2 border w-16">මලු</th>
+                  <th className="px-2 py-2 border w-16">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedSales.map((s, idx) => (
+                  <tr
+                    key={s.id || idx}
+                    tabIndex={0}
+                    className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onClick={() => handleEditClick(s)}
+                    onKeyDown={(e) => handleTableRowKeyDown(e, s)}
+                  >
+                    <td className="px-4 py-2 border">{s.item_code}</td>
+                    <td className="px-4 py-2 border">{s.item_name}</td>
+                    <td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td>
+                    <td className="px-2 py-2 border w-20">{formatDecimal(s.price_per_kg)}</td>
+                    <td className="px-2 py-2 border w-24">{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0))}</td>
+                    <td className="px-2 py-2 border w-16">{s.packs}</td>
+                    <td className="px-2 py-2 border w-16">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }}
+                        className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition-colors"
+                        title="Delete record"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Item summary and sales+pack cost in black */}
+          <ItemSummary sales={displayedSales} formatDecimal={formatDecimal} />
+
+<div className="flex items-center justify-between mt-6 mb-4">
+  <div className="flex justify-between items-center w-full">
+    <div className="flex items-center gap-0">
+      <div className="text-2xl font-bold" style={{ color: "black" }}>
+        (
+        <span>
+          Sales: Rs. {formatDecimal(displayedSales.reduce((sum, s) =>
+            sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0)
+          )}
+        </span>
+        <span>
+          {" "} + Pack Cost: Rs. {formatDecimal(displayedSales.reduce((sum, s) => {
+            const itemCost = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0);
+            const totalCost = parseFloat(s.total) || 0;
+            const packCost = totalCost - itemCost;
+            return sum + Math.max(0, packCost);
+          }, 0))}
+        </span>
+        )
       </div>
-    </Layout>
-  );
+    </div>
+  </div>
+
+  <input
+    id="given_amount"
+    ref={refs.givenAmount}
+    name="given_amount"
+    type="number"
+    step="0.01"
+    value={formData.given_amount}
+    onChange={(e) => handleInputChange('given_amount', e.target.value)}
+    onKeyDown={(e) => handleKeyDown(e, 2)}
+    placeholder="Given Amount"
+    className="px-4 py-2 border rounded-xl text-right w-40"
+  />
+</div>
+
+          </div>
+
+          <div className="flex justify-between items-center mt-6">
+            <div className="flex space-x-3">
+              <button type="button" onClick={handleMarkPrinted} className="px-4 py-1 text-sm bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow transition">F1-PRINT</button>
+              <button type="button" onClick={handleMarkAllProcessed} disabled={selectedPrintedCustomer} className={`px-4 py-1 text-sm text-white font-bold rounded-xl shadow transition ${selectedPrintedCustomer ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}>F5-HOLD</button>
+              <button type="button" onClick={handleFullRefresh} className="px-4 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl shadow transition">F10-Refresh</button>
+            </div>
+          </div>
+
+        </div> {/* End of center-form */}
+
+        {/* Right Sidebar */}
+        <div className="right-sidebar">
+          <CustomerList
+            customers={unprintedCustomers}
+            type="unprinted"
+            searchQuery={searchQueries.unprinted}
+            onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } })}
+            selectedPrintedCustomer={selectedPrintedCustomer}
+            selectedUnprintedCustomer={selectedUnprintedCustomer}
+            handleCustomerClick={handleCustomerClick}
+            unprintedTotal={unprintedTotal}
+            formatDecimal={formatDecimal}
+            allSales={allSales}
+          />
+        </div>
+
+      </div> {/* End of three-column-layout */}
+    </div> {/* End of sales-layout */}
+  </Layout>
+);
+
 }
