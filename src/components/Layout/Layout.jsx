@@ -113,7 +113,14 @@ const Layout = ({ children }) => {
                       <i className="material-icons align-middle me-1">local_shipping</i> Suppliers
                     </Link>
                   </li>
-
+                  <li>
+                    <Link
+                      to="/commissions"
+                      className={`dropdown-item ${location.pathname === '/commissions' ? 'active' : ''}`}
+                    >
+                      <i className="material-icons align-middle me-1">attach_money</i> Commisions
+                    </Link>
+                  </li>
                   <li><hr className="dropdown-divider" /></li>
 
                   {/* === New Report Buttons inside Dropdown === */}
@@ -180,10 +187,10 @@ const Layout = ({ children }) => {
 
       {/* === Main Content === */}
       {/* Remove container-fluid for SalesEntry page to allow full width */}
-      <main 
-        className={isSalesEntryPage ? "p-0" : "container-fluid py-4"} 
-        style={{ 
-          marginTop: '80px', 
+      <main
+        className={isSalesEntryPage ? "p-0" : "container-fluid py-4"}
+        style={{
+          marginTop: '80px',
           marginBottom: '80px',
           width: '100%',
           maxWidth: isSalesEntryPage ? '100%' : undefined

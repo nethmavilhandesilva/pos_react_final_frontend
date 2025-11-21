@@ -1,25 +1,33 @@
-// src/components/Commission/CommissionForm.jsx (FINAL UPDATED CODE)
+import React, { useState, useEffect, useRef } from 'react';
+import api from '../../api';
 
-import React, { useState, useEffect } from 'react';
-// 1. IMPORT the centralized API instance
-import api from '../../api'; // Adjust path if api.js is located elsewhere, e.g., 'axios' -> 'api'
-// Note: We no longer need to import axios directly
+// Define the order of fields for keyboard navigation
+const INPUT_ORDER = ['item_selector', 'starting_price', 'end_price', 'commission_amount'];
 
-// We can remove API_BASE_URL as it's defined in api.js
-// const API_BASE_URL = '/api'; 
+const defaultFormData = {
+    item_code: '',
+    item_name: '',
+    starting_price: '',
+    end_price: '',
+    commission_amount: '',
+};
 
 const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCancelEdit }) => {
-    const [formData, setFormData] = useState({
-        item_code: '',
-        item_name: '',
-        starting_price: '',
-        end_price: '',
-        commission_amount: '',
-    });
+    
+    const [formData, setFormData] = useState(defaultFormData);
     const [status, setStatus] = useState('');
-    const isEditing = !!initialData; // Boolean flag to check if we are in edit mode
+    const isEditing = !!initialData;
+    
+    // 🔑 1. Create refs for keyboard navigation
+    const formRefs = {
+        item_selector: useRef(null),
+        starting_price: useRef(null),
+        end_price: useRef(null),
+        commission_amount: useRef(null),
+        submit_button: useRef(null),
+    };
 
-    // --- Effect to populate form when initialData changes (for editing) ---
+    // --- Effect to populate form/reset ---
     useEffect(() => {
         if (initialData) {
             setFormData({
@@ -30,14 +38,7 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
                 commission_amount: initialData.commission_amount || '',
             });
         } else {
-            // Reset form for creation mode
-            setFormData({
-                item_code: '',
-                item_name: '',
-                starting_price: '',
-                end_price: '',
-                commission_amount: '',
-            });
+            setFormData(defaultFormData);
         }
     }, [initialData]);
 
@@ -60,9 +61,29 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
         }
     };
 
+    // 🔑 2. Keyboard Navigation Handler (Prevents default Enter behavior)
+    const handleKeyDown = (e, currentFieldName) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+
+            if (currentFieldName === 'commission_amount') {
+                // Last field: Trigger submission
+                formRefs.submit_button.current.click(); 
+            } else {
+                // Move focus to the next field
+                const currentIndex = INPUT_ORDER.indexOf(currentFieldName);
+                const nextFieldName = INPUT_ORDER[currentIndex + 1];
+                
+                if (formRefs[nextFieldName]?.current) {
+                    formRefs[nextFieldName].current.focus();
+                }
+            }
+        }
+    };
+    
     // --- Handle Form Submission (Create or Update) ---
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        e.preventDefault(); // IMPORTANT: Prevents page reload after successful click/submit
         setStatus('Submitting...');
         
         if (!formData.item_code || !formData.starting_price || !formData.end_price || !formData.commission_amount) {
@@ -75,28 +96,31 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
             const endpoint = `/commissions${isEditing ? '/' + initialData.id : ''}`;
 
             if (isEditing) {
-                // 2. Use 'api' instead of 'axios' for PATCH/PUT
                 response = await api.patch(endpoint, formData);
-                setStatus(`✅ Success! Commission updated for ${response.data.commission.item_name}.`);
             } else {
-                // 3. Use 'api' instead of 'axios' for POST
                 response = await api.post(endpoint, formData);
-                setStatus(`✅ Success! Commission created for ${response.data.commission.item_name}.`);
+                setFormData(defaultFormData); // Clear on successful create
             }
 
-            onSubmissionSuccess(); // Tell the parent page to refresh the list and clear edit state
+            const message = `✅ Success! Commission ${isEditing ? 'updated' : 'created'} for ${formData.item_name || initialData.item_name}.`;
+            setStatus(message);
+            onSubmissionSuccess(message); 
 
         } catch (error) {
             console.error('Submission error:', error.response ? error.response.data : error.message);
-            // 401 Unauthorized handling is managed by the api interceptor
             setStatus(`❌ Submission failed. ${error.response?.data?.message || 'Check console for details.'}`);
         }
     };
 
+    // --- Styling Objects ---
+    const inputStyle = { width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' };
+    const buttonStyle = { padding: '10px 15px', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', flexGrow: 1 };
+
+
     return (
         <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: isEditing ? '1fr 1fr 1fr 1fr 1fr auto' : '1fr 1fr 1fr 1fr 1fr', gap: '15px' }}>
             
-            {/* 1. Item Selection Field (Disabled/Read-only when editing) */}
+            {/* 1. Item Selection Field (Dropdown) */}
             <div style={{ gridColumn: isEditing ? 'span 2' : 'span 1' }}>
                 <label htmlFor="item_selector">Item:</label>
                 <select
@@ -104,8 +128,10 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
                     name="item_selector"
                     value={formData.item_code} 
                     onChange={handleChange}
+                    onKeyDown={(e) => handleKeyDown(e, 'item_selector')} // KEYBOARD HANDLER
                     required
-                    disabled={isEditing} // Cannot change item while editing
+                    disabled={isEditing} 
+                    ref={formRefs.item_selector} // REF
                     style={inputStyle}
                 >
                     <option value="">-- Select an Item --</option>
@@ -127,9 +153,11 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
                     name="starting_price"
                     value={formData.starting_price}
                     onChange={handleChange}
+                    onKeyDown={(e) => handleKeyDown(e, 'starting_price')} // KEYBOARD HANDLER
                     min="0"
                     step="0.01"
                     required
+                    ref={formRefs.starting_price} // REF
                     style={inputStyle}
                 />
             </div>
@@ -143,14 +171,16 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
                     name="end_price"
                     value={formData.end_price}
                     onChange={handleChange}
-                     min="0"
+                    onKeyDown={(e) => handleKeyDown(e, 'end_price')} // KEYBOARD HANDLER
+                    min={formData.starting_price || 0} // Ensure validation reflects min price
                     step="0.01"
                     required
+                    ref={formRefs.end_price} // REF
                     style={inputStyle}
                 />
             </div>
 
-            {/* 4. Commission Amount */}
+            {/* 4. Commission Amount (Final Field for Auto-Submit) */}
             <div>
                 <label htmlFor="commission_amount">Amount ($):</label>
                 <input
@@ -159,9 +189,11 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
                     name="commission_amount" 
                     value={formData.commission_amount}
                     onChange={handleChange}
+                    onKeyDown={(e) => handleKeyDown(e, 'commission_amount')} // KEYBOARD HANDLER
                     min="0"
                     step="0.01"
                     required
+                    ref={formRefs.commission_amount} // REF
                     style={inputStyle}
                 />
             </div>
@@ -170,6 +202,7 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
             <div style={{ alignSelf: 'end', display: 'flex', gap: '5px' }}>
                 <button 
                     type="submit" 
+                    ref={formRefs.submit_button} // REF
                     style={{ ...buttonStyle, backgroundColor: isEditing ? '#ffc107' : '#28a745' }}
                 >
                     {isEditing ? 'Save Changes' : 'Create Commission'}
@@ -185,11 +218,10 @@ const CommissionForm = ({ itemOptions, initialData, onSubmissionSuccess, onCance
                 )}
             </div>
             
+            {status && <p style={{ gridColumn: 'span 5', textAlign: 'center', color: status.includes('Success') ? 'green' : 'red' }}>{status}</p>}
+
         </form>
     );
 };
-
-const inputStyle = { width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' };
-const buttonStyle = { padding: '10px 15px', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', flexGrow: 1 };
 
 export default CommissionForm;
