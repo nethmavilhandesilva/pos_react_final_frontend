@@ -20,6 +20,8 @@ import RegisterPage from './components/Auth/RegisterPage';
 import LoanReportView from './components/LoanReport/LoanReportView';
 import SalesEntry from './components/SalesEntry/SalesEntry';
 
+import CommissionPage from './components/Commission/CommissionPage'; // The component you created
+
 // ✅ ProtectedRoute component — blocks access if user not logged in
 const ProtectedRoute = ({ children }) => {
   const user = localStorage.getItem('user');
@@ -51,9 +53,9 @@ export default function App() {
         <Route
           path="/customers"
           element={
-           
-              <CustomerList />
-            
+
+            <CustomerList />
+
           }
         />
         <Route
@@ -159,7 +161,7 @@ export default function App() {
           }
         />
 
-        {/* CUSTOMERS LOANS */}
+        {/* CUSTOMERS LOANS & SALES */}
         <Route
           path="/customers-loans"
           element={
@@ -169,7 +171,17 @@ export default function App() {
           }
         />
         <Route path="/customers-loans/report" element={<LoanReportView />} />
-         <Route path="/sales" element={<SalesEntry />} />
+        <Route path="/sales" element={<SalesEntry />} />
+
+        {/* 💰 COMMISSIONS (NEW) 💰 */}
+        <Route
+          path="/commissions" // Changed path to simply /commissions 
+          element={
+            <ProtectedRoute>
+              <CommissionPage /> 
+            </ProtectedRoute>
+          }
+        />
 
         {/* Fallback route */}
         <Route path="*" element={<Navigate to="/" replace />} />
