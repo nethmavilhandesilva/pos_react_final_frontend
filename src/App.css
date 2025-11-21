@@ -1,6 +1,4 @@
-/* ==================================== */
-/* 1. Main Layout Structure (Matches the 3-column split) */
-/* ==================================== */
+
 
 .sales-layout {
     /* Using max-width helps center the content on large screens */
@@ -14,7 +12,7 @@
     display: grid;
     gap: 16px; 
     padding: 10px;
-     margin-top: -20px;
+    margin-top: -20px;
 }
 body {
     background-color: #99ff99;
@@ -24,10 +22,13 @@ body {
     /* Green sidebar background */
     background-color: #1ec139ff; 
     border-radius: 0.75rem;
-    overflow: hidden;
     max-height: 80.5vh;
     width: 170px;
+    /* 🟢 FIX: Ensure vertical scrolling works, hide horizontal */
+    overflow-y: auto; 
+    overflow-x: hidden; 
 }
+
 .right-sidebar {
     margin-left: 263px; /* increase the value to move further right */
 }
@@ -143,7 +144,7 @@ body {
 
 .center-form table {
     /* Dark background for the sales table area */
-    background-color: #191970; /* Same as form background */
+    background-color: #000000f5; /* Same as form background */
     color: white;
     border: none;
     border-collapse: collapse; 
@@ -157,9 +158,9 @@ body {
 }
 
 .center-form table th {
-    background-color: #000000; /* Black header background */
+    background-color: #f5fafb; /* Black header background */
     font-weight: bold;
-    color: white;
+    color: #000000;
     padding: 8px 10px;
     border: 1px solid white; /* White border for separators */
     white-space: nowrap;
@@ -167,7 +168,7 @@ body {
 
 .center-form table td {
     /* Dark cell background to match form area */
-    background-color: #191970;
+    background-color: #000000;
     border: 1px solid #4a5568; 
     padding: 6px 10px;
 }
