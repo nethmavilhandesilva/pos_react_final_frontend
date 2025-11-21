@@ -1,6 +1,6 @@
 // src/components/Auth/LoginPage.jsx
 import React, { useState } from "react";
-import axios from "axios";
+import api from "../../api";  // <-- use your axios instance instead of axios
 
 const LoginPage = () => {
   const [user_id, setUserId] = useState("");
@@ -10,13 +10,21 @@ const LoginPage = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post("http://localhost:8000/api/login", {
+      const response = await api.post("/login", {
         user_id,
         password,
       });
 
-      if (response.data.user) {
-        localStorage.setItem("user", JSON.stringify(response.data.user));
+      if (response.data.token) {
+        // Save token for future requests
+        localStorage.setItem("token", response.data.token);
+
+        // Save user if needed
+        if (response.data.user) {
+          localStorage.setItem("user", JSON.stringify(response.data.user));
+        }
+
+        // Redirect to dashboard or homepage
         window.location.href = "/";
       } else {
         setError("Invalid credentials");
