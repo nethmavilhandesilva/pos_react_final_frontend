@@ -10,7 +10,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         totalWeight, 
         totalSales, 
         totalCommission, 
-        amountPayable, // ✅ This is now retrieved from useMemo
+        amountPayable, 
         itemSummaryData,
         detailedItemsHtml,
         totalPacksSum,
@@ -42,12 +42,16 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             totalPacksSum += packs;
 
             // 2. Detailed Items HTML (for the bill)
+            // The 'අගය' (Value) column in the bill must reflect (Total - Commission) for that item.
+            // NOTE: The previous code used 'record.total'. Now calculating net value for display.
+            const itemNetValue = total - commission;
+            
             itemsHtmlArray.push(`
                 <tr>
                     <td style="text-align:left;padding:2px;border-bottom:1px solid #eee;">${itemName}<br>${packs}</td>
                     <td style="text-align:center;padding:2px;border-bottom:1px solid #eee;">${weight.toFixed(3)}</td>
                     <td style="text-align:center;padding:2px;border-bottom:1px solid #eee;">${pricePerKg.toFixed(2)}</td>
-                    <td style="text-align:right;padding:2px;border-bottom:1px solid #eee;">${total.toFixed(2)}</td>
+                    <td style="text-align:right;padding:2px;border-bottom:1px solid #eee;">${itemNetValue.toFixed(2)}</td>
                 </tr>
             `);
 
@@ -63,7 +67,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             totalWeight,
             totalSales,
             totalCommission,
-            amountPayable: totalSales - totalCommission, // Calculation moved here
+            amountPayable: totalSales - totalCommission, // Total Payable
             itemSummaryData: itemSummary,
             detailedItemsHtml: itemsHtmlArray.join(''),
             totalPacksSum,
@@ -71,9 +75,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             customerCode,
         };
     }, [details]);
-
-    // ❌ Removed the conflicting line:
-    // const amountPayable = totalSales - totalCommission; 
 
     // Helper function to format decimals
     const formatDecimal = (value, decimals = 2) => value.toLocaleString(undefined, {
@@ -88,9 +89,12 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         
         const mobile = '071XXXXXXX'; 
         const customerName = customerCode || 'N/A';
-        const totalSalesExcludingPackDue = totalSales; 
-        const totalPackDueCost = totalCommission; 
-        const totalPrice = totalSales; 
+        
+        // **CHANGE 1: Use Amount Payable for the final total and related fields**
+        const totalSalesExcludingPackDue = amountPayable; // Total of all net item values
+        const totalPackDueCost = totalCommission; // Commission is treated as 'කුලිය'
+        const finalAmountToDisplay = amountPayable; // Final amount in the double-underline box
+        
         const givenAmountRow = ''; 
         const loanRow = ''; 
         
@@ -129,16 +133,17 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             </tbody>
           </table>
           <table style="width:100%;font-size:15px;border-collapse:collapse;">
+                <tr><td>පාරිභෝගික කේතය:</td><td style="text-align:right;font-weight:bold;">${customerCode}</td></tr>
             <tr><td>ප්‍රවාහන ගාස්තු:</td><td style="text-align:right;font-weight:bold;">00</td></tr>
             <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
-            <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(totalPrice).toFixed(2)}</span></td></tr>
+            <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finalAmountToDisplay).toFixed(2)}</span></td></tr>
             ${givenAmountRow}${loanRow}
           </table>
           <div style="font-size:10px;">
-                <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
-                    ${itemSummaryHtml}
-                </table>
-            </div>
+                <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
+                    ${itemSummaryHtml}
+                </table>
+            </div>
             <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
           <div style="text-align:center;margin-top:10px;font-size:10px;">
             <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
@@ -181,7 +186,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         };
     }, [isOpen, details]);
 
-    // --- INLINE STYLES (from previous response) ---
+    // --- INLINE STYLES (Kept for completeness) ---
     const modalOverlayStyle = {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex',
