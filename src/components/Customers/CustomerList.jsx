@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import CustomerForm from "./CustomerForm";
-
-const API_BASE = "http://127.0.0.1:8000/api"; // Laravel backend URL
+import api from "../../api";   // ✅ use axios wrapper
 
 export default function CustomerList() {
   const [customers, setCustomers] = useState([]);
@@ -12,10 +11,8 @@ export default function CustomerList() {
   useEffect(() => {
     const fetchCustomers = async () => {
       try {
-        const res = await fetch(`${API_BASE}/customers`);
-        if (!res.ok) throw new Error("Network response was not ok");
-        const data = await res.json();
-        setCustomers(data);
+        const res = await api.get("/customers");   // ✅ axios call
+        setCustomers(res.data);
       } catch (err) {
         console.error("Failed to fetch customers:", err);
       }
@@ -36,8 +33,9 @@ export default function CustomerList() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("මෙම පාරිභෝගිකයා මකන්නද?")) return;
+
     try {
-      await fetch(`${API_BASE}/customers/${id}`, { method: "DELETE" });
+      await api.delete(`/customers/${id}`);  // ✅ axios DELETE
       setCustomers(customers.filter((c) => c.id !== id));
     } catch (err) {
       console.error("Failed to delete customer:", err);
@@ -48,11 +46,8 @@ export default function CustomerList() {
     try {
       if (editingCustomer) {
         // Update customer
-        await fetch(`${API_BASE}/customers/${editingCustomer.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        });
+        await api.put(`/customers/${editingCustomer.id}`, data);  // ✅ axios PUT
+
         setCustomers(
           customers.map((c) =>
             c.id === editingCustomer.id ? { ...c, ...data } : c
@@ -60,14 +55,10 @@ export default function CustomerList() {
         );
       } else {
         // Create new customer
-        const res = await fetch(`${API_BASE}/customers`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        });
-        const newCustomer = await res.json();
-        setCustomers([...customers, newCustomer]);
+        const res = await api.post("/customers", data);  // ✅ axios POST
+        setCustomers([...customers, res.data]);
       }
+
       setShowForm(false);
     } catch (err) {
       console.error("Failed to save customer:", err);

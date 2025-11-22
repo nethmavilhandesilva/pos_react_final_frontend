@@ -19,7 +19,8 @@ import LoginPage from './components/Auth/LoginPage';
 import RegisterPage from './components/Auth/RegisterPage';
 import LoanReportView from './components/LoanReport/LoanReportView';
 import SalesEntry from './components/SalesEntry/SalesEntry';
-
+import SupplierReport from './components/Suppliers/SupplierReport';
+import SupplierDetailsModal from './components/Suppliers/SupplierDetailsModal';
 import CommissionPage from './components/Commission/CommissionPage'; // The component you created
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -179,6 +180,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <CommissionPage /> 
+            </ProtectedRoute>
+          }
+        />
+         <Route
+          path="/supplierreport" // Changed path to simply /commissions 
+          element={
+            <ProtectedRoute>
+              <SupplierReport /> 
+            </ProtectedRoute>
+          }
+        />
+         <Route
+          path="/suppliermodal" // Changed path to simply /commissions 
+          element={
+            <ProtectedRoute>
+              <SupplierDetailsModal /> 
             </ProtectedRoute>
           }
         />
