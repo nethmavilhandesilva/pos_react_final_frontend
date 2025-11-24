@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supplierService } from '../../services/supplierService';
+import api from '../../api'; // ← Use global axios instance
 import { Link } from 'react-router-dom';
 
 const SupplierList = () => {
@@ -12,9 +12,10 @@ const SupplierList = () => {
     loadSuppliers();
   }, []);
 
+  // 📌 Load all suppliers
   const loadSuppliers = async () => {
     try {
-      const response = await supplierService.getAll();
+      const response = await api.get('/suppliers');
       setSuppliers(response.data);
     } catch (error) {
       console.error('Error loading suppliers:', error);
@@ -24,6 +25,7 @@ const SupplierList = () => {
     }
   };
 
+  // 📌 Search suppliers
   const handleSearch = async (e) => {
     const value = e.target.value;
     setSearchTerm(value);
@@ -34,17 +36,18 @@ const SupplierList = () => {
     }
 
     try {
-      const response = await supplierService.search(value);
+      const response = await api.get(`/suppliers/search/${value}`);
       setSuppliers(response.data);
     } catch (error) {
       console.error('Error searching suppliers:', error);
     }
   };
 
+  // 📌 Delete supplier
   const handleDelete = async (id) => {
     if (window.confirm('මෙම සැපයුම්කරු මකන්නද?')) {
       try {
-        await supplierService.delete(id);
+        await api.delete(`/suppliers/${id}`);
         setMessage('Supplier deleted successfully!');
         loadSuppliers();
       } catch (error) {
@@ -54,6 +57,7 @@ const SupplierList = () => {
     }
   };
 
+  // 📌 Loading screen
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center vh-100">
@@ -73,20 +77,17 @@ const SupplierList = () => {
           color: '#fff',
         }}
       >
-        {/* Header */}
         <div className="card-header border-0 py-4 text-center">
-          <h2 className="fw-bold mb-0">
-            📦 සැපයුම්කරුවන් (Suppliers)
-          </h2>
+          <h2 className="fw-bold mb-0">📦 සැපයුම්කරුවන් (Suppliers)</h2>
         </div>
 
-        {/* Body */}
         <div className="card-body bg-light text-dark rounded-bottom-4">
-          {/* Search and Add Row */}
+          {/* Top Bar */}
           <div className="d-flex flex-column flex-md-row justify-content-between align-items-center mb-3 gap-2">
             <Link to="/suppliers/create" className="btn btn-success fw-bold px-4 shadow-sm">
               + නව සැපයුම්කරු
             </Link>
+
             <input
               type="text"
               value={searchTerm}
@@ -99,11 +100,7 @@ const SupplierList = () => {
 
           {/* Message */}
           {message && (
-            <div
-              className={`alert ${
-                message.includes('Error') ? 'alert-danger' : 'alert-success'
-              } text-center py-2`}
-            >
+            <div className={`alert ${message.includes('Error') ? 'alert-danger' : 'alert-success'} text-center py-2`}>
               {message}
             </div>
           )}
@@ -124,6 +121,7 @@ const SupplierList = () => {
                   <th className="text-center">මෙහෙයුම් (Actions)</th>
                 </tr>
               </thead>
+
               <tbody>
                 {suppliers.map((supplier) => (
                   <tr key={supplier.id}>
@@ -137,6 +135,7 @@ const SupplierList = () => {
                       >
                         යාවත්කාලීන
                       </Link>
+
                       <button
                         onClick={() => handleDelete(supplier.id)}
                         className="btn btn-danger btn-sm"
@@ -157,6 +156,7 @@ const SupplierList = () => {
               </tbody>
             </table>
           </div>
+
         </div>
       </div>
     </div>

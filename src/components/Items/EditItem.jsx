@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { itemService } from '../../services/itemService';
+import api from '../../api';
 import { useNavigate, Link, useParams } from 'react-router-dom';
 
 const EditItem = () => {
@@ -9,19 +9,24 @@ const EditItem = () => {
         pack_cost: '',
         pack_due: ''
     });
+
     const [errors, setErrors] = useState({});
     const [loading, setLoading] = useState(false);
     const [itemLoading, setItemLoading] = useState(true);
+
     const navigate = useNavigate();
     const { id } = useParams();
 
+    // -------------------------------
+    // Load Item on Component Mount
+    // -------------------------------
     useEffect(() => {
         loadItem();
     }, [id]);
 
     const loadItem = async () => {
         try {
-            const response = await itemService.get(id);
+            const response = await api.get(`/items/${id}`);
             setFormData(response.data);
         } catch (error) {
             console.error('Error loading item:', error);
@@ -31,6 +36,9 @@ const EditItem = () => {
         }
     };
 
+    // -------------------------------
+    // Handle Form Change
+    // -------------------------------
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -39,13 +47,16 @@ const EditItem = () => {
         }));
     };
 
+    // -------------------------------
+    // Submit Edited Item
+    // -------------------------------
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setErrors({});
 
         try {
-            await itemService.update(id, formData);
+            await api.put(`/items/${id}`, formData);
             navigate('/items');
         } catch (error) {
             if (error.response && error.response.status === 422) {
@@ -64,13 +75,16 @@ const EditItem = () => {
 
     return (
         <div className="form-card">
-            <h3 className="mb-4 text-center text-primary">අයිතමය සංස්කරණය කරන්න (Edit Item)</h3>
+            <h3 className="mb-4 text-center text-primary">
+                අයිතමය සංස්කරණය කරන්න (Edit Item)
+            </h3>
 
             {errors.general && (
                 <div className="alert alert-danger">{errors.general}</div>
             )}
 
             <form onSubmit={handleSubmit}>
+                {/* --- Item Number --- */}
                 <div className="mb-3">
                     <label htmlFor="no" className="form-label">අංකය</label>
                     <input 
@@ -85,6 +99,7 @@ const EditItem = () => {
                     {errors.no && <div className="invalid-feedback">{errors.no[0]}</div>}
                 </div>
 
+                {/* --- Type --- */}
                 <div className="mb-3">
                     <label htmlFor="type" className="form-label">වර්ගය</label>
                     <input 
@@ -99,6 +114,7 @@ const EditItem = () => {
                     {errors.type && <div className="invalid-feedback">{errors.type[0]}</div>}
                 </div>
 
+                {/* --- Pack Cost --- */}
                 <div className="mb-3">
                     <label htmlFor="pack_cost" className="form-label">මල්ලක අගය</label>
                     <input 
@@ -114,6 +130,7 @@ const EditItem = () => {
                     {errors.pack_cost && <div className="invalid-feedback">{errors.pack_cost[0]}</div>}
                 </div>
 
+                {/* --- Pack Due --- */}
                 <div className="mb-3">
                     <label htmlFor="pack_due" className="form-label">මල්ලක කුලිය</label>
                     <input 
@@ -129,6 +146,7 @@ const EditItem = () => {
                     {errors.pack_due && <div className="invalid-feedback">{errors.pack_due[0]}</div>}
                 </div>
 
+                {/* --- Buttons --- */}
                 <div className="d-flex justify-content-center mt-4">
                     <button 
                         type="submit" 
@@ -142,6 +160,7 @@ const EditItem = () => {
                             </>
                         )}
                     </button>
+
                     <Link to="/items" className="btn btn-secondary px-4 ms-2">
                         <i className="material-icons align-middle me-1">cancel</i>
                         අවලංගු කරන්න
@@ -173,13 +192,8 @@ const EditItem = () => {
                     background-color: #198754;
                     border-color: #198754;
                 }
-                .btn-success:hover {
-                    background-color: #157347;
-                    border-color: #157347;
-                }
                 .btn-secondary {
                     background-color: #6c757d;
-                    border-color: #6c757d;
                 }
             `}</style>
         </div>

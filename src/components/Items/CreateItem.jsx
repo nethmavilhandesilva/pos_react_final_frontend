@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { itemService } from '../../services/itemService';
+import api from '../../api';          // ✅ use api.js
 import { useNavigate, Link } from 'react-router-dom';
 
 const CreateItem = () => {
@@ -23,11 +23,13 @@ const CreateItem = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setLoading(true);
         setErrors({});
+        setLoading(true);
 
         try {
-            await itemService.create(formData);
+            // ✅ API request using api.js
+            await api.post('/items', formData);
+
             navigate('/items');
         } catch (error) {
             if (error.response && error.response.status === 422) {
@@ -55,13 +57,13 @@ const CreateItem = () => {
                             <div className="mb-3">
                                 <label htmlFor="no" className="form-label">අංකය</label>
                                 <input 
-                                    type="text" 
-                                    id="no" 
-                                    name="no" 
+                                    type="text"
+                                    id="no"
+                                    name="no"
                                     value={formData.no}
                                     onChange={handleChange}
                                     className={`form-control ${errors.no ? 'is-invalid' : ''}`}
-                                    required 
+                                    required
                                     style={{ textTransform: 'uppercase' }}
                                 />
                                 {errors.no && <div className="invalid-feedback">{errors.no[0]}</div>}
@@ -70,13 +72,13 @@ const CreateItem = () => {
                             <div className="mb-3">
                                 <label htmlFor="type" className="form-label">වර්ගය</label>
                                 <input 
-                                    type="text" 
-                                    id="type" 
-                                    name="type" 
+                                    type="text"
+                                    id="type"
+                                    name="type"
                                     value={formData.type}
                                     onChange={handleChange}
                                     className={`form-control ${errors.type ? 'is-invalid' : ''}`}
-                                    required 
+                                    required
                                 />
                                 {errors.type && <div className="invalid-feedback">{errors.type[0]}</div>}
                             </div>
@@ -84,14 +86,14 @@ const CreateItem = () => {
                             <div className="mb-3">
                                 <label htmlFor="pack_cost" className="form-label">මල්ලක අගය</label>
                                 <input 
-                                    type="number" 
-                                    id="pack_cost" 
-                                    name="pack_cost" 
+                                    type="number"
+                                    id="pack_cost"
+                                    name="pack_cost"
+                                    step="0.01"
                                     value={formData.pack_cost}
                                     onChange={handleChange}
-                                    step="0.01" 
                                     className={`form-control ${errors.pack_cost ? 'is-invalid' : ''}`}
-                                    required 
+                                    required
                                 />
                                 {errors.pack_cost && <div className="invalid-feedback">{errors.pack_cost[0]}</div>}
                             </div>
@@ -99,23 +101,23 @@ const CreateItem = () => {
                             <div className="mb-3">
                                 <label htmlFor="pack_due" className="form-label">මල්ලක කුලිය</label>
                                 <input 
-                                    type="number" 
-                                    id="pack_due" 
-                                    name="pack_due" 
+                                    type="number"
+                                    id="pack_due"
+                                    name="pack_due"
+                                    step="0.01"
                                     value={formData.pack_due}
                                     onChange={handleChange}
-                                    step="0.01" 
                                     className={`form-control ${errors.pack_due ? 'is-invalid' : ''}`}
-                                    required 
+                                    required
                                 />
                                 {errors.pack_due && <div className="invalid-feedback">{errors.pack_due[0]}</div>}
                             </div>
 
                             <div className="d-flex justify-content-center mt-4">
                                 <button 
-                                    type="submit" 
-                                    className="btn btn-success me-2"
+                                    type="submit"
                                     disabled={loading}
+                                    className="btn btn-success me-2"
                                 >
                                     {loading ? 'Adding...' : (
                                         <>
@@ -124,6 +126,7 @@ const CreateItem = () => {
                                         </>
                                     )}
                                 </button>
+
                                 <Link to="/items" className="btn btn-secondary">
                                     <i className="material-icons align-middle me-1">cancel</i>
                                     අවලංගු කරන්න
@@ -147,14 +150,6 @@ const CreateItem = () => {
                 .form-label {
                     font-weight: 700;
                     color: #000000;
-                }
-                .btn-success {
-                    background-color: #198754;
-                    border-color: #198754;
-                }
-                .btn-secondary {
-                    background-color: #6c757d;
-                    border-color: #6c757d;
                 }
             `}</style>
         </div>

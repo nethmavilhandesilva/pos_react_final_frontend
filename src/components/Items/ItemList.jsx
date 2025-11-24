@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { itemService } from '../../services/itemService';
+import api from '../../api';
 import { Link } from 'react-router-dom';
 
 const ItemList = () => {
@@ -14,7 +14,7 @@ const ItemList = () => {
 
     const loadItems = async () => {
         try {
-            const response = await itemService.getAll();
+            const response = await api.get('/items');
             setItems(response.data);
         } catch (error) {
             console.error('Error loading items:', error);
@@ -34,7 +34,7 @@ const ItemList = () => {
         }
 
         try {
-            const response = await itemService.search(value);
+            const response = await api.get(`/items/search/${value}`);
             setItems(response.data);
         } catch (error) {
             console.error('Error searching items:', error);
@@ -44,7 +44,7 @@ const ItemList = () => {
     const handleDelete = async (id) => {
         if (window.confirm('ඔබට මෙම භාණ්ඩය මකන්න අවශ්‍යද?')) {
             try {
-                await itemService.delete(id);
+                await api.delete(`/items/${id}`);
                 setMessage('Item deleted successfully!');
                 loadItems();
             } catch (error) {
@@ -67,11 +67,12 @@ const ItemList = () => {
                     <Link to="/items/create" className="btn btn-success">
                         + නව භාණ්ඩයක් එකතු කරන්න
                     </Link>
-                    <input 
-                        type="text" 
+
+                    <input
+                        type="text"
                         value={searchTerm}
                         onChange={handleSearch}
-                        className="form-control form-control-sm" 
+                        className="form-control form-control-sm"
                         placeholder="අංකය හෝ වර්ගය අනුව සොයන්න"
                         style={{ maxWidth: '300px' }}
                     />
@@ -94,6 +95,7 @@ const ItemList = () => {
                                 <th>මෙහෙයුම්</th>
                             </tr>
                         </thead>
+
                         <tbody>
                             {items.map((item) => (
                                 <tr key={item.id}>
@@ -101,14 +103,16 @@ const ItemList = () => {
                                     <td>{item.type}</td>
                                     <td>{Number(item.pack_cost).toFixed(2)}</td>
                                     <td>{Number(item.pack_due).toFixed(2)}</td>
+
                                     <td>
-                                        <Link 
-                                            to={`/items/edit/${item.id}`} 
+                                        <Link
+                                            to={`/items/edit/${item.id}`}
                                             className="btn btn-primary btn-sm me-1"
                                         >
                                             යාවත්කාලීන
                                         </Link>
-                                        <button 
+
+                                        <button
                                             onClick={() => handleDelete(item.id)}
                                             className="btn btn-danger btn-sm"
                                         >
