@@ -1,5 +1,3 @@
-// src/components/Suppliers/SupplierDetailsModal.jsx
-
 import React, { useMemo, useEffect } from 'react';
 
 const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
@@ -15,10 +13,13 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         detailedItemsHtml,
         totalPacksSum,
         billNo,
-        customerCode 
+        customerCode,
+        // *** FIX: Added totalsupplierSales to the returned object ***
+        totalsupplierSales, 
     } = useMemo(() => {
         let totalWeight = 0;
         let totalSales = 0;
+        let totalsupplierSales = 0; // The calculated variable
         let totalCommission = 0;
         let totalPacksSum = 0;
         let customerCode = details.length > 0 ? details[0].customer_code : '';
@@ -34,16 +35,16 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             const packs = parseInt(record.packs) || 0;
             const pricePerKg = parseFloat(record.price_per_kg) || 0;
             const itemName = record.item_name || 'Unknown Item';
+            const supplierTotal = parseFloat(record.SupplierTotal) || 0; // Assuming this is the source
 
             // 1. Grand Totals
             totalWeight += weight;
             totalSales += total;
             totalCommission += commission;
             totalPacksSum += packs;
+            totalsupplierSales += supplierTotal; // Accumulating the supplier's total
 
             // 2. Detailed Items HTML (for the bill)
-            // The 'අගය' (Value) column in the bill must reflect (Total - Commission) for that item.
-            // NOTE: The previous code used 'record.total'. Now calculating net value for display.
             const itemNetValue = total - commission;
             
             itemsHtmlArray.push(`
@@ -73,11 +74,12 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             totalPacksSum,
             billNo,
             customerCode,
+            totalsupplierSales, // *** RETURNED VARIABLE ***
         };
     }, [details]);
 
     // Helper function to format decimals
-    const formatDecimal = (value, decimals = 2) => value.toLocaleString(undefined, {
+    const formatDecimal = (value, decimals = 2) => (value || 0).toLocaleString(undefined, { // Added (value || 0) to handle potential null/undefined
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
@@ -90,7 +92,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         const mobile = '071XXXXXXX'; 
         const customerName = customerCode || 'N/A';
         
-        // **CHANGE 1: Use Amount Payable for the final total and related fields**
+        // Use Amount Payable for the final total and related fields
         const totalSalesExcludingPackDue = amountPayable; // Total of all net item values
         const totalPackDueCost = totalCommission; // Commission is treated as 'කුලිය'
         const finalAmountToDisplay = amountPayable; // Final amount in the double-underline box
@@ -157,12 +159,24 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         
         if (printWindow) {
             printWindow.document.write('<html><head><title>Bill Print</title>');
+            // Basic styles for thermal print size simulation
+            printWindow.document.write(`
+                <style>
+                    body { font-family: sans-serif; margin: 0; padding: 0; }
+                    .receipt-container { width: 80mm; padding: 5px; margin: 0 auto; }
+                    /* Add any other specific print styles here */
+                    @media print {
+                        body { margin: 0; }
+                    }
+                </style>
+            `);
             printWindow.document.write('</head><body>');
             printWindow.document.write(content);
             printWindow.document.write('</body></html>');
             printWindow.document.close();
             printWindow.focus();
             printWindow.print();
+            printWindow.close(); // Close window after print dialog is shown
         } else {
             alert("Please allow pop-ups to print the bill.");
         }
@@ -186,7 +200,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         };
     }, [isOpen, details]);
 
-    // --- INLINE STYLES (Kept for completeness) ---
+    // --- INLINE STYLES (Provided in the original request) ---
     const modalOverlayStyle = {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex',
@@ -324,8 +338,9 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
                                 <div style={summaryValueStyle}>{formatDecimal(totalWeight, 3)}</div>
                             </div>
                             <div style={summaryBoxStyle('blue')}>
-                                <div>Total Sales Amount</div>
-                                <div style={summaryValueStyle}>{formatDecimal(totalSales)}</div>
+                                {/* *** FIX: totalsupplierSales is now available and used here *** */}
+                                <div>Total Sales Amount</div> 
+                                <div style={summaryValueStyle}>{formatDecimal(totalsupplierSales)}</div> 
                             </div>
                             <div style={summaryBoxStyle('red')}>
                                 <div>Total Commission</div>
@@ -333,7 +348,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
                             </div>
                             <div style={summaryBoxStyle('blue')}>
                                 <div>**Amount Payable**</div>
-                                <div style={summaryValueStyle}>{formatDecimal(amountPayable)}</div>
+                                <div style={summaryValueStyle}>{formatDecimal(totalsupplierSales)}</div>
                             </div>
                         </div>
 
