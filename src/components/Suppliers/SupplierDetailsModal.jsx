@@ -1,29 +1,86 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
+import api from '../../api'; // Axios instance with credentials
 
-const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
-    if (!isOpen) return null;
+const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
+    // State to hold the fetched details and the generated bill number
+    const [details, setDetails] = useState([]);
+    const [billNo, setBillNo] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState(null);
 
-    // --- CALCULATIONS (using useMemo for efficiency) ---
-    const { 
-        totalWeight, 
-        totalSales, 
-        totalCommission, 
-        amountPayable, 
+    // --- FETCH SUPPLIER DETAILS AND BILL NUMBER ---
+    useEffect(() => {
+        if (isOpen && supplierCode) {
+            const fetchData = async () => {
+                setIsLoading(true);
+                setError(null);
+                try {
+                    // 1️⃣ Fetch supplier details
+                    const detailsResponse = await api.get(`/suppliers/${supplierCode}/details`);
+                    const supplierDetails = detailsResponse.data;
+
+                    // 2️⃣ Fetch new bill number
+                    // This API call is independent of the supplier details
+                    const billResponse = await api.get('/generate-f-series-bill');
+                    const newBillNo = billResponse.data.new_bill_no;
+
+                    // Assign the *newly generated* bill number to each record
+                    // and also get the Date and customer_code from the response records
+                    const updatedDetails = supplierDetails.map(record => ({
+                        ...record,
+                        bill_no: newBillNo,
+                        // Ensure Date is available for the detailed table (assuming it's in the fetched record)
+                        Date: record.Date || new Date().toISOString().split('T')[0], // Fallback date
+                    }));
+
+                    setDetails(updatedDetails);
+                    setBillNo(newBillNo);
+                } catch (err) {
+                    console.error('Error fetching supplier details or bill:', err);
+                    setError('Failed to fetch transaction details or generate bill number.');
+                    setDetails([]);
+                    setBillNo('N/A');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            fetchData();
+        } else if (!isOpen) {
+            // Reset state when modal closes
+            setDetails([]);
+            setBillNo('');
+            setError(null);
+            setIsLoading(false);
+        }
+    }, [isOpen, supplierCode]);
+
+    // Helper function to format decimals
+    const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+
+    // --- CALCULATIONS (useMemo) ---
+    const {
+        totalWeight,
+        totalSales,
+        totalCommission,
+        amountPayable,
         itemSummaryData,
         detailedItemsHtml,
         totalPacksSum,
-        billNo,
         customerCode,
-        // *** FIX: Added totalsupplierSales to the returned object ***
-        totalsupplierSales, 
+        totalsupplierSales, // Using this variable name from the original code
     } = useMemo(() => {
         let totalWeight = 0;
-        let totalSales = 0;
-        let totalsupplierSales = 0; // The calculated variable
+        let totalSales = 0; // Total sales from all records (e.g., total column)
+        let totalsupplierSales = 0; // Total from SupplierTotal column
         let totalCommission = 0;
         let totalPacksSum = 0;
+        
+        // Find the first customer code for the header/summary
         let customerCode = details.length > 0 ? details[0].customer_code : '';
-        let billNo = details.length > 0 ? details[0].bill_no : '';
 
         const itemSummary = {};
         const itemsHtmlArray = [];
@@ -33,26 +90,29 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             const total = parseFloat(record.total) || 0;
             const commission = parseFloat(record.commission_amount) || 0;
             const packs = parseInt(record.packs) || 0;
-            const pricePerKg = parseFloat(record.price_per_kg) || 0;
+            const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
+            const SupplierTotal = parseFloat(record.SupplierTotal) || 0; // The actual payable total for the item
             const itemName = record.item_name || 'Unknown Item';
-            const supplierTotal = parseFloat(record.SupplierTotal) || 0; // Assuming this is the source
 
             // 1. Grand Totals
             totalWeight += weight;
-            totalSales += total;
+            totalSales += total; // This might be the raw customer sale value
+            totalsupplierSales += SupplierTotal; // This is the amount the supplier is due for the item
             totalCommission += commission;
             totalPacksSum += packs;
-            totalsupplierSales += supplierTotal; // Accumulating the supplier's total
 
-            // 2. Detailed Items HTML (for the bill)
-            const itemNetValue = total - commission;
-            
+            // 2. Detailed Items HTML (for the bill print window)
+            // It seems the print logic uses SupplierPricePerKg and SupplierTotal
             itemsHtmlArray.push(`
-                <tr>
-                    <td style="text-align:left;padding:2px;border-bottom:1px solid #eee;">${itemName}<br>${packs}</td>
-                    <td style="text-align:center;padding:2px;border-bottom:1px solid #eee;">${weight.toFixed(3)}</td>
-                    <td style="text-align:center;padding:2px;border-bottom:1px solid #eee;">${pricePerKg.toFixed(2)}</td>
-                    <td style="text-align:right;padding:2px;border-bottom:1px solid #eee;">${itemNetValue.toFixed(2)}</td>
+                <tr style="font-size: 1.1em;">
+                    <td style="text-align:left;padding:3px;border-bottom:1px solid #eee;">
+                        <span style="font-weight: bold;">${itemName}</span><br>${packs}
+                    </td>
+                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${weight.toFixed(3)}</td>
+                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${SupplierPricePerKg.toFixed(2)}</td>
+                    <td style="text-align:right;padding:3px;border-bottom:1px solid #eee;">
+                        <span style="font-weight: bold; font-size: 0.9em;">${customerCode.toUpperCase()}</span><br>${SupplierTotal.toFixed(2)}
+                    </td>
                 </tr>
             `);
 
@@ -63,100 +123,92 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             itemSummary[itemName].totalWeight += weight;
             itemSummary[itemName].totalPacks += packs;
         });
+        
+       
+        
+        const finalAmountPayable = totalsupplierSales ;
 
         return {
             totalWeight,
-            totalSales,
+            totalSales, // Raw customer sales
             totalCommission,
-            amountPayable: totalSales - totalCommission, // Total Payable
+            amountPayable: finalAmountPayable, // The net amount payable to the supplier
             itemSummaryData: itemSummary,
             detailedItemsHtml: itemsHtmlArray.join(''),
             totalPacksSum,
-            billNo,
             customerCode,
-            totalsupplierSales, // *** RETURNED VARIABLE ***
+            totalsupplierSales, // Total amount from the SupplierTotal field (before final deduction)
         };
     }, [details]);
-
-    // Helper function to format decimals
-    const formatDecimal = (value, decimals = 2) => (value || 0).toLocaleString(undefined, { // Added (value || 0) to handle potential null/undefined
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-    });
 
     // --- BILL CONTENT GENERATION ---
     const getBillContent = () => {
         const date = new Date().toLocaleDateString('si-LK');
         const time = new Date().toLocaleTimeString('si-LK');
+
+        const mobile = '071XXXXXXX';
+        const totalPackDueCost = totalCommission;
         
-        const mobile = '071XXXXXXX'; 
-        const customerName = customerCode || 'N/A';
-        
-        // Use Amount Payable for the final total and related fields
-        const totalSalesExcludingPackDue = amountPayable; // Total of all net item values
-        const totalPackDueCost = totalCommission; // Commission is treated as 'කුලිය'
-        const finalAmountToDisplay = amountPayable; // Final amount in the double-underline box
-        
-        const givenAmountRow = ''; 
-        const loanRow = ''; 
-        
+        // The print receipt logic in the original component used amountPayable for the main total.
+        // amountPayable is calculated as totalsupplierSales - totalCommission
+        const totalSalesExcludingPackDue = amountPayable;
+        const finalAmountToDisplay = amountPayable;
+
         const itemSummaryKeys = Object.keys(itemSummaryData);
         const itemSummaryHtml = itemSummaryKeys.map(itemName => {
             const sum = itemSummaryData[itemName];
             return `
                 <tr>
                     <td style="width: 50%;">${itemName}</td>
-                    <td style="width: 50%; text-align: right;">${sum.totalPacks} @ ${sum.totalWeight.toFixed(3)}kg</td>
+                    <td style="width: 50%; text-align: right;">${sum.totalPacks} / ${sum.totalWeight.toFixed(3)}kg</td>
                 </tr>
             `;
         }).join('');
 
         return `<div class="receipt-container" style="width:100%;max-width:300px;margin:0 auto;padding:5px;">
-          <div style="text-align:center;margin-bottom:5px;">
-            <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
-            </div>
-          <div style="text-align:left;margin-bottom:5px;">
-            <table style="width:100%;font-size:9px;border-collapse:collapse;">
-              <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
-              <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
-              <tr><td>බිල් අංකය : <strong>${billNo || 'N/A'}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${customerName.toUpperCase()}</strong></td></tr>
-            </table>
-          </div>
-          <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
-          <table style="width:100%;font-size:9px;border-collapse:collapse;">
-            <thead style="font-size:1.8em;">
-              <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
-            </thead>
-            <tbody>
-              <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-              ${detailedItemsHtml}
-              <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-              <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalSalesExcludingPackDue.toFixed(2)}</td></tr>
-            </tbody>
-          </table>
-          <table style="width:100%;font-size:15px;border-collapse:collapse;">
-                <tr><td>පාරිභෝගික කේතය:</td><td style="text-align:right;font-weight:bold;">${customerCode}</td></tr>
-            <tr><td>ප්‍රවාහන ගාස්තු:</td><td style="text-align:right;font-weight:bold;">00</td></tr>
-            <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
-            <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finalAmountToDisplay).toFixed(2)}</span></td></tr>
-            ${givenAmountRow}${loanRow}
-          </table>
-          <div style="font-size:10px;">
-                <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
-                    ${itemSummaryHtml}
-                </table>
-            </div>
-            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-          <div style="text-align:center;margin-top:10px;font-size:10px;">
-            <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
-          </div>
-        </div>`;
+    <div style="text-align:center;margin-bottom:5px;">
+        <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
+    </div>
+    <div style="text-align:left;margin-bottom:5px;">
+        <table style="width:100%;font-size:9px;border-collapse:collapse;">
+            <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
+            <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
+            <tr><td>බිල් අංකය : <strong>${billNo || 'N/A'}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${supplierCode.toUpperCase()}</strong></td></tr>
+        </table>
+    </div>
+    <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
+    <table style="width:100%;font-size:9px;border-collapse:collapse;">
+        <thead style="font-size:1.8em;">
+            <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
+        </thead>
+        <tbody>
+            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+            ${detailedItemsHtml}
+            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+            <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalSalesExcludingPackDue.toFixed(2)}</td></tr>
+        </tbody>
+    </table>
+    <table style="width:100%;font-size:15px;border-collapse:collapse;">
+        <tr><td>ප්‍රවාහන ගාස්තු:</td><td style="text-align:right;font-weight:bold;">00</td></tr>
+        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
+        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finalAmountToDisplay).toFixed(2)}</span></td></tr>
+    </table>
+    <div style="font-size:10px;">
+        <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
+            ${itemSummaryHtml}
+        </table>
+    </div>
+    <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+    <div style="text-align:center;margin-top:10px;font-size:10px;">
+        <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
+    </div>
+</div>`;
     };
 
     const handlePrint = () => {
         const content = getBillContent();
         const printWindow = window.open('', '', 'height=600,width=800');
-        
+
         if (printWindow) {
             printWindow.document.write('<html><head><title>Bill Print</title>');
             // Basic styles for thermal print size simulation
@@ -176,18 +228,18 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
             printWindow.document.close();
             printWindow.focus();
             printWindow.print();
-            printWindow.close(); // Close window after print dialog is shown
+            // Close window after print dialog is shown
         } else {
             alert("Please allow pop-ups to print the bill.");
         }
     };
-    
+
     // --- KEYBOARD EVENT LISTENER (F1) ---
     useEffect(() => {
         const handleKeyDown = (event) => {
             if (event.key === 'F1' || event.keyCode === 112) {
                 event.preventDefault();
-                if (isOpen) {
+                if (isOpen && details.length > 0) { // Only allow print if open and data exists
                     handlePrint();
                 }
             }
@@ -200,7 +252,9 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         };
     }, [isOpen, details]);
 
-    // --- INLINE STYLES (Provided in the original request) ---
+    if (!isOpen) return null;
+
+    // --- INLINE STYLES (From the second component) ---
     const modalOverlayStyle = {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex',
@@ -277,7 +331,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
         backgroundColor: '#ffc107', color: '#343a40', border: 'none',
         borderRadius: '6px', cursor: 'pointer', marginTop: '20px', transition: 'background-color 0.2s',
     };
-    
+
     // --- Item Summary Component ---
     const ItemSummary = ({ summaryData }) => {
         const itemNames = Object.keys(summaryData);
@@ -312,102 +366,118 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, details }) => {
     return (
         <div style={modalOverlayStyle}>
             <div style={modalContentStyle}>
-                <button 
-                    style={closeButtonStyle} 
+                <button
+                    style={closeButtonStyle}
                     onClick={onClose}
                     onMouseOver={e => e.currentTarget.style.color = '#dc3545'}
                     onMouseOut={e => e.currentTarget.style.color = '#6c757d'}
                 >
                     &times;
                 </button>
-                
+
                 {/* --- SUPPLIER CODE IN HEADER --- */}
                 <div style={headerStyle}>
-                    <h2>Transaction Details</h2>
+                    <h2>Transaction Details (Bill No: **{billNo}**)</h2>
                     <span style={supplierCodeBadgeStyle}>{supplierCode}</span>
                 </div>
+
+                {isLoading && <p style={{ textAlign: 'center', fontSize: '1.2em', color: '#007bff' }}>Loading details and generating bill...</p>}
+                {error && <p style={{ textAlign: 'center', fontSize: '1.2em', color: '#dc3545', fontWeight: 'bold' }}>Error: {error}</p>}
                 
-                {details.length === 0 ? (
+                {!isLoading && !error && details.length === 0 ? (
                     <p style={{ color: '#6c757d' }}>No records found for this supplier.</p>
                 ) : (
-                    <>
-                        {/* --- GRAND SUMMARY BOXES --- */}
-                        <div style={summaryBoxContainerStyle}>
-                            <div style={summaryBoxStyle('green')}>
-                                <div>Total Weight (kg)</div>
-                                <div style={summaryValueStyle}>{formatDecimal(totalWeight, 3)}</div>
+                    !isLoading && details.length > 0 && (
+                        <>
+                            {/* --- GRAND SUMMARY BOXES --- */}
+                            <div style={summaryBoxContainerStyle}>
+                                <div style={summaryBoxStyle('green')}>
+                                    <div>Total Weight (kg)</div>
+                                    <div style={summaryValueStyle}>{formatDecimal(totalWeight, 3)}</div>
+                                </div>
+                                <div style={summaryBoxStyle('blue')}>
+                                    <div>Gross Supplier Sales</div>
+                                    <div style={summaryValueStyle}>{formatDecimal(totalsupplierSales)}</div>
+                                </div>
+                                <div style={summaryBoxStyle('red')}>
+                                    <div>Total Commission</div>
+                                    <div style={summaryValueStyle}>{formatDecimal(totalCommission)}</div>
+                                </div>
+                                <div style={summaryBoxStyle('blue')}>
+                                    <div>**Amount Payable (Net)**</div>
+                                    <div style={summaryValueStyle}>{formatDecimal(amountPayable)}</div>
+                                </div>
                             </div>
-                            <div style={summaryBoxStyle('blue')}>
-                                {/* *** FIX: totalsupplierSales is now available and used here *** */}
-                                <div>Total Sales Amount</div> 
-                                <div style={summaryValueStyle}>{formatDecimal(totalsupplierSales)}</div> 
-                            </div>
-                            <div style={summaryBoxStyle('red')}>
-                                <div>Total Commission</div>
-                                <div style={summaryValueStyle}>{formatDecimal(totalCommission)}</div>
-                            </div>
-                            <div style={summaryBoxStyle('blue')}>
-                                <div>**Amount Payable**</div>
-                                <div style={summaryValueStyle}>{formatDecimal(totalsupplierSales)}</div>
-                            </div>
-                        </div>
 
-                        {/* --- DETAILED TABLE --- */}
-                        <div style={tableContainerStyle}>
-                            <table style={tableStyle}>
-                                <thead>
-                                    <tr>
-                                        <th style={thStyle}>Date</th>
-                                        <th style={thStyle}>Bill No</th>
-                                        <th style={thStyle}>Customer</th>
-                                        <th style={thStyle}>Item</th>
-                                        <th style={thStyle}>Weight</th>
-                                        <th style={thStyle}>Price/kg</th>
-                                        <th style={thStyle}>Commission</th>
-                                        <th style={thStyle}>Total</th>
-                                        <th style={thStyle}>Packs</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {details.map((record, index) => (
-                                        <tr 
-                                            key={index} 
-                                            style={getRowStyle(index)}
-                                        >
-                                            <td style={tdStyle}>{record.Date}</td>
-                                            <td style={tdStyle}>{record.bill_no}</td>
-                                            <td style={tdStyle}>{record.customer_code}</td>
-                                            <td style={tdStyle}>{record.item_name}</td>
-                                            <td style={tdStyle}>{formatDecimal(record.weight, 3)}</td>
-                                            <td style={tdStyle}>{formatDecimal(record.price_per_kg)}</td>
-                                            <td style={tdStyle}>{formatDecimal(record.commission_amount)}</td>
-                                            <td style={tdStyle}>{formatDecimal(record.total)}</td>
-                                            <td style={tdStyle}>{record.packs}</td>
+                            {/* --- DETAILED TABLE --- */}
+                            <div style={tableContainerStyle}>
+                                <table style={tableStyle}>
+                                    <thead>
+                                        <tr>
+                                            <th style={thStyle}>Date</th>
+                                            <th style={thStyle}>Bill No</th>
+                                            <th style={thStyle}>Customer</th>
+                                            <th style={thStyle}>Item</th>
+                                            <th style={thStyle}>Packs</th>
+                                            <th style={thStyle}>Weight</th>
+                                            <th style={thStyle}>Price/kg</th>
+                                            <th style={thStyle}>Gross Total</th>
+                                            <th style={thStyle}>Commission</th>
+                                            <th style={thStyle}>Net Payable</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                        
-                        {/* --- ITEM SUMMARY --- */}
-                        <ItemSummary summaryData={itemSummaryData} />
+                                    </thead>
+                                    <tbody>
+                                        {details.map((record, index) => (
+                                            <tr
+                                                key={index}
+                                                style={getRowStyle(index)}
+                                            >
+                                                <td style={tdStyle}>{record.Date}</td>
+                                                <td style={tdStyle}>{record.bill_no}</td>
+                                                <td style={tdStyle}>{record.customer_code}</td>
+                                                <td style={tdStyle}>**{record.item_name}**</td>
+                                                <td style={tdStyle}>{record.packs}</td>
+                                                <td style={tdStyle}>{formatDecimal(record.weight, 3)}</td>
+                                                <td style={tdStyle}>{formatDecimal(record.SupplierPricePerKg)}</td>
+                                                <td style={tdStyle}>{formatDecimal(record.SupplierTotal)}</td>
+                                                <td style={tdStyle}>{formatDecimal(record.commission_amount)}</td>
+                                                <td style={tdStyle}>{formatDecimal(parseFloat(record.SupplierTotal))}</td>
+                                            </tr>
+                                        ))}
+                                        {/* --- Summary Row for Table --- */}
+                                        <tr style={{ ...getRowStyle(details.length), fontWeight: 'bold', borderTop: '2px solid #000' }}>
+                                            <td style={tdStyle} colSpan="4">**TOTALS**</td>
+                                            <td style={tdStyle}>{totalPacksSum}</td>
+                                            <td style={tdStyle}>{formatDecimal(totalWeight, 3)}</td>
+                                            <td style={tdStyle}>-</td>
+                                            <td style={tdStyle}>{formatDecimal(totalsupplierSales)}</td>
+                                            <td style={tdStyle}>{formatDecimal(totalCommission)}</td>
+                                            <td style={{...tdStyle, fontSize: '1.1em', color: '#17a2b8'}}>{formatDecimal(amountPayable)}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
 
-                        {/* --- PRINT BUTTON --- */}
-                        <div style={{ textAlign: 'center' }}>
-                            <button 
-                                style={printButtonStyle} 
-                                onClick={handlePrint}
-                                onMouseOver={e => e.currentTarget.style.backgroundColor = '#e0a800'}
-                                onMouseOut={e => e.currentTarget.style.backgroundColor = '#ffc107'}
-                            >
-                                🖨️ Print Bill (F1)
-                            </button>
-                        </div>
-                    </>
+                            {/* --- ITEM SUMMARY --- */}
+                            <ItemSummary summaryData={itemSummaryData} />
+
+                            {/* --- PRINT BUTTON --- */}
+                            <div style={{ textAlign: 'center' }}>
+                                <button
+                                    style={printButtonStyle}
+                                    onClick={handlePrint}
+                                    onMouseOver={e => e.currentTarget.style.backgroundColor = '#e0a800'}
+                                    onMouseOut={e => e.currentTarget.style.backgroundColor = '#ffc107'}
+                                >
+                                    🖨️ Print Bill (F1)
+                                </button>
+                            </div>
+                        </>
+                    )
                 )}
             </div>
         </div>
     );
 };
-
+ 
 export default SupplierDetailsModal;

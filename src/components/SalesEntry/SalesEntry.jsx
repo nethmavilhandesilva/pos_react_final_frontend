@@ -169,11 +169,11 @@ const CustomerList = React.memo(({
                                             }
                                         }}
                                         // 🟢 FIX 1: Use inline style for required light blue BG color and fallback classes
-                                        className={`w-full py-1 mb-2 rounded-xl border text-left ${isItemSelected 
-                                            ? "border-blue-600" 
+                                        className={`w-full py-1 mb-2 rounded-xl border text-left ${isItemSelected
+                                            ? "border-blue-600"
                                             : "bg-gray-50 hover:bg-gray-100 border-gray-200"
-                                        }`}
-                                        style={isItemSelected 
+                                            }`}
+                                        style={isItemSelected
                                             ? { backgroundColor: '#93C5FD' } // Light Blue Hex Code (forcing override)
                                             : {}
                                         }
@@ -250,7 +250,7 @@ export default function SalesEntry() {
         weight: useRef(null),        // 6
         pricePerKg: useRef(null),        // 7
         packs: useRef(null),          // 8
-        total: useRef(null)            // 9
+        total: useRef(null),           // 9
     };
     const fieldOrder = ["customer_code_input", "customer_code_select", "given_amount", "supplier_code", "item_code_select", "item_name", "weight", "price_per_kg", "packs", "total"];
     const skipMap = { customer_code_input: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight" };
@@ -1215,24 +1215,72 @@ export default function SalesEntry() {
                                     <Select
                                         id="customer_code_select"
                                         ref={refs.customerSelect}
-                                        value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null}
+                                        value={
+                                            formData.customer_code
+                                                ? { value: formData.customer_code, label: `${formData.customer_code}` }
+                                                : null
+                                        }
                                         onChange={handleCustomerSelect}
                                         options={customers
-                                            .filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase())
-                                            .map(c => ({ value: c.short_name, label: `${c.short_name}` }))}
-                                        onInputChange={(inputValue, { action }) => { if (action === "input-change") updateState({ customerSearchInput: inputValue.toUpperCase() }); }}
+                                            .filter(
+                                                (c) =>
+                                                    !customerSearchInput ||
+                                                    c.short_name.charAt(0).toUpperCase() ===
+                                                    customerSearchInput.charAt(0).toUpperCase()
+                                            )
+                                            .map((c) => ({ value: c.short_name, label: `${c.short_name}` }))
+                                        }
+                                        onInputChange={(inputValue, { action }) => {
+                                            if (action === "input-change")
+                                                updateState({ customerSearchInput: inputValue.toUpperCase() });
+                                        }}
                                         inputValue={customerSearchInput}
                                         placeholder="SELECT CUSTOMER"
                                         isClearable
                                         isSearchable
                                         styles={{
-                                            control: (base) => ({ ...base, minHeight: "36px", height: "36px", fontSize: "12px", backgroundColor: "white", borderColor: "#4a5568" }),
-                                            valueContainer: (base) => ({ ...base, padding: "0 6px", height: "36px" }),
-                                            placeholder: (base) => ({ ...base, fontSize: "12px", color: "gray" }),
-                                            input: (base) => ({ ...base, fontSize: "12px", color: "black" }),
-                                            singleValue: (base) => ({ ...base, color: "black", fontSize: "12px" })
+                                            control: (base) => ({
+                                                ...base,
+                                                minHeight: "36px",
+                                                height: "36px",
+                                                fontSize: "12px",
+                                                backgroundColor: "white",
+                                                borderColor: "#4a5568",
+                                            }),
+                                            valueContainer: (base) => ({
+                                                ...base,
+                                                padding: "0 6px",
+                                                height: "36px",
+                                            }),
+                                            placeholder: (base) => ({
+                                                ...base,
+                                                fontSize: "12px",
+                                                color: "gray",
+                                            }),
+                                            input: (base) => ({
+                                                ...base,
+                                                fontSize: "12px",
+                                                color: "black",
+                                            }),
+                                            singleValue: (base) => ({
+                                                ...base,
+                                                color: "black",
+                                                fontSize: "12px",
+                                                fontWeight: "bold",
+                                            }),
+
+                                            // ⭐ ADDING BOLD + BLACK DROPDOWN OPTIONS HERE
+                                            option: (base, state) => ({
+                                                ...base,
+                                                color: "black",
+                                                fontWeight: "bold",
+                                                fontSize: "12px",
+                                                backgroundColor: state.isFocused ? "#e5e7eb" : "white",
+                                                cursor: "pointer",
+                                            }),
                                         }}
                                     />
+
                                 </div>
 
                                 {/* Loan */}
@@ -1294,18 +1342,49 @@ export default function SalesEntry() {
                                             item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due },
                                         } : null}
                                         onChange={handleItemSelect}
-                                        options={items.filter(item => {
-                                            if (!state.itemSearchInput) return true;
-                                            const search = state.itemSearchInput.toLowerCase();
-                                            return String(item.no).toLowerCase().startsWith(search) || String(item.type).toLowerCase().includes(search);
-                                        }).map(item => ({ value: item.no, label: `${item.type} (${item.no})`, item }))}
-                                        onInputChange={(inputValue) => updateState({ itemSearchInput: inputValue.toUpperCase() })}
+                                        options={items
+                                            .filter(item => {
+                                                if (!state.itemSearchInput) return true;
+                                                const search = state.itemSearchInput.toLowerCase();
+                                                return (
+                                                    String(item.no).toLowerCase().startsWith(search) ||
+                                                    String(item.type).toLowerCase().includes(search)
+                                                );
+                                            })
+                                            .map(item => ({
+                                                value: item.no,
+                                                label: `${item.type} (${item.no})`,
+                                                item,
+                                            }))
+                                        }
+                                        onInputChange={(inputValue) =>
+                                            updateState({ itemSearchInput: inputValue.toUpperCase() })
+                                        }
                                         inputValue={state.itemSearchInput}
                                         onKeyDown={(e) => handleKeyDown(e, 4)}
                                         placeholder="SELECT ITEM"
                                         className="react-select-container font-bold text-sm w-full"
-                                        styles={{ control: (base) => ({ ...base, minHeight: "32px", height: "32px" }) }}
+                                        styles={{
+                                            control: (base) => ({
+                                                ...base,
+                                                minHeight: "32px",
+                                                height: "32px",
+                                            }),
+                                            option: (base, state) => ({
+                                                ...base,
+                                                color: "black",
+                                                fontWeight: "bold",
+                                                backgroundColor: state.isFocused ? "#e5e7eb" : "white", // optional hover color
+                                                cursor: "pointer",
+                                            }),
+                                            singleValue: (base) => ({
+                                                ...base,
+                                                fontWeight: "bold",
+                                                color: "black"
+                                            })
+                                        }}
                                     />
+
                                 </div>
 
                                 {/* Weight */}
@@ -1423,7 +1502,7 @@ export default function SalesEntry() {
                                     ))}
                                 </tbody>
                             </table>
-                              {/* === ROW 3: GIVEN AMOUNT INPUT === */}
+                            {/* === ROW 3: GIVEN AMOUNT INPUT === */}
                             <div className="flex items-center justify-end mt-2">
                                 <input
                                     id="given_amount"
@@ -1445,7 +1524,7 @@ export default function SalesEntry() {
                             <div className="flex items-center justify-between mt-6 mb-4">
                                 <div className="flex justify-between items-center w-full">
                                     <div className="flex items-center gap-0">
-                                        <div className="text-2xl font-bold text-white"> 
+                                        <div className="text-2xl font-bold text-white">
                                             (
                                             <span>
                                                 Sales: Rs. {formatDecimal(displayedSales.reduce((sum, s) =>
