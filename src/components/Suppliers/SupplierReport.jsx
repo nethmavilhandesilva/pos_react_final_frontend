@@ -1,19 +1,15 @@
 // src/components/SupplierReport.jsx
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react'; // Added useCallback for modal functions
 import api from "../../api";
 import SupplierDetailsModal from './SupplierDetailsModal';
 
-// Assuming you have a separate modal for the new Supplier Profit Report
-// You would need to create this component: SupplierProfitReportModal
-// For this example, I'll simulate the report data within the existing component flow.
-
 const SupplierReport = () => {
     // State for all data
+    // Assuming the backend still returns a flat array of codes for now: { printed: ['SUP01', 'SUP05'], unprinted: ['SUP02', 'SUP04'] }
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
     
-    // Two separate search terms
     const [printedSearchTerm, setPrintedSearchTerm] = useState(''); 
     const [unprintedSearchTerm, setUnprintedSearchTerm] = useState(''); 
 
@@ -30,26 +26,28 @@ const SupplierReport = () => {
     const [supplierDetails, setSupplierDetails] = useState([]);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
 
-    // --- Fetch Summary Data ---
-    useEffect(() => {
-        const fetchSummary = async () => {
-            try {
-                const response = await api.get('/suppliers/bill-status-summary');
-                setSummary({
-                    printed: response.data.printed || [],
-                    unprinted: response.data.unprinted || [],
-                });
-            } catch (error) {
-                console.error('Error fetching summary data:', error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchSummary();
+    // --- Function to fetch the summary data ---
+    const fetchSummary = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const response = await api.get('/suppliers/bill-status-summary');
+            setSummary({
+                printed: response.data.printed || [],
+                unprinted: response.data.unprinted || [],
+            });
+        } catch (error) {
+            console.error('Error fetching summary data:', error);
+        } finally {
+            setIsLoading(false);
+        }
     }, []);
 
-    // --- Filtering Logic (useMemo for performance) ---
+    // --- Initial Fetch ---
+    useEffect(() => {
+        fetchSummary();
+    }, [fetchSummary]); // Fetch on mount
+
+    // --- Filtering Logic (No change) ---
     const filteredPrintedCodes = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
         return summary.printed.filter(code => 
@@ -64,7 +62,7 @@ const SupplierReport = () => {
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    // --- NEW Filtering for Profit Report ---
+    // --- NEW Filtering for Profit Report (No change) ---
     const filteredProfitReport = useMemo(() => {
         const lowerCaseSearch = profitSearchTerm.toLowerCase();
         return profitReportData.filter(item => 
@@ -75,7 +73,6 @@ const SupplierReport = () => {
 
     // --- Handle Supplier Click (Opens Details Modal & Fetches Details) ---
     const handleSupplierClick = async (supplierCode) => {
-        // Ensure the profit report is closed when opening the details modal
         setIsProfitReportOpen(false); 
         setSelectedSupplier(supplierCode);
         setIsModalOpen(true);
@@ -92,16 +89,14 @@ const SupplierReport = () => {
         }
     };
 
-    // --- NEW Handle Profit Report Click (Fetches and displays grouped profit data) ---
+    // --- NEW Handle Profit Report Click (No change) ---
     const handleProfitReportClick = async () => {
-        // Close the details modal if it's open
         setIsModalOpen(false); 
         setIsProfitReportOpen(true);
         setProfitReportData([]);
         setIsProfitReportLoading(true);
 
         try {
-            // New endpoint to fetch grouped profit data from Sale model/table
             const response = await api.get('/sales/profit-by-supplier'); 
             setProfitReportData(response.data);
         } catch (error) {
@@ -111,23 +106,26 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Close Details Modal ---
+    // --- Close Details Modal (FIXED: Triggers a data refresh) ---
     const closeModal = () => {
         setIsModalOpen(false);
         setSelectedSupplier(null);
         setSupplierDetails([]);
+        
+        // 🚀 FIX: Immediately re-fetch the summary data. 
+        // This moves the supplier code from 'unprinted' to 'printed' on the screen.
+        fetchSummary();
     };
 
-    // --- Close Profit Report View ---
+    // --- Close Profit Report View (No change) ---
     const closeProfitReport = () => {
         setIsProfitReportOpen(false);
         setProfitReportData([]);
         setProfitSearchTerm('');
     };
 
-    // Helper component for rendering supplier codes
+    // Helper component for rendering supplier codes (No change)
     const SupplierCodeList = ({ codes, type, searchTerm }) => {
-        // Set a fixed width for the buttons
         const fixedButtonWidth = '180px'; 
 
         const buttonBaseStyle = {
@@ -279,7 +277,7 @@ const SupplierReport = () => {
             {isModalOpen && !isProfitReportOpen && (
                 <SupplierDetailsModal
                     isOpen={isModalOpen}
-                    onClose={closeModal}
+                    onClose={closeModal} // This calls the function that triggers fetchSummary()
                     supplierCode={selectedSupplier}
                     details={supplierDetails}
                     isLoading={isDetailsLoading}
@@ -296,7 +294,6 @@ const reportContainerStyle = {
     padding: '0 50px 50px 50px', 
     fontFamily: 'Roboto, Arial, sans-serif',
     boxSizing: 'border-box',
-    // ✅ UPDATED BACKGROUND COLOR
     backgroundColor: '#99ff99', 
 };
 
@@ -305,9 +302,9 @@ const headerContainerStyle = {
     borderBottom: '1px solid #E0E0E0',
     marginBottom: '30px',
     display: 'flex',
-    justifyContent: 'space-between', // Align button to the right
+    justifyContent: 'space-between', 
     alignItems: 'flex-end',
-    backgroundColor: '#99ff99', // Ensure header background matches page
+    backgroundColor: '#99ff99', 
 };
 
 const headerStyle = {
@@ -321,7 +318,7 @@ const headerStyle = {
 // NEW STYLE for the Profit Report Button
 const profitReportButtonStyle = {
     padding: '10px 20px',
-    backgroundColor: '#4CAF50', // Green color
+    backgroundColor: '#4CAF50', 
     color: 'white',
     border: 'none',
     borderRadius: '6px',
@@ -344,7 +341,6 @@ const searchBarStyle = {
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
     transition: 'border-color 0.2s',
     boxSizing: 'border-box',
-    // Set search bar background to white for contrast
     backgroundColor: 'white', 
 };
 
