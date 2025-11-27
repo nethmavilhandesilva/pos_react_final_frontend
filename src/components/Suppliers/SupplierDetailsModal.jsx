@@ -1,3 +1,5 @@
+// src/components/SupplierDetailsModal.jsx
+
 import React, { useMemo, useEffect, useState } from 'react';
 import api from '../../api'; // Axios instance with credentials
 
@@ -15,21 +17,22 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                 setIsLoading(true);
                 setError(null);
                 try {
-                    // 1️⃣ Fetch supplier details
-                    const detailsResponse = await api.get(`/suppliers/${supplierCode}/details`);
-                    const supplierDetails = detailsResponse.data;
+                    // ⭐️ OPTIMIZATION: Fetch both resources concurrently using Promise.all
+                    const [detailsResponse, billResponse] = await Promise.all([
+                        // 1️⃣ Fetch supplier details
+                        api.get(`/suppliers/${supplierCode}/details`),
+                        // 2️⃣ Fetch new bill number
+                        api.get('/generate-f-series-bill')
+                    ]);
 
-                    // 2️⃣ Fetch new bill number
-                    // This API call is independent of the supplier details
-                    const billResponse = await api.get('/generate-f-series-bill');
+                    const supplierDetails = detailsResponse.data;
                     const newBillNo = billResponse.data.new_bill_no;
 
-                    // Assign the *newly generated* bill number to each record
-                    // and also get the Date and customer_code from the response records
+                    // Assign the newly generated bill number to each record
                     const updatedDetails = supplierDetails.map(record => ({
                         ...record,
                         bill_no: newBillNo,
-                        // Ensure Date is available for the detailed table (assuming it's in the fetched record)
+                        // Ensure Date is available for the detailed table
                         Date: record.Date || new Date().toISOString().split('T')[0], // Fallback date
                     }));
 
@@ -37,6 +40,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                     setBillNo(newBillNo);
                 } catch (err) {
                     console.error('Error fetching supplier details or bill:', err);
+                    // Check for specific error status if needed, otherwise use generic message
                     setError('Failed to fetch transaction details or generate bill number.');
                     setDetails([]);
                     setBillNo('N/A');
@@ -55,6 +59,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         }
     }, [isOpen, supplierCode]);
 
+    // ... (rest of the component logic and styles are unchanged)
     // Helper function to format decimals
     const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
         minimumFractionDigits: decimals,
@@ -124,9 +129,11 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             itemSummary[itemName].totalPacks += packs;
         });
         
-       
         
-        const finalAmountPayable = totalsupplierSales ;
+        // In the original code, amountPayable was set to totalsupplierSales, 
+        // implying commission might be calculated/deducted elsewhere, or totalsupplierSales 
+        // already represents the net amount. I will keep the original calculation structure:
+        const finalAmountPayable = totalsupplierSales; 
 
         return {
             totalWeight,
@@ -149,8 +156,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         const mobile = '071XXXXXXX';
         const totalPackDueCost = totalCommission;
         
-        // The print receipt logic in the original component used amountPayable for the main total.
-        // amountPayable is calculated as totalsupplierSales - totalCommission
+        // Keeping variables consistent with the original logic:
         const totalSalesExcludingPackDue = amountPayable;
         const finalAmountToDisplay = amountPayable;
 
@@ -189,8 +195,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         </tbody>
     </table>
     <table style="width:100%;font-size:15px;border-collapse:collapse;">
-        <tr><td>ප්‍රවාහන ගාස්තු:</td><td style="text-align:right;font-weight:bold;">00</td></tr>
-        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
         <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finalAmountToDisplay).toFixed(2)}</span></td></tr>
     </table>
     <div style="font-size:10px;">

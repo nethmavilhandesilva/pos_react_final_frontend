@@ -1,12 +1,19 @@
 // src/components/SupplierReport.jsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from "../../api";
 import SupplierDetailsModal from './SupplierDetailsModal';
 
 const SupplierReport = () => {
+    // State for all data
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
+    
+    // Two separate search terms
+    const [printedSearchTerm, setPrintedSearchTerm] = useState(''); 
+    const [unprintedSearchTerm, setUnprintedSearchTerm] = useState(''); 
+
+    // State for Modal
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [supplierDetails, setSupplierDetails] = useState([]);
@@ -17,7 +24,10 @@ const SupplierReport = () => {
         const fetchSummary = async () => {
             try {
                 const response = await api.get('/suppliers/bill-status-summary');
-                setSummary(response.data);
+                setSummary({
+                    printed: response.data.printed || [],
+                    unprinted: response.data.unprinted || [],
+                });
             } catch (error) {
                 console.error('Error fetching summary data:', error);
             } finally {
@@ -27,6 +37,21 @@ const SupplierReport = () => {
 
         fetchSummary();
     }, []);
+
+    // --- Filtering Logic (useMemo for performance) ---
+    const filteredPrintedCodes = useMemo(() => {
+        const lowerCaseSearch = printedSearchTerm.toLowerCase();
+        return summary.printed.filter(code => 
+            code.toLowerCase().includes(lowerCaseSearch)
+        );
+    }, [printedSearchTerm, summary.printed]);
+
+    const filteredUnprintedCodes = useMemo(() => {
+        const lowerCaseSearch = unprintedSearchTerm.toLowerCase();
+        return summary.unprinted.filter(code => 
+            code.toLowerCase().includes(lowerCaseSearch)
+        );
+    }, [unprintedSearchTerm, summary.unprinted]);
 
     // --- Handle Supplier Click (Opens Modal & Fetches Details) ---
     const handleSupplierClick = async (supplierCode) => {
@@ -52,29 +77,34 @@ const SupplierReport = () => {
         setSupplierDetails([]);
     };
 
-    // Helper component with enhanced styling for supplier codes
-    const SupplierCodeList = ({ codes, type }) => {
-        // Define button styles based on whether it's Printed or Unprinted
+    // Helper component for rendering supplier codes
+    const SupplierCodeList = ({ codes, type, searchTerm }) => {
+        // Set a fixed width for the buttons
+        const fixedButtonWidth = '180px'; 
+
         const buttonBaseStyle = {
-            padding: '10px 15px',
+            width: fixedButtonWidth, 
+            display: 'inline-block', 
+            textAlign: 'center', 
+            padding: '12px 15px',
             borderRadius: '6px',
             cursor: 'pointer',
             fontWeight: '600',
             border: 'none',
             transition: 'background-color 0.2s, transform 0.1s',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            fontSize: '0.95rem',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+            fontSize: '1rem',
         };
 
         const printedButtonStyle = {
             ...buttonBaseStyle,
-            backgroundColor: '#28a745', // Green for Printed
+            backgroundColor: '#1E88E5',
             color: 'white',
         };
 
         const unprintedButtonStyle = {
             ...buttonBaseStyle,
-            backgroundColor: '#dc3545', // Red for Unprinted
+            backgroundColor: '#FF7043',
             color: 'white',
         };
         
@@ -83,14 +113,15 @@ const SupplierReport = () => {
         return (
             <div style={listContainerStyle}>
                 {codes.length === 0 ? (
-                    <p style={{ color: '#6c757d' }}>No suppliers in this category.</p>
+                    <p style={{ color: '#6c757d', padding: '10px' }}>
+                        {searchTerm ? `No results found for "${searchTerm}"` : 'No suppliers in this category.'}
+                    </p>
                 ) : (
                     codes.map(code => (
                         <button
                             key={code}
                             onClick={() => handleSupplierClick(code)}
                             style={buttonStyle}
-                            // Add simple hover effect via JavaScript/React
                             onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                             onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
                         >
@@ -106,23 +137,45 @@ const SupplierReport = () => {
 
     return (
         <div style={reportContainerStyle}>
-            <h1 style={headerStyle}>📊 Supplier Bill Status Report</h1>
-            <p style={subHeaderStyle}>Click on a supplier code to view detailed records.</p>
-            <hr style={hrStyle} />
-
+            <header style={headerContainerStyle}>
+                <h1 style={headerStyle}>📊 Supplier Bill Status Dashboard</h1>
+            </header>
+            
+            {/* --- SECTIONS CONTAINER (CUSTOM SPACED) --- */}
             <div style={sectionsContainerStyle}>
                 
-                {/* --- Printed Section --- */}
-                <div style={printedSectionStyle}>
-                    <h2 style={printedHeaderStyle}>✅ Printed Bills</h2>
-                    <SupplierCodeList codes={summary.printed} type="printed" />
+                {/* --- Printed Section (Left Corner) --- */}
+                <div style={printedContainerStyle}>
+                    {/* Search bar is moved inside printedSectionStyle for visual integration */}
+                    <div style={printedSectionStyle}>
+                        <input 
+                            type="text"
+                            placeholder="🔍 Search Printed Codes..."
+                            value={printedSearchTerm}
+                            onChange={(e) => setPrintedSearchTerm(e.target.value)}
+                            style={{...searchBarStyle, marginBottom: '20px'}}
+                        />
+                        <h2 style={printedHeaderStyle}>✅ Printed Bills</h2>
+                        <SupplierCodeList codes={filteredPrintedCodes} type="printed" searchTerm={printedSearchTerm} />
+                    </div>
                 </div>
 
-                {/* --- Unprinted Section --- */}
-                <div style={unprintedSectionStyle}>
-                    <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills</h2>
-                    <SupplierCodeList codes={summary.unprinted} type="unprinted" />
+                {/* --- Unprinted Section (Right Corner - Custom Pushed) --- */}
+                <div style={unprintedContainerStyle}>
+                    {/* Search bar is moved inside unprintedSectionStyle for visual integration */}
+                    <div style={unprintedSectionStyle}>
+                        <input 
+                            type="text"
+                            placeholder="🔍 Search Unprinted Codes..."
+                            value={unprintedSearchTerm}
+                            onChange={(e) => setUnprintedSearchTerm(e.target.value)}
+                            style={{...searchBarStyle, marginBottom: '20px'}}
+                        />
+                        <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedCodes.length} of {summary.unprinted.length})</h2>
+                        <SupplierCodeList codes={filteredUnprintedCodes} type="unprinted" searchTerm={unprintedSearchTerm} />
+                    </div>
                 </div>
+
             </div>
 
             {/* --- Modal Component --- */}
@@ -137,92 +190,130 @@ const SupplierReport = () => {
     );
 };
 
-// --- ENHANCED STYLES ---
+// --- ENHANCED FULL-PAGE AND CUSTOM-ALIGNED STYLES ---
 
 const reportContainerStyle = {
-    padding: '40px',
-    maxWidth: '1200px',
-    margin: '0 auto',
+    minHeight: '100vh', 
+    padding: '0 50px 50px 50px', 
     fontFamily: 'Roboto, Arial, sans-serif',
-    backgroundColor: '#f8f9fa', // Light background
-    borderRadius: '10px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box',
+};
+
+const headerContainerStyle = {
+    padding: '40px 0 30px 0',
+    borderBottom: '1px solid #E0E0E0',
+    marginBottom: '30px',
 };
 
 const headerStyle = {
-    textAlign: 'center',
+    textAlign: 'left',
     color: '#343a40',
     marginBottom: '5px',
-    fontSize: '2.5rem',
+    fontSize: '2.8rem',
     fontWeight: '300',
 };
 
 const subHeaderStyle = {
-    textAlign: 'center',
+    textAlign: 'left',
     color: '#6c757d',
-    marginBottom: '20px',
+    fontSize: '1.1rem',
 };
 
-const hrStyle = {
-    border: '0',
-    height: '1px',
-    backgroundColor: '#dee2e6',
-    margin: '20px 0 30px 0',
+// Search bar style (used inline above to set marginBottom)
+const searchBarStyle = {
+    width: '100%',
+    padding: '12px 15px',
+    fontSize: '1rem',
+    borderRadius: '6px',
+    border: '1px solid #E0E0E0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    transition: 'border-color 0.2s',
+    boxSizing: 'border-box',
 };
 
 const sectionsContainerStyle = {
-    display: 'grid', // Use Grid for responsive dual columns
-    gridTemplateColumns: '1fr 1fr',
-    gap: '30px',
+    display: 'flex', 
+    justifyContent: 'flex-start', 
+    gap: '0', 
 };
 
+// Outer container for left section
+const printedContainerStyle = {
+    width: '400px', 
+    display: 'flex',
+    flexDirection: 'column',
+    // Moves left container outside of the main report padding
+    marginLeft: '-25px', 
+};
+
+// Outer container for right section
+const unprintedContainerStyle = {
+    width: '400px', 
+    display: 'flex',
+    flexDirection: 'column',
+    // Pushes the right section away from the left one (150px gap in the middle)
+    marginLeft: '440px', 
+};
+
+// Inner, colored/scrolling section
 const baseSectionStyle = {
     padding: '25px',
-    borderRadius: '10px',
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+    borderRadius: '12px',
+    boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)',
+    display: 'flex',
+    flexDirection: 'column',
+    // ADJUSTED HEIGHT: Accounts for the search bar moving inside the section
+    height: 'calc(100vh - 210px)', 
 };
 
 const printedSectionStyle = {
     ...baseSectionStyle,
-    backgroundColor: '#e6ffed', // Very light green background
-    borderLeft: '5px solid #28a745',
+    backgroundColor: '#F5F9FF',
+    borderLeft: '5px solid #1E88E5',
 };
 
 const unprintedSectionStyle = {
     ...baseSectionStyle,
-    backgroundColor: '#ffebe6', // Very light red background
-    borderLeft: '5px solid #dc3545',
+    backgroundColor: '#FFF7F5',
+    borderLeft: '5px solid #FF7043',
 };
 
+// Header for the list (comes after the search bar)
 const printedHeaderStyle = {
-    color: '#28a745',
+    color: '#1E88E5',
     marginBottom: '15px',
-    borderBottom: '2px solid #28a74530',
+    borderBottom: '2px solid #1E88E530',
     paddingBottom: '10px',
+    flexShrink: 0,
+    fontSize: '1.3rem',
 };
 
 const unprintedHeaderStyle = {
-    color: '#dc3545',
+    color: '#FF7043',
     marginBottom: '15px',
-    borderBottom: '2px solid #dc354530',
+    borderBottom: '2px solid #FF704330',
     paddingBottom: '10px',
+    flexShrink: 0,
+     fontSize: '1.3rem',
 };
 
 const listContainerStyle = {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '12px',
-    marginTop: '15px',
-    maxHeight: '400px', // Limit height
-    overflowY: 'auto', // Add scrollbar if needed
+    display: 'flex', 
+    flexDirection: 'column', 
+    gap: '8px',
+    marginTop: '5px',
+    overflowY: 'auto',
     padding: '5px',
+    flexGrow: 1, 
+    alignItems: 'center', 
 };
 
 const loadingStyle = {
     textAlign: 'center',
     padding: '50px',
-    fontSize: '1.2rem',
-    color: '#007bff',
+    fontSize: '1.5rem',
+    color: '#1E88E5',
 };
 
 export default SupplierReport;
