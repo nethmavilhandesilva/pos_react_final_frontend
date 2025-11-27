@@ -1,6 +1,6 @@
 // src/components/SupplierDetailsModal.jsx
 
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import api from '../../api'; // Axios instance with credentials (from src/api.js)
 
 const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
@@ -28,10 +28,9 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                     // Assign the *newly generated* bill number to each record
                     const updatedDetails = supplierDetails.map(record => ({
                         ...record,
-                        // Ensure the new bill number is associated with the record for display
-                        bill_no: newBillNo,
-                        // Ensure Date is available for the detailed table (assuming it's in the fetched record)
-                        Date: record.Date || new Date().toISOString().split('T')[0], // Fallback date
+                        // Ensure the new bill number is attached
+                        bill_no: newBillNo, 
+                        Date: record.Date || new Date().toISOString().split('T')[0],
                     }));
 
                     setDetails(updatedDetails);
@@ -97,7 +96,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             const itemName = record.item_name || 'Unknown Item';
             const SupplierPackCost = parseFloat(record.SupplierPackCost) || 0;
 
-            // 1. Grand Totals
             totalWeight += weight;
             totalSales += total; 
             totalsupplierSales += SupplierTotal; 
@@ -105,7 +103,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             totalPacksSum += packs;
             totalSupplierPackCost += SupplierPackCost; 
 
-            // 2. Detailed Items HTML (for the bill print window)
             itemsHtmlArray.push(`
                 <tr style="font-size: 1.1em;">
                     <td style="text-align:left;padding:3px;border-bottom:1px solid #eee;">
@@ -119,7 +116,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                 </tr>
             `);
 
-            // 3. Item Summary Data
             if (!itemSummary[itemName]) {
                 itemSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
             }
@@ -127,7 +123,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             itemSummary[itemName].totalPacks += packs;
         });
         
-        // Calculate net payable (Gross Sales - Commission)
         const finalAmountPayable = totalsupplierSales - totalCommission;
 
         return {
@@ -145,36 +140,58 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
     }, [details]);
 
     // --- NEW: API call to mark records as printed ---
-    const markRecordsAsPrinted = async (billNo, ids) => {
-        if (!billNo || ids.length === 0 || billNo === 'N/A') return;
+    const markRecordsAsPrinted = useCallback(async (billNoParam, ids) => {
+        // 1. Initial Check
+        if (!billNoParam || !Array.isArray(ids) || ids.length === 0 || billNoParam === 'N/A') {
+            console.log('Skipping mark-as-printed: Invalid parameters', { billNoParam, ids });
+            return;
+        }
+
+        const payload = {
+            bill_no: billNoParam,
+            transaction_ids: ids,
+        };
+
+        console.log('Sending mark-as-printed request...', payload);
         
         try {
-            await api.post('/suppliers/mark-as-printed', {
-                bill_no: billNo,
-                // Ensure the records have an 'id' field for the backend
-                transaction_ids: ids, 
-            });
-            console.log(`✅ Successfully marked ${ids.length} records with bill no: ${billNo}`);
+            // 2. Log Payload Before Sending
+            console.log('Payload being sent:', payload); 
+
+            const response = await api.post('/suppliers/mark-as-printed', payload);
             
-            // Optionally, call onClose() here to immediately hide transactions
-            // that were just billed, or refresh the data.
-            onClose(); 
-
+            // 3. Log Successful Response Details
+            console.log('API Response:', response.data); 
+            console.log(`✅ Successfully marked ${response.data.updated_count || ids.length} records with bill no: ${billNoParam}`);
+            
+            // 🛑 IMPORTANT CHANGE: DO NOT call onClose() here. Let handlePrint manage closing.
+            
         } catch (err) {
+            // 4. Detailed Error Logging
             console.error('❌ Failed to mark supplier records as printed:', err);
-            // Alert user of critical failure
-            alert(`Warning: Bill generated (${billNo}) but failed to mark records as printed on the server. Please notify admin.`);
-        }
-    };
+            if (err.response) {
+                console.error('Server Response Data:', err.response.data);
+                console.error('Server Status Code:', err.response.status);
+                // Log Laravel validation errors specifically
+                if (err.response.status === 422) {
+                     console.error('Validation Errors:', err.response.data.errors);
+                }
+            } else {
+                console.error('Network/Request Error:', err.message);
+            }
 
-    // --- BILL CONTENT GENERATION (Unchanged) ---
-    const getBillContent = () => {
+            const errorMessage = err.response?.data?.error || err.message;
+            alert(`Warning: Bill generated (${billNoParam}) but failed to mark records as printed on the server. Details: ${errorMessage}. Please notify admin.`);
+        }
+    }, []); // Removed [onClose]
+
+    // --- BILL CONTENT GENERATION ---
+    const getBillContent = useCallback(() => {
         const date = new Date().toLocaleDateString('si-LK');
         const time = new Date().toLocaleTimeString('si-LK');
 
         const mobile = '071XXXXXXX';
         const totalPackDueCost = totalSupplierPackCost; 
-        
         const finaltotal = totalsupplierSales + totalSupplierPackCost; 
         
         const itemSummaryKeys = Object.keys(itemSummaryData);
@@ -225,24 +242,22 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
     </div>
 </div>`;
-    };
+    }, [billNo, supplierCode, detailedItemsHtml, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData]);
 
-    // --- UPDATED: handlePrint function to include API call ---
-    const handlePrint = () => {
+    // --- UPDATED: handlePrint function to manage API call and closing ---
+    const handlePrint = useCallback(() => {
+        console.log('🔹 handlePrint called');
         const content = getBillContent();
-        const printWindow = window.open('', '', 'height=600,width=800');
+        // Use '_blank' as target name to ensure a new, unique print window is always opened
+        const printWindow = window.open('', '_blank', 'height=600,width=800'); 
 
         if (printWindow) {
             printWindow.document.write('<html><head><title>Bill Print</title>');
-            // Basic styles for thermal print size simulation
             printWindow.document.write(`
                 <style>
                     body { font-family: sans-serif; margin: 0; padding: 0; }
                     .receipt-container { width: 80mm; padding: 5px; margin: 0 auto; }
-                    /* Add any other specific print styles here */
-                    @media print {
-                        body { margin: 0; }
-                    }
+                    @media print { body { margin: 0; } }
                 </style>
             `);
             printWindow.document.write('</head><body>');
@@ -250,44 +265,60 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             printWindow.document.write('</body></html>');
             printWindow.document.close();
             printWindow.focus();
+            
+            // Initiate the print dialog
             printWindow.print();
             
-            // ✅ STEP 1: Get the list of IDs for the records currently being displayed
-            // Assumes each record has an 'id' field.
+            // Transaction IDs to send to backend
             const transactionIds = details.map(record => record.id).filter(id => id);
             
-            // ✅ STEP 2: Call the new backend API to mark records as printed
             if (transactionIds.length > 0 && billNo && billNo !== 'N/A') {
-                markRecordsAsPrinted(billNo, transactionIds);
+                // 🚀 FIX: Use setTimeout (made async) to execute the API call and ensure modal closure only happens after the API attempt.
+                setTimeout(async () => {
+                    await markRecordsAsPrinted(billNo, transactionIds);
+                    
+                    // ✅ Close the modal ONLY after the mark has been attempted/completed
+                    onClose();
+                }, 50); // 50ms delay
+            } else {
+                console.log('No valid IDs found to mark as printed. Closing modal.');
+                onClose();
             }
-
         } else {
             alert("Please allow pop-ups to print the bill.");
         }
-    };
+    }, [getBillContent, details, billNo, markRecordsAsPrinted, onClose]); // Added onClose dependency
 
-    // --- KEYBOARD EVENT LISTENER (F1) ---
+    // --- KEYBOARD EVENT LISTENER (F4) ---
     useEffect(() => {
+        if (!isOpen) return;
+
         const handleKeyDown = (event) => {
-            if (event.key === 'F1' || event.keyCode === 112) {
+            // Check for F4
+            if (event.key === 'F4' || event.keyCode === 115) {
                 event.preventDefault();
-                if (isOpen && details.length > 0) { 
-                    handlePrint(); // This triggers the printing and the API update
+                if (typeof event.stopImmediatePropagation === 'function') {
+                    event.stopImmediatePropagation();
+                }
+
+                if (details && details.length > 0) {
+                    handlePrint();
+                } else {
+                    console.log('F4 pressed but no details to print.');
                 }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
 
-        // Cleanup listener on component unmount/close
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [isOpen, details, billNo]); // Added billNo to dependency array
+    }, [isOpen, details, handlePrint]);
 
     if (!isOpen) return null;
 
-    // --- INLINE STYLES ---
+    // --- INLINE STYLES (Kept for completeness) ---
     const modalOverlayStyle = {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex',
@@ -410,7 +441,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
 
                 {/* --- SUPPLIER CODE IN HEADER --- */}
                 <div style={headerStyle}>
-                    <h2>Transaction Details (Bill No: **{billNo}**)</h2>
+                    <h2>Transaction Details (Bill No: <strong>{billNo}</strong>)</h2>
                     <span style={supplierCodeBadgeStyle}>{supplierCode}</span>
                 </div>
 
@@ -437,7 +468,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                     <div style={summaryValueStyle}>{formatDecimal(totalCommission)}</div>
                                 </div>
                                 <div style={summaryBoxStyle('blue')}>
-                                    <div>**Amount Payable (Net)**</div>
+                                    <div>Amount Payable (Net)</div>
                                     <div style={summaryValueStyle}>{formatDecimal(amountPayable)}</div>
                                 </div>
                             </div>
@@ -462,13 +493,13 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                     <tbody>
                                         {details.map((record, index) => (
                                             <tr
-                                                key={record.id || index} // Use record.id if available
+                                                key={record.id || index}
                                                 style={getRowStyle(index)}
                                             >
                                                 <td style={tdStyle}>{record.Date}</td>
                                                 <td style={tdStyle}>{record.bill_no}</td>
                                                 <td style={tdStyle}>{record.customer_code}</td>
-                                                <td style={tdStyle}>**{record.item_name}**</td>
+                                                <td style={tdStyle}><strong>{record.item_name}</strong></td>
                                                 <td style={tdStyle}>{record.packs}</td>
                                                 <td style={tdStyle}>{formatDecimal(record.weight, 3)}</td>
                                                 <td style={tdStyle}>{formatDecimal(record.SupplierPricePerKg)}</td>
@@ -477,9 +508,8 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                                 <td style={tdStyle}>{formatDecimal(parseFloat(record.SupplierTotal) - parseFloat(record.commission_amount))}</td>
                                             </tr>
                                         ))}
-                                        {/* --- Summary Row for Table --- */}
                                         <tr style={{ ...getRowStyle(details.length), fontWeight: 'bold', borderTop: '2px solid #000' }}>
-                                            <td style={tdStyle} colSpan="4">**TOTALS**</td>
+                                            <td style={tdStyle} colSpan="4"><strong>TOTALS</strong></td>
                                             <td style={tdStyle}>{totalPacksSum}</td>
                                             <td style={tdStyle}>{formatDecimal(totalWeight, 3)}</td>
                                             <td style={tdStyle}>-</td>
@@ -502,7 +532,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                     onMouseOver={e => e.currentTarget.style.backgroundColor = '#e0a800'}
                                     onMouseOut={e => e.currentTarget.style.backgroundColor = '#ffc107'}
                                 >
-                                    🖨️ Print Bill (F1)
+                                    🖨️ Print Bill (F4)
                                 </button>
                             </div>
                         </>
@@ -512,5 +542,5 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         </div>
     );
 };
- 
+
 export default SupplierDetailsModal;
