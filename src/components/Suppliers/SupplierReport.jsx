@@ -4,6 +4,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import api from "../../api";
 import SupplierDetailsModal from './SupplierDetailsModal';
 
+// Assuming you have a separate modal for the new Supplier Profit Report
+// You would need to create this component: SupplierProfitReportModal
+// For this example, I'll simulate the report data within the existing component flow.
+
 const SupplierReport = () => {
     // State for all data
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
@@ -13,7 +17,14 @@ const SupplierReport = () => {
     const [printedSearchTerm, setPrintedSearchTerm] = useState(''); 
     const [unprintedSearchTerm, setUnprintedSearchTerm] = useState(''); 
 
-    // State for Modal
+    // --- NEW STATE FOR PROFIT REPORT ---
+    const [isProfitReportOpen, setIsProfitReportOpen] = useState(false);
+    const [profitReportData, setProfitReportData] = useState([]);
+    const [isProfitReportLoading, setIsProfitReportLoading] = useState(false);
+    const [profitSearchTerm, setProfitSearchTerm] = useState('');
+    // ------------------------------------
+
+    // State for Details Modal
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [supplierDetails, setSupplierDetails] = useState([]);
@@ -53,8 +64,19 @@ const SupplierReport = () => {
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    // --- Handle Supplier Click (Opens Modal & Fetches Details) ---
+    // --- NEW Filtering for Profit Report ---
+    const filteredProfitReport = useMemo(() => {
+        const lowerCaseSearch = profitSearchTerm.toLowerCase();
+        return profitReportData.filter(item => 
+            item.supplier_code.toLowerCase().includes(lowerCaseSearch)
+        );
+    }, [profitSearchTerm, profitReportData]);
+    // ----------------------------------------
+
+    // --- Handle Supplier Click (Opens Details Modal & Fetches Details) ---
     const handleSupplierClick = async (supplierCode) => {
+        // Ensure the profit report is closed when opening the details modal
+        setIsProfitReportOpen(false); 
         setSelectedSupplier(supplierCode);
         setIsModalOpen(true);
         setSupplierDetails([]);
@@ -70,11 +92,37 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Close Modal ---
+    // --- NEW Handle Profit Report Click (Fetches and displays grouped profit data) ---
+    const handleProfitReportClick = async () => {
+        // Close the details modal if it's open
+        setIsModalOpen(false); 
+        setIsProfitReportOpen(true);
+        setProfitReportData([]);
+        setIsProfitReportLoading(true);
+
+        try {
+            // New endpoint to fetch grouped profit data from Sale model/table
+            const response = await api.get('/sales/profit-by-supplier'); 
+            setProfitReportData(response.data);
+        } catch (error) {
+            console.error('Error fetching profit report data:', error);
+        } finally {
+            setIsProfitReportLoading(false);
+        }
+    };
+
+    // --- Close Details Modal ---
     const closeModal = () => {
         setIsModalOpen(false);
         setSelectedSupplier(null);
         setSupplierDetails([]);
+    };
+
+    // --- Close Profit Report View ---
+    const closeProfitReport = () => {
+        setIsProfitReportOpen(false);
+        setProfitReportData([]);
+        setProfitSearchTerm('');
     };
 
     // Helper component for rendering supplier codes
@@ -138,54 +186,105 @@ const SupplierReport = () => {
     return (
         <div style={reportContainerStyle}>
             <header style={headerContainerStyle}>
-                <h1 style={headerStyle}>📊 Supplier Bill Status Dashboard</h1>
+                <h1 style={headerStyle}>📊 Supplier Management Dashboard</h1>
+                <button 
+                    onClick={handleProfitReportClick} 
+                    style={profitReportButtonStyle}
+                >
+                    💰 View Supplier Profit Report
+                </button>
             </header>
             
-            {/* --- SECTIONS CONTAINER (CUSTOM SPACED) --- */}
-            <div style={sectionsContainerStyle}>
-                
-                {/* --- Printed Section (Left Corner) --- */}
-                <div style={printedContainerStyle}>
-                    {/* Search bar is moved inside printedSectionStyle for visual integration */}
-                    <div style={printedSectionStyle}>
-                        <input 
-                            type="text"
-                            placeholder="🔍 Search Printed Codes..."
-                            value={printedSearchTerm}
-                            onChange={(e) => setPrintedSearchTerm(e.target.value)}
-                            style={{...searchBarStyle, marginBottom: '20px'}}
-                        />
-                        <h2 style={printedHeaderStyle}>✅ Printed Bills</h2>
-                        <SupplierCodeList codes={filteredPrintedCodes} type="printed" searchTerm={printedSearchTerm} />
-                    </div>
+            {/* --- Conditional Rendering for Profit Report vs. Bill Status --- */}
+            {isProfitReportOpen ? (
+                // --- Supplier Profit Report View ---
+                <div style={profitReportContainerStyle}>
+                    <h2 style={profitReportHeaderStyle}>📈 Total Profit by Supplier (from Sales)</h2>
+                    <button onClick={closeProfitReport} style={closeProfitButtonStyle}>
+                        &larr; Back to Bill Status
+                    </button>
+                    <input 
+                        type="text"
+                        placeholder="🔍 Search by Supplier Code..."
+                        value={profitSearchTerm}
+                        onChange={(e) => setProfitSearchTerm(e.target.value)}
+                        style={{...searchBarStyle, width: '400px', marginBottom: '30px'}}
+                    />
+
+                    {isProfitReportLoading ? (
+                        <div style={loadingStyle}>Loading Profit Data...</div>
+                    ) : filteredProfitReport.length === 0 ? (
+                        <p style={{ color: '#6c757d', padding: '10px' }}>
+                            {profitSearchTerm ? `No results found for "${profitSearchTerm}"` : 'No profit data available.'}
+                        </p>
+                    ) : (
+                        <table style={tableStyle}>
+                            <thead>
+                                <tr>
+                                    <th style={tableHeaderStyle}>Supplier Code</th>
+                                    <th style={tableHeaderStyle}>Total Profit</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredProfitReport.map((item, index) => (
+                                    <tr key={index} style={index % 2 === 0 ? tableRowEvenStyle : tableRowOddStyle}>
+                                        <td style={tableCellStyle}>{item.supplier_code}</td>
+                                        {/* Format the profit value to currency/two decimal places */}
+                                        <td style={tableCellStyle}>${parseFloat(item.total_profit).toFixed(2)}</td> 
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
-
-                {/* --- Unprinted Section (Right Corner - Custom Pushed) --- */}
-                <div style={unprintedContainerStyle}>
-                    {/* Search bar is moved inside unprintedSectionStyle for visual integration */}
-                    <div style={unprintedSectionStyle}>
-                        <input 
-                            type="text"
-                            placeholder="🔍 Search Unprinted Codes..."
-                            value={unprintedSearchTerm}
-                            onChange={(e) => setUnprintedSearchTerm(e.target.value)}
-                            style={{...searchBarStyle, marginBottom: '20px'}}
-                        />
-                        <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedCodes.length} of {summary.unprinted.length})</h2>
-                        <SupplierCodeList codes={filteredUnprintedCodes} type="unprinted" searchTerm={unprintedSearchTerm} />
+            ) : (
+                // --- Bill Status Summary View ---
+                <div style={sectionsContainerStyle}>
+                    
+                    {/* --- Printed Section (Left Corner) --- */}
+                    <div style={printedContainerStyle}>
+                        <div style={printedSectionStyle}>
+                            <input 
+                                type="text"
+                                placeholder="🔍 Search Printed Codes..."
+                                value={printedSearchTerm}
+                                onChange={(e) => setPrintedSearchTerm(e.target.value)}
+                                style={{...searchBarStyle, marginBottom: '20px'}}
+                            />
+                            <h2 style={printedHeaderStyle}>✅ Printed Bills</h2>
+                            <SupplierCodeList codes={filteredPrintedCodes} type="printed" searchTerm={printedSearchTerm} />
+                        </div>
                     </div>
+
+                    {/* --- Unprinted Section (Right Corner - Custom Pushed) --- */}
+                    <div style={unprintedContainerStyle}>
+                        <div style={unprintedSectionStyle}>
+                            <input 
+                                type="text"
+                                placeholder="🔍 Search Unprinted Codes..."
+                                value={unprintedSearchTerm}
+                                onChange={(e) => setUnprintedSearchTerm(e.target.value)}
+                                style={{...searchBarStyle, marginBottom: '20px'}}
+                            />
+                            <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedCodes.length} of {summary.unprinted.length})</h2>
+                            <SupplierCodeList codes={filteredUnprintedCodes} type="unprinted" searchTerm={unprintedSearchTerm} />
+                        </div>
+                    </div>
+
                 </div>
+            )}
 
-            </div>
 
-            {/* --- Modal Component --- */}
-            <SupplierDetailsModal
-                isOpen={isModalOpen}
-                onClose={closeModal}
-                supplierCode={selectedSupplier}
-                details={supplierDetails}
-                isLoading={isDetailsLoading}
-            />
+            {/* --- Details Modal Component (Only shows if Bill Status View is active) --- */}
+            {isModalOpen && !isProfitReportOpen && (
+                <SupplierDetailsModal
+                    isOpen={isModalOpen}
+                    onClose={closeModal}
+                    supplierCode={selectedSupplier}
+                    details={supplierDetails}
+                    isLoading={isDetailsLoading}
+                />
+            )}
         </div>
     );
 };
@@ -196,14 +295,19 @@ const reportContainerStyle = {
     minHeight: '100vh', 
     padding: '0 50px 50px 50px', 
     fontFamily: 'Roboto, Arial, sans-serif',
-    backgroundColor: '#ffffff',
     boxSizing: 'border-box',
+    // ✅ UPDATED BACKGROUND COLOR
+    backgroundColor: '#99ff99', 
 };
 
 const headerContainerStyle = {
     padding: '40px 0 30px 0',
     borderBottom: '1px solid #E0E0E0',
     marginBottom: '30px',
+    display: 'flex',
+    justifyContent: 'space-between', // Align button to the right
+    alignItems: 'flex-end',
+    backgroundColor: '#99ff99', // Ensure header background matches page
 };
 
 const headerStyle = {
@@ -214,10 +318,20 @@ const headerStyle = {
     fontWeight: '300',
 };
 
-const subHeaderStyle = {
-    textAlign: 'left',
-    color: '#6c757d',
-    fontSize: '1.1rem',
+// NEW STYLE for the Profit Report Button
+const profitReportButtonStyle = {
+    padding: '10px 20px',
+    backgroundColor: '#4CAF50', // Green color
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    fontWeight: '500',
+    transition: 'background-color 0.2s',
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+    height: 'fit-content',
+    whiteSpace: 'nowrap',
 };
 
 // Search bar style (used inline above to set marginBottom)
@@ -230,6 +344,8 @@ const searchBarStyle = {
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
     transition: 'border-color 0.2s',
     boxSizing: 'border-box',
+    // Set search bar background to white for contrast
+    backgroundColor: 'white', 
 };
 
 const sectionsContainerStyle = {
@@ -243,7 +359,6 @@ const printedContainerStyle = {
     width: '400px', 
     display: 'flex',
     flexDirection: 'column',
-    // Moves left container outside of the main report padding
     marginLeft: '-25px', 
 };
 
@@ -252,7 +367,6 @@ const unprintedContainerStyle = {
     width: '400px', 
     display: 'flex',
     flexDirection: 'column',
-    // Pushes the right section away from the left one (150px gap in the middle)
     marginLeft: '440px', 
 };
 
@@ -263,19 +377,20 @@ const baseSectionStyle = {
     boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)',
     display: 'flex',
     flexDirection: 'column',
-    // ADJUSTED HEIGHT: Accounts for the search bar moving inside the section
     height: 'calc(100vh - 210px)', 
 };
 
+// Retained specific color on the Bill Status sections for visual differentiation,
+// but ensured they are not white to better integrate with the light green page background.
 const printedSectionStyle = {
     ...baseSectionStyle,
-    backgroundColor: '#F5F9FF',
+    backgroundColor: '#E6FFE6', // Light tone of the requested green/white for contrast
     borderLeft: '5px solid #1E88E5',
 };
 
 const unprintedSectionStyle = {
     ...baseSectionStyle,
-    backgroundColor: '#FFF7F5',
+    backgroundColor: '#FFEBE6', // Light tone of the requested green/orange for contrast
     borderLeft: '5px solid #FF7043',
 };
 
@@ -295,7 +410,7 @@ const unprintedHeaderStyle = {
     borderBottom: '2px solid #FF704330',
     paddingBottom: '10px',
     flexShrink: 0,
-     fontSize: '1.3rem',
+    fontSize: '1.3rem',
 };
 
 const listContainerStyle = {
@@ -314,6 +429,75 @@ const loadingStyle = {
     padding: '50px',
     fontSize: '1.5rem',
     color: '#1E88E5',
+    backgroundColor: '#99ff99', // Ensure loading screen also uses the new color
+};
+
+// --- NEW PROFIT REPORT STYLES ---
+
+const profitReportContainerStyle = {
+    marginTop: '20px',
+    padding: '25px',
+    // Set background to a slightly lighter tone for a subtle contrast, 
+    // but allowing the page background (#99ff99) to dominate the unused space.
+    backgroundColor: '#E6FFE6', 
+    borderRadius: '12px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+    minHeight: 'calc(100vh - 250px)',
+};
+
+const profitReportHeaderStyle = {
+    color: '#4CAF50',
+    marginBottom: '25px',
+    borderBottom: '2px solid #4CAF5030',
+    paddingBottom: '10px',
+    fontSize: '2rem',
+    fontWeight: '400',
+    textAlign: 'center',
+};
+
+const closeProfitButtonStyle = {
+    background: 'none',
+    border: 'none',
+    color: '#6c757d',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    marginBottom: '20px',
+    padding: '5px 0',
+    display: 'block',
+    fontWeight: '500',
+    transition: 'color 0.2s',
+};
+
+const tableStyle = {
+    width: '100%',
+    borderCollapse: 'collapse',
+    marginTop: '20px',
+    backgroundColor: 'white', // Retain white background for the table rows/cells for readability
+    borderRadius: '8px',
+    overflow: 'hidden',
+};
+
+const tableHeaderStyle = {
+    backgroundColor: '#4CAF50',
+    color: 'white',
+    padding: '15px',
+    textAlign: 'left',
+    fontSize: '1.1rem',
+    fontWeight: '600',
+};
+
+const tableCellStyle = {
+    padding: '15px',
+    borderBottom: '1px solid #E0E0E0',
+    textAlign: 'left',
+};
+
+const tableRowEvenStyle = {
+    backgroundColor: '#f8f8f8',
+};
+
+const tableRowOddStyle = {
+    backgroundColor: 'white',
 };
 
 export default SupplierReport;

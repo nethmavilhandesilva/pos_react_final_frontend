@@ -162,6 +162,12 @@ const Layout = ({ children }) => {
               >
                 <i className="material-icons align-middle me-1">add_box</i> GRN Entries
               </Link>
+              <Link
+                to="/supplierreport"
+                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
+              >
+                <i className="material-icons align-middle me-1">list_alt</i> Supplier Bills
+              </Link>
             </div>
 
           </div>

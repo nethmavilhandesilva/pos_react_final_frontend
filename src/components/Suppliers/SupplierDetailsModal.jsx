@@ -1,7 +1,7 @@
 // src/components/SupplierDetailsModal.jsx
 
 import React, { useMemo, useEffect, useState } from 'react';
-import api from '../../api'; // Axios instance with credentials
+import api from '../../api'; // Axios instance with credentials (from src/api.js)
 
 const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
     // State to hold the fetched details and the generated bill number
@@ -17,22 +17,20 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                 setIsLoading(true);
                 setError(null);
                 try {
-                    // ⭐️ OPTIMIZATION: Fetch both resources concurrently using Promise.all
-                    const [detailsResponse, billResponse] = await Promise.all([
-                        // 1️⃣ Fetch supplier details
-                        api.get(`/suppliers/${supplierCode}/details`),
-                        // 2️⃣ Fetch new bill number
-                        api.get('/generate-f-series-bill')
-                    ]);
-
+                    // 1️⃣ Fetch supplier details
+                    const detailsResponse = await api.get(`/suppliers/${supplierCode}/details`);
                     const supplierDetails = detailsResponse.data;
+
+                    // 2️⃣ Fetch new bill number
+                    const billResponse = await api.get('/generate-f-series-bill');
                     const newBillNo = billResponse.data.new_bill_no;
 
-                    // Assign the newly generated bill number to each record
+                    // Assign the *newly generated* bill number to each record
                     const updatedDetails = supplierDetails.map(record => ({
                         ...record,
+                        // Ensure the new bill number is associated with the record for display
                         bill_no: newBillNo,
-                        // Ensure Date is available for the detailed table
+                        // Ensure Date is available for the detailed table (assuming it's in the fetched record)
                         Date: record.Date || new Date().toISOString().split('T')[0], // Fallback date
                     }));
 
@@ -40,7 +38,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                     setBillNo(newBillNo);
                 } catch (err) {
                     console.error('Error fetching supplier details or bill:', err);
-                    // Check for specific error status if needed, otherwise use generic message
                     setError('Failed to fetch transaction details or generate bill number.');
                     setDetails([]);
                     setBillNo('N/A');
@@ -59,7 +56,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         }
     }, [isOpen, supplierCode]);
 
-    // ... (rest of the component logic and styles are unchanged)
     // Helper function to format decimals
     const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
         minimumFractionDigits: decimals,
@@ -76,15 +72,16 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         detailedItemsHtml,
         totalPacksSum,
         customerCode,
-        totalsupplierSales, // Using this variable name from the original code
+        totalsupplierSales,
+        totalSupplierPackCost,
     } = useMemo(() => {
         let totalWeight = 0;
-        let totalSales = 0; // Total sales from all records (e.g., total column)
-        let totalsupplierSales = 0; // Total from SupplierTotal column
+        let totalSales = 0; 
+        let totalsupplierSales = 0; 
         let totalCommission = 0;
         let totalPacksSum = 0;
+        let totalSupplierPackCost = 0; 
         
-        // Find the first customer code for the header/summary
         let customerCode = details.length > 0 ? details[0].customer_code : '';
 
         const itemSummary = {};
@@ -96,18 +93,19 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             const commission = parseFloat(record.commission_amount) || 0;
             const packs = parseInt(record.packs) || 0;
             const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
-            const SupplierTotal = parseFloat(record.SupplierTotal) || 0; // The actual payable total for the item
+            const SupplierTotal = parseFloat(record.SupplierTotal) || 0; 
             const itemName = record.item_name || 'Unknown Item';
+            const SupplierPackCost = parseFloat(record.SupplierPackCost) || 0;
 
             // 1. Grand Totals
             totalWeight += weight;
-            totalSales += total; // This might be the raw customer sale value
-            totalsupplierSales += SupplierTotal; // This is the amount the supplier is due for the item
+            totalSales += total; 
+            totalsupplierSales += SupplierTotal; 
             totalCommission += commission;
             totalPacksSum += packs;
+            totalSupplierPackCost += SupplierPackCost; 
 
             // 2. Detailed Items HTML (for the bill print window)
-            // It seems the print logic uses SupplierPricePerKg and SupplierTotal
             itemsHtmlArray.push(`
                 <tr style="font-size: 1.1em;">
                     <td style="text-align:left;padding:3px;border-bottom:1px solid #eee;">
@@ -116,7 +114,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                     <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${weight.toFixed(3)}</td>
                     <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${SupplierPricePerKg.toFixed(2)}</td>
                     <td style="text-align:right;padding:3px;border-bottom:1px solid #eee;">
-                        <span style="font-weight: bold; font-size: 0.9em;">${customerCode.toUpperCase()}</span><br>${SupplierTotal.toFixed(2)}
+                        <span style="font-weight: bold; font-size: 0.9em;">${record.customer_code.toUpperCase()}</span><br>${SupplierTotal.toFixed(2)}
                     </td>
                 </tr>
             `);
@@ -129,37 +127,56 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             itemSummary[itemName].totalPacks += packs;
         });
         
-        
-        // In the original code, amountPayable was set to totalsupplierSales, 
-        // implying commission might be calculated/deducted elsewhere, or totalsupplierSales 
-        // already represents the net amount. I will keep the original calculation structure:
-        const finalAmountPayable = totalsupplierSales; 
+        // Calculate net payable (Gross Sales - Commission)
+        const finalAmountPayable = totalsupplierSales - totalCommission;
 
         return {
             totalWeight,
-            totalSales, // Raw customer sales
+            totalSales, 
             totalCommission,
-            amountPayable: finalAmountPayable, // The net amount payable to the supplier
+            amountPayable: finalAmountPayable, 
             itemSummaryData: itemSummary,
             detailedItemsHtml: itemsHtmlArray.join(''),
             totalPacksSum,
             customerCode,
-            totalsupplierSales, // Total amount from the SupplierTotal field (before final deduction)
+            totalsupplierSales, 
+            totalSupplierPackCost, 
         };
     }, [details]);
 
-    // --- BILL CONTENT GENERATION ---
+    // --- NEW: API call to mark records as printed ---
+    const markRecordsAsPrinted = async (billNo, ids) => {
+        if (!billNo || ids.length === 0 || billNo === 'N/A') return;
+        
+        try {
+            await api.post('/suppliers/mark-as-printed', {
+                bill_no: billNo,
+                // Ensure the records have an 'id' field for the backend
+                transaction_ids: ids, 
+            });
+            console.log(`✅ Successfully marked ${ids.length} records with bill no: ${billNo}`);
+            
+            // Optionally, call onClose() here to immediately hide transactions
+            // that were just billed, or refresh the data.
+            onClose(); 
+
+        } catch (err) {
+            console.error('❌ Failed to mark supplier records as printed:', err);
+            // Alert user of critical failure
+            alert(`Warning: Bill generated (${billNo}) but failed to mark records as printed on the server. Please notify admin.`);
+        }
+    };
+
+    // --- BILL CONTENT GENERATION (Unchanged) ---
     const getBillContent = () => {
         const date = new Date().toLocaleDateString('si-LK');
         const time = new Date().toLocaleTimeString('si-LK');
 
         const mobile = '071XXXXXXX';
-        const totalPackDueCost = totalCommission;
+        const totalPackDueCost = totalSupplierPackCost; 
         
-        // Keeping variables consistent with the original logic:
-        const totalSalesExcludingPackDue = amountPayable;
-        const finalAmountToDisplay = amountPayable;
-
+        const finaltotal = totalsupplierSales + totalSupplierPackCost; 
+        
         const itemSummaryKeys = Object.keys(itemSummaryData);
         const itemSummaryHtml = itemSummaryKeys.map(itemName => {
             const sum = itemSummaryData[itemName];
@@ -191,11 +208,12 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
             ${detailedItemsHtml}
             <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-            <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalSalesExcludingPackDue.toFixed(2)}</td></tr>
+            <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalsupplierSales}</td></tr>
         </tbody>
     </table>
     <table style="width:100%;font-size:15px;border-collapse:collapse;">
-        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finalAmountToDisplay).toFixed(2)}</span></td></tr>
+        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
+        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finaltotal).toFixed(2)}</span></td></tr>
     </table>
     <div style="font-size:10px;">
         <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
@@ -209,6 +227,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
 </div>`;
     };
 
+    // --- UPDATED: handlePrint function to include API call ---
     const handlePrint = () => {
         const content = getBillContent();
         const printWindow = window.open('', '', 'height=600,width=800');
@@ -232,7 +251,16 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
             printWindow.document.close();
             printWindow.focus();
             printWindow.print();
-            // Close window after print dialog is shown
+            
+            // ✅ STEP 1: Get the list of IDs for the records currently being displayed
+            // Assumes each record has an 'id' field.
+            const transactionIds = details.map(record => record.id).filter(id => id);
+            
+            // ✅ STEP 2: Call the new backend API to mark records as printed
+            if (transactionIds.length > 0 && billNo && billNo !== 'N/A') {
+                markRecordsAsPrinted(billNo, transactionIds);
+            }
+
         } else {
             alert("Please allow pop-ups to print the bill.");
         }
@@ -243,22 +271,23 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         const handleKeyDown = (event) => {
             if (event.key === 'F1' || event.keyCode === 112) {
                 event.preventDefault();
-                if (isOpen && details.length > 0) { // Only allow print if open and data exists
-                    handlePrint();
+                if (isOpen && details.length > 0) { 
+                    handlePrint(); // This triggers the printing and the API update
                 }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
 
+        // Cleanup listener on component unmount/close
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [isOpen, details]);
+    }, [isOpen, details, billNo]); // Added billNo to dependency array
 
     if (!isOpen) return null;
 
-    // --- INLINE STYLES (From the second component) ---
+    // --- INLINE STYLES ---
     const modalOverlayStyle = {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex',
@@ -433,7 +462,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                     <tbody>
                                         {details.map((record, index) => (
                                             <tr
-                                                key={index}
+                                                key={record.id || index} // Use record.id if available
                                                 style={getRowStyle(index)}
                                             >
                                                 <td style={tdStyle}>{record.Date}</td>
@@ -445,7 +474,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                                 <td style={tdStyle}>{formatDecimal(record.SupplierPricePerKg)}</td>
                                                 <td style={tdStyle}>{formatDecimal(record.SupplierTotal)}</td>
                                                 <td style={tdStyle}>{formatDecimal(record.commission_amount)}</td>
-                                                <td style={tdStyle}>{formatDecimal(parseFloat(record.SupplierTotal))}</td>
+                                                <td style={tdStyle}>{formatDecimal(parseFloat(record.SupplierTotal) - parseFloat(record.commission_amount))}</td>
                                             </tr>
                                         ))}
                                         {/* --- Summary Row for Table --- */}
