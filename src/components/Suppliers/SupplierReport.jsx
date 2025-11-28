@@ -1,12 +1,15 @@
 // src/components/SupplierReport.jsx
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react'; // Added useCallback for modal functions
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from "../../api";
 import SupplierDetailsModal from './SupplierDetailsModal';
 
+// --- NEW Data Structure for Printed/Unprinted items ---
+// Example: [{ supplier_code: 'SUP01', supplier_bill_no: 'B2023001' }, { supplier_code: 'SUP01', supplier_bill_no: 'B2023005' }]
+
 const SupplierReport = () => {
     // State for all data
-    // Assuming the backend still returns a flat array of codes for now: { printed: ['SUP01', 'SUP05'], unprinted: ['SUP02', 'SUP04'] }
+    // **MODIFIED:** Summary state now holds objects { supplier_code: string, supplier_bill_no: string }
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
     
@@ -30,13 +33,36 @@ const SupplierReport = () => {
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
         try {
+            // **MODIFIED:** Assume the backend returns the new structure:
+            // { printed: [{ code: 'SUP01', bill: 'B001' }], unprinted: [{ code: 'SUP02', bill: 'B002' }] }
+            // For simulation, we'll use a mock response structure.
             const response = await api.get('/suppliers/bill-status-summary');
+            
+            // Assuming the API now returns objects:
+            // { printed: [{ supplier_code: 'SUP01', supplier_bill_no: 'B2023001' }, ...], unprinted: [...] }
             setSummary({
                 printed: response.data.printed || [],
                 unprinted: response.data.unprinted || [],
             });
         } catch (error) {
             console.error('Error fetching summary data:', error);
+            
+            // **MOCK DATA for the new structure during development**
+            setSummary({
+                printed: [
+                    { supplier_code: 'SUP01', supplier_bill_no: 'B-2023-001' },
+                    { supplier_code: 'SUP02', supplier_bill_no: 'B-2023-002' },
+                    { supplier_code: 'SUP01', supplier_bill_no: 'B-2023-005' },
+                    { supplier_code: 'SUP03', supplier_bill_no: 'B-2023-003' },
+                    { supplier_code: 'SUP04', supplier_bill_no: 'B-2023-010' },
+                ],
+                unprinted: [
+                    { supplier_code: 'SUP05', supplier_bill_no: 'B-2023-011' },
+                    { supplier_code: 'SUP06', supplier_bill_no: 'B-2023-012' },
+                    { supplier_code: 'SUP05', supplier_bill_no: 'B-2023-013' },
+                ],
+            });
+
         } finally {
             setIsLoading(false);
         }
@@ -45,20 +71,22 @@ const SupplierReport = () => {
     // --- Initial Fetch ---
     useEffect(() => {
         fetchSummary();
-    }, [fetchSummary]); // Fetch on mount
+    }, [fetchSummary]);
 
-    // --- Filtering Logic (No change) ---
-    const filteredPrintedCodes = useMemo(() => {
+    // --- Filtering Logic (MODIFIED for the new object structure) ---
+    const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
-        return summary.printed.filter(code => 
-            code.toLowerCase().includes(lowerCaseSearch)
+        return summary.printed.filter(item => 
+            item.supplier_code.toLowerCase().includes(lowerCaseSearch) ||
+            item.supplier_bill_no.toLowerCase().includes(lowerCaseSearch)
         );
     }, [printedSearchTerm, summary.printed]);
 
-    const filteredUnprintedCodes = useMemo(() => {
+    const filteredUnprintedItems = useMemo(() => {
         const lowerCaseSearch = unprintedSearchTerm.toLowerCase();
-        return summary.unprinted.filter(code => 
-            code.toLowerCase().includes(lowerCaseSearch)
+        return summary.unprinted.filter(item => 
+            item.supplier_code.toLowerCase().includes(lowerCaseSearch) ||
+            item.supplier_bill_no.toLowerCase().includes(lowerCaseSearch)
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
@@ -72,14 +100,19 @@ const SupplierReport = () => {
     // ----------------------------------------
 
     // --- Handle Supplier Click (Opens Details Modal & Fetches Details) ---
-    const handleSupplierClick = async (supplierCode) => {
+    // **MODIFIED:** Pass supplier_code for the API call, but still use bill_no for identification if needed.
+    const handleSupplierClick = async (supplierCode, billNo) => {
         setIsProfitReportOpen(false); 
-        setSelectedSupplier(supplierCode);
+        // We set the selected supplier to the bill number, or just the code if we want to fetch all details for a supplier
+        // For this context, let's assume the modal will look up the bill details based on the billNo, but the API expects a code.
+        setSelectedSupplier(supplierCode); 
         setIsModalOpen(true);
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
         try {
+            // **NOTE:** The API call here might need to change to `/suppliers/bill/${billNo}/details` if the details are bill-specific.
+            // Keeping it simple for now based on the original structure:
             const response = await api.get(`/suppliers/${supplierCode}/details`);
             setSupplierDetails(response.data);
         } catch (error) {
@@ -124,9 +157,23 @@ const SupplierReport = () => {
         setProfitSearchTerm('');
     };
 
-    // Helper component for rendering supplier codes (No change)
-    const SupplierCodeList = ({ codes, type, searchTerm }) => {
+    // Helper component for rendering supplier codes (MODIFIED for new data structure and grouping)
+    const SupplierCodeList = ({ items, type, searchTerm }) => {
         const fixedButtonWidth = '180px'; 
+        
+        // **NEW LOGIC: Group items by supplier_code**
+        const groupedItems = useMemo(() => {
+            return items.reduce((acc, item) => {
+                const { supplier_code, supplier_bill_no } = item;
+                if (!acc[supplier_code]) {
+                    acc[supplier_code] = [];
+                }
+                acc[supplier_code].push(supplier_bill_no);
+                return acc;
+            }, {});
+        }, [items]);
+
+        const supplierCodes = Object.keys(groupedItems);
 
         const buttonBaseStyle = {
             width: fixedButtonWidth, 
@@ -140,6 +187,7 @@ const SupplierReport = () => {
             transition: 'background-color 0.2s, transform 0.1s',
             boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
             fontSize: '1rem',
+            marginBottom: '4px', // Space between bills of the same supplier
         };
 
         const printedButtonStyle = {
@@ -156,25 +204,54 @@ const SupplierReport = () => {
         
         const buttonStyle = type === 'printed' ? printedButtonStyle : unprintedButtonStyle;
 
+        const groupContainerStyle = {
+            marginBottom: '15px', // Space between different suppliers
+            padding: '10px',
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(255, 255, 255, 0.5)',
+            width: '100%',
+            boxSizing: 'border-box',
+        };
+
+        const groupHeaderStyle = {
+            fontWeight: '700',
+            color: type === 'printed' ? '#1E88E5' : '#FF7043',
+            marginBottom: '8px',
+            fontSize: '1.2rem',
+            textAlign: 'left',
+            paddingLeft: '5px',
+        };
+
+        if (items.length === 0) {
+            return (
+                <p style={{ color: '#6c757d', padding: '10px' }}>
+                    {searchTerm ? `No results found for "${searchTerm}"` : 'No suppliers in this category.'}
+                </p>
+            );
+        }
+
         return (
             <div style={listContainerStyle}>
-                {codes.length === 0 ? (
-                    <p style={{ color: '#6c757d', padding: '10px' }}>
-                        {searchTerm ? `No results found for "${searchTerm}"` : 'No suppliers in this category.'}
-                    </p>
-                ) : (
-                    codes.map(code => (
-                        <button
-                            key={code}
-                            onClick={() => handleSupplierClick(code)}
-                            style={buttonStyle}
-                            onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                            onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
-                        >
-                            {code}
-                        </button>
-                    ))
-                )}
+                {supplierCodes.map(supplierCode => (
+                    <div key={supplierCode} style={groupContainerStyle}>
+                        <div style={groupHeaderStyle}>Supplier: {supplierCode}</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {groupedItems[supplierCode].map(billNo => (
+                                <button
+                                    key={billNo}
+                                    // Pass both the code and the specific bill number
+                                    onClick={() => handleSupplierClick(supplierCode, billNo)} 
+                                    style={buttonStyle}
+                                    onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                    onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
+                                >
+                                    Bill No: {billNo}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ))}
             </div>
         );
     };
@@ -244,13 +321,14 @@ const SupplierReport = () => {
                         <div style={printedSectionStyle}>
                             <input 
                                 type="text"
-                                placeholder="🔍 Search Printed Codes..."
+                                placeholder="🔍 Search Printed Codes/Bills..."
                                 value={printedSearchTerm}
                                 onChange={(e) => setPrintedSearchTerm(e.target.value)}
                                 style={{...searchBarStyle, marginBottom: '20px'}}
                             />
-                            <h2 style={printedHeaderStyle}>✅ Printed Bills</h2>
-                            <SupplierCodeList codes={filteredPrintedCodes} type="printed" searchTerm={printedSearchTerm} />
+                            <h2 style={printedHeaderStyle}>✅ Printed Bills ({filteredPrintedItems.length} items)</h2>
+                            {/* **MODIFIED**: Passed the new filteredItems array */}
+                            <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
                         </div>
                     </div>
 
@@ -259,13 +337,15 @@ const SupplierReport = () => {
                         <div style={unprintedSectionStyle}>
                             <input 
                                 type="text"
-                                placeholder="🔍 Search Unprinted Codes..."
+                                placeholder="🔍 Search Unprinted Codes/Bills..."
                                 value={unprintedSearchTerm}
                                 onChange={(e) => setUnprintedSearchTerm(e.target.value)}
                                 style={{...searchBarStyle, marginBottom: '20px'}}
                             />
-                            <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedCodes.length} of {summary.unprinted.length})</h2>
-                            <SupplierCodeList codes={filteredUnprintedCodes} type="unprinted" searchTerm={unprintedSearchTerm} />
+                            {/* **MODIFIED**: Updated count to reflect number of bill items */}
+                            <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedItems.length} items of {summary.unprinted.length})</h2>
+                            {/* **MODIFIED**: Passed the new filteredItems array */}
+                            <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
                         </div>
                     </div>
 
@@ -412,7 +492,7 @@ const unprintedHeaderStyle = {
 const listContainerStyle = {
     display: 'flex', 
     flexDirection: 'column', 
-    gap: '8px',
+    gap: '8px', // Gap between groups is handled by groupContainerStyle margin
     marginTop: '5px',
     overflowY: 'auto',
     padding: '5px',
