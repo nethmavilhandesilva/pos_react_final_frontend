@@ -1156,7 +1156,7 @@ export default function SalesEntry() {
                         Refreshing data...
                     </div>
                 )}
-                
+
                 <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1 }}>
 
                     {/* Left Sidebar */}
@@ -1523,22 +1523,6 @@ export default function SalesEntry() {
                                     </tbody>
                                 </table>
                             )}
-                            
-                            {/* === ROW 3: GIVEN AMOUNT INPUT === */}
-                            <div className="flex items-center justify-end mt-2">
-                                <input
-                                    id="given_amount"
-                                    ref={refs.givenAmount}
-                                    name="given_amount"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.given_amount}
-                                    onChange={(e) => handleInputChange('given_amount', e.target.value)}
-                                    onKeyDown={(e) => handleKeyDown(e, 2)}
-                                    placeholder="Given Amount"
-                                    className="px-4 py-2 border rounded-xl text-right w-40"
-                                />
-                            </div>
 
                             {/* Item summary and sales+pack cost in white */}
                             <ItemSummary sales={displayedSales} formatDecimal={formatDecimal} />
@@ -1569,13 +1553,52 @@ export default function SalesEntry() {
 
                         </div>
 
-                        <div className="flex justify-between items-center mt-6">
-                            <div className="flex space-x-3">
-                                <button type="button" onClick={handleMarkPrinted} className="px-4 py-1 text-sm bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow transition">F1-PRINT</button>
-                                <button type="button" onClick={handleMarkAllProcessed} disabled={selectedPrintedCustomer} className={`px-4 py-1 text-sm text-white font-bold rounded-xl shadow transition ${selectedPrintedCustomer ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}>F5-HOLD</button>
-                                <button type="button" onClick={handleFullRefresh} className="px-4 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl shadow transition">F10-Refresh</button>
-                            </div>
+                        <div className="flex items-center mt-6 space-x-3 overflow-x-auto whitespace-nowrap py-2">
+
+                            {/* Buttons */}
+                            <button
+                                type="button"
+                                onClick={handleMarkPrinted}
+                                className="px-4 py-1 text-sm bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow transition"
+                            >
+                                F1-PRINT
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleMarkAllProcessed}
+                                disabled={selectedPrintedCustomer}
+                                className={`px-4 py-1 text-sm text-white font-bold rounded-xl shadow transition ${selectedPrintedCustomer
+                                        ? "bg-gray-400 cursor-not-allowed"
+                                        : "bg-blue-600 hover:bg-blue-700"
+                                    }`}
+                            >
+                                F5-HOLD
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleFullRefresh}
+                                className="px-4 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl shadow transition"
+                            >
+                                F10-Refresh
+                            </button>
+
+                            {/* Given amount input (moved a bit right) */}
+                            <input
+                                id="given_amount"
+                                ref={refs.givenAmount}
+                                name="given_amount"
+                                type="number"
+                                step="0.01"
+                                value={formData.given_amount}
+                                onChange={(e) => handleInputChange('given_amount', e.target.value)}
+                                onKeyDown={(e) => handleKeyDown(e, 2)}
+                                placeholder="Given Amount"
+                                className="px-4 py-2 border rounded-xl text-right w-40 ml-4"  // <-- added ml-4
+                            />
                         </div>
+
 
                     </div> {/* End of center-form */}
 
