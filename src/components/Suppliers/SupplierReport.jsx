@@ -8,9 +8,9 @@ const SupplierReport = () => {
     // State for all data
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
-    
-    const [printedSearchTerm, setPrintedSearchTerm] = useState(''); 
-    const [unprintedSearchTerm, setUnprintedSearchTerm] = useState(''); 
+
+    const [printedSearchTerm, setPrintedSearchTerm] = useState('');
+    const [unprintedSearchTerm, setUnprintedSearchTerm] = useState(''); // This state is correctly set
 
     // --- NEW STATE FOR PROFIT REPORT ---
     const [isProfitReportOpen, setIsProfitReportOpen] = useState(false);
@@ -56,24 +56,24 @@ const SupplierReport = () => {
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
-        return summary.printed.filter(item => 
+        return summary.printed.filter(item =>
             item.supplier_code.toLowerCase().includes(lowerCaseSearch) ||
-            item.supplier_bill_no.toLowerCase().includes(lowerCaseSearch)
+            (item.supplier_bill_no && item.supplier_bill_no.toLowerCase().includes(lowerCaseSearch))
         );
     }, [printedSearchTerm, summary.printed]);
 
     const filteredUnprintedItems = useMemo(() => {
         const lowerCaseSearch = unprintedSearchTerm.toLowerCase();
-        return summary.unprinted.filter(item => 
-            item.supplier_code.toLowerCase().includes(lowerCaseSearch) ||
-            item.supplier_bill_no.toLowerCase().includes(lowerCaseSearch)
+        return summary.unprinted.filter(item =>
+            item.supplier_code.toLowerCase().includes(lowerCaseSearch)
+            // Note: Unprinted bills won't have a supplier_bill_no yet, so only search by code.
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
     // --- NEW Filtering for Profit Report ---
     const filteredProfitReport = useMemo(() => {
         const lowerCaseSearch = profitSearchTerm.toLowerCase();
-        return profitReportData.filter(item => 
+        return profitReportData.filter(item =>
             item.supplier_code.toLowerCase().includes(lowerCaseSearch)
         );
     }, [profitSearchTerm, profitReportData]);
@@ -122,13 +122,13 @@ const SupplierReport = () => {
 
     // --- NEW Handle Profit Report Click ---
     const handleProfitReportClick = async () => {
-        setIsModalOpen(false); 
+        setIsModalOpen(false);
         setIsProfitReportOpen(true);
         setProfitReportData([]);
         setIsProfitReportLoading(true);
 
         try {
-            const response = await api.get('/sales/profit-by-supplier'); 
+            const response = await api.get('/sales/profit-by-supplier');
             setProfitReportData(response.data);
         } catch (error) {
             console.error('Error fetching profit report data:', error);
@@ -144,7 +144,7 @@ const SupplierReport = () => {
         setSelectedBillNo(null);
         setIsUnprintedBill(false);
         setSupplierDetails([]);
-        
+
         // Refresh the summary data
         fetchSummary();
     };
@@ -158,26 +158,38 @@ const SupplierReport = () => {
 
     // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
-        const fixedButtonWidth = '180px'; 
-        
+        const fixedButtonWidth = '180px';
+
         // Group items by supplier_code
         const groupedItems = useMemo(() => {
             return items.reduce((acc, item) => {
                 const { supplier_code, supplier_bill_no } = item;
+                // For unprinted bills, the billNo is often not present in the summary list, 
+                // but the structure expects it for the button text. We use the supplier_code itself 
+                // as a pseudo-bill identifier for grouping since unprinted is grouped by supplier code.
+                const billIdentifier = type === 'printed' ? supplier_bill_no : supplier_code; 
+
                 if (!acc[supplier_code]) {
                     acc[supplier_code] = [];
                 }
-                acc[supplier_code].push(supplier_bill_no);
+                // Push the bill number if printed, or the supplier code if unprinted
+                if (type === 'printed' && supplier_bill_no) {
+                    acc[supplier_code].push(supplier_bill_no);
+                } else if (type === 'unprinted' && !acc[supplier_code].includes(supplier_code)) {
+                    // For unprinted, we only need one button per supplier code to trigger the modal
+                    // which fetches ALL unprinted records for that code.
+                    acc[supplier_code].push(supplier_code);
+                }
                 return acc;
             }, {});
-        }, [items]);
+        }, [items, type]);
 
         const supplierCodes = Object.keys(groupedItems);
 
         const buttonBaseStyle = {
-            width: fixedButtonWidth, 
-            display: 'inline-block', 
-            textAlign: 'center', 
+            width: fixedButtonWidth,
+            display: 'inline-block',
+            textAlign: 'center',
             padding: '12px 15px',
             borderRadius: '6px',
             cursor: 'pointer',
@@ -200,7 +212,7 @@ const SupplierReport = () => {
             backgroundColor: '#FF7043',
             color: 'white',
         };
-        
+
         const buttonStyle = type === 'printed' ? printedButtonStyle : unprintedButtonStyle;
 
         const groupContainerStyle = {
@@ -236,18 +248,19 @@ const SupplierReport = () => {
                     <div key={supplierCode} style={groupContainerStyle}>
                         <div style={groupHeaderStyle}>Supplier: {supplierCode}</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {groupedItems[supplierCode].map(billNo => (
+                            {/* GroupedItems[supplierCode] holds the bill numbers (or supplierCode for unprinted) */}
+                            {groupedItems[supplierCode].map(billIdentifier => (
                                 <button
-                                    key={billNo}
-                                    onClick={() => type === 'printed' 
-                                        ? handlePrintedBillClick(supplierCode, billNo)
-                                        : handleUnprintedBillClick(supplierCode, billNo)
+                                    key={billIdentifier}
+                                    onClick={() => type === 'printed'
+                                        ? handlePrintedBillClick(supplierCode, billIdentifier)
+                                        : handleUnprintedBillClick(supplierCode, null) // Pass null for billNo, modal handles generation
                                     }
                                     style={buttonStyle}
                                     onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                                     onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
                                 >
-                                    Bill No: {billNo}
+                                    {type === 'printed' ? `Bill No: ${billIdentifier}` : `Print All Pending`}
                                 </button>
                             ))}
                         </div>
@@ -263,14 +276,14 @@ const SupplierReport = () => {
         <div style={reportContainerStyle}>
             <header style={headerContainerStyle}>
                 <h1 style={headerStyle}>📊 Supplier Management Dashboard</h1>
-                <button 
-                    onClick={handleProfitReportClick} 
+                <button
+                    onClick={handleProfitReportClick}
                     style={profitReportButtonStyle}
                 >
                     💰 View Supplier Profit Report
                 </button>
             </header>
-            
+
             {/* --- Conditional Rendering for Profit Report vs. Bill Status --- */}
             {isProfitReportOpen ? (
                 // --- Supplier Profit Report View ---
@@ -279,7 +292,7 @@ const SupplierReport = () => {
                     <button onClick={closeProfitReport} style={closeProfitButtonStyle}>
                         &larr; Back to Bill Status
                     </button>
-                    <input 
+                    <input
                         type="text"
                         placeholder="🔍 Search by Supplier Code..."
                         value={profitSearchTerm}
@@ -315,11 +328,11 @@ const SupplierReport = () => {
             ) : (
                 // --- Bill Status Summary View ---
                 <div style={sectionsContainerStyle}>
-                    
+
                     {/* --- Printed Section (Left Corner) --- */}
                     <div style={printedContainerStyle}>
                         <div style={printedSectionStyle}>
-                            <input 
+                            <input
                                 type="text"
                                 placeholder="🔍 Search Printed Codes/Bills..."
                                 value={printedSearchTerm}
@@ -334,7 +347,7 @@ const SupplierReport = () => {
                     {/* --- Unprinted Section (Right Corner - Custom Pushed) --- */}
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
-                            <input 
+                            <input
                                 type="text"
                                 placeholder="🔍 Search Unprinted Codes/Bills..."
                                 value={unprintedSearchTerm}
@@ -342,6 +355,7 @@ const SupplierReport = () => {
                                 style={{...searchBarStyle, marginBottom: '20px'}}
                             />
                             <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedItems.length} items)</h2>
+                            {/* 🚨 FIX APPLIED HERE 🚨: Use filteredUnprintedItems instead of summary.unprinted */}
                             <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
                         </div>
                     </div>
@@ -368,11 +382,11 @@ const SupplierReport = () => {
 // --- STYLES (remain the same as before) ---
 
 const reportContainerStyle = {
-    minHeight: '100vh', 
-    padding: '0 50px 50px 50px', 
+    minHeight: '100vh',
+    padding: '0 50px 50px 50px',
     fontFamily: 'Roboto, Arial, sans-serif',
     boxSizing: 'border-box',
-    backgroundColor: '#99ff99', 
+    backgroundColor: '#99ff99',
 };
 
 const headerContainerStyle = {
@@ -380,9 +394,9 @@ const headerContainerStyle = {
     borderBottom: '1px solid #E0E0E0',
     marginBottom: '30px',
     display: 'flex',
-    justifyContent: 'space-between', 
+    justifyContent: 'space-between',
     alignItems: 'flex-end',
-    backgroundColor: '#99ff99', 
+    backgroundColor: '#99ff99',
 };
 
 const headerStyle = {
@@ -395,7 +409,7 @@ const headerStyle = {
 
 const profitReportButtonStyle = {
     padding: '10px 20px',
-    backgroundColor: '#4CAF50', 
+    backgroundColor: '#4CAF50',
     color: 'white',
     border: 'none',
     borderRadius: '6px',
@@ -417,27 +431,27 @@ const searchBarStyle = {
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
     transition: 'border-color 0.2s',
     boxSizing: 'border-box',
-    backgroundColor: 'white', 
+    backgroundColor: 'white',
 };
 
 const sectionsContainerStyle = {
-    display: 'flex', 
-    justifyContent: 'flex-start', 
-    gap: '0', 
+    display: 'flex',
+    justifyContent: 'flex-start',
+    gap: '0',
 };
 
 const printedContainerStyle = {
-    width: '400px', 
+    width: '400px',
     display: 'flex',
     flexDirection: 'column',
-    marginLeft: '-25px', 
+    marginLeft: '-25px',
 };
 
 const unprintedContainerStyle = {
-    width: '400px', 
+    width: '400px',
     display: 'flex',
     flexDirection: 'column',
-    marginLeft: '440px', 
+    marginLeft: '440px',
 };
 
 const baseSectionStyle = {
@@ -446,7 +460,7 @@ const baseSectionStyle = {
     boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)',
     display: 'flex',
     flexDirection: 'column',
-    height: 'calc(100vh - 210px)', 
+    height: 'calc(100vh - 210px)',
 };
 
 const printedSectionStyle = {
@@ -480,14 +494,14 @@ const unprintedHeaderStyle = {
 };
 
 const listContainerStyle = {
-    display: 'flex', 
-    flexDirection: 'column', 
+    display: 'flex',
+    flexDirection: 'column',
     gap: '8px',
     marginTop: '5px',
     overflowY: 'auto',
     padding: '5px',
-    flexGrow: 1, 
-    alignItems: 'center', 
+    flexGrow: 1,
+    alignItems: 'center',
 };
 
 const loadingStyle = {
@@ -501,7 +515,7 @@ const loadingStyle = {
 const profitReportContainerStyle = {
     marginTop: '20px',
     padding: '25px',
-    backgroundColor: '#E6FFE6', 
+    backgroundColor: '#E6FFE6',
     borderRadius: '12px',
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
     minHeight: 'calc(100vh - 250px)',
