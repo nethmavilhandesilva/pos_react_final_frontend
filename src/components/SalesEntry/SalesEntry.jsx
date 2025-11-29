@@ -272,7 +272,7 @@ export default function SalesEntry() {
         itemSearchInput: "",
         supplierSearchInput: "",
         currentBillNo: null,
-        isLoading: true, // Initial loading state
+        isLoading: false, // Changed to false initially - no loading screen
         customers: [],
         items: [],
         suppliers: []
@@ -353,9 +353,6 @@ export default function SalesEntry() {
     // --- End Derived State ---
 
     // --- API Helpers ---
-    // Note: The apiCall helper and custom fetch logic are removed.
-    // All calls now use the imported 'api' (axios instance).
-
     const fetchLoanAmount = async (customerCode) => {
         if (!customerCode) return updateState({ loanAmount: 0 });
         try {
@@ -372,8 +369,6 @@ export default function SalesEntry() {
 
     const fetchInitialData = async () => {
         try {
-            updateState({ isLoading: true });
-
             const [resSales, resCustomers, resItems, resSuppliers] = await Promise.all([
                 api.get(routes.sales),
                 api.get(routes.customers),
@@ -397,7 +392,7 @@ export default function SalesEntry() {
         } catch (error) {
             console.error('Failed to fetch initial data:', error);
             // The api.js interceptor will handle 401 redirect, so we only handle other errors here.
-            updateState({ isLoading: false, errors: { form: 'Failed to load data. Check console.' } });
+            updateState({ errors: { form: 'Failed to load data. Check console.' } });
         }
     };
     // --- End API Helpers ---
@@ -922,7 +917,16 @@ export default function SalesEntry() {
         }
     };
 
-    const handleFullRefresh = () => { window.location.reload(); };
+    const handleFullRefresh = async () => {
+        updateState({ isLoading: true });
+        try {
+            await fetchInitialData();
+        } catch (error) {
+            console.error('Refresh failed:', error);
+        } finally {
+            updateState({ isLoading: false });
+        }
+    };
 
     const printSingleContent = async (html, customerName) => {
         return new Promise((resolve) => {
@@ -1139,37 +1143,48 @@ export default function SalesEntry() {
         return () => window.removeEventListener("keydown", handleShortcut);
     }, [displayedSales, newSales]);
 
-    // Added isLoading check for initial data fetch
-    if (isLoading) {
-        return (
-            <Layout>
-                <div className="flex justify-center items-center h-64">
-                    <div className="text-lg">Loading sales data...</div>
-                </div>
-            </Layout>
-        );
-    }
+    // Check if we have any data to display
+    const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
 
     // --- Render ---
     return (
         <Layout>
             <div className="sales-layout">
-                <div className="three-column-layout">
+                {/* Show subtle loading indicator instead of blocking screen */}
+                {isLoading && (
+                    <div className="fixed top-0 left-0 right-0 bg-blue-500 text-white py-1 text-center text-sm z-50">
+                        Refreshing data...
+                    </div>
+                )}
+                
+                <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1 }}>
 
                     {/* Left Sidebar */}
                     <div className="left-sidebar">
-                        <CustomerList
-                            customers={printedCustomers}
-                            type="printed"
-                            searchQuery={searchQueries.printed}
-                            onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })}
-                            selectedPrintedCustomer={selectedPrintedCustomer}
-                            selectedUnprintedCustomer={selectedUnprintedCustomer}
-                            handleCustomerClick={handleCustomerClick}
-                            unprintedTotal={unprintedTotal}
-                            formatDecimal={formatDecimal}
-                            allSales={allSales}
-                        />
+                        {hasData ? (
+                            <CustomerList
+                                customers={printedCustomers}
+                                type="printed"
+                                searchQuery={searchQueries.printed}
+                                onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })}
+                                selectedPrintedCustomer={selectedPrintedCustomer}
+                                selectedUnprintedCustomer={selectedUnprintedCustomer}
+                                handleCustomerClick={handleCustomerClick}
+                                formatDecimal={formatDecimal}
+                                allSales={allSales}
+                            />
+                        ) : (
+                            <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
+                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
+                                    <h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>
+                                        මුද්‍රණය කළ
+                                    </h2>
+                                </div>
+                                <div className="py-4">
+                                    <p className="text-gray-700">No printed customers data available</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Center Form */}
@@ -1460,48 +1475,55 @@ export default function SalesEntry() {
 
                         {/* Sales table */}
                         <div className="mt-4 overflow-x-auto">
-                            <table className="min-w-full border-gray-200 rounded-xl text-sm">
-                                <thead>
-                                    <tr>
-                                        <th className="px-4 py-2 border">කේතය</th>
-                                        <th className="px-4 py-2 border">අයිතමය</th>
-                                        <th className="px-2 py-2 border w-20">බර(kg)</th>
-                                        <th className="px-2 py-2 border w-20">මිල</th>
-                                        <th className="px-2 py-2 border w-24">අගය</th>
-                                        <th className="px-2 py-2 border w-16">මලු</th>
-                                        <th className="px-2 py-2 border w-16" style={{ paddingLeft: '16px' }}>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {displayedSales.map((s, idx) => (
-                                        <tr
-                                            key={s.id || idx}
-                                            tabIndex={0}
-                                            className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            onClick={() => handleEditClick(s)}
-                                            onKeyDown={(e) => handleTableRowKeyDown(e, s)}
-                                        >
-                                            <td className="px-4 py-2 border">{s.item_code}</td>
-                                            <td className="px-4 py-2 border">{s.item_name}</td>
-                                            <td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td>
-                                            <td className="px-2 py-2 border w-20">{formatDecimal(s.price_per_kg)}</td>
-                                            <td className="px-2 py-2 border w-24">{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0))}</td>
-                                            <td className="px-2 py-2 border w-16">{s.packs}</td>
-                                            <td className="px-2 py-2 border w-16">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }}
-                                                    className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition-colors"
-                                                    title="Delete record"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                    </svg>
-                                                </button>
-                                            </td>
+                            {displayedSales.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500 border rounded-lg bg-gray-50">
+                                    No sales records found. Add your first sale above.
+                                </div>
+                            ) : (
+                                <table className="min-w-full border-gray-200 rounded-xl text-sm">
+                                    <thead>
+                                        <tr>
+                                            <th className="px-4 py-2 border">කේතය</th>
+                                            <th className="px-4 py-2 border">අයිතමය</th>
+                                            <th className="px-2 py-2 border w-20">බර(kg)</th>
+                                            <th className="px-2 py-2 border w-20">මිල</th>
+                                            <th className="px-2 py-2 border w-24">අගය</th>
+                                            <th className="px-2 py-2 border w-16">මලු</th>
+                                            <th className="px-2 py-2 border w-16" style={{ paddingLeft: '16px' }}>Actions</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        {displayedSales.map((s, idx) => (
+                                            <tr
+                                                key={s.id || idx}
+                                                tabIndex={0}
+                                                className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                onClick={() => handleEditClick(s)}
+                                                onKeyDown={(e) => handleTableRowKeyDown(e, s)}
+                                            >
+                                                <td className="px-4 py-2 border">{s.item_code}</td>
+                                                <td className="px-4 py-2 border">{s.item_name}</td>
+                                                <td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td>
+                                                <td className="px-2 py-2 border w-20">{formatDecimal(s.price_per_kg)}</td>
+                                                <td className="px-2 py-2 border w-24">{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0))}</td>
+                                                <td className="px-2 py-2 border w-16">{s.packs}</td>
+                                                <td className="px-2 py-2 border w-16">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }}
+                                                        className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition-colors"
+                                                        title="Delete record"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                        </svg>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                            
                             {/* === ROW 3: GIVEN AMOUNT INPUT === */}
                             <div className="flex items-center justify-end mt-2">
                                 <input
@@ -1559,18 +1581,30 @@ export default function SalesEntry() {
 
                     {/* Right Sidebar */}
                     <div className="right-sidebar">
-                        <CustomerList
-                            customers={unprintedCustomers}
-                            type="unprinted"
-                            searchQuery={searchQueries.unprinted}
-                            onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } })}
-                            selectedPrintedCustomer={selectedPrintedCustomer}
-                            selectedUnprintedCustomer={selectedUnprintedCustomer}
-                            handleCustomerClick={handleCustomerClick}
-                            unprintedTotal={unprintedTotal}
-                            formatDecimal={formatDecimal}
-                            allSales={allSales}
-                        />
+                        {hasData ? (
+                            <CustomerList
+                                customers={unprintedCustomers}
+                                type="unprinted"
+                                searchQuery={searchQueries.unprinted}
+                                onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } })}
+                                selectedPrintedCustomer={selectedPrintedCustomer}
+                                selectedUnprintedCustomer={selectedUnprintedCustomer}
+                                handleCustomerClick={handleCustomerClick}
+                                formatDecimal={formatDecimal}
+                                allSales={allSales}
+                            />
+                        ) : (
+                            <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
+                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
+                                    <h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>
+                                        මුද්‍රණය නොකළ
+                                    </h2>
+                                </div>
+                                <div className="py-4">
+                                    <p className="text-gray-700">No unprinted customers data available</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                 </div> {/* End of three-column-layout */}
@@ -1578,4 +1612,3 @@ export default function SalesEntry() {
         </Layout>
     );
 }
-
