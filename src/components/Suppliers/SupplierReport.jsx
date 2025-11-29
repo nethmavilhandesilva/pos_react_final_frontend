@@ -4,12 +4,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from "../../api";
 import SupplierDetailsModal from './SupplierDetailsModal';
 
-// --- NEW Data Structure for Printed/Unprinted items ---
-// Example: [{ supplier_code: 'SUP01', supplier_bill_no: 'B2023001' }, { supplier_code: 'SUP01', supplier_bill_no: 'B2023005' }]
-
 const SupplierReport = () => {
     // State for all data
-    // **MODIFIED:** Summary state now holds objects { supplier_code: string, supplier_bill_no: string }
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
     
@@ -26,6 +22,8 @@ const SupplierReport = () => {
     // State for Details Modal
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState(null);
+    const [selectedBillNo, setSelectedBillNo] = useState(null);
+    const [isUnprintedBill, setIsUnprintedBill] = useState(false);
     const [supplierDetails, setSupplierDetails] = useState([]);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
 
@@ -33,36 +31,18 @@ const SupplierReport = () => {
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
         try {
-            // **MODIFIED:** Assume the backend returns the new structure:
-            // { printed: [{ code: 'SUP01', bill: 'B001' }], unprinted: [{ code: 'SUP02', bill: 'B002' }] }
-            // For simulation, we'll use a mock response structure.
             const response = await api.get('/suppliers/bill-status-summary');
-            
-            // Assuming the API now returns objects:
-            // { printed: [{ supplier_code: 'SUP01', supplier_bill_no: 'B2023001' }, ...], unprinted: [...] }
             setSummary({
                 printed: response.data.printed || [],
                 unprinted: response.data.unprinted || [],
             });
         } catch (error) {
             console.error('Error fetching summary data:', error);
-            
-            // **MOCK DATA for the new structure during development**
+            // No mock data - just set empty arrays on error
             setSummary({
-                printed: [
-                    { supplier_code: 'SUP01', supplier_bill_no: 'B-2023-001' },
-                    { supplier_code: 'SUP02', supplier_bill_no: 'B-2023-002' },
-                    { supplier_code: 'SUP01', supplier_bill_no: 'B-2023-005' },
-                    { supplier_code: 'SUP03', supplier_bill_no: 'B-2023-003' },
-                    { supplier_code: 'SUP04', supplier_bill_no: 'B-2023-010' },
-                ],
-                unprinted: [
-                    { supplier_code: 'SUP05', supplier_bill_no: 'B-2023-011' },
-                    { supplier_code: 'SUP06', supplier_bill_no: 'B-2023-012' },
-                    { supplier_code: 'SUP05', supplier_bill_no: 'B-2023-013' },
-                ],
+                printed: [],
+                unprinted: [],
             });
-
         } finally {
             setIsLoading(false);
         }
@@ -73,7 +53,7 @@ const SupplierReport = () => {
         fetchSummary();
     }, [fetchSummary]);
 
-    // --- Filtering Logic (MODIFIED for the new object structure) ---
+    // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
         return summary.printed.filter(item => 
@@ -90,39 +70,57 @@ const SupplierReport = () => {
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    // --- NEW Filtering for Profit Report (No change) ---
+    // --- NEW Filtering for Profit Report ---
     const filteredProfitReport = useMemo(() => {
         const lowerCaseSearch = profitSearchTerm.toLowerCase();
         return profitReportData.filter(item => 
             item.supplier_code.toLowerCase().includes(lowerCaseSearch)
         );
     }, [profitSearchTerm, profitReportData]);
-    // ----------------------------------------
 
-    // --- Handle Supplier Click (Opens Details Modal & Fetches Details) ---
-    // **MODIFIED:** Pass supplier_code for the API call, but still use bill_no for identification if needed.
-    const handleSupplierClick = async (supplierCode, billNo) => {
-        setIsProfitReportOpen(false); 
-        // We set the selected supplier to the bill number, or just the code if we want to fetch all details for a supplier
-        // For this context, let's assume the modal will look up the bill details based on the billNo, but the API expects a code.
-        setSelectedSupplier(supplierCode); 
+    // --- Handle Unprinted Bill Click ---
+    const handleUnprintedBillClick = async (supplierCode, billNo) => {
+        setIsProfitReportOpen(false);
+        setSelectedSupplier(supplierCode);
+        setSelectedBillNo(billNo);
+        setIsUnprintedBill(true);
         setIsModalOpen(true);
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
         try {
-            // **NOTE:** The API call here might need to change to `/suppliers/bill/${billNo}/details` if the details are bill-specific.
-            // Keeping it simple for now based on the original structure:
-            const response = await api.get(`/suppliers/${supplierCode}/details`);
+            // Fetch unprinted transactions for this supplier code
+            const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
             setSupplierDetails(response.data);
         } catch (error) {
-            console.error(`Error fetching details for ${supplierCode}:`, error);
+            console.error(`Error fetching unprinted details for ${supplierCode}:`, error);
         } finally {
             setIsDetailsLoading(false);
         }
     };
 
-    // --- NEW Handle Profit Report Click (No change) ---
+    // --- Handle Printed Bill Click ---
+    const handlePrintedBillClick = async (supplierCode, billNo) => {
+        setIsProfitReportOpen(false);
+        setSelectedSupplier(supplierCode);
+        setSelectedBillNo(billNo);
+        setIsUnprintedBill(false);
+        setIsModalOpen(true);
+        setSupplierDetails([]);
+        setIsDetailsLoading(true);
+
+        try {
+            // Fetch printed transactions for this specific bill number
+            const response = await api.get(`/suppliers/bill/${billNo}/details`);
+            setSupplierDetails(response.data);
+        } catch (error) {
+            console.error(`Error fetching printed details for bill ${billNo}:`, error);
+        } finally {
+            setIsDetailsLoading(false);
+        }
+    };
+
+    // --- NEW Handle Profit Report Click ---
     const handleProfitReportClick = async () => {
         setIsModalOpen(false); 
         setIsProfitReportOpen(true);
@@ -139,29 +137,30 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Close Details Modal (FIXED: Triggers a data refresh) ---
+    // --- Close Details Modal ---
     const closeModal = () => {
         setIsModalOpen(false);
         setSelectedSupplier(null);
+        setSelectedBillNo(null);
+        setIsUnprintedBill(false);
         setSupplierDetails([]);
         
-        // 🚀 FIX: Immediately re-fetch the summary data. 
-        // This moves the supplier code from 'unprinted' to 'printed' on the screen.
+        // Refresh the summary data
         fetchSummary();
     };
 
-    // --- Close Profit Report View (No change) ---
+    // --- Close Profit Report View ---
     const closeProfitReport = () => {
         setIsProfitReportOpen(false);
         setProfitReportData([]);
         setProfitSearchTerm('');
     };
 
-    // Helper component for rendering supplier codes (MODIFIED for new data structure and grouping)
+    // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
         const fixedButtonWidth = '180px'; 
         
-        // **NEW LOGIC: Group items by supplier_code**
+        // Group items by supplier_code
         const groupedItems = useMemo(() => {
             return items.reduce((acc, item) => {
                 const { supplier_code, supplier_bill_no } = item;
@@ -187,7 +186,7 @@ const SupplierReport = () => {
             transition: 'background-color 0.2s, transform 0.1s',
             boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
             fontSize: '1rem',
-            marginBottom: '4px', // Space between bills of the same supplier
+            marginBottom: '4px',
         };
 
         const printedButtonStyle = {
@@ -205,7 +204,7 @@ const SupplierReport = () => {
         const buttonStyle = type === 'printed' ? printedButtonStyle : unprintedButtonStyle;
 
         const groupContainerStyle = {
-            marginBottom: '15px', // Space between different suppliers
+            marginBottom: '15px',
             padding: '10px',
             border: '1px solid #ddd',
             borderRadius: '8px',
@@ -240,8 +239,10 @@ const SupplierReport = () => {
                             {groupedItems[supplierCode].map(billNo => (
                                 <button
                                     key={billNo}
-                                    // Pass both the code and the specific bill number
-                                    onClick={() => handleSupplierClick(supplierCode, billNo)} 
+                                    onClick={() => type === 'printed' 
+                                        ? handlePrintedBillClick(supplierCode, billNo)
+                                        : handleUnprintedBillClick(supplierCode, billNo)
+                                    }
                                     style={buttonStyle}
                                     onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                                     onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
@@ -304,8 +305,7 @@ const SupplierReport = () => {
                                 {filteredProfitReport.map((item, index) => (
                                     <tr key={index} style={index % 2 === 0 ? tableRowEvenStyle : tableRowOddStyle}>
                                         <td style={tableCellStyle}>{item.supplier_code}</td>
-                                        {/* Format the profit value to currency/two decimal places */}
-                                        <td style={tableCellStyle}>${parseFloat(item.total_profit).toFixed(2)}</td> 
+                                        <td style={tableCellStyle}>${parseFloat(item.total_profit).toFixed(2)}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -327,7 +327,6 @@ const SupplierReport = () => {
                                 style={{...searchBarStyle, marginBottom: '20px'}}
                             />
                             <h2 style={printedHeaderStyle}>✅ Printed Bills ({filteredPrintedItems.length} items)</h2>
-                            {/* **MODIFIED**: Passed the new filteredItems array */}
                             <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
                         </div>
                     </div>
@@ -342,9 +341,7 @@ const SupplierReport = () => {
                                 onChange={(e) => setUnprintedSearchTerm(e.target.value)}
                                 style={{...searchBarStyle, marginBottom: '20px'}}
                             />
-                            {/* **MODIFIED**: Updated count to reflect number of bill items */}
-                            <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedItems.length} items of {summary.unprinted.length})</h2>
-                            {/* **MODIFIED**: Passed the new filteredItems array */}
+                            <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedItems.length} items)</h2>
                             <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
                         </div>
                     </div>
@@ -352,13 +349,14 @@ const SupplierReport = () => {
                 </div>
             )}
 
-
-            {/* --- Details Modal Component (Only shows if Bill Status View is active) --- */}
-            {isModalOpen && !isProfitReportOpen && (
+            {/* --- Details Modal Component --- */}
+            {isModalOpen && (
                 <SupplierDetailsModal
                     isOpen={isModalOpen}
-                    onClose={closeModal} // This calls the function that triggers fetchSummary()
+                    onClose={closeModal}
                     supplierCode={selectedSupplier}
+                    billNo={selectedBillNo}
+                    isUnprintedBill={isUnprintedBill}
                     details={supplierDetails}
                     isLoading={isDetailsLoading}
                 />
@@ -367,7 +365,7 @@ const SupplierReport = () => {
     );
 };
 
-// --- ENHANCED FULL-PAGE AND CUSTOM-ALIGNED STYLES ---
+// --- STYLES (remain the same as before) ---
 
 const reportContainerStyle = {
     minHeight: '100vh', 
@@ -395,7 +393,6 @@ const headerStyle = {
     fontWeight: '300',
 };
 
-// NEW STYLE for the Profit Report Button
 const profitReportButtonStyle = {
     padding: '10px 20px',
     backgroundColor: '#4CAF50', 
@@ -411,7 +408,6 @@ const profitReportButtonStyle = {
     whiteSpace: 'nowrap',
 };
 
-// Search bar style (used inline above to set marginBottom)
 const searchBarStyle = {
     width: '100%',
     padding: '12px 15px',
@@ -430,7 +426,6 @@ const sectionsContainerStyle = {
     gap: '0', 
 };
 
-// Outer container for left section
 const printedContainerStyle = {
     width: '400px', 
     display: 'flex',
@@ -438,7 +433,6 @@ const printedContainerStyle = {
     marginLeft: '-25px', 
 };
 
-// Outer container for right section
 const unprintedContainerStyle = {
     width: '400px', 
     display: 'flex',
@@ -446,7 +440,6 @@ const unprintedContainerStyle = {
     marginLeft: '440px', 
 };
 
-// Inner, colored/scrolling section
 const baseSectionStyle = {
     padding: '25px',
     borderRadius: '12px',
@@ -456,21 +449,18 @@ const baseSectionStyle = {
     height: 'calc(100vh - 210px)', 
 };
 
-// Retained specific color on the Bill Status sections for visual differentiation,
-// but ensured they are not white to better integrate with the light green page background.
 const printedSectionStyle = {
     ...baseSectionStyle,
-    backgroundColor: '#E6FFE6', // Light tone of the requested green/white for contrast
+    backgroundColor: '#E6FFE6',
     borderLeft: '5px solid #1E88E5',
 };
 
 const unprintedSectionStyle = {
     ...baseSectionStyle,
-    backgroundColor: '#FFEBE6', // Light tone of the requested green/orange for contrast
+    backgroundColor: '#FFEBE6',
     borderLeft: '5px solid #FF7043',
 };
 
-// Header for the list (comes after the search bar)
 const printedHeaderStyle = {
     color: '#1E88E5',
     marginBottom: '15px',
@@ -492,7 +482,7 @@ const unprintedHeaderStyle = {
 const listContainerStyle = {
     display: 'flex', 
     flexDirection: 'column', 
-    gap: '8px', // Gap between groups is handled by groupContainerStyle margin
+    gap: '8px',
     marginTop: '5px',
     overflowY: 'auto',
     padding: '5px',
@@ -505,16 +495,12 @@ const loadingStyle = {
     padding: '50px',
     fontSize: '1.5rem',
     color: '#1E88E5',
-    backgroundColor: '#99ff99', // Ensure loading screen also uses the new color
+    backgroundColor: '#99ff99',
 };
-
-// --- NEW PROFIT REPORT STYLES ---
 
 const profitReportContainerStyle = {
     marginTop: '20px',
     padding: '25px',
-    // Set background to a slightly lighter tone for a subtle contrast, 
-    // but allowing the page background (#99ff99) to dominate the unused space.
     backgroundColor: '#E6FFE6', 
     borderRadius: '12px',
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
@@ -548,7 +534,7 @@ const tableStyle = {
     width: '100%',
     borderCollapse: 'collapse',
     marginTop: '20px',
-    backgroundColor: 'white', // Retain white background for the table rows/cells for readability
+    backgroundColor: 'white',
     borderRadius: '8px',
     overflow: 'hidden',
 };

@@ -3,322 +3,27 @@
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import api from '../../api'; // Axios instance with credentials (from src/api.js)
 
-const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
-    // State to hold the fetched details and the generated bill number
-    const [details, setDetails] = useState([]);
-    const [billNo, setBillNo] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+const SupplierDetailsModal = ({ isOpen, onClose, supplierCode, billNo: initialBillNo, isUnprintedBill, details: initialDetails, isLoading: initialLoading }) => {
+    // State to hold the fetched details (passed from parent)
+    const [details, setDetails] = useState(initialDetails);
+    // Bill number is initially the one passed from the parent (which is only relevant for PRINTED bills)
+    const [billNo, setBillNo] = useState(initialBillNo);
+    const [isLoading, setIsLoading] = useState(initialLoading);
     const [error, setError] = useState(null);
 
-    // --- FETCH SUPPLIER DETAILS AND BILL NUMBER ---
-    useEffect(() => {
-        if (isOpen && supplierCode) {
-            const fetchData = async () => {
-                setIsLoading(true);
-                setError(null);
-                try {
-                    // 1️⃣ Fetch supplier details
-                    const detailsResponse = await api.get(`/suppliers/${supplierCode}/details`);
-                    const supplierDetails = detailsResponse.data;
-
-                    // 2️⃣ Fetch new bill number
-                    const billResponse = await api.get('/generate-f-series-bill');
-                    const newBillNo = billResponse.data.new_bill_no;
-
-                    // Assign the *newly generated* bill number to each record
-                    const updatedDetails = supplierDetails.map(record => ({
-                        ...record,
-                        // Ensure the new bill number is attached
-                        bill_no: newBillNo, 
-                        Date: record.Date || new Date().toISOString().split('T')[0],
-                    }));
-
-                    setDetails(updatedDetails);
-                    setBillNo(newBillNo);
-                } catch (err) {
-                    console.error('Error fetching supplier details or bill:', err);
-                    setError('Failed to fetch transaction details or generate bill number.');
-                    setDetails([]);
-                    setBillNo('N/A');
-                } finally {
-                    setIsLoading(false);
-                }
-            };
-
-            fetchData();
-        } else if (!isOpen) {
-            // Reset state when modal closes
-            setDetails([]);
-            setBillNo('');
-            setError(null);
-            setIsLoading(false);
-        }
-    }, [isOpen, supplierCode]);
+    // --- HELPER FUNCTIONS ---
 
     // Helper function to format decimals
     const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
+    
+    // Function to set the row background color
+    const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
-    // --- CALCULATIONS (useMemo) ---
-    const {
-        totalWeight,
-        totalSales,
-        totalCommission,
-        amountPayable,
-        itemSummaryData,
-        detailedItemsHtml,
-        totalPacksSum,
-        customerCode,
-        totalsupplierSales,
-        totalSupplierPackCost,
-    } = useMemo(() => {
-        let totalWeight = 0;
-        let totalSales = 0; 
-        let totalsupplierSales = 0; 
-        let totalCommission = 0;
-        let totalPacksSum = 0;
-        let totalSupplierPackCost = 0; 
-        
-        let customerCode = details.length > 0 ? details[0].customer_code : '';
 
-        const itemSummary = {};
-        const itemsHtmlArray = [];
-
-        details.forEach(record => {
-            const weight = parseFloat(record.weight) || 0;
-            const total = parseFloat(record.total) || 0;
-            const commission = parseFloat(record.commission_amount) || 0;
-            const packs = parseInt(record.packs) || 0;
-            const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
-            const SupplierTotal = parseFloat(record.SupplierTotal) || 0; 
-            const itemName = record.item_name || 'Unknown Item';
-            const SupplierPackCost = parseFloat(record.SupplierPackCost) || 0;
-
-            totalWeight += weight;
-            totalSales += total; 
-            totalsupplierSales += SupplierTotal; 
-            totalCommission += commission;
-            totalPacksSum += packs;
-            totalSupplierPackCost += SupplierPackCost; 
-
-            itemsHtmlArray.push(`
-                <tr style="font-size: 1.1em;">
-                    <td style="text-align:left;padding:3px;border-bottom:1px solid #eee;">
-                        <span style="font-weight: bold;">${itemName}</span><br>${packs}
-                    </td>
-                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${weight.toFixed(3)}</td>
-                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${SupplierPricePerKg.toFixed(2)}</td>
-                    <td style="text-align:right;padding:3px;border-bottom:1px solid #eee;">
-                        <span style="font-weight: bold; font-size: 0.9em;">${record.customer_code.toUpperCase()}</span><br>${SupplierTotal.toFixed(2)}
-                    </td>
-                </tr>
-            `);
-
-            if (!itemSummary[itemName]) {
-                itemSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
-            }
-            itemSummary[itemName].totalWeight += weight;
-            itemSummary[itemName].totalPacks += packs;
-        });
-        
-        const finalAmountPayable = totalsupplierSales - totalCommission;
-
-        return {
-            totalWeight,
-            totalSales, 
-            totalCommission,
-            amountPayable: finalAmountPayable, 
-            itemSummaryData: itemSummary,
-            detailedItemsHtml: itemsHtmlArray.join(''),
-            totalPacksSum,
-            customerCode,
-            totalsupplierSales, 
-            totalSupplierPackCost, 
-        };
-    }, [details]);
-
-    // --- NEW: API call to mark records as printed ---
-    const markRecordsAsPrinted = useCallback(async (billNoParam, ids) => {
-        // 1. Initial Check
-        if (!billNoParam || !Array.isArray(ids) || ids.length === 0 || billNoParam === 'N/A') {
-            console.log('Skipping mark-as-printed: Invalid parameters', { billNoParam, ids });
-            return;
-        }
-
-        const payload = {
-            bill_no: billNoParam,
-            transaction_ids: ids,
-        };
-
-        console.log('Sending mark-as-printed request...', payload);
-        
-        try {
-            // 2. Log Payload Before Sending
-            console.log('Payload being sent:', payload); 
-
-            const response = await api.post('/suppliers/mark-as-printed', payload);
-            
-            // 3. Log Successful Response Details
-            console.log('API Response:', response.data); 
-            console.log(`✅ Successfully marked ${response.data.updated_count || ids.length} records with bill no: ${billNoParam}`);
-            
-            // 🛑 IMPORTANT CHANGE: DO NOT call onClose() here. Let handlePrint manage closing.
-            
-        } catch (err) {
-            // 4. Detailed Error Logging
-            console.error('❌ Failed to mark supplier records as printed:', err);
-            if (err.response) {
-                console.error('Server Response Data:', err.response.data);
-                console.error('Server Status Code:', err.response.status);
-                // Log Laravel validation errors specifically
-                if (err.response.status === 422) {
-                     console.error('Validation Errors:', err.response.data.errors);
-                }
-            } else {
-                console.error('Network/Request Error:', err.message);
-            }
-
-            const errorMessage = err.response?.data?.error || err.message;
-            alert(`Warning: Bill generated (${billNoParam}) but failed to mark records as printed on the server. Details: ${errorMessage}. Please notify admin.`);
-        }
-    }, []); // Removed [onClose]
-
-    // --- BILL CONTENT GENERATION ---
-    const getBillContent = useCallback(() => {
-        const date = new Date().toLocaleDateString('si-LK');
-        const time = new Date().toLocaleTimeString('si-LK');
-
-        const mobile = '071XXXXXXX';
-        const totalPackDueCost = totalSupplierPackCost; 
-        const finaltotal = totalsupplierSales + totalSupplierPackCost; 
-        
-        const itemSummaryKeys = Object.keys(itemSummaryData);
-        const itemSummaryHtml = itemSummaryKeys.map(itemName => {
-            const sum = itemSummaryData[itemName];
-            return `
-                <tr>
-                    <td style="width: 50%;">${itemName}</td>
-                    <td style="width: 50%; text-align: right;">${sum.totalPacks} / ${sum.totalWeight.toFixed(3)}kg</td>
-                </tr>
-            `;
-        }).join('');
-
-        return `<div class="receipt-container" style="width:100%;max-width:300px;margin:0 auto;padding:5px;">
-    <div style="text-align:center;margin-bottom:5px;">
-        <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
-    </div>
-    <div style="text-align:left;margin-bottom:5px;">
-        <table style="width:100%;font-size:9px;border-collapse:collapse;">
-            <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
-            <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
-            <tr><td>බිල් අංකය : <strong>${billNo || 'N/A'}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${supplierCode.toUpperCase()}</strong></td></tr>
-        </table>
-    </div>
-    <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
-    <table style="width:100%;font-size:9px;border-collapse:collapse;">
-        <thead style="font-size:1.8em;">
-            <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
-        </thead>
-        <tbody>
-            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-            ${detailedItemsHtml}
-            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-            <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalsupplierSales}</td></tr>
-        </tbody>
-    </table>
-    <table style="width:100%;font-size:15px;border-collapse:collapse;">
-        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
-        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finaltotal).toFixed(2)}</span></td></tr>
-    </table>
-    <div style="font-size:10px;">
-        <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
-            ${itemSummaryHtml}
-        </table>
-    </div>
-    <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-    <div style="text-align:center;margin-top:10px;font-size:10px;">
-        <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
-    </div>
-</div>`;
-    }, [billNo, supplierCode, detailedItemsHtml, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData]);
-
-    // --- UPDATED: handlePrint function to manage API call and closing ---
-    const handlePrint = useCallback(() => {
-        console.log('🔹 handlePrint called');
-        const content = getBillContent();
-        // Use '_blank' as target name to ensure a new, unique print window is always opened
-        const printWindow = window.open('', '_blank', 'height=600,width=800'); 
-
-        if (printWindow) {
-            printWindow.document.write('<html><head><title>Bill Print</title>');
-            printWindow.document.write(`
-                <style>
-                    body { font-family: sans-serif; margin: 0; padding: 0; }
-                    .receipt-container { width: 80mm; padding: 5px; margin: 0 auto; }
-                    @media print { body { margin: 0; } }
-                </style>
-            `);
-            printWindow.document.write('</head><body>');
-            printWindow.document.write(content);
-            printWindow.document.write('</body></html>');
-            printWindow.document.close();
-            printWindow.focus();
-            
-            // Initiate the print dialog
-            printWindow.print();
-            
-            // Transaction IDs to send to backend
-            const transactionIds = details.map(record => record.id).filter(id => id);
-            
-            if (transactionIds.length > 0 && billNo && billNo !== 'N/A') {
-                // 🚀 FIX: Use setTimeout (made async) to execute the API call and ensure modal closure only happens after the API attempt.
-                setTimeout(async () => {
-                    await markRecordsAsPrinted(billNo, transactionIds);
-                    
-                    // ✅ Close the modal ONLY after the mark has been attempted/completed
-                    onClose();
-                }, 50); // 50ms delay
-            } else {
-                console.log('No valid IDs found to mark as printed. Closing modal.');
-                onClose();
-            }
-        } else {
-            alert("Please allow pop-ups to print the bill.");
-        }
-    }, [getBillContent, details, billNo, markRecordsAsPrinted, onClose]); // Added onClose dependency
-
-    // --- KEYBOARD EVENT LISTENER (F4) ---
-    useEffect(() => {
-        if (!isOpen) return;
-
-        const handleKeyDown = (event) => {
-            // Check for F4
-            if (event.key === 'F4' || event.keyCode === 115) {
-                event.preventDefault();
-                if (typeof event.stopImmediatePropagation === 'function') {
-                    event.stopImmediatePropagation();
-                }
-
-                if (details && details.length > 0) {
-                    handlePrint();
-                } else {
-                    console.log('F4 pressed but no details to print.');
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [isOpen, details, handlePrint]);
-
-    if (!isOpen) return null;
-
-    // --- INLINE STYLES (Kept for completeness) ---
+    // --- INLINE STYLES (Provided in the request) ---
     const modalOverlayStyle = {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex',
@@ -386,16 +91,12 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
     const itemSummaryTdStyle = {
         ...tdStyle, padding: '10px 15px',
     };
-    const getRowStyle = (index) => {
-        const baseStyle = index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
-        return baseStyle;
-    };
     const printButtonStyle = {
         padding: '10px 20px', fontSize: '1.1rem', fontWeight: 'bold',
         backgroundColor: '#ffc107', color: '#343a40', border: 'none',
         borderRadius: '6px', cursor: 'pointer', marginTop: '20px', transition: 'background-color 0.2s',
     };
-
+    
     // --- Item Summary Component ---
     const ItemSummary = ({ summaryData }) => {
         const itemNames = Object.keys(summaryData);
@@ -426,6 +127,281 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
         );
     };
 
+
+    // --- STATE MANAGEMENT ---
+
+    // Sync external props on change
+    useEffect(() => {
+        setDetails(initialDetails);
+        setIsLoading(initialLoading);
+        setBillNo(initialBillNo); // Keep the bill number synchronized
+        setError(null);
+    }, [initialDetails, initialLoading, initialBillNo]);
+
+    // Reset state on close
+    useEffect(() => {
+        if (!isOpen) {
+            // Reset state when modal closes
+            setDetails([]);
+            setBillNo('');
+            setError(null);
+            setIsLoading(false);
+        }
+    }, [isOpen]);
+
+    // --- CALCULATIONS (useMemo) ---
+    const {
+        totalWeight,
+        totalCommission,
+        amountPayable,
+        itemSummaryData,
+        detailedItemsHtml,
+        totalPacksSum,
+        totalsupplierSales,
+        totalSupplierPackCost,
+    } = useMemo(() => {
+        let totalWeight = 0;
+        let totalsupplierSales = 0;
+        let totalCommission = 0;
+        let totalPacksSum = 0;
+        let totalSupplierPackCost = 0;
+
+        const itemSummary = {};
+        const itemsHtmlArray = [];
+
+        details.forEach(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const commission = parseFloat(record.commission_amount) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
+            const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || 'Unknown Item';
+            const SupplierPackCost = parseFloat(record.SupplierPackCost) || 0;
+
+            totalWeight += weight;
+            totalsupplierSales += SupplierTotal;
+            totalCommission += commission;
+            totalPacksSum += packs;
+            totalSupplierPackCost += SupplierPackCost;
+
+            itemsHtmlArray.push(`
+                <tr style="font-size: 1.1em;">
+                    <td style="text-align:left;padding:3px;border-bottom:1px solid #eee;">
+                        <span style="font-weight: bold;">${itemName}</span><br>${packs}
+                    </td>
+                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${weight.toFixed(3)}</td>
+                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${SupplierPricePerKg.toFixed(2)}</td>
+                    <td style="text-align:right;padding:3px;border-bottom:1px solid #eee;">
+                        <span style="font-weight: bold; font-size: 0.9em;">${record.customer_code.toUpperCase()}</span><br>${SupplierTotal.toFixed(2)}
+                    </td>
+                </tr>
+            `);
+
+            if (!itemSummary[itemName]) {
+                itemSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+            }
+            itemSummary[itemName].totalWeight += weight;
+            itemSummary[itemName].totalPacks += packs;
+        });
+
+        const finalAmountPayable = totalsupplierSales - totalCommission;
+
+        return {
+            totalWeight,
+            totalCommission,
+            amountPayable: finalAmountPayable,
+            itemSummaryData: itemSummary,
+            detailedItemsHtml: itemsHtmlArray.join(''),
+            totalPacksSum,
+            totalsupplierSales,
+            totalSupplierPackCost,
+        };
+    }, [details]);
+
+    // --- API call to mark records as printed ---
+    const markRecordsAsPrinted = useCallback(async (finalBillNo, ids) => {
+        if (!finalBillNo || !Array.isArray(ids) || ids.length === 0 || finalBillNo === 'N/A') {
+            console.log('Skipping mark-as-printed: Invalid parameters', { finalBillNo, ids });
+            return;
+        }
+
+        const payload = {
+            bill_no: finalBillNo,
+            transaction_ids: ids,
+        };
+
+        try {
+            const response = await api.post('/suppliers/mark-as-printed', payload);
+            console.log(`✅ Successfully marked ${response.data.updated_count || ids.length} records with bill no: ${finalBillNo}`);
+        } catch (err) {
+            console.error('❌ Failed to mark supplier records as printed:', err);
+            const errorMessage = err.response?.data?.error || err.message;
+            alert(`Warning: Bill generated (${finalBillNo}) but failed to mark records as printed on the server. Details: ${errorMessage}. Please notify admin.`);
+        }
+    }, []);
+
+    // --- BILL CONTENT GENERATION ---
+    const getBillContent = useCallback((currentBillNo) => {
+        const date = new Date().toLocaleDateString('si-LK');
+        const time = new Date().toLocaleTimeString('si-LK');
+
+        const mobile = '071XXXXXXX';
+        const totalPackDueCost = totalSupplierPackCost;
+        const finaltotal = totalsupplierSales + totalSupplierPackCost;
+
+        const itemSummaryKeys = Object.keys(itemSummaryData);
+        const itemSummaryHtml = itemSummaryKeys.map(itemName => {
+            const sum = itemSummaryData[itemName];
+            return `
+                <tr>
+                    <td style="width: 50%;">${itemName}</td>
+                    <td style="width: 50%; text-align: right;">${sum.totalPacks} / ${sum.totalWeight.toFixed(3)}kg</td>
+                </tr>
+            `;
+        }).join('');
+
+        return `<div class="receipt-container" style="width:100%;max-width:300px;margin:0 auto;padding:5px;">
+    <div style="text-align:center;margin-bottom:5px;">
+        <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
+    </div>
+    <div style="text-align:left;margin-bottom:5px;">
+        <table style="width:100%;font-size:9px;border-collapse:collapse;">
+            <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
+            <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
+            <tr><td>බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${supplierCode.toUpperCase()}</strong></td></tr>
+        </table>
+    </div>
+    <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
+    <table style="width:100%;font-size:9px;border-collapse:collapse;">
+        <thead style="font-size:1.8em;">
+            <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
+        </thead>
+        <tbody>
+            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+            ${detailedItemsHtml}
+            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+            <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalsupplierSales.toFixed(2)}</td></tr>
+        </tbody>
+    </table>
+    <table style="width:100%;font-size:15px;border-collapse:collapse;">
+        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
+        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finaltotal).toFixed(2)}</span></td></tr>
+    </table>
+    <div style="font-size:10px;">
+        <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
+            ${itemSummaryHtml}
+        </table>
+    </div>
+    <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+    <div style="text-align:center;margin-top:10px;font-size:10px;">
+        <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
+    </div>
+</div>`;
+    }, [supplierCode, detailedItemsHtml, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData]);
+
+    // --- UPDATED: handlePrint function to generate Bill No, Print, and Mark ---
+    const handlePrint = useCallback(async () => {
+        if (!details || details.length === 0) {
+            console.log('Cannot print: No details available.');
+            return;
+        }
+
+        let finalBillNo = billNo;
+
+        if (isUnprintedBill) {
+            setIsLoading(true);
+            try {
+                // 1. Generate the Bill Number only for unprinted bills
+                const billResponse = await api.get('/generate-f-series-bill');
+                finalBillNo = billResponse.data.new_bill_no;
+                setBillNo(finalBillNo); // Update state for display immediately
+
+            } catch (err) {
+                console.error('Error generating bill number:', err);
+                setIsLoading(false);
+                alert('Failed to generate a new bill number. Print cancelled.');
+                return;
+            }
+        } else {
+            // For printed bills, confirm before re-printing a copy
+            const confirmPrint = window.confirm(`This bill (${billNo}) has already been marked as printed. Do you want to print a copy?`);
+            if (!confirmPrint) {
+                return;
+            }
+        }
+
+        // 2. Get Bill Content
+        const content = getBillContent(finalBillNo);
+        const printWindow = window.open('', '_blank', 'height=600,width=800');
+
+        if (printWindow) {
+            // Write content to print window
+            printWindow.document.write('<html><head><title>Bill Print</title>');
+            printWindow.document.write(`<style>body { font-family: sans-serif; margin: 0; padding: 0; }.receipt-container { width: 80mm; padding: 5px; margin: 0 auto; }@media print { body { margin: 0; } }</style>`);
+            printWindow.document.write('</head><body>');
+            printWindow.document.write(content);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.focus();
+
+            // Initiate the print dialog
+            printWindow.print();
+
+            if (isUnprintedBill) {
+                // 3. Mark as Printed (API Call) for Unprinted Bills
+                const transactionIds = details.map(record => record.id).filter(id => id);
+
+                if (transactionIds.length > 0 && finalBillNo && finalBillNo !== 'N/A') {
+                    // Use setTimeout to ensure print dialog has time to open
+                    setTimeout(async () => {
+                        await markRecordsAsPrinted(finalBillNo, transactionIds);
+                        setIsLoading(false);
+                        onClose(); // Close the modal after finalizing
+                    }, 50);
+                } else {
+                    setIsLoading(false);
+                    onClose();
+                }
+            } else {
+                // For printed copies, just close after printing
+                setIsLoading(false);
+                onClose();
+            }
+        } else {
+            setIsLoading(false);
+            alert("Please allow pop-ups to print the bill.");
+        }
+    }, [details, billNo, isUnprintedBill, getBillContent, markRecordsAsPrinted, onClose]);
+
+    // --- KEYBOARD EVENT LISTENER (F4) ---
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleKeyDown = (event) => {
+            if (event.key === 'F4' || event.keyCode === 115) {
+                event.preventDefault();
+                if (typeof event.stopImmediatePropagation === 'function') {
+                    event.stopImmediatePropagation();
+                }
+                if (details && details.length > 0 && !isLoading) {
+                    // Call the async handler directly
+                    handlePrint();
+                } else {
+                    console.log('F4 pressed but cannot print.');
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isOpen, details, handlePrint, isLoading]);
+
+
+    if (!isOpen) return null;
+
     // --- MAIN RENDER ---
     return (
         <div style={modalOverlayStyle}>
@@ -439,17 +415,17 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                     &times;
                 </button>
 
-                {/* --- SUPPLIER CODE IN HEADER --- */}
+                {/* --- SUPPLIER CODE IN HEADER (Displays currently known billNo) --- */}
                 <div style={headerStyle}>
-                    <h2>Transaction Details (Bill No: <strong>{billNo}</strong>)</h2>
+                    <h2>Transaction Details (Bill No: <strong>{billNo || (isUnprintedBill ? 'Pending...' : 'N/A')}</strong>)</h2>
                     <span style={supplierCodeBadgeStyle}>{supplierCode}</span>
                 </div>
 
-                {isLoading && <p style={{ textAlign: 'center', fontSize: '1.2em', color: '#007bff' }}>Loading details and generating bill...</p>}
+                {isLoading && <p style={{ textAlign: 'center', fontSize: '1.2em', color: '#007bff' }}>{isUnprintedBill ? 'Generating Bill No and Loading...' : 'Loading bill details...'}</p>}
                 {error && <p style={{ textAlign: 'center', fontSize: '1.2em', color: '#dc3545', fontWeight: 'bold' }}>Error: {error}</p>}
-                
+
                 {!isLoading && !error && details.length === 0 ? (
-                    <p style={{ color: '#6c757d' }}>No records found for this supplier.</p>
+                    <p style={{ color: '#6c757d' }}>No records found for this supplier or bill.</p>
                 ) : (
                     !isLoading && details.length > 0 && (
                         <>
@@ -472,7 +448,6 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                     <div style={summaryValueStyle}>{formatDecimal(amountPayable)}</div>
                                 </div>
                             </div>
-
                             {/* --- DETAILED TABLE --- */}
                             <div style={tableContainerStyle}>
                                 <table style={tableStyle}>
@@ -497,7 +472,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                                 style={getRowStyle(index)}
                                             >
                                                 <td style={tdStyle}>{record.Date}</td>
-                                                <td style={tdStyle}>{record.bill_no}</td>
+                                                <td style={tdStyle}>{record.supplier_bill_no || billNo}</td>
                                                 <td style={tdStyle}>{record.customer_code}</td>
                                                 <td style={tdStyle}><strong>{record.item_name}</strong></td>
                                                 <td style={tdStyle}>{record.packs}</td>
@@ -515,7 +490,7 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                             <td style={tdStyle}>-</td>
                                             <td style={tdStyle}>{formatDecimal(totalsupplierSales)}</td>
                                             <td style={tdStyle}>{formatDecimal(totalCommission)}</td>
-                                            <td style={{...tdStyle, fontSize: '1.1em', color: '#17a2b8'}}>{formatDecimal(amountPayable)}</td>
+                                            <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(amountPayable)}</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -531,8 +506,9 @@ const SupplierDetailsModal = ({ isOpen, onClose, supplierCode }) => {
                                     onClick={handlePrint}
                                     onMouseOver={e => e.currentTarget.style.backgroundColor = '#e0a800'}
                                     onMouseOut={e => e.currentTarget.style.backgroundColor = '#ffc107'}
+                                    disabled={isLoading}
                                 >
-                                    🖨️ Print Bill (F4)
+                                    🖨️ {isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`}
                                 </button>
                             </div>
                         </>
