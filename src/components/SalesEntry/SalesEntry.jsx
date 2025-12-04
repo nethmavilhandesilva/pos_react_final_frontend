@@ -965,103 +965,153 @@ export default function SalesEntry() {
         });
     };
 
-    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0) => {
-        const date = new Date().toLocaleDateString();
-        const time = new Date().toLocaleTimeString();
-        let totalAmountSum = 0, totalPacksSum = 0;
-        const itemGroups = {};
+   const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0) => {
+    const date = new Date().toLocaleDateString();
+    const time = new Date().toLocaleTimeString();
+    let totalAmountSum = 0, totalPacksSum = 0;
+    const itemGroups = {};
 
-        const itemsHtml = salesData.map(s => {
-            totalAmountSum += parseFloat(s.total) || 0;
-            const packs = parseInt(s.packs) || 0;
-            totalPacksSum += packs;
-            if (!itemGroups[s.item_name]) itemGroups[s.item_name] = { totalWeight: 0, totalPacks: 0 };
-            itemGroups[s.item_name].totalWeight += parseFloat(s.weight) || 0;
-            itemGroups[s.item_name].totalPacks += packs;
-            return `<tr style="font-size:1.5em;">
-                <td style="text-align:left;">${s.item_name || ""} <br>${packs}</td>
-                <td style="text-align:center; padding-right:20px;">${(parseFloat(s.weight) || 0).toFixed(2)}</td>
-                <td style="text-align:left;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
-                <td style="text-align:right;">${((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)).toFixed(2)}</td>
-            </tr>`;
-        }).join("");
+    const itemsHtml = salesData.map(s => {
+        totalAmountSum += parseFloat(s.total) || 0;
+        const packs = parseInt(s.packs) || 0;
+        totalPacksSum += packs;
 
-        const totalPrice = totalAmountSum;
-        const totalSalesExcludingPackDue = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-        const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
+        if (!itemGroups[s.item_name]) itemGroups[s.item_name] = { totalWeight: 0, totalPacks: 0 };
+        itemGroups[s.item_name].totalWeight += parseFloat(s.weight) || 0;
+        itemGroups[s.item_name].totalPacks += packs;
 
-        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-        const remaining = parseFloat(givenAmount) - totalPrice;
+        // 🔧 FIXED ALIGNMENT ROW
+        return `
+<tr style="font-size:1.5em;">
+  <td style="text-align:left;">${s.supplier_code || ""}</td>
+  <td style="text-align:left;">${s.item_name || ""}<br>${packs}</td>
+  <td style="text-align:center;">${(parseFloat(s.weight) || 0).toFixed(2)}</td>
+  <td style="text-align:center;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
+  <td style="text-align:right;">${((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)).toFixed(2)}</td>
+</tr>`;
+    }).join("");
 
-        let itemSummaryHtml = '';
-        const entries = Object.entries(itemGroups);
-        for (let i = 0; i < entries.length; i += 2) {
-            const first = entries[i], second = entries[i + 1];
-            itemSummaryHtml += '<div style="display:flex; gap:0.5rem; margin-bottom:0.2rem;">';
-            itemSummaryHtml += `<span style="padding:0.1rem 0.3rem;border-radius:0.5rem;background-color:#f3f4f6;font-size:0.6rem;">
-                <strong>${first[0]}</strong>:${first[1].totalWeight}/${first[1].totalPacks}</span>`;
-            if (second) itemSummaryHtml += `<span style="padding:0.1rem 0.3rem;border-radius:0.5rem;background-color:#f3f4f6;font-size:0.6rem;">
-                <strong>${second[0]}</strong>:${second[1].totalWeight}/${second[1].totalPacks}</span>`;
-            itemSummaryHtml += '</div>';
-        }
+    const totalPrice = totalAmountSum;
+    const totalSalesExcludingPackDue = salesData.reduce(
+        (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0
+    );
 
-        const givenAmountRow = givenAmount > 0 ? `<tr>
-            <td style="width:50%;text-align:left;white-space:nowrap;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold;font-size:0.9rem;">${parseFloat(givenAmount).toFixed(2)}</span></td>
-            <td style="width:50%;text-align:right;white-space:nowrap;font-size:1rem;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold;font-size:1.5rem;">${Math.abs(remaining).toFixed(2)}</span></td>
-        </tr>` : '';
+    const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
 
-        const totalAmount = Math.abs(globalLoanAmount) + totalPrice;
+    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+    const remaining = parseFloat(givenAmount) - totalPrice;
 
-        const loanRow = globalLoanAmount !== 0 ? `<tr>
-      <td style="font-weight:normal;font-size:0.9rem;text-align:left; white-space: nowrap;">
-      පෙර ණය: Rs. <span>
-        ${globalLoanAmount < 0
-                ? Math.abs(globalLoanAmount).toFixed(2)
-                : globalLoanAmount.toFixed(2)
-            }
-      </span>
-    </td>
+    const givenAmountRow = givenAmount > 0 ? `
+<tr>
+  <td style="width:50%; text-align:left;">
+    <span style="font-size:0.75rem;">දුන් මුදල: </span>
+    <span style="font-weight:bold; font-size:0.9rem;">${parseFloat(givenAmount).toFixed(2)}</span>
+  </td>
+  <td style="width:50%; text-align:right;">
+    <span style="font-size:0.8rem;">ඉතිරිය: </span>
+    <span style="font-weight:bold; font-size:1.5rem;">${Math.abs(remaining).toFixed(2)}</span>
+  </td>
+</tr>` : '';
 
-      <td style="font-weight:bold;text-align:right;font-size:1.5em;">
-        Rs. ${Math.abs(totalAmount).toFixed(2)}</td>
-    </tr>` : '';
+    const totalAmount = Math.abs(globalLoanAmount) + totalPrice;
 
-        return `<div class="receipt-container" style="width:100%;max-width:300px;margin:0 auto;padding:5px;">
-          <div style="text-align:center;margin-bottom:5px;">
-            <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
-            </div>
-          <div style="text-align:left;margin-bottom:5px;">
-            <table style="width:100%;font-size:9px;border-collapse:collapse;">
-              <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
-              <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
-              <tr><td>බිල් අංකය : <strong>${billNo}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${customerName.toUpperCase()}</strong></td></tr>
-            </table>
-          </div>
-          <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
-          <table style="width:100%;font-size:9px;border-collapse:collapse;">
-            <thead style="font-size:1.8em;">
-              <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
-            </thead>
-            <tbody>
-              <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-              ${itemsHtml}
-              <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-              <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalSalesExcludingPackDue.toFixed(2)}</td></tr>
-            </tbody>
-          </table>
-          <table style="width:100%;font-size:15px;border-collapse:collapse;">
-            <tr><td>ප්‍රවාහන ගාස්තු:</td><td style="text-align:right;font-weight:bold;">00</td></tr>
-            <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
-            <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(totalPrice).toFixed(2)}</span></td></tr>
-            ${givenAmountRow}${loanRow}
-          </table>
-          <div style="font-size:10px;">${itemSummaryHtml}</div>
-            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
-          <div style="text-align:center;margin-top:10px;font-size:10px;">
-            <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
-          </div>
-        </div>`;
-    };
+    const loanRow = globalLoanAmount !== 0 ? `
+<tr>
+  <td style="font-size:0.9rem; text-align:left;">
+    පෙර ණය: Rs. 
+    <span>${Math.abs(globalLoanAmount).toFixed(2)}</span>
+  </td>
+  <td style="font-weight:bold; text-align:right; font-size:1.5em;">
+    Rs. ${Math.abs(totalAmount).toFixed(2)}
+  </td>
+</tr>` : '';
+
+    return `
+<div class="receipt-container" style="width:100%; max-width:300px; margin:0 auto; padding:5px;">
+
+  <div style="text-align:center; margin-bottom:5px;">
+    <h3 style="font-size:1.8em; font-weight:bold; margin:0;">NVDS</h3>
+  </div>
+
+  <div style="text-align:left; margin-bottom:5px;">
+    <table style="width:100%; font-size:9px; border-collapse:collapse;">
+      <tr><td>දිනය : ${date}</td><td style="text-align:right;">${time}</td></tr>
+      <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
+      <tr>
+        <td>බිල් අංකය : <strong>${billNo}</strong></td>
+        <td style="text-align:right;">
+          <strong style="font-size:2.0em;">${customerName.toUpperCase()}</strong>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <hr style="border:1px solid #000; margin:5px 0; opacity:1;">
+
+  <!-- 🔧 UPDATED ITEMS TABLE (FULL ALIGNMENT FIXED) -->
+  <table style="width:100%; font-size:9px; border-collapse:collapse; table-layout:fixed;">
+    <colgroup>
+      <col style="width:22%;">
+      <col style="width:28%;">
+      <col style="width:15%;">
+      <col style="width:15%;">
+      <col style="width:20%;">
+    </colgroup>
+
+    <thead style="font-size:1.6em;">
+      <tr>
+        <th style="text-align:left;">sup code</th>
+        <th style="text-align:left;">වර්ගය<br>මලු</th>
+        <th style="text-align:center;">කිලෝ</th>
+        <th style="text-align:center;">මිල</th>
+        <th style="text-align:right;">අගය</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0; opacity:1;"></td></tr>
+
+      ${itemsHtml}
+
+      <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0; opacity:1;"></td></tr>
+
+      <tr style="font-size:1.6em; font-weight:bold;">
+        <td colspan="3" style="text-align:left;">${totalPacksSum}</td>
+        <td colspan="2" style="text-align:right;">${totalSalesExcludingPackDue.toFixed(2)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 🔧 UPDATED SUMMARY TABLE -->
+  <table style="width:100%; font-size:15px; border-collapse:collapse; table-layout:fixed;">
+    <tr>
+      <td style="text-align:left;">ප්‍රවාහන ගාස්තු:</td>
+      <td style="text-align:right; font-weight:bold;">00</td>
+    </tr>
+    <tr>
+      <td style="text-align:left;">කුලිය:</td>
+      <td style="text-align:right; font-weight:bold;">${totalPackDueCost.toFixed(2)}</td>
+    </tr>
+    <tr>
+      <td style="text-align:left;">අගය:</td>
+      <td style="text-align:right; font-weight:bold;">
+        <span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">
+          ${(totalPrice).toFixed(2)}
+        </span>
+      </td>
+    </tr>
+
+    ${givenAmountRow}
+    ${loanRow}
+  </table>
+
+  <div style="text-align:center; margin-top:10px; font-size:10px;">
+    <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+    <p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
+  </div>
+
+</div>`;
+};
 
     const handlePrintAndClear = async () => {
         const salesData = displayedSales.filter(s => s.id);
@@ -1555,52 +1605,50 @@ export default function SalesEntry() {
 
                         <div className="flex items-center mt-6 space-x-3 overflow-x-auto whitespace-nowrap py-2">
 
-                            {/* Buttons */}
-                            <button
-                                type="button"
-                                onClick={handleMarkPrinted}
-                                className="px-4 py-1 text-sm bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow transition"
-                            >
-                                F1-PRINT
-                            </button>
+    {/* Buttons */}
+    <button
+        type="button"
+        onClick={handleMarkPrinted}
+        className="px-4 py-1 text-sm bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow transition"
+    >
+        F1-PRINT
+    </button>
 
-                            <button
-                                type="button"
-                                onClick={handleMarkAllProcessed}
-                                disabled={selectedPrintedCustomer}
-                                className={`px-4 py-1 text-sm text-white font-bold rounded-xl shadow transition ${selectedPrintedCustomer
-                                        ? "bg-gray-400 cursor-not-allowed"
-                                        : "bg-blue-600 hover:bg-blue-700"
-                                    }`}
-                            >
-                                F5-HOLD
-                            </button>
+    <button
+        type="button"
+        onClick={handleMarkAllProcessed}
+        disabled={selectedPrintedCustomer}
+        className={`px-4 py-1 text-sm text-white font-bold rounded-xl shadow transition ${selectedPrintedCustomer
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700"
+            }`}
+    >
+        F5-HOLD
+    </button>
 
-                            <button
-                                type="button"
-                                onClick={handleFullRefresh}
-                                className="px-4 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl shadow transition"
-                            >
-                                F10-Refresh
-                            </button>
+    <button
+        type="button"
+        onClick={handleFullRefresh}
+        className="px-4 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl shadow transition"
+    >
+        F10-Refresh
+    </button>
 
-                            {/* Given amount input (moved a bit right) */}
-                            <input
-                                id="given_amount"
-                                ref={refs.givenAmount}
-                                name="given_amount"
-                                type="number"
-                                step="0.01"
-                                value={formData.given_amount}
-                                onChange={(e) => handleInputChange('given_amount', e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, 2)}
-                                placeholder="Given Amount"
-                                className="px-4 py-2 border rounded-xl text-right w-40 ml-4"  // <-- added ml-4
-                            />
-                        </div>
-
-
-                    </div> {/* End of center-form */}
+    {/* Given amount input (Pushed right with ml-auto) */}
+    <input
+        id="given_amount"
+        ref={refs.givenAmount}
+        name="given_amount"
+        type="number"
+        step="0.01"
+        value={formData.given_amount}
+        onChange={(e) => handleInputChange('given_amount', e.target.value)}
+        onKeyDown={(e) => handleKeyDown(e, 2)}
+        placeholder="Given Amount"
+        className="px-4 py-2 border rounded-xl text-right w-40 **ml-auto**"
+    />
+</div>
+</div>
 
                     {/* Right Sidebar */}
                     <div className="right-sidebar">
