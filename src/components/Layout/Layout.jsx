@@ -150,18 +150,7 @@ const Layout = ({ children }) => {
 
 
               {/* Other links remain as they are */}
-              <Link
-                to="/grn"
-                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn' ? 'active' : ''}`}
-              >
-                <i className="material-icons align-middle me-1">receipt</i> GRN List
-              </Link>
-              <Link
-                to="/grn/entries"
-                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/grn/entries' ? 'active' : ''}`}
-              >
-                <i className="material-icons align-middle me-1">add_box</i> GRN Entries
-              </Link>
+             
               <Link
                 to="/supplierreport"
                 className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
@@ -215,18 +204,11 @@ const Layout = ({ children }) => {
             <button type="button" className="btn btn-outline-info btn-sm mx-2" onClick={openWeightReportModal}>
               <i className="material-icons align-middle me-1">scale</i> Weight Report
             </button>
-            <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={openGrnSaleReportModal}>
-              <i className="material-icons align-middle me-1">receipt</i> GRN Sales Report
-            </button>
+           
             <button type="button" className="btn btn-outline-secondary btn-sm mx-2" onClick={openSalesAdjustmentReportModal}>
               <i className="material-icons align-middle me-1">edit</i> Sales Adjustment
             </button>
-            <button type="button" className="btn btn-outline-success btn-sm mx-2" onClick={openGrnSalesOverviewReport}>
-              <i className="material-icons align-middle me-1">dashboard</i> GRN Sales Overview
-            </button>
-            <button type="button" className="btn btn-outline-primary btn-sm mx-2" onClick={openGrnSalesOverviewReport2}>
-              <i className="material-icons align-middle me-1">summarize</i> GRN Overview 2
-            </button>
+          
             <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={openSalesReportModal}>
               <i className="material-icons align-middle me-1">shopping_cart</i> Sales Report
             </button>

@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import ItemReportView from './ItemReportView'; // Adjust the import path
+import api from "../../api";  // 👈 IMPORT THE AXIOS INSTANCE
 
-const BACKEND_URL = 'http://localhost:8000/api';
+// The BACKEND_URL constant is no longer strictly needed if api.js sets the baseURL,
+// but we'll keep it as a reminder, though the api instance will use 'http://127.0.0.1:8000/api'
+// const BACKEND_URL = 'http://localhost:8000/api'; 
 
 const ItemReportModal = ({ isOpen, onClose }) => {
   const [items, setItems] = useState([]);
@@ -34,14 +37,18 @@ const ItemReportModal = ({ isOpen, onClose }) => {
     }
   }, [isOpen]);
 
+  // 🔄 REF: fetchItems uses 'api.get'
   const fetchItems = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/allitems`);
-      if (!response.ok) throw new Error('Network response was not ok');
-      const data = await response.json();
-      setItems(data.items || []);
+      console.log('🟢 Fetching items using api client...');
+      // ⚠️ Note: api.js sets baseURL to http://127.0.0.1:8000/api, so the path is '/allitems'
+      const response = await api.get('/allitems'); 
+      console.log('🟢 Items fetched successfully.');
+      // Axios puts the response body in the .data property
+      setItems(response.data.items || []); 
     } catch (error) {
-      console.error('❌ Error fetching items:', error);
+      // Axios error structure: error.response for server errors, error.request, etc.
+      console.error('❌ Error fetching items:', error.response ? error.response.data : error.message);
     }
   };
 
@@ -63,9 +70,10 @@ const ItemReportModal = ({ isOpen, onClose }) => {
     }));
   };
 
+  // 🔄 REF: handleGenerateReport uses 'api.get' with 'params'
   const handleGenerateReport = async (filters) => {
     console.log('🟢 handleGenerateReport EXECUTING with filters:', filters);
-    
+
     try {
       console.log('🟢 Setting loading to true');
       setLoading(true);
@@ -77,23 +85,13 @@ const ItemReportModal = ({ isOpen, onClose }) => {
       if (filters.start_date) params.start_date = filters.start_date;
       if (filters.end_date) params.end_date = filters.end_date;
 
-      const queryParams = new URLSearchParams(params).toString();
-      const apiUrl = `http://localhost:8000/api/item-report?${queryParams}`;
+      console.log('🟢 Calling API with parameters:', params);
+      // Axios automatically handles query string serialization with the 'params' property
+      const response = await api.get('/item-report', { params });
+      console.log('🟢 API call completed, status:', response.status);
       
-      console.log('🟢 API URL constructed:', apiUrl);
-
-      console.log('🟢 About to call fetch...');
-      const response = await fetch(apiUrl);
-      console.log('🟢 Fetch completed, response status:', response.status);
-      
-      if (!response.ok) {
-        console.log('❌ Response not OK');
-        throw new Error(`Server returned ${response.status} status`);
-      }
-
-      console.log('🟢 About to parse JSON response...');
-      const data = await response.json();
-      console.log('🟢 JSON parsed successfully:', data);
+      const data = response.data; // Axios response body is in .data
+      console.log('🟢 Response data received:', data);
       
       if (data.error) {
         console.log('❌ API returned error:', data.error);
@@ -109,7 +107,7 @@ const ItemReportModal = ({ isOpen, onClose }) => {
 
       console.log('🟢 Found sales data, setting report data...');
       console.log(`Found ${data.sales.length} sales records`);
-      
+
       // Set the report data and show the report view
       setReportData({ 
         sales: data.sales, 
@@ -117,11 +115,14 @@ const ItemReportModal = ({ isOpen, onClose }) => {
       });
       setShowReport(true);
       console.log('🟢 Report view should now be visible');
-      
+
     } catch (err) {
-      console.error('❌ CATCH BLOCK - Error:', err);
-      console.error('Error details:', err.message);
-      alert('Error: ' + err.message);
+      // Handle error, especially 401 which is handled by the interceptor
+      const errorMessage = err.response && err.response.data && err.response.data.message
+        ? err.response.data.message
+        : err.message;
+      console.error('❌ CATCH BLOCK - Error:', errorMessage);
+      alert('Error: ' + errorMessage);
     } finally {
       console.log('🟢 FINALLY BLOCK - Setting loading to false');
       setLoading(false);
@@ -131,7 +132,7 @@ const ItemReportModal = ({ isOpen, onClose }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     console.log('🔴 Form submitted with filters:', filters);
-    
+
     if (!filters.item_code) {
       alert('Please select an item');
       return;
