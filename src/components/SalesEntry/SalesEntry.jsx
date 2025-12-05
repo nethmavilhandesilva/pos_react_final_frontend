@@ -965,23 +965,23 @@ export default function SalesEntry() {
         });
     };
 
-   const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0) => {
-    const date = new Date().toLocaleDateString();
-    const time = new Date().toLocaleTimeString();
-    let totalAmountSum = 0, totalPacksSum = 0;
-    const itemGroups = {};
+    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0) => {
+        const date = new Date().toLocaleDateString();
+        const time = new Date().toLocaleTimeString();
+        let totalAmountSum = 0, totalPacksSum = 0;
+        const itemGroups = {};
 
-    const itemsHtml = salesData.map(s => {
-        totalAmountSum += parseFloat(s.total) || 0;
-        const packs = parseInt(s.packs) || 0;
-        totalPacksSum += packs;
+        const itemsHtml = salesData.map(s => {
+            totalAmountSum += parseFloat(s.total) || 0;
+            const packs = parseInt(s.packs) || 0;
+            totalPacksSum += packs;
 
-        if (!itemGroups[s.item_name]) itemGroups[s.item_name] = { totalWeight: 0, totalPacks: 0 };
-        itemGroups[s.item_name].totalWeight += parseFloat(s.weight) || 0;
-        itemGroups[s.item_name].totalPacks += packs;
+            if (!itemGroups[s.item_name]) itemGroups[s.item_name] = { totalWeight: 0, totalPacks: 0 };
+            itemGroups[s.item_name].totalWeight += parseFloat(s.weight) || 0;
+            itemGroups[s.item_name].totalPacks += packs;
 
-        // 🔧 FIXED ALIGNMENT ROW
-        return `
+            // 🔧 FIXED ALIGNMENT ROW
+            return `
 <tr style="font-size:1.5em;">
   <td style="text-align:left;">${s.supplier_code || ""}</td>
   <td style="text-align:left;">${s.item_name || ""}<br>${packs}</td>
@@ -989,19 +989,19 @@ export default function SalesEntry() {
   <td style="text-align:center;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
   <td style="text-align:right;">${((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)).toFixed(2)}</td>
 </tr>`;
-    }).join("");
+        }).join("");
 
-    const totalPrice = totalAmountSum;
-    const totalSalesExcludingPackDue = salesData.reduce(
-        (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0
-    );
+        const totalPrice = totalAmountSum;
+        const totalSalesExcludingPackDue = salesData.reduce(
+            (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0
+        );
 
-    const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
+        const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
 
-    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-    const remaining = parseFloat(givenAmount) - totalPrice;
+        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+        const remaining = parseFloat(givenAmount) - totalPrice;
 
-    const givenAmountRow = givenAmount > 0 ? `
+        const givenAmountRow = givenAmount > 0 ? `
 <tr>
   <td style="width:50%; text-align:left;">
     <span style="font-size:0.75rem;">දුන් මුදල: </span>
@@ -1013,9 +1013,9 @@ export default function SalesEntry() {
   </td>
 </tr>` : '';
 
-    const totalAmount = Math.abs(globalLoanAmount) + totalPrice;
+        const totalAmount = Math.abs(globalLoanAmount) + totalPrice;
 
-    const loanRow = globalLoanAmount !== 0 ? `
+        const loanRow = globalLoanAmount !== 0 ? `
 <tr>
   <td style="font-size:0.9rem; text-align:left;">
     පෙර ණය: Rs. 
@@ -1026,7 +1026,7 @@ export default function SalesEntry() {
   </td>
 </tr>` : '';
 
-    return `
+        return `
 <div class="receipt-container" style="width:100%; max-width:300px; margin:0 auto; padding:5px;">
 
   <div style="text-align:center; margin-bottom:5px;">
@@ -1111,7 +1111,7 @@ export default function SalesEntry() {
   </div>
 
 </div>`;
-};
+    };
 
     const handlePrintAndClear = async () => {
         const salesData = displayedSales.filter(s => s.id);
@@ -1166,7 +1166,7 @@ export default function SalesEntry() {
                 customerSearchInput: ""
             });
             handleClearForm();
-
+           
 
             window.location.reload();
 
@@ -1605,50 +1605,71 @@ export default function SalesEntry() {
 
                         <div className="flex items-center mt-6 space-x-3 overflow-x-auto whitespace-nowrap py-2">
 
-    {/* Buttons */}
-    <button
-        type="button"
-        onClick={handleMarkPrinted}
-        className="px-4 py-1 text-sm bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow transition"
-    >
-        F1-PRINT
-    </button>
+                            {/* Buttons */}
+                            <button
+                                type="button"
+                                onClick={handleMarkPrinted}
+                                className="px-4 py-1 text-sm hover:bg-green-700 text-white font-bold rounded-xl shadow transition"
+                                // 🟢 FIX: Added inline style to force the background color
+                                style={{ backgroundColor: '#059669', color: 'white' }} // #059669 is similar to Tailwind's default green-600
+                            >
+                                F1-PRINT
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleMarkAllProcessed}
+                                disabled={selectedPrintedCustomer}
+                                // 🟢 MODIFIED CLASSNAME: Removed conditional text class and kept the base text-white
+                                className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${selectedPrintedCustomer
+                                    ? "bg-gray-400 cursor-not-allowed"
+                                    : "bg-blue-600 hover:bg-blue-700"
+                                    }`}
+                                // 🚀 CUSTOM PIXEL OVERRIDE: Using inline style to force white text and 
+                                // blue background when active to ensure the styles are applied correctly 
+                                // over any inherited styles from .center-form.
+                                style={!selectedPrintedCustomer
+                                    ? { backgroundColor: '#2563eb', color: 'white' } // Active: Blue BG, White Text
+                                    : { color: 'white' } // Disabled: Gray BG (from class), White Text
+                                }
+                            >
+                                F5-HOLD
+                            </button>
 
-    <button
-        type="button"
-        onClick={handleMarkAllProcessed}
-        disabled={selectedPrintedCustomer}
-        className={`px-4 py-1 text-sm text-white font-bold rounded-xl shadow transition ${selectedPrintedCustomer
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-    >
-        F5-HOLD
-    </button>
+                            {/* Add a gap here */}
+                            <button
+                                type="button"
+                                onClick={handleFullRefresh}
+                                // Removed bg-gray-600 and text-white from className to use inline styles for high precedence
+                                className="px-4 py-1 text-sm hover:bg-gray-700 font-bold rounded-xl shadow transition pr-3"
+                                // 🚀 CUSTOM PIXEL OVERRIDE: Force Ash background and White text
+                                style={{ backgroundColor: '#4b5563', color: 'white' }} // #4b5563 is the hex code for Tailwind's gray-600
+                            >
+                                F10-Refresh
+                            </button>
 
-    <button
-        type="button"
-        onClick={handleFullRefresh}
-        className="px-4 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl shadow transition"
-    >
-        F10-Refresh
-    </button>
+                            {/* Given amount input (Pushed right with ml-auto) */}
+                            <div
+                                style={{ marginLeft: '660px', marginTop: '-25px' }} // Custom margin to keep it slightly off the right edge of its outer container
+                                className="ml-auto" // Pushes this div and its content to the far right
+                            >
+                                <input
+                                    id="given_amount"
+                                    ref={refs.givenAmount}
+                                    name="given_amount"
+                                    type="number"
+                                    step="0.01"
+                                    value={formData.given_amount}
+                                    onChange={(e) => handleInputChange('given_amount', e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, 2)}
+                                    placeholder="Given Amount"
+                                    // The custom margin-right has been moved to the wrapping div above for control.
+                                    // We use className for the basic styling now.
+                                    className="px-4 py-2 border rounded-xl text-right w-40"
+                                />
+                            </div>
+                        </div>
 
-    {/* Given amount input (Pushed right with ml-auto) */}
-    <input
-        id="given_amount"
-        ref={refs.givenAmount}
-        name="given_amount"
-        type="number"
-        step="0.01"
-        value={formData.given_amount}
-        onChange={(e) => handleInputChange('given_amount', e.target.value)}
-        onKeyDown={(e) => handleKeyDown(e, 2)}
-        placeholder="Given Amount"
-        className="px-4 py-2 border rounded-xl text-right w-40 **ml-auto**"
-    />
-</div>
-</div>
+                    </div>
 
                     {/* Right Sidebar */}
                     <div className="right-sidebar">
