@@ -134,17 +134,6 @@ const Layout = ({ children }) => {
                       Loan Report
                     </button>
                   </li>
-
-                  <li>
-                    <button
-                      type="button"
-                      className="dropdown-item text-warning"
-                      onClick={openGrnReportModal}
-                    >
-                      <i className="material-icons align-middle me-1 text-warning">receipt_long</i>
-                      GRN Report
-                    </button>
-                  </li>
                 </ul>
               </div>
 
