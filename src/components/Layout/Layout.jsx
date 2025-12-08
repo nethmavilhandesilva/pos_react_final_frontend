@@ -9,7 +9,7 @@ import GrnSalesOverviewReport from '../GrnSalesOverview/GrnSalesOverviewReport';
 import GrnSalesOverviewReport2 from '../GrnSalesOverview/GrnSalesOverviewReport2';
 import SalesReportModal from '../SalesReport/SalesReportModal';
 
-const Layout = ({ children }) => {
+const Layout = ({ children, currentView }) => {
   const location = useLocation();
 
   // === Modal States ===
@@ -54,15 +54,27 @@ const Layout = ({ children }) => {
   const closeGrnSalesOverviewReport2 = () => setIsGrnSalesOverviewReport2Open(false);
   const openSalesReportModal = () => setIsSalesReportModalOpen(true);
   const closeSalesReportModal = () => setIsSalesReportModalOpen(false);
-  const openGrnReportModal = () => {
-    setIsGrnReportModalOpen(true);
-  };
-  const closeGrnReportModal = () => {
-    setIsGrnReportModalOpen(false);
+  const openGrnReportModal = () => setIsGrnReportModalOpen(true);
+  const closeGrnReportModal = () => setIsGrnReportModalOpen(false);
+
+  // Profit Report Handler -> navigates to the new page
+  const handleProfitReportClick = () => {
+    window.location.href = '/supplier-profit';
   };
 
   // Check if current page is SalesEntry to apply full-width layout
   const isSalesEntryPage = location.pathname === '/sales' || location.pathname === '/sales-entry';
+
+  // Styles for profit button (you can tweak)
+  const profitReportButtonStyle = {
+    backgroundColor: "#ffc107",
+    color: "#000",
+    border: "1px solid #ffca2c",
+    padding: "6px 14px",
+    borderRadius: "6px",
+    fontWeight: "600",
+    marginLeft: "8px"
+  };
 
   return (
     <div>
@@ -137,9 +149,6 @@ const Layout = ({ children }) => {
                 </ul>
               </div>
 
-
-              {/* Other links remain as they are */}
-             
               <Link
                 to="/supplierreport"
                 className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
@@ -147,7 +156,6 @@ const Layout = ({ children }) => {
                 <i className="material-icons align-middle me-1">list_alt</i> Supplier Bills
               </Link>
             </div>
-
           </div>
 
           {/* Right: User Info + Logout */}
@@ -170,7 +178,6 @@ const Layout = ({ children }) => {
       </nav>
 
       {/* === Main Content === */}
-      {/* Remove container-fluid for SalesEntry page to allow full width */}
       <main
         className={isSalesEntryPage ? "p-0" : "container-fluid py-4"}
         style={{
@@ -190,17 +197,30 @@ const Layout = ({ children }) => {
             <button type="button" className="btn btn-outline-warning btn-sm mx-2" onClick={openItemReportModal}>
               <i className="material-icons align-middle me-1">analytics</i> Item Report
             </button>
+
             <button type="button" className="btn btn-outline-info btn-sm mx-2" onClick={openWeightReportModal}>
               <i className="material-icons align-middle me-1">scale</i> Weight Report
             </button>
-           
+
             <button type="button" className="btn btn-outline-secondary btn-sm mx-2" onClick={openSalesAdjustmentReportModal}>
               <i className="material-icons align-middle me-1">edit</i> Sales Adjustment
             </button>
-          
+
             <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={openSalesReportModal}>
               <i className="material-icons align-middle me-1">shopping_cart</i> Sales Report
             </button>
+
+            {/* ===== New Profit Report Button ===== */}
+            <button
+              onClick={handleProfitReportClick}
+              style={profitReportButtonStyle}
+              className="mx-2"
+              disabled={currentView === 'details'} // optional: disable based on prop
+              title="View total profit by supplier"
+            >
+              💰 View Supplier Profit Report
+            </button>
+
           </div>
         </div>
       </nav>
@@ -213,10 +233,7 @@ const Layout = ({ children }) => {
       <GrnSalesOverviewReport isOpen={isGrnSalesOverviewReportOpen} onClose={closeGrnSalesOverviewReport} />
       <GrnSalesOverviewReport2 isOpen={isGrnSalesOverviewReport2Open} onClose={closeGrnSalesOverviewReport2} />
       <SalesReportModal isOpen={isSalesReportModalOpen} onClose={closeSalesReportModal} />
-      <GrnReportModal
-        isOpen={isGrnReportModalOpen}
-        onClose={closeGrnReportModal}
-      />
+      <GrnReportModal isOpen={isGrnReportModalOpen} onClose={closeGrnReportModal} />
     </div>
   );
 };

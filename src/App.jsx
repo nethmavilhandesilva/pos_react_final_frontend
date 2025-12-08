@@ -22,6 +22,8 @@ import SalesEntry from './components/SalesEntry/SalesEntry';
 import SupplierReport from './components/Suppliers/SupplierReport';
 import SupplierDetailsModal from './components/Suppliers/SupplierDetailsModal';
 import CommissionPage from './components/Commission/CommissionPage'; // The component you created
+import SupplierProfitReport from './components/Suppliers/SupplierProfitReport';
+
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
 const ProtectedRoute = ({ children }) => {
@@ -199,6 +201,15 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+  path="/supplier-profit"
+  element={
+    <ProtectedRoute>
+      <SupplierProfitReport />
+    </ProtectedRoute>
+  }
+/>
+
 
         {/* Fallback route */}
         <Route path="*" element={<Navigate to="/" replace />} />

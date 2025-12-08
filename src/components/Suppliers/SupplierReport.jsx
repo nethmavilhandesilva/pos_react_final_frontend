@@ -293,7 +293,7 @@ const SupplierReport = () => {
                         onChange={(e) => setProfitSearchTerm(e.target.value)}
                         style={{ ...searchBarStyle, width: '400px', marginBottom: '30px' }}
                     />
-
+                    
                     {isProfitReportLoading ? (
                         <div style={loadingStyle}>Loading Profit Data...</div>
                     ) : filteredProfitReport.length === 0 ? (
@@ -360,11 +360,13 @@ const SupplierReport = () => {
                         <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
                     </div>
                 </div>
+                
 
                 {/* --- Center Section: Details/Profit/Welcome --- */}
                 <div style={centerPanelContainerStyle}>
                     {renderCenterContent()}
                 </div>
+                
 
                 {/* --- Right Section: Unprinted Bills --- */}
                 <div style={unprintedContainerStyle}>
