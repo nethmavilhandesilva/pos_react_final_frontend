@@ -983,11 +983,12 @@ export default function SalesEntry() {
             // 🔧 FIXED ALIGNMENT ROW
             return `
 <tr style="font-size:1.5em;">
-  <td style="text-align:left;">${s.supplier_code || ""}</td>
+ 
   <td style="text-align:left;">${s.item_name || ""}<br>${packs}</td>
   <td style="text-align:center;">${(parseFloat(s.weight) || 0).toFixed(2)}</td>
   <td style="text-align:center;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
   <td style="text-align:right;">${((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)).toFixed(2)}</td>
+   <td style="text-align:right;">${s.supplier_code || ""}</td>
 </tr>`;
         }).join("");
 
@@ -1060,11 +1061,12 @@ export default function SalesEntry() {
 
     <thead style="font-size:1.6em;">
       <tr>
-        <th style="text-align:left;">sup code</th>
+       
         <th style="text-align:left;">වර්ගය<br>මලු</th>
         <th style="text-align:center;">කිලෝ</th>
         <th style="text-align:center;">මිල</th>
         <th style="text-align:right;">අගය</th>
+        <th style="text-align:right;">sup code</th>
       </tr>
     </thead>
 

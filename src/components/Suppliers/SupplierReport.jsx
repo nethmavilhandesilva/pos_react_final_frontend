@@ -327,9 +327,9 @@ const SupplierReport = () => {
 
         return (
             <div style={welcomeMessageContainerStyle}>
-                <h2 style={welcomeHeaderStyle}>Select a Bill or View a Report</h2>
+                <h2 style={welcomeHeaderStyle}>Select a Bill</h2>
                 <p style={welcomeTextStyle}>Click on a **Printed Bill** or **Print All Pending** button on either side to view transaction details, generate a bill, and finalize the supplier payment process.</p>
-                <p style={welcomeTextStyle}>Use the **'View Supplier Profit Report'** button above for a high-level financial overview.</p>
+                
             </div>
         );
     };
@@ -454,13 +454,15 @@ const printedContainerStyle = {
     width: '250px', // Fixed width for sidebars
     flexShrink: 0,
     marginLeft: '-30px',
+    marginTop: '-95px',
 };
 
 const unprintedContainerStyle = {
     width: '250px', // Fixed width for sidebars
     flexShrink: 0,
     // FIX: Remove the huge fixed margin which creates the unnecessary gap
-    marginLeft: '0', 
+    marginRight: '-30px', 
+    marginTop: '-95px',
 };
 
 const centerPanelContainerStyle = {
@@ -517,7 +519,7 @@ const unprintedHeaderStyle = {
 const listContainerStyle = {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: '2px',
     marginTop: '5px',
     overflowY: 'auto',
     padding: '5px',
@@ -606,8 +608,9 @@ const welcomeMessageContainerStyle = {
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
     textAlign: 'center',
     height: 'fit-content',
-    maxWidth: '1200px', // Increased width
+    maxWidth: '1500px', // Increased width
     margin: 'auto',
+    marginTop: '-95px',
 };
 
 const welcomeHeaderStyle = {

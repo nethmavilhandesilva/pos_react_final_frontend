@@ -12,7 +12,8 @@
     display: grid;
     gap: 16px; 
     padding: 10px;
-    margin-top: -30px;
+    /* 🟢 FIX: Remove negative margin or set to a small positive/zero margin */
+    margin-top: 30px; 
 }
 body {
     background-color: #99ff99;
@@ -23,14 +24,14 @@ body {
     background-color: #1ec139ff; 
     border-radius: 0.75rem;
     max-height: 80.5vh;
-    width: 50px;
+    width: 150px;
     /* 🟢 FIX: Ensure vertical scrolling works, hide horizontal */
     overflow-y: auto; 
     overflow-x: hidden; 
 }
 
 .right-sidebar {
-    margin-left: 263px; /* increase the value to move further right */
+    margin-left: 264px; /* increase the value to move further right */
 }
 
 .center-form {

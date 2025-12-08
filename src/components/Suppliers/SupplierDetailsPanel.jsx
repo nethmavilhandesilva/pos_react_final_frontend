@@ -267,13 +267,14 @@ const SupplierDetailsPanel = ({
         backgroundColor: '#ffffff', 
         padding: '30px', 
         borderRadius: '12px',
-        maxWidth: '1000px', 
+        maxWidth: '680px', 
         maxHeight: 'calc(100vh - 120px)', 
         overflowY: 'auto',
         position: 'relative', 
         boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
         fontFamily: 'Roboto, Arial, sans-serif',
-        border: '3px solid #007bff', // Highlight for center panel
+        border: '3px solid #007bff', 
+        marginTop: '-90px',// Highlight for center panel
     };
     const headerStyle = {
         color: '#007bff', borderBottom: '2px solid #e9ecef', paddingBottom: '10px',
