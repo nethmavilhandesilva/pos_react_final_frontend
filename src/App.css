@@ -23,7 +23,7 @@ body {
     background-color: #1ec139ff; 
     border-radius: 0.75rem;
     max-height: 80.5vh;
-    width: 170px;
+    width: 50px;
     /* 🟢 FIX: Ensure vertical scrolling works, hide horizontal */
     overflow-y: auto; 
     overflow-x: hidden; 

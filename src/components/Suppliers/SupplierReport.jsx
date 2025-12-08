@@ -1,8 +1,8 @@
-// src/components/SupplierReport.jsx
+// src/components/SupplierReport.jsx (COMPLETE UPDATED CODE)
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from "../../api";
-import SupplierDetailsModal from './SupplierDetailsModal';
+import SupplierDetailsPanel from './SupplierDetailsPanel'; // Changed from Modal to Panel
 
 const SupplierReport = () => {
     // State for all data
@@ -10,17 +10,19 @@ const SupplierReport = () => {
     const [isLoading, setIsLoading] = useState(true);
 
     const [printedSearchTerm, setPrintedSearchTerm] = useState('');
-    const [unprintedSearchTerm, setUnprintedSearchTerm] = useState(''); // This state is correctly set
+    const [unprintedSearchTerm, setUnprintedSearchTerm] = useState('');
 
-    // --- NEW STATE FOR PROFIT REPORT ---
-    const [isProfitReportOpen, setIsProfitReportOpen] = useState(false);
+    // --- REPORT VIEW STATE ---
+    // 'summary', 'profit', or 'details'
+    const [currentView, setCurrentView] = useState('summary');
+
+    // --- PROFIT REPORT STATE ---
     const [profitReportData, setProfitReportData] = useState([]);
     const [isProfitReportLoading, setIsProfitReportLoading] = useState(false);
     const [profitSearchTerm, setProfitSearchTerm] = useState('');
-    // ------------------------------------
+    // ----------------------------
 
-    // State for Details Modal
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    // State for Details Panel (data and loading moved from modal to parent for centralized display)
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [selectedBillNo, setSelectedBillNo] = useState(null);
     const [isUnprintedBill, setIsUnprintedBill] = useState(false);
@@ -30,6 +32,7 @@ const SupplierReport = () => {
     // --- Function to fetch the summary data ---
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
+        setCurrentView('summary'); // Reset view to summary on refresh
         try {
             const response = await api.get('/suppliers/bill-status-summary');
             setSummary({
@@ -38,11 +41,7 @@ const SupplierReport = () => {
             });
         } catch (error) {
             console.error('Error fetching summary data:', error);
-            // No mock data - just set empty arrays on error
-            setSummary({
-                printed: [],
-                unprinted: [],
-            });
+            setSummary({ printed: [], unprinted: [] });
         } finally {
             setIsLoading(false);
         }
@@ -66,11 +65,9 @@ const SupplierReport = () => {
         const lowerCaseSearch = unprintedSearchTerm.toLowerCase();
         return summary.unprinted.filter(item =>
             item.supplier_code.toLowerCase().includes(lowerCaseSearch)
-            // Note: Unprinted bills won't have a supplier_bill_no yet, so only search by code.
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    // --- NEW Filtering for Profit Report ---
     const filteredProfitReport = useMemo(() => {
         const lowerCaseSearch = profitSearchTerm.toLowerCase();
         return profitReportData.filter(item =>
@@ -80,16 +77,14 @@ const SupplierReport = () => {
 
     // --- Handle Unprinted Bill Click ---
     const handleUnprintedBillClick = async (supplierCode, billNo) => {
-        setIsProfitReportOpen(false);
+        setCurrentView('details');
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
         setIsUnprintedBill(true);
-        setIsModalOpen(true);
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
         try {
-            // Fetch unprinted transactions for this supplier code
             const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
             setSupplierDetails(response.data);
         } catch (error) {
@@ -101,16 +96,14 @@ const SupplierReport = () => {
 
     // --- Handle Printed Bill Click ---
     const handlePrintedBillClick = async (supplierCode, billNo) => {
-        setIsProfitReportOpen(false);
+        setCurrentView('details');
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
         setIsUnprintedBill(false);
-        setIsModalOpen(true);
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
         try {
-            // Fetch printed transactions for this specific bill number
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
         } catch (error) {
@@ -120,10 +113,9 @@ const SupplierReport = () => {
         }
     };
 
-    // --- NEW Handle Profit Report Click ---
+    // --- Handle Profit Report Click ---
     const handleProfitReportClick = async () => {
-        setIsModalOpen(false);
-        setIsProfitReportOpen(true);
+        setCurrentView('profit');
         setProfitReportData([]);
         setIsProfitReportLoading(true);
 
@@ -137,47 +129,38 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Close Details Modal ---
-    const closeModal = () => {
-        setIsModalOpen(false);
+    // --- Function to close details and go back to summary ---
+    const handleDetailsClose = () => {
+        setCurrentView('summary');
         setSelectedSupplier(null);
         setSelectedBillNo(null);
         setIsUnprintedBill(false);
         setSupplierDetails([]);
-
-        // Refresh the summary data
-        fetchSummary();
+        fetchSummary(); // Refresh summary after possible print action
     };
 
     // --- Close Profit Report View ---
     const closeProfitReport = () => {
-        setIsProfitReportOpen(false);
+        setCurrentView('summary');
         setProfitReportData([]);
         setProfitSearchTerm('');
     };
 
-    // Helper component for rendering supplier codes
+    // Helper component for rendering supplier codes (remains the same)
     const SupplierCodeList = ({ items, type, searchTerm }) => {
         const fixedButtonWidth = '180px';
 
-        // Group items by supplier_code
         const groupedItems = useMemo(() => {
             return items.reduce((acc, item) => {
                 const { supplier_code, supplier_bill_no } = item;
-                // For unprinted bills, the billNo is often not present in the summary list, 
-                // but the structure expects it for the button text. We use the supplier_code itself 
-                // as a pseudo-bill identifier for grouping since unprinted is grouped by supplier code.
-                const billIdentifier = type === 'printed' ? supplier_bill_no : supplier_code; 
+                const billIdentifier = type === 'printed' ? supplier_bill_no : supplier_code;
 
                 if (!acc[supplier_code]) {
                     acc[supplier_code] = [];
                 }
-                // Push the bill number if printed, or the supplier code if unprinted
                 if (type === 'printed' && supplier_bill_no) {
                     acc[supplier_code].push(supplier_bill_no);
                 } else if (type === 'unprinted' && !acc[supplier_code].includes(supplier_code)) {
-                    // For unprinted, we only need one button per supplier code to trigger the modal
-                    // which fetches ALL unprinted records for that code.
                     acc[supplier_code].push(supplier_code);
                 }
                 return acc;
@@ -246,22 +229,33 @@ const SupplierReport = () => {
             <div style={listContainerStyle}>
                 {supplierCodes.map(supplierCode => (
                     <div key={supplierCode} style={groupContainerStyle}>
-                        <div style={groupHeaderStyle}>Supplier: {supplierCode}</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {/* GroupedItems[supplierCode] holds the bill numbers (or supplierCode for unprinted) */}
                             {groupedItems[supplierCode].map(billIdentifier => (
                                 <button
                                     key={billIdentifier}
                                     onClick={() => type === 'printed'
                                         ? handlePrintedBillClick(supplierCode, billIdentifier)
-                                        : handleUnprintedBillClick(supplierCode, null) // Pass null for billNo, modal handles generation
+                                        : handleUnprintedBillClick(supplierCode, null)
                                     }
-                                    style={buttonStyle}
+                                    style={{
+                                        ...buttonStyle,
+                                        fontSize: '12px',          // smaller font
+                                        whiteSpace: 'nowrap',      // force single line
+                                        padding: '6px 8px',        // tighter padding
+                                        maxWidth: '100%',          // optional
+                                        overflow: 'hidden',        // optional
+                                        textOverflow: 'ellipsis'   // optional
+                                    }}
                                     onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                                     onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
                                 >
-                                    {type === 'printed' ? `Bill No: ${billIdentifier}` : `Print All Pending`}
+                                    {type === 'printed'
+                                        ? `Supplier: ${supplierCode} | Bill No: ${billIdentifier}`
+                                        : `Supplier: ${supplierCode} | Print All Pending`
+                                    }
                                 </button>
+
+
                             ))}
                         </div>
                     </div>
@@ -270,34 +264,34 @@ const SupplierReport = () => {
         );
     };
 
-    if (isLoading) return <div style={loadingStyle}>Loading Supplier Report...</div>;
+    // --- Central Content Renderer ---
+    const renderCenterContent = () => {
+        if (currentView === 'details') {
+            return (
+                <SupplierDetailsPanel
+                    supplierCode={selectedSupplier}
+                    billNo={selectedBillNo}
+                    isUnprintedBill={isUnprintedBill}
+                    details={supplierDetails}
+                    isLoading={isDetailsLoading}
+                    onDone={handleDetailsClose} // Callback to switch back to summary
+                />
+            );
+        }
 
-    return (
-        <div style={reportContainerStyle}>
-            <header style={headerContainerStyle}>
-                <h1 style={headerStyle}>📊 Supplier Management Dashboard</h1>
-                <button
-                    onClick={handleProfitReportClick}
-                    style={profitReportButtonStyle}
-                >
-                    💰 View Supplier Profit Report
-                </button>
-            </header>
-
-            {/* --- Conditional Rendering for Profit Report vs. Bill Status --- */}
-            {isProfitReportOpen ? (
-                // --- Supplier Profit Report View ---
+        if (currentView === 'profit') {
+            return (
                 <div style={profitReportContainerStyle}>
                     <h2 style={profitReportHeaderStyle}>📈 Total Profit by Supplier (from Sales)</h2>
                     <button onClick={closeProfitReport} style={closeProfitButtonStyle}>
-                        &larr; Back to Bill Status
+                        &larr; Back to Bill Status Summary
                     </button>
                     <input
                         type="text"
                         placeholder="🔍 Search by Supplier Code..."
                         value={profitSearchTerm}
                         onChange={(e) => setProfitSearchTerm(e.target.value)}
-                        style={{...searchBarStyle, width: '400px', marginBottom: '30px'}}
+                        style={{ ...searchBarStyle, width: '400px', marginBottom: '30px' }}
                     />
 
                     {isProfitReportLoading ? (
@@ -325,61 +319,76 @@ const SupplierReport = () => {
                         </table>
                     )}
                 </div>
-            ) : (
-                // --- Bill Status Summary View ---
-                <div style={sectionsContainerStyle}>
+            );
+        }
 
-                    {/* --- Printed Section (Left Corner) --- */}
-                    <div style={printedContainerStyle}>
-                        <div style={printedSectionStyle}>
-                            <input
-                                type="text"
-                                placeholder="🔍 Search Printed Codes/Bills..."
-                                value={printedSearchTerm}
-                                onChange={(e) => setPrintedSearchTerm(e.target.value)}
-                                style={{...searchBarStyle, marginBottom: '20px'}}
-                            />
-                            <h2 style={printedHeaderStyle}>✅ Printed Bills ({filteredPrintedItems.length} items)</h2>
-                            <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
-                        </div>
+        // Default: Summary (or loading)
+        if (isLoading) return <div style={{ ...loadingStyle, height: '100%', backgroundColor: 'transparent' }}>Loading Report Data...</div>;
+
+        return (
+            <div style={welcomeMessageContainerStyle}>
+                <h2 style={welcomeHeaderStyle}>Select a Bill or View a Report</h2>
+                <p style={welcomeTextStyle}>Click on a **Printed Bill** or **Print All Pending** button on either side to view transaction details, generate a bill, and finalize the supplier payment process.</p>
+                <p style={welcomeTextStyle}>Use the **'View Supplier Profit Report'** button above for a high-level financial overview.</p>
+            </div>
+        );
+    };
+
+    if (isLoading && currentView === 'summary') return <div style={loadingStyle}>Loading Supplier Report...</div>;
+
+    return (
+        <div style={reportContainerStyle}>
+            <header style={headerContainerStyle}>
+               
+            </header>
+
+            <div style={sectionsContainerStyle}>
+
+                {/* --- Left Section: Printed Bills --- */}
+                <div style={printedContainerStyle}>
+                    <div style={printedSectionStyle}>
+                          <h2 style={printedHeaderStyle}> Printed Bills </h2>
+                        <input
+                            type="text"
+                            placeholder="🔍 Search Printed Codes/Bills..."
+                            value={printedSearchTerm}
+                            onChange={(e) => setPrintedSearchTerm(e.target.value)}
+                            style={{ ...searchBarStyle, marginBottom: '20px' }}
+                            disabled={currentView !== 'summary'}
+                        />
+                      
+                        <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
                     </div>
-
-                    {/* --- Unprinted Section (Right Corner - Custom Pushed) --- */}
-                    <div style={unprintedContainerStyle}>
-                        <div style={unprintedSectionStyle}>
-                            <input
-                                type="text"
-                                placeholder="🔍 Search Unprinted Codes/Bills..."
-                                value={unprintedSearchTerm}
-                                onChange={(e) => setUnprintedSearchTerm(e.target.value)}
-                                style={{...searchBarStyle, marginBottom: '20px'}}
-                            />
-                            <h2 style={unprintedHeaderStyle}>❌ Unprinted Bills ({filteredUnprintedItems.length} items)</h2>
-                            {/* 🚨 FIX APPLIED HERE 🚨: Use filteredUnprintedItems instead of summary.unprinted */}
-                            <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
-                        </div>
-                    </div>
-
                 </div>
-            )}
 
-            {/* --- Details Modal Component --- */}
-            {isModalOpen && (
-                <SupplierDetailsModal
-                    isOpen={isModalOpen}
-                    onClose={closeModal}
-                    supplierCode={selectedSupplier}
-                    billNo={selectedBillNo}
-                    isUnprintedBill={isUnprintedBill}
-                    details={supplierDetails}
-                    isLoading={isDetailsLoading}
-                />
-            )}
+                {/* --- Center Section: Details/Profit/Welcome --- */}
+                <div style={centerPanelContainerStyle}>
+                    {renderCenterContent()}
+                </div>
+
+                {/* --- Right Section: Unprinted Bills --- */}
+                <div style={unprintedContainerStyle}>
+                    <div style={unprintedSectionStyle}>
+                        <h2 style={unprintedHeaderStyle}> Unprinted Bills </h2>
+                        <input
+                            type="text"
+                            placeholder="🔍 Search Unprinted Codes/Bills..."
+                            value={unprintedSearchTerm}
+                            onChange={(e) => setUnprintedSearchTerm(e.target.value)}
+                            style={{ ...searchBarStyle, marginBottom: '20px' }}
+                            disabled={currentView !== 'summary'}
+                        />
+                        
+                        <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
+                    </div>
+                </div>
+
+            </div>
         </div>
     );
 };
 
-// --- STYLES (remain the same as before) ---
+// --- STYLES (Adjusted for Three-Column Layout) ---
 
 const reportContainerStyle = {
     minHeight: '100vh',
@@ -434,25 +443,37 @@ const searchBarStyle = {
     backgroundColor: 'white',
 };
 
+// --- CORE LAYOUT CHANGE ---
 const sectionsContainerStyle = {
     display: 'flex',
-    justifyContent: 'flex-start',
-    gap: '0',
+    justifyContent: 'space-between',
+    gap: '30px', // Space between the three columns
 };
 
 const printedContainerStyle = {
-    width: '400px',
-    display: 'flex',
-    flexDirection: 'column',
-    marginLeft: '-25px',
+    width: '250px', // Fixed width for sidebars
+    flexShrink: 0,
+    marginLeft: '-30px',
 };
 
 const unprintedContainerStyle = {
-    width: '400px',
-    display: 'flex',
-    flexDirection: 'column',
-    marginLeft: '440px',
+    width: '250px', // Fixed width for sidebars
+    flexShrink: 0,
+    // FIX: Remove the huge fixed margin which creates the unnecessary gap
+    marginLeft: '0', 
 };
+
+const centerPanelContainerStyle = {
+    flexGrow: 1, // Now it can truly take the remaining space
+    minWidth: '550px',
+    display: 'flex',
+    justifyContent: 'center', 
+    alignItems: 'flex-start',
+    // FIX: Remove the unnecessary negative margin
+    marginLeft: '0', 
+    // Minimum height set by sidebar section styles
+};
+// -------------------------
 
 const baseSectionStyle = {
     padding: '25px',
@@ -460,7 +481,7 @@ const baseSectionStyle = {
     boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)',
     display: 'flex',
     flexDirection: 'column',
-    height: 'calc(100vh - 210px)',
+    height: 'calc(100vh - 210px)', // Set height for sidebars
 };
 
 const printedSectionStyle = {
@@ -513,12 +534,13 @@ const loadingStyle = {
 };
 
 const profitReportContainerStyle = {
-    marginTop: '20px',
+    marginTop: '0',
     padding: '25px',
     backgroundColor: '#E6FFE6',
     borderRadius: '12px',
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
     minHeight: 'calc(100vh - 250px)',
+    width: '100%',
 };
 
 const profitReportHeaderStyle = {
@@ -575,5 +597,31 @@ const tableRowEvenStyle = {
 const tableRowOddStyle = {
     backgroundColor: 'white',
 };
+
+// --- Welcome/Summary Message Styles ---
+const welcomeMessageContainerStyle = {
+    padding: '60px',
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+    textAlign: 'center',
+    height: 'fit-content',
+    maxWidth: '1200px', // Increased width
+    margin: 'auto',
+};
+
+const welcomeHeaderStyle = {
+    color: '#343a40',
+    fontSize: '2rem',
+    marginBottom: '20px',
+};
+
+const welcomeTextStyle = {
+    color: '#6c757d',
+    fontSize: '1.1rem',
+    lineHeight: '1.6',
+    marginBottom: '15px',
+};
+// ----------------------------------------
 
 export default SupplierReport;
