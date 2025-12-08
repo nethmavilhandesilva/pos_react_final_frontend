@@ -1380,7 +1380,8 @@ export default function SalesEntry() {
                     </div>
 
                     {/* Center Form */}
-                    <div className="center-form">
+                   <div className="center-form" style={{ marginRight: "-20px" }}>
+
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {/* === ROW 1: BILL NO & TOTAL SALES === */}
                             <div className="w-full flex justify-between items-center">
@@ -1536,11 +1537,12 @@ export default function SalesEntry() {
                                         type="text"
                                         placeholder="SUPPLIER"
                                         className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full"
+                                        style={{ width: "150px" }}
                                     />
                                 </div>
 
                                 {/* Item */}
-                                <div style={{ gridColumnStart: 5, gridColumnEnd: 8 }}>
+                                <div style={{ gridColumnStart: 5, gridColumnEnd: 8, marginLeft: "-120px",marginRight: "-02px"}}>
                                     <Select
                                         id="item_code_select"
                                         ref={refs.itemCodeSelect}
