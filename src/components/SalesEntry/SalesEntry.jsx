@@ -19,7 +19,8 @@ const routes = {
 // Rendering the printed and unprinted customer lists
 const CustomerList = React.memo(({
     customers, type, searchQuery, onSearchChange, selectedPrintedCustomer,
-    selectedUnprintedCustomer, handleCustomerClick, formatDecimal, allSales
+    selectedUnprintedCustomer, handleCustomerClick, formatDecimal, allSales,
+    lastUpdate // Added prop
 }) => {
     const getPrintedCustomerGroups = () => {
         const groups = {};
@@ -105,6 +106,7 @@ const CustomerList = React.memo(({
 
     return (
         <div
+            key={`${type}-${lastUpdate || ''}`} // Force re-render on updates
             className="w-full shadow-xl rounded-xl overflow-y-auto border border-black"
             style={{
                 backgroundColor: "#1ec139ff",
@@ -275,7 +277,10 @@ export default function SalesEntry() {
         isLoading: false, // Changed to false initially - no loading screen
         customers: [],
         items: [],
-        suppliers: []
+        suppliers: [],
+        forceUpdate: null, // Added for forcing re-renders
+        windowFocused: null, // Added for window focus tracking
+        isPrinting: false // Added for print status
     });
 
     const setFormData = (updater) => setState(prev => ({
@@ -286,7 +291,7 @@ export default function SalesEntry() {
     const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
 
     const { allSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId, searchQueries, errors, loanAmount, isManualClear, formData, packCost,
-        isLoading, customers, items, suppliers
+        isLoading, customers, items, suppliers, isPrinting
     } = state;
 
     // --- Derived State (useMemo) ---
@@ -406,6 +411,20 @@ export default function SalesEntry() {
         const packDue = parseFloat(formData.pack_due) || 0;
         setFormData(prev => ({ ...prev, total: (w * p) + (packs * packDue) ? Number(((w * p) + (packs * packDue)).toFixed(2)) : "" }));
     }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
+
+    // Window focus effect for print dialog
+    useEffect(() => {
+        const handleWindowFocus = () => {
+            // When window regains focus (after print dialog), force a state update
+            updateState(prev => ({ ...prev, windowFocused: Date.now() }));
+        };
+
+        window.addEventListener('focus', handleWindowFocus);
+        
+        return () => {
+            window.removeEventListener('focus', handleWindowFocus);
+        };
+    }, []);
 
     // Initial Data Fetch and Focus on Mount
     useEffect(() => {
@@ -805,8 +824,10 @@ export default function SalesEntry() {
     };
 
     const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
+        // Prevent interaction if print is in progress
+        if (state.isPrinting) return;
+        
         const isPrinted = type === 'printed';
-
         let selectionKey = customerCode;
         if (isPrinted && billNo) {
             selectionKey = `${customerCode}-${billNo}`;
@@ -816,6 +837,7 @@ export default function SalesEntry() {
             ? selectedPrintedCustomer === selectionKey
             : selectedUnprintedCustomer === selectionKey;
 
+        // Immediate UI feedback
         if (isPrinted) {
             updateState({
                 selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
@@ -832,23 +854,30 @@ export default function SalesEntry() {
 
         const customer = customers.find(x => String(x.short_name) === String(customerCode));
 
-        const customerSales = salesRecords.length > 0 ? salesRecords :
-            (isPrinted && billNo
-                ? allSales.filter(s => s.customer_code === customerCode && s.bill_no === billNo)
-                : allSales.filter(s => s.customer_code === customerCode));
-
-        const firstSale = customerSales[0];
-        const newCustomerCode = isCurrentlySelected ? "" : customerCode;
-
         if (!isCurrentlySelected) {
             setFormData({
                 ...initialFormData,
-                customer_code: newCustomerCode,
+                customer_code: customerCode,
                 customer_name: customer?.name || "",
-                given_amount: firstSale?.given_amount || ""
+                given_amount: salesRecords[0]?.given_amount || ""
             });
+            
+            // Fetch loan amount
+            fetchLoanAmount(customerCode);
+            
+            // Focus on supplier code after selection
+            setTimeout(() => {
+                if (refs.supplierCode.current) {
+                    refs.supplierCode.current.focus();
+                }
+            }, 50);
         } else {
             handleClearForm();
+            setTimeout(() => {
+                if (refs.customerCode.current) {
+                    refs.customerCode.current.focus();
+                }
+            }, 50);
         }
 
         updateState({
@@ -856,15 +885,6 @@ export default function SalesEntry() {
             isManualClear: false,
             customerSearchInput: ""
         });
-
-        fetchLoanAmount(newCustomerCode);
-
-        if (isCurrentlySelected) {
-            refs.customerCode.current?.focus();
-            handleClearForm();
-        } else {
-            refs.supplierCode.current?.focus();
-        }
     };
 
     const handleMarkPrinted = async () => {
@@ -930,38 +950,68 @@ export default function SalesEntry() {
 
     const printSingleContent = async (html, customerName) => {
         return new Promise((resolve) => {
-            const originalContent = document.body.innerHTML;
-            document.title = customerName;
-
-            const cleanup = () => {
-                document.body.innerHTML = originalContent;
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (!printWindow) {
+                alert("Please allow pop-ups for printing");
                 resolve();
-            };
+                return;
+            }
 
-            const tryPrint = () => {
-                try {
-                    window.focus();
-                    window.print();
-                } catch (err) {
-                    console.error("Print failed:", err);
-                } finally {
+            printWindow.document.open();
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Print Bill - ${customerName}</title>
+                    <style>
+                        body { margin: 0; padding: 20px; }
+                        @media print {
+                            body { padding: 0; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    ${html}
+                    <script>
+                        // Auto-print when window loads
+                        window.onload = function() {
+                            setTimeout(function() {
+                                window.print();
+                                // Close window after print or timeout
+                                setTimeout(function() {
+                                    window.close();
+                                }, 1000);
+                            }, 500);
+                        };
+                        
+                        // Handle print cancellation
+                        window.onafterprint = function() {
+                            setTimeout(function() {
+                                window.close();
+                            }, 500);
+                        };
+                    </script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+
+            // Monitor the print window
+            const checkPrintWindow = setInterval(() => {
+                if (printWindow.closed) {
+                    clearInterval(checkPrintWindow);
                     resolve();
                 }
-            };
+            }, 500);
 
-            const afterPrintHandler = () => {
-                window.removeEventListener("afterprint", afterPrintHandler);
-                cleanup();
-            };
-            window.addEventListener("afterprint", afterPrintHandler);
-
-            document.body.innerHTML = html;
-            if (document.readyState === "complete") {
-                tryPrint();
-            } else {
-                window.onload = tryPrint;
-            }
-            setTimeout(cleanup, 3000);
+            // Fallback timeout
+            setTimeout(() => {
+                clearInterval(checkPrintWindow);
+                if (!printWindow.closed) {
+                    printWindow.close();
+                }
+                resolve();
+            }, 10000);
         });
     };
 
@@ -983,7 +1033,7 @@ export default function SalesEntry() {
             // 🔧 FIXED ALIGNMENT ROW
             return `
 <tr style="font-size:1.5em;">
- 
+
   <td style="text-align:left;">${s.item_name || ""}<br>${packs}</td>
   <td style="text-align:center;">${(parseFloat(s.weight) || 0).toFixed(2)}</td>
   <td style="text-align:center;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
@@ -1125,57 +1175,138 @@ export default function SalesEntry() {
             return;
         }
 
+        // Store the original state for restoration
+        const originalState = {
+            allSales: [...allSales],
+            selectedPrintedCustomer,
+            selectedUnprintedCustomer,
+            formData: { ...formData }
+        };
+
         try {
             const customerCode = salesData[0].customer_code || "N/A";
-
-            const [printResponse, loanResponse] = await Promise.allSettled([
-                api.post(routes.markPrinted, {
-                    sales_ids: salesData.map(s => s.id),
-                    force_new_bill: true
-                }),
-                api.post(routes.getLoanAmount, { customer_short_name: customerCode })
-            ]);
-
-            if (printResponse.status === 'rejected' || printResponse.value.data.status !== "success") {
-                throw new Error(printResponse.value?.response?.data?.message || "Printing failed");
-            }
-
-            const customerName = customerCode;
+            const customerName = salesData[0].customer_name || customerCode;
             const mobile = salesData[0].mobile || '0702758908';
-            const billNo = printResponse.value.data.bill_no || "";
 
-            let globalLoanAmount = 0;
-            if (loanResponse.status === 'fulfilled') {
-                globalLoanAmount = parseFloat(loanResponse.value.data.total_loan_amount) || 0;
+            // Set printing flag
+            updateState({ isPrinting: true });
+
+            // Step 1: Mark as printed and get bill number
+            const printResponse = await api.post(routes.markPrinted, {
+                sales_ids: salesData.map(s => s.id),
+                force_new_bill: true
+            });
+
+            if (printResponse.data.status !== "success") {
+                throw new Error(printResponse.data?.message || "Printing failed");
             }
 
-            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount);
-            // const copyHtml = `<div style="text-align:center;font-size:2em;font-weight:bold;color:red;margin-bottom:10px;">COPY</div>${receiptHtml}`;
+            const billNo = printResponse.data.bill_no || "";
 
-            const printPromises = [
-                printSingleContent(receiptHtml, customerName),
-            ];
+            // Step 2: Get loan amount
+            let globalLoanAmount = 0;
+            try {
+                const loanResponse = await api.post(routes.getLoanAmount, { 
+                    customer_short_name: customerCode 
+                });
+                globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
+            } catch (loanError) {
+                console.warn("Loan amount fetch failed:", loanError);
+            }
 
-            await Promise.all(printPromises);
-
-            updateState({
-                allSales: allSales.map(s => {
-                    const isPrinted = salesData.some(d => d.id === s.id);
-                    return isPrinted ? { ...s, bill_printed: 'Y', bill_no: billNo } : s;
-                }),
-                selectedUnprintedCustomer: null,
-                selectedPrintedCustomer: null,
-                customerSearchInput: ""
+            // Step 3: Update sales to printed status IMMEDIATELY
+            const salesIdsToUpdate = salesData.map(s => s.id);
+            const updatedAllSales = allSales.map(s => {
+                if (salesIdsToUpdate.includes(s.id)) {
+                    return { 
+                        ...s, 
+                        bill_printed: 'Y', 
+                        bill_no: billNo
+                    };
+                }
+                return s;
             });
-            handleClearForm();
 
+            // Step 4: FULL STATE RESET - Clear everything
+            updateState({
+                allSales: updatedAllSales,
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                currentBillNo: null,
+                loanAmount: 0, // Reset loan amount
+                editingSaleId: null,
+                searchQueries: { printed: "", unprinted: "" }, // Reset search
+                customerSearchInput: "",
+                itemSearchInput: "",
+                supplierSearchInput: "",
+                isManualClear: true,
+                packCost: 0,
+                forceUpdate: Date.now(), // Force re-render
+                isPrinting: false // Clear printing flag
+            });
 
+            // Reset form completely
+            setFormData({
+                ...initialFormData,
+                customer_code: "",
+                customer_name: "",
+                given_amount: ""
+            });
 
-            window.location.reload();
+            // Step 5: Build receipt HTML
+            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount);
+            
+            // Step 6: Print in separate window
+            const printPromise = printSingleContent(receiptHtml, customerName);
+            
+            // Focus back on customer code field immediately
+            setTimeout(() => {
+                if (refs.customerCode.current) {
+                    refs.customerCode.current.focus();
+                    refs.customerCode.current.select();
+                }
+            }, 100);
+
+            // Wait for print to complete
+            await printPromise;
+
+            // Step 7: Refresh data in background
+            setTimeout(async () => {
+                try {
+                    const response = await api.get(routes.sales);
+                    const freshSales = response.data.data || response.data.sales || response.data || [];
+                    
+                    // Only update if data has changed
+                    if (JSON.stringify(freshSales) !== JSON.stringify(updatedAllSales)) {
+                        updateState({
+                            allSales: freshSales,
+                            forceUpdate: Date.now() // Force another re-render
+                        });
+                    }
+                } catch (error) {
+                    console.warn("Background refresh failed:", error);
+                }
+            }, 500);
 
         } catch (error) {
+            console.error("Printing error:", error);
             alert("Printing failed: " + (error.message || error.toString()));
-            setTimeout(() => { window.location.reload(); }, 100);
+            
+            // Restore original state on error
+            updateState({
+                allSales: originalState.allSales,
+                selectedPrintedCustomer: originalState.selectedPrintedCustomer,
+                selectedUnprintedCustomer: originalState.selectedUnprintedCustomer,
+                isPrinting: false
+            });
+            setFormData(originalState.formData);
+            
+            // Refocus on customer field
+            setTimeout(() => {
+                if (refs.customerCode.current) {
+                    refs.customerCode.current.focus();
+                }
+            }, 100);
         }
     };
 
@@ -1210,6 +1341,13 @@ export default function SalesEntry() {
                     </div>
                 )}
 
+                {/* Printing indicator */}
+                {state.isPrinting && (
+                    <div className="fixed top-0 left-0 right-0 bg-yellow-500 text-black py-1 text-center text-sm z-50">
+                        Printing in progress... Please wait
+                    </div>
+                )}
+
                 <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1 }}>
 
                     {/* Left Sidebar */}
@@ -1225,6 +1363,7 @@ export default function SalesEntry() {
                                 handleCustomerClick={handleCustomerClick}
                                 formatDecimal={formatDecimal}
                                 allSales={allSales}
+                                lastUpdate={state.forceUpdate || state.windowFocused}
                             />
                         ) : (
                             <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
@@ -1611,12 +1750,16 @@ export default function SalesEntry() {
                             {/* Buttons */}
                             <button
                                 type="button"
-                                onClick={handleMarkPrinted}
-                                className="px-4 py-1 text-sm hover:bg-green-700 text-white font-bold rounded-xl shadow transition"
-                                // 🟢 FIX: Added inline style to force the background color
-                                style={{ backgroundColor: '#059669', color: 'white' }} // #059669 is similar to Tailwind's default green-600
+                                onClick={handlePrintAndClear}
+                                disabled={state.isPrinting || displayedSales.length === 0}
+                                className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
+                                style={{ 
+                                    backgroundColor: '#059669', 
+                                    color: 'white',
+                                    opacity: state.isPrinting ? 0.5 : 1
+                                }}
                             >
-                                F1-PRINT
+                                {state.isPrinting ? 'Printing...' : 'F1-PRINT'}
                             </button>
                             <button
                                 type="button"
@@ -1687,6 +1830,7 @@ export default function SalesEntry() {
                                 handleCustomerClick={handleCustomerClick}
                                 formatDecimal={formatDecimal}
                                 allSales={allSales}
+                                lastUpdate={state.forceUpdate || state.windowFocused}
                             />
                         ) : (
                             <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
