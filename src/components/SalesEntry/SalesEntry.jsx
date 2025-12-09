@@ -1678,6 +1678,7 @@ export default function SalesEntry() {
                                 <table className="min-w-full border-gray-200 rounded-xl text-sm">
                                     <thead>
                                         <tr>
+                                             <th className="px-4 py-2 border">Sup code</th>
                                             <th className="px-4 py-2 border">කේතය</th>
                                             <th className="px-4 py-2 border">අයිතමය</th>
                                             <th className="px-2 py-2 border w-20">බර(kg)</th>
@@ -1696,6 +1697,7 @@ export default function SalesEntry() {
                                                 onClick={() => handleEditClick(s)}
                                                 onKeyDown={(e) => handleTableRowKeyDown(e, s)}
                                             >
+                                                 <td className="px-4 py-2 border">{s.supplier_code}</td>
                                                 <td className="px-4 py-2 border">{s.item_code}</td>
                                                 <td className="px-4 py-2 border">{s.item_name}</td>
                                                 <td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td>
