@@ -275,6 +275,7 @@ const SupplierDetailsPanel = ({
         fontFamily: 'Roboto, Arial, sans-serif',
         border: '3px solid #007bff', 
         marginTop: '-90px',// Highlight for center panel
+        maxWidth: '820px',
     };
     const headerStyle = {
         color: '#007bff', borderBottom: '2px solid #e9ecef', paddingBottom: '10px',
@@ -401,24 +402,7 @@ const SupplierDetailsPanel = ({
             </div>
 
             {/* --- GRAND SUMMARY BOXES --- */}
-            <div style={summaryBoxContainerStyle}>
-                <div style={summaryBoxStyle('green')}>
-                    <div>Total Weight (kg)</div>
-                    <div style={summaryValueStyle}>{formatDecimal(totalWeight, 3)}</div>
-                </div>
-                <div style={summaryBoxStyle('blue')}>
-                    <div>Gross Supplier Sales</div>
-                    <div style={summaryValueStyle}>{formatDecimal(totalsupplierSales)}</div>
-                </div>
-                <div style={summaryBoxStyle('red')}>
-                    <div>Total Commission</div>
-                    <div style={summaryValueStyle}>{formatDecimal(totalCommission)}</div>
-                </div>
-                <div style={summaryBoxStyle('blue')}>
-                    <div>Amount Payable (Net)</div>
-                    <div style={summaryValueStyle}>{formatDecimal(amountPayable)}</div>
-                </div>
-            </div>
+          
             
             {/* --- DETAILED TABLE --- */}
             <div style={tableContainerStyle}>

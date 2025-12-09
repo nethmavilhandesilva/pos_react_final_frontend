@@ -1,8 +1,7 @@
-// src/components/SupplierReport.jsx (COMPLETE UPDATED CODE)
+// src/components/Suppliers/SupplierReport.jsx (CLEANED & CENTER WIDTH FIXED)
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from "../../api";
-import SupplierDetailsPanel from './SupplierDetailsPanel'; // Changed from Modal to Panel
 
 const SupplierReport = () => {
     // State for all data
@@ -12,17 +11,14 @@ const SupplierReport = () => {
     const [printedSearchTerm, setPrintedSearchTerm] = useState('');
     const [unprintedSearchTerm, setUnprintedSearchTerm] = useState('');
 
-    // --- REPORT VIEW STATE ---
-    // 'summary', 'profit', or 'details'
-    const [currentView, setCurrentView] = useState('summary');
+    // --- REPORT VIEW STATE (Profit Removed) ---
+    // 'summary' or 'details'
+    const [currentView, setCurrentView] = useState('summary'); 
 
-    // --- PROFIT REPORT STATE ---
-    const [profitReportData, setProfitReportData] = useState([]);
-    const [isProfitReportLoading, setIsProfitReportLoading] = useState(false);
-    const [profitSearchTerm, setProfitSearchTerm] = useState('');
-    // ----------------------------
+    // --- PROFIT REPORT STATE (REMOVED) ---
+    // State removed: profitReportData, isProfitReportLoading, profitSearchTerm
 
-    // State for Details Panel (data and loading moved from modal to parent for centralized display)
+    // State for Details Panel (always displayed)
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [selectedBillNo, setSelectedBillNo] = useState(null);
     const [isUnprintedBill, setIsUnprintedBill] = useState(false);
@@ -68,16 +64,10 @@ const SupplierReport = () => {
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    const filteredProfitReport = useMemo(() => {
-        const lowerCaseSearch = profitSearchTerm.toLowerCase();
-        return profitReportData.filter(item =>
-            item.supplier_code.toLowerCase().includes(lowerCaseSearch)
-        );
-    }, [profitSearchTerm, profitReportData]);
+    // filteredProfitReport (REMOVED)
 
     // --- Handle Unprinted Bill Click ---
     const handleUnprintedBillClick = async (supplierCode, billNo) => {
-        setCurrentView('details');
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
         setIsUnprintedBill(true);
@@ -96,7 +86,6 @@ const SupplierReport = () => {
 
     // --- Handle Printed Bill Click ---
     const handlePrintedBillClick = async (supplierCode, billNo) => {
-        setCurrentView('details');
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
         setIsUnprintedBill(false);
@@ -113,25 +102,10 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Handle Profit Report Click ---
-    const handleProfitReportClick = async () => {
-        setCurrentView('profit');
-        setProfitReportData([]);
-        setIsProfitReportLoading(true);
+    // --- Profit Report Handlers (REMOVED) ---
 
-        try {
-            const response = await api.get('/sales/profit-by-supplier');
-            setProfitReportData(response.data);
-        } catch (error) {
-            console.error('Error fetching profit report data:', error);
-        } finally {
-            setIsProfitReportLoading(false);
-        }
-    };
-
-    // --- Function to close details and go back to summary ---
-    const handleDetailsClose = () => {
-        setCurrentView('summary');
+    // --- Function to reset details ---
+    const resetDetails = () => {
         setSelectedSupplier(null);
         setSelectedBillNo(null);
         setIsUnprintedBill(false);
@@ -139,21 +113,239 @@ const SupplierReport = () => {
         fetchSummary(); // Refresh summary after possible print action
     };
 
-    // --- Close Profit Report View ---
-    const closeProfitReport = () => {
-        setCurrentView('summary');
-        setProfitReportData([]);
-        setProfitSearchTerm('');
-    };
+    // --- Close Profit Report View (REMOVED) ---
 
-    // Helper component for rendering supplier codes (remains the same)
+    // --- Helper function for details panel ---
+    const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+
+    const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
+
+    // --- CALCULATIONS for details panel ---
+    const {
+        totalWeight,
+        totalCommission,
+        amountPayable,
+        itemSummaryData,
+        totalPacksSum,
+        totalsupplierSales,
+        totalSupplierPackCost,
+    } = useMemo(() => {
+        let totalWeight = 0;
+        let totalsupplierSales = 0;
+        let totalCommission = 0;
+        let totalPacksSum = 0;
+        let totalSupplierPackCost = 0;
+
+        const itemSummary = {};
+
+        supplierDetails.forEach(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const commission = parseFloat(record.commission_amount) || 0;
+            const packs = parseInt(record.packs) || 0;
+            // const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
+            const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || 'Unknown Item';
+            const SupplierPackCost = parseFloat(record.SupplierPackCost) || 0;
+
+            totalWeight += weight;
+            totalsupplierSales += SupplierTotal;
+            totalCommission += commission;
+            totalPacksSum += packs;
+            totalSupplierPackCost += SupplierPackCost;
+
+            if (!itemSummary[itemName]) {
+                itemSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+            }
+            itemSummary[itemName].totalWeight += weight;
+            itemSummary[itemName].totalPacks += packs;
+        });
+
+        const finalAmountPayable = totalsupplierSales - totalCommission;
+
+        return {
+            totalWeight,
+            totalCommission,
+            amountPayable: finalAmountPayable,
+            itemSummaryData: itemSummary,
+            totalPacksSum,
+            totalsupplierSales,
+            totalSupplierPackCost,
+        };
+    }, [supplierDetails]);
+
+    // --- BILL CONTENT GENERATION ---
+    const getBillContent = useCallback((currentBillNo) => {
+        const date = new Date().toLocaleDateString('si-LK');
+        const time = new Date().toLocaleTimeString('si-LK');
+
+        const mobile = '071XXXXXXX';
+        const totalPackDueCost = totalSupplierPackCost;
+        const finaltotal = totalsupplierSales + totalPackDueCost;
+
+        const itemSummaryKeys = Object.keys(itemSummaryData);
+        const itemSummaryHtml = itemSummaryKeys.map(itemName => {
+            const sum = itemSummaryData[itemName];
+            return `
+                <tr>
+                    <td style="width: 50%;">${itemName}</td>
+                    <td style="width: 50%; text-align: right;">${sum.totalPacks} / ${sum.totalWeight.toFixed(3)}kg</td>
+                </tr>
+            `;
+        }).join('');
+
+        const detailedItemsHtml = supplierDetails.map(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
+            const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || 'Unknown Item';
+
+            return `
+                <tr style="font-size: 1.1em;">
+                    <td style="text-align:left;padding:3px;border-bottom:1px solid #eee;">
+                        <span style="font-weight: bold;">${itemName}</span><br>${packs}
+                    </td>
+                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${weight.toFixed(3)}</td>
+                    <td style="text-align:center;padding:3px;border-bottom:1px solid #eee;"><br>${SupplierPricePerKg.toFixed(2)}</td>
+                    <td style="text-align:right;padding:3px;border-bottom:1px solid #eee;">
+                        <span style="font-weight: bold; font-size: 0.9em;">${record.customer_code?.toUpperCase() || ''}</span><br>${SupplierTotal.toFixed(2)}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        return `<div class="receipt-container" style="width:100%;max-width:300px;margin:0 auto;padding:5px;">
+    <div style="text-align:center;margin-bottom:5px;">
+        <h3 style="font-size:1.8em;font-weight:bold;margin:0;">NVDS</h3>
+    </div>
+    <div style="text-align:left;margin-bottom:5px;">
+        <table style="width:100%;font-size:9px;border-collapse:collapse;">
+            <tr><td style="width:50%;">දිනය : ${date}</td><td style="width:50%;text-align:right;">${time}</td></tr>
+            <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
+            <tr><td>බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong></td><td style="text-align:right;"><strong style="font-size:2.0em;">${selectedSupplier?.toUpperCase() || ''}</strong></td></tr>
+        </table>
+    </div>
+    <hr style="border:1px solid #000;margin:5px 0;opacity:1;">
+    <table style="width:100%;font-size:9px;border-collapse:collapse;">
+        <thead style="font-size:1.8em;">
+            <tr><th style="text-align:left;padding:2px;">වර්ගය<br>මලු</th><th style="padding:2px;">කිලෝ</th><th style="padding:2px;">මිල</th><th style="text-align:right;padding:2px;">අගය</th></tr>
+        </thead>
+        <tbody>
+            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+            ${detailedItemsHtml}
+            <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+            <tr><td colspan="2" style="text-align:left;font-weight:bold;font-size:1.8em;">${totalPacksSum}</td><td colspan="2" style="text-align:right;font-weight:bold;font-size:1.5em;">${totalsupplierSales.toFixed(2)}</td></tr>
+        </tbody>
+    </table>
+    <table style="width:100%;font-size:15px;border-collapse:collapse;">
+        <tr><td>කුලිය:</td><td style="text-align:right;font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
+        <tr><td>අගය:</td><td style="text-align:right;font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">${(finaltotal).toFixed(2)}</span></td></tr>
+    </table>
+    <div style="font-size:10px;">
+        <table style="width:100%;font-size:10px;border-collapse:collapse;margin-top:10px;">
+            ${itemSummaryHtml}
+        </table>
+    </div>
+    <tr><td colspan="4"><hr style="border:1px solid #000;margin:5px 0;opacity:1;"></td></tr>
+    <div style="text-align:center;margin-top:10px;font-size:10px;">
+        <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
+    </div>
+</div>`;
+    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData]);
+
+    // --- Print function ---
+    const handlePrint = useCallback(async () => {
+        if (!supplierDetails || supplierDetails.length === 0) {
+            console.log('Cannot print: No details available.');
+            return;
+        }
+
+        let finalBillNo = selectedBillNo;
+
+        if (isUnprintedBill) {
+            setIsDetailsLoading(true);
+            try {
+                const billResponse = await api.get('/generate-f-series-bill');
+                finalBillNo = billResponse.data.new_bill_no;
+                setSelectedBillNo(finalBillNo);
+            } catch (err) {
+                console.error('Error generating bill number:', err);
+                setIsDetailsLoading(false);
+                alert('Failed to generate a new bill number. Print cancelled.');
+                return;
+            } finally {
+                setIsDetailsLoading(false);
+            }
+        } else {
+            const confirmPrint = window.confirm(`This bill (${selectedBillNo}) has already been marked as printed. Do you want to print a copy?`);
+            if (!confirmPrint) {
+                return;
+            }
+        }
+
+        const content = getBillContent(finalBillNo);
+        const printWindow = window.open('', '_blank', 'height=600,width=800');
+
+        if (printWindow) {
+            printWindow.document.write('<html><head><title>Bill Print</title>');
+            printWindow.document.write(`<style>body { font-family: sans-serif; margin: 0; padding: 0; }.receipt-container { width: 80mm; padding: 5px; margin: 0 auto; }@media print { body { margin: 0; } }</style>`);
+            printWindow.document.write('</head><body>');
+            printWindow.document.write(content);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.focus();
+
+            printWindow.print();
+
+            if (isUnprintedBill) {
+                const transactionIds = supplierDetails.map(record => record.id).filter(id => id);
+                if (transactionIds.length > 0 && finalBillNo && finalBillNo !== 'N/A') {
+                    try {
+                        const payload = {
+                            bill_no: finalBillNo,
+                            transaction_ids: transactionIds,
+                        };
+                         setTimeout(async () => {
+                             await api.post('/suppliers/mark-as-printed', payload);
+                             resetDetails(); // Refresh and clear
+                        }, 50);
+                    } catch (err) {
+                        console.error('❌ Failed to mark supplier records as printed:', err);
+                        alert(`Warning: Bill generated (${finalBillNo}) but failed to mark records as printed.`);
+                    }
+                }
+            }
+        } else {
+            alert("Please allow pop-ups to print the bill.");
+        }
+    }, [supplierDetails, selectedBillNo, isUnprintedBill, getBillContent, resetDetails]);
+
+    // --- Keyboard event listener ---
+    useEffect(() => {
+        const handleKeyDown = (event) => {
+            if (event.key === 'F4' || event.keyCode === 115) {
+                event.preventDefault();
+                if (supplierDetails && supplierDetails.length > 0 && !isDetailsLoading) {
+                    handlePrint();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [supplierDetails, handlePrint, isDetailsLoading]);
+
+    // Helper component for rendering supplier codes (kept identical)
     const SupplierCodeList = ({ items, type, searchTerm }) => {
-        const fixedButtonWidth = '180px';
-
         const groupedItems = useMemo(() => {
             return items.reduce((acc, item) => {
                 const { supplier_code, supplier_bill_no } = item;
-                const billIdentifier = type === 'printed' ? supplier_bill_no : supplier_code;
 
                 if (!acc[supplier_code]) {
                     acc[supplier_code] = [];
@@ -170,10 +362,10 @@ const SupplierReport = () => {
         const supplierCodes = Object.keys(groupedItems);
 
         const buttonBaseStyle = {
-            width: fixedButtonWidth,
+            width: '100%',
             display: 'inline-block',
-            textAlign: 'center',
-            padding: '12px 15px',
+            textAlign: 'left',
+            padding: '10px 15px',
             borderRadius: '6px',
             cursor: 'pointer',
             fontWeight: '600',
@@ -182,6 +374,7 @@ const SupplierReport = () => {
             boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
             fontSize: '1rem',
             marginBottom: '4px',
+            boxSizing: 'border-box',
         };
 
         const printedButtonStyle = {
@@ -199,22 +392,13 @@ const SupplierReport = () => {
         const buttonStyle = type === 'printed' ? printedButtonStyle : unprintedButtonStyle;
 
         const groupContainerStyle = {
-            marginBottom: '15px',
-            padding: '10px',
-            border: '1px solid #ddd',
-            borderRadius: '8px',
-            backgroundColor: 'rgba(255, 255, 255, 0.5)',
+            marginBottom: '4px',
+            padding: '0px',
+            border: 'none',
+            borderRadius: '0px',
+            backgroundColor: 'transparent',
             width: '100%',
             boxSizing: 'border-box',
-        };
-
-        const groupHeaderStyle = {
-            fontWeight: '700',
-            color: type === 'printed' ? '#1E88E5' : '#FF7043',
-            marginBottom: '8px',
-            fontSize: '1.2rem',
-            textAlign: 'left',
-            paddingLeft: '5px',
         };
 
         if (items.length === 0) {
@@ -237,25 +421,17 @@ const SupplierReport = () => {
                                         ? handlePrintedBillClick(supplierCode, billIdentifier)
                                         : handleUnprintedBillClick(supplierCode, null)
                                     }
-                                    style={{
-                                        ...buttonStyle,
-                                        fontSize: '12px',          // smaller font
-                                        whiteSpace: 'nowrap',      // force single line
-                                        padding: '6px 8px',        // tighter padding
-                                        maxWidth: '100%',          // optional
-                                        overflow: 'hidden',        // optional
-                                        textOverflow: 'ellipsis'   // optional
-                                    }}
+                                    style={buttonStyle}
                                     onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
                                     onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
                                 >
-                                    {type === 'printed'
-                                        ? `Supplier: ${supplierCode} | Bill No: ${billIdentifier}`
-                                        : `Supplier: ${supplierCode} | Print All Pending`
-                                    }
+                                    <span style={{ display: "block", textAlign: "left", fontSize: "15px", fontWeight: "600" }}>
+                                        {type === 'printed'
+                                            ? `${supplierCode}-${billIdentifier}`
+                                            : `${supplierCode}`
+                                        }
+                                    </span>
                                 </button>
-
-
                             ))}
                         </div>
                     </div>
@@ -264,77 +440,266 @@ const SupplierReport = () => {
         );
     };
 
-    // --- Central Content Renderer ---
-    const renderCenterContent = () => {
-        if (currentView === 'details') {
-            return (
-                <SupplierDetailsPanel
-                    supplierCode={selectedSupplier}
-                    billNo={selectedBillNo}
-                    isUnprintedBill={isUnprintedBill}
-                    details={supplierDetails}
-                    isLoading={isDetailsLoading}
-                    onDone={handleDetailsClose} // Callback to switch back to summary
-                />
-            );
-        }
+    // --- ALWAYS DISPLAYED DETAILS PANEL (INLINED STRUCTURE) ---
+    const renderDetailsPanel = () => {
+        // Panel styles
+        const panelContainerStyle = {
+            backgroundColor: '#ffffff',
+            padding: '30px',
+            borderRadius: '12px',
+            // Set max width to 100% of the flex container
+            maxWidth: '100%', 
+            maxHeight: 'calc(100vh - 60px)',
+            overflowY: 'auto',
+            position: 'relative',
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
+            fontFamily: 'Roboto, Arial, sans-serif',
+            // Adjust border for empty state
+            border: selectedSupplier ? '3px solid #007bff' : '3px dashed #6c757d',
+            marginTop: '-90px',
+            width: '100%',
+            minHeight: '550px',
+        };
 
-        if (currentView === 'profit') {
+        const headerStyle = {
+            color: '#007bff',
+            borderBottom: '2px solid #e9ecef',
+            paddingBottom: '10px',
+            marginTop: '0',
+            marginBottom: '20px',
+            fontSize: '1.8rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+        };
+
+        const supplierCodeBadgeStyle = {
+            backgroundColor: selectedSupplier ? '#28a745' : '#6c757d',
+            color: 'white',
+            padding: '5px 10px',
+            borderRadius: '6px',
+            fontSize: '1rem',
+            fontWeight: 'bold',
+        };
+
+        const tableContainerStyle = {
+            marginTop: '20px',
+            overflowX: 'auto',
+        };
+
+        const tableStyle = {
+            width: '100%', // Use 100% to fill the now larger container
+            borderCollapse: 'collapse',
+            minWidth: '700px',
+            fontSize: '0.9rem',
+            marginBottom: '30px',
+        };
+
+
+        const thStyle = {
+            backgroundColor: '#007bff',
+            color: 'white',
+            fontWeight: '600',
+            padding: '12px 15px',
+            textAlign: 'left',
+            position: 'sticky',
+            top: '0',
+            zIndex: 10,
+        };
+
+        const tdStyle = {
+            padding: '12px 15px',
+            textAlign: 'left',
+            borderBottom: '1px solid #dee2e6',
+            whiteSpace: 'nowrap',
+        };
+
+        // Render empty content block
+        const renderEmptyContent = () => (
+            <div style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0', minHeight: '400px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <h2 style={{ color: '#343a40', fontSize: '2rem', marginBottom: '20px' }}>Select a Bill to View Details</h2>
+                <p style={{ fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto' }}>
+                    Click on any **Supplier Code** or **Bill Number** from the side panels to populate this detail view.
+                </p>
+            </div>
+        );
+
+
+        // Render data rows when available
+        const renderDataRows = () => (
+            <tbody>
+                {supplierDetails.map((record, index) => (
+                    <tr
+                        key={record.id || index}
+                        style={getRowStyle(index)}
+                    >
+                        <td style={tdStyle}>{record.Date}</td>
+                        <td style={tdStyle}>{record.supplier_bill_no || selectedBillNo}</td>
+                        <td style={tdStyle}>{record.customer_code}</td>
+                        <td style={tdStyle}><strong>{record.item_name}</strong></td>
+                        <td style={tdStyle}>{record.packs}</td>
+                        <td style={tdStyle}>{formatDecimal(record.weight, 3)}</td>
+                        <td style={tdStyle}>{formatDecimal(record.SupplierPricePerKg)}</td>
+                        <td style={tdStyle}>{formatDecimal(record.SupplierTotal)}</td>
+                        <td style={tdStyle}>{formatDecimal(record.commission_amount)}</td>
+                        <td style={tdStyle}>{formatDecimal(parseFloat(record.SupplierTotal) - parseFloat(record.commission_amount))}</td>
+                    </tr>
+                ))}
+                <tr style={{ ...getRowStyle(supplierDetails.length), fontWeight: 'bold', borderTop: '2px solid #000' }}>
+                    <td style={tdStyle} colSpan="4"><strong>TOTALS</strong></td>
+                    <td style={tdStyle}>{totalPacksSum}</td>
+                    <td style={tdStyle}>{formatDecimal(totalWeight, 3)}</td>
+                    <td style={tdStyle}>-</td>
+                    <td style={tdStyle}>{formatDecimal(totalsupplierSales)}</td>
+                    <td style={tdStyle}>{formatDecimal(totalCommission)}</td>
+                    <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(amountPayable)}</td>
+                </tr>
+            </tbody>
+        );
+
+
+        // Item Summary Component
+        const ItemSummary = ({ summaryData }) => {
+            const itemNames = Object.keys(summaryData);
+            if (itemNames.length === 0) return null;
+
+            const itemSummaryHeaderStyle = {
+                 marginTop: '30px',
+                 fontSize: '1.5rem',
+                 color: '#495057',
+                 borderBottom: '1px dashed #dee2e6',
+                 paddingBottom: '10px',
+                 marginBottom: '15px',
+            };
+            const itemSummaryTableStyle = {
+                width: '100%',
+                borderCollapse: 'collapse',
+                marginTop: '15px',
+            };
+            const itemSummaryThStyle = {
+                ...thStyle,
+                backgroundColor: '#6c757d',
+                padding: '10px 15px',
+                fontSize: '0.95rem',
+            };
+            const itemSummaryTdStyle = {
+                ...tdStyle,
+                padding: '10px 15px',
+            };
+
+
             return (
-                <div style={profitReportContainerStyle}>
-                    <h2 style={profitReportHeaderStyle}>📈 Total Profit by Supplier (from Sales)</h2>
-                    <button onClick={closeProfitReport} style={closeProfitButtonStyle}>
-                        &larr; Back to Bill Status Summary
-                    </button>
-                    <input
-                        type="text"
-                        placeholder="🔍 Search by Supplier Code..."
-                        value={profitSearchTerm}
-                        onChange={(e) => setProfitSearchTerm(e.target.value)}
-                        style={{ ...searchBarStyle, width: '400px', marginBottom: '30px' }}
-                    />
-                    
-                    {isProfitReportLoading ? (
-                        <div style={loadingStyle}>Loading Profit Data...</div>
-                    ) : filteredProfitReport.length === 0 ? (
-                        <p style={{ color: '#6c757d', padding: '10px' }}>
-                            {profitSearchTerm ? `No results found for "${profitSearchTerm}"` : 'No profit data available.'}
-                        </p>
-                    ) : (
-                        <table style={tableStyle}>
-                            <thead>
-                                <tr>
-                                    <th style={tableHeaderStyle}>Supplier Code</th>
-                                    <th style={tableHeaderStyle}>Total Profit</th>
+                <div>
+                    <h3 style={itemSummaryHeaderStyle}>📦 Item Summary</h3>
+                    <table style={itemSummaryTableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={itemSummaryThStyle}>Item Name</th>
+                                <th style={itemSummaryThStyle}>Total Weight (kg)</th>
+                                <th style={itemSummaryThStyle}>Total Packs</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {itemNames.map((itemName, index) => (
+                                <tr key={itemName} style={getRowStyle(index)}>
+                                    <td style={itemSummaryTdStyle}>{itemName}</td>
+                                    <td style={itemSummaryTdStyle}>{formatDecimal(summaryData[itemName].totalWeight, 3)}</td>
+                                    <td style={itemSummaryTdStyle}>{summaryData[itemName].totalPacks}</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {filteredProfitReport.map((item, index) => (
-                                    <tr key={index} style={index % 2 === 0 ? tableRowEvenStyle : tableRowOddStyle}>
-                                        <td style={tableCellStyle}>{item.supplier_code}</td>
-                                        <td style={tableCellStyle}>${parseFloat(item.total_profit).toFixed(2)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             );
-        }
-
-        // Default: Summary (or loading)
-        if (isLoading) return <div style={{ ...loadingStyle, height: '100%', backgroundColor: 'transparent' }}>Loading Report Data...</div>;
+        };
+        
+        const printButtonStyle = {
+            padding: '10px 20px',
+            fontSize: '1.1rem',
+            fontWeight: 'bold',
+            backgroundColor: '#ffc107',
+            color: '#343a40',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            marginTop: '20px',
+            transition: 'background-color 0.2s',
+            opacity: selectedSupplier ? 1 : 0.5,
+        };
 
         return (
-            <div style={welcomeMessageContainerStyle}>
-                <h2 style={welcomeHeaderStyle}>Select a Bill</h2>
-                <p style={welcomeTextStyle}>Click on a **Printed Bill** or **Print All Pending** button on either side to view transaction details, generate a bill, and finalize the supplier payment process.</p>
-                
+            <div style={panelContainerStyle}>
+
+                {/* Clear/Back Button */}
+               
+
+
+                {/* Supplier Code in Header */}
+                <div style={headerStyle}>
+                    <h2 style={{ fontSize: "1.5rem" }}>
+                        Transaction Details (Bill No: <strong>{selectedBillNo}</strong>)
+                    </h2>
+
+                    <span style={supplierCodeBadgeStyle}>
+                        {selectedSupplier || 'NO DATA'}
+                    </span>
+                </div>
+
+                {/* Detailed Table */}
+                <div style={tableContainerStyle}>
+                    <table style={tableStyle}>
+                        <thead>
+                            <tr>
+                                <th style={thStyle}>Date</th>
+                                <th style={thStyle}>Bill No</th>
+                                <th style={thStyle}>Customer</th>
+                                <th style={thStyle}>Item</th>
+                                <th style={thStyle}>Packs</th>
+                                <th style={thStyle}>Weight</th>
+                                <th style={thStyle}>Price/kg</th>
+                                <th style={thStyle}>Gross Total</th>
+                                <th style={thStyle}>Commission</th>
+                                <th style={thStyle}>Net Payable</th>
+                            </tr>
+                        </thead>
+                        {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="10" style={{padding:0}}>{renderEmptyContent()}</td></tr></tbody>}
+                    </table>
+                </div>
+
+                {/* Item Summary (only when data exists) */}
+                {selectedSupplier && Object.keys(itemSummaryData).length > 0 && (
+                    <ItemSummary summaryData={itemSummaryData} />
+                )}
+
+                {/* Print Button */}
+                <div style={{ textAlign: 'center' }}>
+                    <button
+                        style={printButtonStyle}
+                        onClick={handlePrint}
+                        onMouseOver={e => selectedSupplier && (e.currentTarget.style.backgroundColor = '#e0a800')}
+                        onMouseOut={e => selectedSupplier && (e.currentTarget.style.backgroundColor = '#ffc107')}
+                        disabled={!selectedSupplier || isDetailsLoading || supplierDetails.length === 0}
+                    >
+                        🖨️ {isDetailsLoading 
+                            ? 'Processing...' 
+                            : (selectedSupplier 
+                                ? (isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`)
+                                : 'Select a Bill First')}
+                    </button>
+                </div>
             </div>
         );
     };
 
-    if (isLoading && currentView === 'summary') return <div style={loadingStyle}>Loading Supplier Report...</div>;
+    // --- Central Content Renderer ---
+    const renderCenterContent = () => {
+        // Profit Report Logic (Removed)
+        
+        // Always show the details panel (empty or with data)
+        return renderDetailsPanel();
+    };
+
+    if (isLoading) return <div style={loadingStyle}>Loading Supplier Report...</div>;
 
     return (
         <div style={reportContainerStyle}>
@@ -343,54 +708,46 @@ const SupplierReport = () => {
             </header>
 
             <div style={sectionsContainerStyle}>
-
                 {/* --- Left Section: Printed Bills --- */}
                 <div style={printedContainerStyle}>
                     <div style={printedSectionStyle}>
-                          <h2 style={printedHeaderStyle}> Printed Bills </h2>
+                        <h2 style={printedHeaderStyle}> Printed Bills  </h2>
                         <input
                             type="text"
                             placeholder="🔍 Search Printed Codes/Bills..."
                             value={printedSearchTerm}
                             onChange={(e) => setPrintedSearchTerm(e.target.value)}
-                            style={{ ...searchBarStyle, marginBottom: '20px' }}
-                            disabled={currentView !== 'summary'}
+                            style={{ ...searchBarStyle, marginBottom: '20px', height: '22px' }}
                         />
-                      
                         <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
                     </div>
                 </div>
-                
 
-                {/* --- Center Section: Details/Profit/Welcome --- */}
+                {/* --- Center Section: Always Displayed Details Panel --- */}
                 <div style={centerPanelContainerStyle}>
                     {renderCenterContent()}
                 </div>
-                
 
                 {/* --- Right Section: Unprinted Bills --- */}
                 <div style={unprintedContainerStyle}>
                     <div style={unprintedSectionStyle}>
-                        <h2 style={unprintedHeaderStyle}> Unprinted Bills </h2>
+                        <h2 style={unprintedHeaderStyle}> Unprinted Bills  </h2>
                         <input
                             type="text"
                             placeholder="🔍 Search Unprinted Codes/Bills..."
                             value={unprintedSearchTerm}
                             onChange={(e) => setUnprintedSearchTerm(e.target.value)}
-                            style={{ ...searchBarStyle, marginBottom: '20px' }}
-                            disabled={currentView !== 'summary'}
+                            style={{ ...searchBarStyle, marginBottom: '20px', height: '22px' }}
                         />
-                        
                         <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
                     </div>
                 </div>
-
             </div>
         </div>
     );
 };
 
-// --- STYLES (Adjusted for Three-Column Layout) ---
+// --- STYLES (Center width maximized by fixing the right container margin) ---
 
 const reportContainerStyle = {
     minHeight: '100vh',
@@ -418,21 +775,6 @@ const headerStyle = {
     fontWeight: '300',
 };
 
-const profitReportButtonStyle = {
-    padding: '10px 20px',
-    backgroundColor: '#4CAF50',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '1rem',
-    fontWeight: '500',
-    transition: 'background-color 0.2s',
-    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-    height: 'fit-content',
-    whiteSpace: 'nowrap',
-};
-
 const searchBarStyle = {
     width: '100%',
     padding: '12px 15px',
@@ -445,39 +787,36 @@ const searchBarStyle = {
     backgroundColor: 'white',
 };
 
-// --- CORE LAYOUT CHANGE ---
 const sectionsContainerStyle = {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '30px', // Space between the three columns
+    gap: '15px',
 };
 
 const printedContainerStyle = {
-    width: '250px', // Fixed width for sidebars
+    width: '170px',
     flexShrink: 0,
-    marginLeft: '-30px',
+    marginLeft: '-40px',
     marginTop: '-95px',
 };
 
 const unprintedContainerStyle = {
-    width: '250px', // Fixed width for sidebars
+    width: '170px',
     flexShrink: 0,
-    // FIX: Remove the huge fixed margin which creates the unnecessary gap
-    marginRight: '-30px', 
+    // FIX: Removed unnecessary margin (was '70px') to let the center panel expand right.
+    marginRight: '-0px', 
     marginTop: '-95px',
 };
 
 const centerPanelContainerStyle = {
-    flexGrow: 1, // Now it can truly take the remaining space
-    minWidth: '550px',
+    flexGrow: 1, // Crucial: Takes up all available horizontal space
+    minWidth: '560px',
     display: 'flex',
-    justifyContent: 'center', 
+    justifyContent: 'center',
     alignItems: 'flex-start',
-    // FIX: Remove the unnecessary negative margin
-    marginLeft: '0', 
-    // Minimum height set by sidebar section styles
+    marginLeft: '0',
+    width: '100%', // Ensures it uses the full width granted by flex-grow
 };
-// -------------------------
 
 const baseSectionStyle = {
     padding: '25px',
@@ -485,19 +824,21 @@ const baseSectionStyle = {
     boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)',
     display: 'flex',
     flexDirection: 'column',
-    height: 'calc(100vh - 210px)', // Set height for sidebars
+    height: 'calc(100vh - 210px)',
 };
 
 const printedSectionStyle = {
     ...baseSectionStyle,
     backgroundColor: '#E6FFE6',
     borderLeft: '5px solid #1E88E5',
+    minHeight: '550px',
 };
 
 const unprintedSectionStyle = {
     ...baseSectionStyle,
     backgroundColor: '#FFEBE6',
     borderLeft: '5px solid #FF7043',
+    minHeight: '550px',
 };
 
 const printedHeaderStyle = {
@@ -521,12 +862,13 @@ const unprintedHeaderStyle = {
 const listContainerStyle = {
     display: 'flex',
     flexDirection: 'column',
-    gap: '2px',
+    gap: '0px',
     marginTop: '5px',
     overflowY: 'auto',
     padding: '5px',
     flexGrow: 1,
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    height: '900px',
 };
 
 const loadingStyle = {
@@ -537,96 +879,7 @@ const loadingStyle = {
     backgroundColor: '#99ff99',
 };
 
-const profitReportContainerStyle = {
-    marginTop: '0',
-    padding: '25px',
-    backgroundColor: '#E6FFE6',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-    minHeight: 'calc(100vh - 250px)',
-    width: '100%',
-};
-
-const profitReportHeaderStyle = {
-    color: '#4CAF50',
-    marginBottom: '25px',
-    borderBottom: '2px solid #4CAF5030',
-    paddingBottom: '10px',
-    fontSize: '2rem',
-    fontWeight: '400',
-    textAlign: 'center',
-};
-
-const closeProfitButtonStyle = {
-    background: 'none',
-    border: 'none',
-    color: '#6c757d',
-    cursor: 'pointer',
-    fontSize: '1rem',
-    marginBottom: '20px',
-    padding: '5px 0',
-    display: 'block',
-    fontWeight: '500',
-    transition: 'color 0.2s',
-};
-
-const tableStyle = {
-    width: '100%',
-    borderCollapse: 'collapse',
-    marginTop: '20px',
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    overflow: 'hidden',
-};
-
-const tableHeaderStyle = {
-    backgroundColor: '#4CAF50',
-    color: 'white',
-    padding: '15px',
-    textAlign: 'left',
-    fontSize: '1.1rem',
-    fontWeight: '600',
-};
-
-const tableCellStyle = {
-    padding: '15px',
-    borderBottom: '1px solid #E0E0E0',
-    textAlign: 'left',
-};
-
-const tableRowEvenStyle = {
-    backgroundColor: '#f8f8f8',
-};
-
-const tableRowOddStyle = {
-    backgroundColor: 'white',
-};
-
-// --- Welcome/Summary Message Styles ---
-const welcomeMessageContainerStyle = {
-    padding: '60px',
-    backgroundColor: '#fff',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-    textAlign: 'center',
-    height: 'fit-content',
-    maxWidth: '1500px', // Increased width
-    margin: 'auto',
-    marginTop: '-95px',
-};
-
-const welcomeHeaderStyle = {
-    color: '#343a40',
-    fontSize: '2rem',
-    marginBottom: '20px',
-};
-
-const welcomeTextStyle = {
-    color: '#6c757d',
-    fontSize: '1.1rem',
-    lineHeight: '1.6',
-    marginBottom: '15px',
-};
-// ----------------------------------------
+// Profit Report Styles (Removed)
+// ...
 
 export default SupplierReport;
