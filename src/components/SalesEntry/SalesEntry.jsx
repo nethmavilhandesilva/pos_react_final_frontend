@@ -32,7 +32,7 @@ const CustomerList = React.memo(({
                     groups[groupKey] = {
                         customerCode: sale.customer_code,
                         billNo: sale.bill_no,
-                        displayText: `${sale.customer_code}`
+                        displayText: `${sale.customer_code}` // Display Bill No in list
                     };
                 }
             });
@@ -42,11 +42,13 @@ const CustomerList = React.memo(({
     const getUnprintedCustomers = () => {
         const customerMap = {};
         allSales
-            .filter(s => s.bill_printed === 'N')
+            // FIX: Ensure unprinted sales include 'N' and null/undefined bill_printed status
+            .filter(s => s.bill_printed === 'N' || s.bill_printed === null || s.bill_printed === undefined || s.bill_printed === '')
             .forEach(sale => {
                 const customerCode = sale.customer_code;
                 const saleTimestamp = new Date(sale.timestamp || sale.created_at || sale.date || sale.id);
 
+                // Use the latest timestamp to represent the customer if multiple unprinted sales exist
                 if (!customerMap[customerCode] || saleTimestamp > new Date(customerMap[customerCode].latestTimestamp)) {
                     customerMap[customerCode] = {
                         customerCode: customerCode,
@@ -150,7 +152,11 @@ const CustomerList = React.memo(({
                             } else {
                                 customerCode = item.customerCode;
                                 displayText = item.customerCode;
-                                const customerSales = allSales.filter(s => s.customer_code === item.customerCode);
+                                // FIX: Calculate total based ONLY on unprinted sales for display
+                                const customerSales = allSales.filter(s => 
+                                    s.customer_code === item.customerCode && 
+                                    (s.bill_printed === 'N' || s.bill_printed === null || s.bill_printed === undefined || s.bill_printed === '')
+                                );
                                 totalAmount = customerSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
                             }
 
@@ -166,7 +172,11 @@ const CustomerList = React.memo(({
                                                 );
                                                 handleCustomerClick(type, item.customerCode, item.billNo, billSales);
                                             } else {
-                                                const customerSales = allSales.filter(s => s.customer_code === item.customerCode);
+                                                // FIX: Filter sales by customer code AND unprinted status for clicking
+                                                const customerSales = allSales.filter(s => 
+                                                    s.customer_code === item.customerCode && 
+                                                    (s.bill_printed === 'N' || s.bill_printed === null || s.bill_printed === undefined || s.bill_printed === '')
+                                                );
                                                 handleCustomerClick(type, item.customerCode, null, customerSales);
                                             }
                                         }}
@@ -245,13 +255,13 @@ export default function SalesEntry() {
     const refs = {
         customerCode: useRef(null),    // 0
         customerSelect: useRef(null),    // 1
-        givenAmount: useRef(null),        // 2
-        supplierCode: useRef(null),      // 3
+        givenAmount: useRef(null),     // 2
+        supplierCode: useRef(null),    // 3
         itemCodeSelect: useRef(null),    // 4
         itemName: useRef(null),          // 5
         weight: useRef(null),        // 6
-        pricePerKg: useRef(null),        // 7
-        packs: useRef(null),          // 8
+        pricePerKg: useRef(null),          // 7
+        packs: useRef(null),         // 8
         total: useRef(null),           // 9
     };
     const fieldOrder = ["customer_code_input", "customer_code_select", "given_amount", "supplier_code", "item_code_select", "item_name", "weight", "price_per_kg", "packs", "total"];
@@ -297,8 +307,9 @@ export default function SalesEntry() {
     // --- Derived State (useMemo) ---
     const { newSales, printedSales, unprintedSales } = useMemo(() => ({
         newSales: allSales.filter(s => s.id && s.bill_printed !== 'Y' && s.bill_printed !== 'N'),
+        // FIX: unprintedSales definition must include null/undefined status to capture truly new sales
         printedSales: allSales.filter(s => s.bill_printed === 'Y'),
-        unprintedSales: allSales.filter(s => s.bill_printed === 'N')
+        unprintedSales: allSales.filter(s => s.bill_printed === 'N' || s.bill_printed === null || s.bill_printed === undefined || s.bill_printed === '')
     }), [allSales]);
 
     const filterCustomers = (sales, query, searchByBillNo = false) => {
@@ -320,6 +331,7 @@ export default function SalesEntry() {
         let sales = newSales;
 
         if (selectedUnprintedCustomer) {
+            // FIX: Filter unprinted sales accurately for display
             sales = [...sales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
         } else if (selectedPrintedCustomer && selectedPrintedCustomer.includes('-')) {
             const [customerCode, billNo] = selectedPrintedCustomer.split('-');
@@ -404,13 +416,20 @@ export default function SalesEntry() {
 
     // --- Effects ---
     // Calculate Total effect
-    useEffect(() => {
-        const w = parseFloat(formData.weight) || 0;
-        const p = parseFloat(formData.price_per_kg) || 0;
-        const packs = parseInt(formData.packs) || 0;
-        const packDue = parseFloat(formData.pack_due) || 0;
-        setFormData(prev => ({ ...prev, total: (w * p) + (packs * packDue) ? Number(((w * p) + (packs * packDue)).toFixed(2)) : "" }));
-    }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
+   useEffect(() => {
+    const w = parseFloat(formData.weight) || 0;
+    const p = parseFloat(formData.price_per_kg) || 0;
+    const packs = parseInt(formData.packs) || 0;
+    const packDue = parseFloat(formData.pack_due) || 0;
+
+    const total = (w * p) + (packs * packDue);
+
+    setFormData(prev => ({
+        ...prev,
+        total: Number(total.toFixed(2))   // ALWAYS shows 0.00 instead of ""
+    }));
+}, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
+
 
     // Window focus effect for print dialog
     useEffect(() => {
@@ -555,17 +574,18 @@ export default function SalesEntry() {
 
         updateState({
             selectedUnprintedCustomer: hasUnprintedSales ? short : null,
-            selectedPrintedCustomer: hasPrintedSales ? short : null,
+            selectedPrintedCustomer: null, // Clear printed selection
             customerSearchInput: ""
         });
+        
+        // Find existing given amount from all sales for this customer
+        const existingGivenAmount = allSales.find(s => s.customer_code === short)?.given_amount || "";
 
         setFormData(prev => ({
             ...prev,
             customer_code: short || "",
             customer_name: customer?.name || "",
-            given_amount: hasUnprintedSales || hasPrintedSales
-                ? (allSales.find(s => s.customer_code === short)?.given_amount || "")
-                : ""
+            given_amount: existingGivenAmount
         }));
 
         fetchLoanAmount(short);
@@ -666,8 +686,6 @@ export default function SalesEntry() {
             const givenAmount = parseFloat(formData.given_amount) || 0;
 
             // Assuming a single endpoint for given amount update: PUT /sales/:id/given-amount
-            // Since there's no dedicated route in Laravel, we'll use the one from your previous code:
-            // PUT /sales/{sale}/given-amount
             const updatePromises = salesToUpdate.map(sale => {
                 const url = `${routes.sales}/${sale.id}/given-amount`;
                 return api.put(url, { given_amount: givenAmount });
@@ -782,27 +800,52 @@ export default function SalesEntry() {
                     ? (formData.given_amount ? parseFloat(formData.given_amount) : null)
                     : null,
                 ...(billPrintedStatus && { bill_printed: billPrintedStatus }),
-                ...(billNoToUse && { bill_no: billNoToUse })
+                ...(billNoToUse && { bill_no: billNoToUse }),
+                
+                // 🚀 ADDED: Flag to trigger backend logic for price synchronization
+                ...(isEditing && { update_related_price: true }), 
             };
 
             const url = isEditing ? `${routes.sales}/${editingSaleId}` : routes.sales;
             const method = isEditing ? "put" : "post";
-            const response = await api[method](url, payload);
-            let data = response.data;
-            let newSale = isEditing ? data.sale : data.data || {};
 
-            if (!isEditing) {
-                if (billNoToUse && !newSale.bill_no) {
-                    newSale = { ...newSale, bill_printed: 'Y', bill_no: billNoToUse };
-                } else if (billPrintedStatus && !newSale.bill_printed) {
-                    newSale = { ...newSale, bill_printed: billPrintedStatus };
-                }
+            const response = await api[method](url, payload);
+
+            let updatedSales = [];
+            
+            // 🟢 MODIFIED: Consolidated Logic to Extract Updated Sales Array (Fixes "newSale is undefined" error)
+            if (response.data.sales) {
+                // Case 1: Backend returns an array under 'sales' (PUT/Bulk Update)
+                updatedSales = response.data.sales;
+            } else if (response.data.sale) {
+                // Case 2: Backend returns a single object under 'sale' (PUT/Single Update)
+                updatedSales = [response.data.sale];
+            } else if (response.data.data) {
+                // Case 3: Backend returns a single object under 'data' (POST/Laravel Resource)
+                updatedSales = [response.data.data];
+            } else if (response.data.id) {
+                // Case 4: Backend returns the single object directly
+                updatedSales = [response.data];
             }
 
+            if (updatedSales.length === 0) {
+                // If this is an addition, we expect at least one sale back.
+                throw new Error("Server response structure is unexpected or empty.");
+            }
+
+            // --- State Merging Logic ---
+            const updatedIds = updatedSales.map(s => s.id);
+            
+            // Filter out old records by ID, then concatenate the new/updated records
+            const newAllSales = allSales
+                .filter(s => !updatedIds.includes(s.id))
+                .concat(updatedSales);
+
             updateState({
-                allSales: isEditing ? allSales.map(s => s.id === newSale.id ? newSale : s) : [...allSales, newSale]
+                allSales: newAllSales
             });
 
+            // The rest of the state/form reset
             setFormData(prevForm => ({
                 customer_code: prevForm.customer_code || customerCode,
                 customer_name: prevForm.customer_name,
@@ -819,7 +862,7 @@ export default function SalesEntry() {
 
             refs.supplierCode.current?.focus();
         } catch (error) {
-            updateState({ errors: { form: error.response?.data?.message || error.message }, isSubmitting: false });
+            updateState({ errors: { form: error.response?.data?.message || error.message || error.toString() }, isSubmitting: false });
         }
     };
 
@@ -1099,7 +1142,6 @@ export default function SalesEntry() {
 
   <hr style="border:1px solid #000; margin:5px 0; opacity:1;">
 
-  <!-- 🔧 UPDATED ITEMS TABLE (FULL ALIGNMENT FIXED) -->
   <table style="width:100%; font-size:9px; border-collapse:collapse; table-layout:fixed;">
     <colgroup>
       <col style="width:22%;">
@@ -1111,7 +1153,7 @@ export default function SalesEntry() {
 
     <thead style="font-size:1.6em;">
       <tr>
-       
+        
         <th style="text-align:left;">වර්ගය<br>මලු</th>
         <th style="text-align:center;">කිලෝ</th>
         <th style="text-align:center;">මිල</th>
@@ -1134,7 +1176,6 @@ export default function SalesEntry() {
     </tbody>
   </table>
 
-  <!-- 🔧 UPDATED SUMMARY TABLE -->
   <table style="width:100%; font-size:15px; border-collapse:collapse; table-layout:fixed;">
     <tr>
       <td style="text-align:left;">ප්‍රවාහන ගාස්තු:</td>
@@ -1324,8 +1365,9 @@ export default function SalesEntry() {
             } else if (e.key === "F5") { e.preventDefault(); handleMarkAllProcessed(); }
         };
         window.addEventListener("keydown", handleShortcut);
+        // FIX: Ensure cleanup dependencies include state variables used inside handleShortcut
         return () => window.removeEventListener("keydown", handleShortcut);
-    }, [displayedSales, newSales]);
+    }, [displayedSales, newSales, selectedPrintedCustomer, handlePrintAndClear, handleMarkAllProcessed]);
 
     // Check if we have any data to display
     const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
@@ -1380,7 +1422,7 @@ export default function SalesEntry() {
                     </div>
 
                     {/* Center Form */}
-                   <div className="center-form" style={{ marginRight: "-20px" }}>
+                    <div className="center-form" style={{ marginRight: "-20px" }}>
 
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {/* === ROW 1: BILL NO & TOTAL SALES === */}
@@ -1542,7 +1584,7 @@ export default function SalesEntry() {
                                 </div>
 
                                 {/* Item */}
-                                <div style={{ gridColumnStart: 5, gridColumnEnd: 8, marginLeft: "-120px",marginRight: "-02px"}}>
+                                <div style={{ gridColumnStart: 5, gridColumnEnd: 8, marginLeft: "-120px", marginRight: "-02px" }}>
                                     <Select
                                         id="item_code_select"
                                         ref={refs.itemCodeSelect}
@@ -1584,6 +1626,7 @@ export default function SalesEntry() {
                                                 ...base,
                                                 color: "black",
                                                 fontWeight: "bold",
+                                                fontSize: "12px",
                                                 backgroundColor: state.isFocused ? "#e5e7eb" : "white", // optional hover color
                                                 cursor: "pointer",
                                             }),
@@ -1679,13 +1722,13 @@ export default function SalesEntry() {
                                     <thead>
                                         <tr>
                                              <th className="px-4 py-2 border">Sup code</th>
-                                            <th className="px-4 py-2 border">කේතය</th>
-                                            <th className="px-4 py-2 border">අයිතමය</th>
-                                            <th className="px-2 py-2 border w-20">බර(kg)</th>
-                                            <th className="px-2 py-2 border w-20">මිල</th>
-                                            <th className="px-2 py-2 border w-24">අගය</th>
-                                            <th className="px-2 py-2 border w-16">මලු</th>
-                                            <th className="px-2 py-2 border w-16" style={{ paddingLeft: '16px' }}>Actions</th>
+                                             <th className="px-4 py-2 border">කේතය</th>
+                                             <th className="px-4 py-2 border">අයිතමය</th>
+                                             <th className="px-2 py-2 border w-20">බර(kg)</th>
+                                             <th className="px-2 py-2 border w-20">මිල</th>
+                                             <th className="px-2 py-2 border w-24">අගය</th>
+                                             <th className="px-2 py-2 border w-16">මලු</th>
+                                             <th className="px-2 py-2 border w-16" style={{ paddingLeft: '16px' }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1698,21 +1741,24 @@ export default function SalesEntry() {
                                                 onKeyDown={(e) => handleTableRowKeyDown(e, s)}
                                             >
                                                  <td className="px-4 py-2 border">{s.supplier_code}</td>
-                                                <td className="px-4 py-2 border">{s.item_code}</td>
-                                                <td className="px-4 py-2 border">{s.item_name}</td>
-                                                <td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td>
-                                                <td className="px-2 py-2 border w-20">{formatDecimal(s.price_per_kg)}</td>
-                                                <td className="px-2 py-2 border w-24">{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0))}</td>
-                                                <td className="px-2 py-2 border w-16">{s.packs}</td>
-                                                <td className="px-2 py-2 border w-16 text-center">
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }}
-                                                        className="text-black font-bold p-1 rounded-full hover:bg-gray-200 transition-colors"
-                                                        title="Delete record"
-                                                    >
-                                                        🗑️
-                                                    </button>
-                                                </td>
+                                                 <td className="px-4 py-2 border">{s.item_code}</td>
+                                                 <td className="px-4 py-2 border">{s.item_name}</td>
+                                                 <td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td>
+                                                 <td className="px-2 py-2 border w-20">{formatDecimal(s.price_per_kg)}</td>
+                                                 <td className="px-2 py-2 border w-24">{formatDecimal(
+                                                    (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) + 
+                                                    (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0) // Use pack_due for display total
+                                                 )}</td>
+                                                 <td className="px-2 py-2 border w-16">{s.packs}</td>
+                                                 <td className="px-2 py-2 border w-16 text-center">
+                                                     <button
+                                                         onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }}
+                                                         className="text-black font-bold p-1 rounded-full hover:bg-gray-200 transition-colors"
+                                                         title="Delete record"
+                                                     >
+                                                         🗑️
+                                                     </button>
+                                                 </td>
 
                                             </tr>
                                         ))}
