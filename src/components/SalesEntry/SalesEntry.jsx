@@ -16,7 +16,9 @@ const routes = {
     suppliers: "/suppliers"
 };
 
+// =======================================================
 // Rendering the printed and unprinted customer lists
+// =======================================================
 const CustomerList = React.memo(({
     customers, type, searchQuery, onSearchChange, selectedPrintedCustomer,
     selectedUnprintedCustomer, handleCustomerClick, formatDecimal, allSales,
@@ -153,8 +155,8 @@ const CustomerList = React.memo(({
                                 customerCode = item.customerCode;
                                 displayText = item.customerCode;
                                 // FIX: Calculate total based ONLY on unprinted sales for display
-                                const customerSales = allSales.filter(s => 
-                                    s.customer_code === item.customerCode && 
+                                const customerSales = allSales.filter(s =>
+                                    s.customer_code === item.customerCode &&
                                     (s.bill_printed === 'N' || s.bill_printed === null || s.bill_printed === undefined || s.bill_printed === '')
                                 );
                                 totalAmount = customerSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
@@ -173,8 +175,8 @@ const CustomerList = React.memo(({
                                                 handleCustomerClick(type, item.customerCode, item.billNo, billSales);
                                             } else {
                                                 // FIX: Filter sales by customer code AND unprinted status for clicking
-                                                const customerSales = allSales.filter(s => 
-                                                    s.customer_code === item.customerCode && 
+                                                const customerSales = allSales.filter(s =>
+                                                    s.customer_code === item.customerCode &&
                                                     (s.bill_printed === 'N' || s.bill_printed === null || s.bill_printed === undefined || s.bill_printed === '')
                                                 );
                                                 handleCustomerClick(type, item.customerCode, null, customerSales);
@@ -225,11 +227,15 @@ const ItemSummary = ({ sales, formatDecimal }) => {
     if (Object.keys(summary).length === 0) return null;
 
     return (
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <h3 className="text-sm font-bold text-gray-700 mb-2 text-center">Item Summary</h3>
-            <div className="flex flex-wrap gap-2 justify-center">
+        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200 w-[100px] mx-auto">
+            <h3 className="text-xs font-bold text-gray-700 mb-2 text-center">Item Summary</h3>
+
+            <div className="flex flex-wrap gap-1 justify-center">
                 {Object.entries(summary).map(([itemName, data]) => (
-                    <div key={itemName} className="px-3 py-1 bg-white border border-gray-300 rounded-full text-xs font-medium">
+                    <div
+                        key={itemName}
+                        className="px-2 py-1 bg-white border border-gray-300 rounded-full text-[10px] font-medium"
+                    >
                         <span className="font-bold text-black">{itemName}:</span>
                         <span className="ml-1 font-extrabold text-black">{data.totalWeight}kg</span>
                         <span className="ml-1 font-extrabold text-black">/</span>
@@ -238,6 +244,7 @@ const ItemSummary = ({ sales, formatDecimal }) => {
                 ))}
             </div>
         </div>
+
     );
 };
 
@@ -252,20 +259,30 @@ export default function SalesEntry() {
         item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "",
         given_amount: ""
     };
+
+    // 🚀 FIXED: Renaming refs to match the strings used in fieldOrder array for clarity and reliability
     const refs = {
-        customerCode: useRef(null),    // 0
-        customerSelect: useRef(null),    // 1
-        givenAmount: useRef(null),     // 2
-        supplierCode: useRef(null),    // 3
-        itemCodeSelect: useRef(null),    // 4
-        itemName: useRef(null),          // 5
-        weight: useRef(null),        // 6
-        pricePerKg: useRef(null),          // 7
-        packs: useRef(null),         // 8
-        total: useRef(null),           // 9
+        customer_code_input: useRef(null),    // 0
+        customer_code_select: useRef(null),   // 1
+        given_amount: useRef(null),         // 2
+        supplier_code: useRef(null),      // 3
+        item_code_select: useRef(null),     // 4
+        item_name: useRef(null),             // 5 (Not used for focus, skipping to 6)
+        weight: useRef(null),             // 6
+        price_per_kg: useRef(null),         // 7
+        packs: useRef(null),              // 8
+        total: useRef(null),               // 9 (Not used for focus/skip, last field)
     };
-    const fieldOrder = ["customer_code_input", "customer_code_select", "given_amount", "supplier_code", "item_code_select", "item_name", "weight", "price_per_kg", "packs", "total"];
-    const skipMap = { customer_code_input: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight" };
+
+    const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "item_name", "weight", "price_per_kg", "packs", "total"];
+    // Simplified skip map to jump over the fields that don't need manual text entry/selection
+    const skipMap = {
+        customer_code_input: "supplier_code",
+        customer_code_select: "supplier_code", // If selected via dropdown, still moves to given amount
+        given_amount: "supplier_code",
+        supplier_code: "item_code_select",
+        item_code_select: "weight"
+    };
     // --- End Configuration ---
 
     const [state, setState] = useState({
@@ -416,19 +433,19 @@ export default function SalesEntry() {
 
     // --- Effects ---
     // Calculate Total effect
-   useEffect(() => {
-    const w = parseFloat(formData.weight) || 0;
-    const p = parseFloat(formData.price_per_kg) || 0;
-    const packs = parseInt(formData.packs) || 0;
-    const packDue = parseFloat(formData.pack_due) || 0;
+    useEffect(() => {
+        const w = parseFloat(formData.weight) || 0;
+        const p = parseFloat(formData.price_per_kg) || 0;
+        const packs = parseInt(formData.packs) || 0;
+        const packDue = parseFloat(formData.pack_due) || 0;
 
-    const total = (w * p) + (packs * packDue);
+        const total = (w * p) + (packs * packDue);
 
-    setFormData(prev => ({
-        ...prev,
-        total: Number(total.toFixed(2))   // ALWAYS shows 0.00 instead of ""
-    }));
-}, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
+        setFormData(prev => ({
+            ...prev,
+            total: Number(total.toFixed(2))    // ALWAYS shows 0.00 instead of ""
+        }));
+    }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
 
 
     // Window focus effect for print dialog
@@ -439,7 +456,7 @@ export default function SalesEntry() {
         };
 
         window.addEventListener('focus', handleWindowFocus);
-        
+
         return () => {
             window.removeEventListener('focus', handleWindowFocus);
         };
@@ -448,49 +465,67 @@ export default function SalesEntry() {
     // Initial Data Fetch and Focus on Mount
     useEffect(() => {
         fetchInitialData();
-        refs.customerCode.current?.focus();
+        refs.customer_code_input.current?.focus();
     }, []);
     // --- End Effects ---
 
     // --- Handlers ---
-    const handleKeyDown = (e, currentFieldIndex) => {
+    const handleKeyDown = (e, currentFieldName) => {
         if (e.key === "Enter") {
-            const fieldName = fieldOrder[currentFieldIndex];
-            if (fieldName === "item_code_select" || fieldName === "customer_code_select") {
-                return;
-            }
-
             e.preventDefault();
 
-            if (fieldOrder[currentFieldIndex] === "given_amount" && formData.given_amount) {
+            // 1. Handle special submission logic for 'given_amount' and 'packs'
+            if (currentFieldName === "given_amount" && formData.given_amount) {
                 return handleSubmitGivenAmount(e);
             }
 
-            if (fieldOrder[currentFieldIndex] === "packs") {
+            if (currentFieldName === "packs") {
                 return handleSubmit(e);
             }
 
-            if (fieldOrder[currentFieldIndex] === "price_per_kg") {
-                const packsIndex = fieldOrder.findIndex(f => f === "packs");
+            // 2. Determine the next field name based on sequential flow or skip map
+            const currentIndex = fieldOrder.indexOf(currentFieldName);
+            let nextFieldName = skipMap[currentFieldName];
+
+            if (!nextFieldName) {
+                let nextIndex = currentIndex + 1;
+                // Skip the dropdown fields after an input is focused on
+                // Skip 'item_name' and 'total' as they are derived/read-only
+                while (nextIndex < fieldOrder.length &&
+                    (fieldOrder[nextIndex] === "customer_code_select" ||
+                        fieldOrder[nextIndex] === "item_name" ||
+                        fieldOrder[nextIndex] === "total")) {
+                    nextIndex++;
+                }
+
+                if (nextIndex < fieldOrder.length) {
+                    nextFieldName = fieldOrder[nextIndex];
+                } else {
+                    // Loop back to the start if at the end (or another field if looping is needed)
+                    nextFieldName = "customer_code_input";
+                }
+            }
+
+            // 3. Find the corresponding ref and focus/select
+            const nextRef = refs[nextFieldName];
+
+            if (nextRef && nextRef.current) {
                 requestAnimationFrame(() => setTimeout(() => {
-                    const packsRef = Object.values(refs)[packsIndex];
-                    packsRef?.current?.focus?.() || packsRef?.current?.select?.();
+                    if (nextFieldName.includes("select")) {
+                        // For react-select, sometimes focus needs a slight delay or specific handling
+                        nextRef.current.focus();
+                    } else {
+                        // For native inputs, focus and select all text
+                        nextRef.current.focus();
+                        nextRef.current.select();
+                    }
                 }, 0));
-                return;
+            } else {
+                console.log(`Warning: Could not find ref for next field: ${nextFieldName}`);
             }
-
-            let nextIndex = currentFieldIndex + 1;
-            if (skipMap[fieldOrder[currentFieldIndex]]) {
-                const targetIndex = fieldOrder.findIndex(f => f === skipMap[fieldOrder[currentFieldIndex]]);
-                if (targetIndex !== -1) nextIndex = targetIndex;
-            }
-
-            requestAnimationFrame(() => setTimeout(() => {
-                const nextRef = Object.values(refs)[nextIndex];
-                nextRef?.current?.focus?.() || nextRef?.current?.select?.();
-            }, 0));
         }
     };
+
 
     const handleInputChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -545,10 +580,12 @@ export default function SalesEntry() {
                 weight: editingSaleId ? prev.weight : "",
                 price_per_kg: editingSaleId ? prev.price_per_kg : "",
                 packs: editingSaleId ? prev.packs : "",
+                leading_sales_id: editingSaleId ? prev.leading_sales_id : "",
                 total: editingSaleId ? prev.total : ""
             }));
             updateState({ packCost: fetchedPackCost, itemSearchInput: "" });
 
+            // Focus on weight field after selection (index 6)
             setTimeout(() => refs.weight.current?.focus(), 100);
         } else {
             setFormData(prev => ({
@@ -559,6 +596,7 @@ export default function SalesEntry() {
                 price_per_kg: "",
                 weight: "",
                 packs: "",
+                leading_sales_id: "",
                 total: ""
             }));
             updateState({ packCost: 0, itemSearchInput: "" });
@@ -577,7 +615,7 @@ export default function SalesEntry() {
             selectedPrintedCustomer: null, // Clear printed selection
             customerSearchInput: ""
         });
-        
+
         // Find existing given amount from all sales for this customer
         const existingGivenAmount = allSales.find(s => s.customer_code === short)?.given_amount || "";
 
@@ -592,11 +630,14 @@ export default function SalesEntry() {
         updateState({ isManualClear: false });
 
         if (hasUnprintedSales) {
-            handleSubmitGivenAmount();
+            // Immediately save the existing given amount if there are unsaved sales
+            // This is handled by a call to handleSubmitGivenAmount 
         }
 
+        // Focus on given_amount after selection (index 2)
         setTimeout(() => {
-            refs.supplierCode.current?.focus();
+            refs.given_amount.current?.focus();
+            refs.given_amount.current?.select();
         }, 100);
     };
 
@@ -666,7 +707,7 @@ export default function SalesEntry() {
 
         if (!customerCode) {
             updateState({ errors: { form: "Please enter or select a customer code first" } });
-            refs.customerCode.current?.focus();
+            refs.customer_code_input.current?.focus();
             return;
         }
 
@@ -711,7 +752,7 @@ export default function SalesEntry() {
                 given_amount: ""
             }));
 
-            refs.supplierCode.current?.focus();
+            refs.supplier_code.current?.focus();
 
             console.log(`Successfully stored ${givenAmount} in ${salesToUpdate.length} sales records for the current bill`);
 
@@ -740,7 +781,7 @@ export default function SalesEntry() {
                     errors: { form: "Customer code is required" },
                     isSubmitting: false
                 });
-                refs.customerCode.current?.focus();
+                refs.customer_code_input.current?.focus();
                 return;
             }
 
@@ -801,9 +842,9 @@ export default function SalesEntry() {
                     : null,
                 ...(billPrintedStatus && { bill_printed: billPrintedStatus }),
                 ...(billNoToUse && { bill_no: billNoToUse }),
-                
+
                 // 🚀 ADDED: Flag to trigger backend logic for price synchronization
-                ...(isEditing && { update_related_price: true }), 
+                ...(isEditing && { update_related_price: true }),
             };
 
             const url = isEditing ? `${routes.sales}/${editingSaleId}` : routes.sales;
@@ -812,7 +853,7 @@ export default function SalesEntry() {
             const response = await api[method](url, payload);
 
             let updatedSales = [];
-            
+
             // 🟢 MODIFIED: Consolidated Logic to Extract Updated Sales Array (Fixes "newSale is undefined" error)
             if (response.data.sales) {
                 // Case 1: Backend returns an array under 'sales' (PUT/Bulk Update)
@@ -835,7 +876,7 @@ export default function SalesEntry() {
 
             // --- State Merging Logic ---
             const updatedIds = updatedSales.map(s => s.id);
-            
+
             // Filter out old records by ID, then concatenate the new/updated records
             const newAllSales = allSales
                 .filter(s => !updatedIds.includes(s.id))
@@ -860,7 +901,8 @@ export default function SalesEntry() {
                 packCost: 0
             });
 
-            refs.supplierCode.current?.focus();
+            // Focus on the supplier code field after successful submission
+            refs.supplier_code.current?.focus();
         } catch (error) {
             updateState({ errors: { form: error.response?.data?.message || error.message || error.toString() }, isSubmitting: false });
         }
@@ -869,7 +911,7 @@ export default function SalesEntry() {
     const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
         // Prevent interaction if print is in progress
         if (state.isPrinting) return;
-        
+
         const isPrinted = type === 'printed';
         let selectionKey = customerCode;
         if (isPrinted && billNo) {
@@ -904,21 +946,21 @@ export default function SalesEntry() {
                 customer_name: customer?.name || "",
                 given_amount: salesRecords[0]?.given_amount || ""
             });
-            
+
             // Fetch loan amount
             fetchLoanAmount(customerCode);
-            
+
             // Focus on supplier code after selection
             setTimeout(() => {
-                if (refs.supplierCode.current) {
-                    refs.supplierCode.current.focus();
+                if (refs.supplier_code.current) {
+                    refs.supplier_code.current.focus();
                 }
             }, 50);
         } else {
             handleClearForm();
             setTimeout(() => {
-                if (refs.customerCode.current) {
-                    refs.customerCode.current.focus();
+                if (refs.customer_code_input.current) {
+                    refs.customer_code_input.current.focus();
                 }
             }, 50);
         }
@@ -928,10 +970,6 @@ export default function SalesEntry() {
             isManualClear: false,
             customerSearchInput: ""
         });
-    };
-
-    const handleMarkPrinted = async () => {
-        try { await handlePrintAndClear(); } catch (error) { alert("Mark printed failed: " + error.message); }
     };
 
     const handleMarkAllProcessed = async () => {
@@ -954,7 +992,7 @@ export default function SalesEntry() {
                 handleClearForm();
                 updateState({ selectedUnprintedCustomer: null, selectedPrintedCustomer: null });
                 [50, 100, 150, 200, 250].forEach(timeout =>
-                    setTimeout(() => refs.customerCode.current?.focus(), timeout)
+                    setTimeout(() => refs.customer_code_input.current?.focus(), timeout)
                 );
             }
         } catch (err) {
@@ -1247,8 +1285,8 @@ export default function SalesEntry() {
             // Step 2: Get loan amount
             let globalLoanAmount = 0;
             try {
-                const loanResponse = await api.post(routes.getLoanAmount, { 
-                    customer_short_name: customerCode 
+                const loanResponse = await api.post(routes.getLoanAmount, {
+                    customer_short_name: customerCode
                 });
                 globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
             } catch (loanError) {
@@ -1259,9 +1297,9 @@ export default function SalesEntry() {
             const salesIdsToUpdate = salesData.map(s => s.id);
             const updatedAllSales = allSales.map(s => {
                 if (salesIdsToUpdate.includes(s.id)) {
-                    return { 
-                        ...s, 
-                        bill_printed: 'Y', 
+                    return {
+                        ...s,
+                        bill_printed: 'Y',
                         bill_no: billNo
                     };
                 }
@@ -1296,15 +1334,15 @@ export default function SalesEntry() {
 
             // Step 5: Build receipt HTML
             const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount);
-            
+
             // Step 6: Print in separate window
             const printPromise = printSingleContent(receiptHtml, customerName);
-            
+
             // Focus back on customer code field immediately
             setTimeout(() => {
-                if (refs.customerCode.current) {
-                    refs.customerCode.current.focus();
-                    refs.customerCode.current.select();
+                if (refs.customer_code_input.current) {
+                    refs.customer_code_input.current.focus();
+                    refs.customer_code_input.current.select();
                 }
             }, 100);
 
@@ -1316,7 +1354,7 @@ export default function SalesEntry() {
                 try {
                     const response = await api.get(routes.sales);
                     const freshSales = response.data.data || response.data.sales || response.data || [];
-                    
+
                     // Only update if data has changed
                     if (JSON.stringify(freshSales) !== JSON.stringify(updatedAllSales)) {
                         updateState({
@@ -1332,7 +1370,7 @@ export default function SalesEntry() {
         } catch (error) {
             console.error("Printing error:", error);
             alert("Printing failed: " + (error.message || error.toString()));
-            
+
             // Restore original state on error
             updateState({
                 allSales: originalState.allSales,
@@ -1341,11 +1379,11 @@ export default function SalesEntry() {
                 isPrinting: false
             });
             setFormData(originalState.formData);
-            
+
             // Refocus on customer field
             setTimeout(() => {
-                if (refs.customerCode.current) {
-                    refs.customerCode.current.focus();
+                if (refs.customer_code_input.current) {
+                    refs.customer_code_input.current.focus();
                 }
             }, 100);
         }
@@ -1360,9 +1398,10 @@ export default function SalesEntry() {
             }
             if (e.key === "F1") {
                 e.preventDefault(); handlePrintAndClear().finally(() => {
-                    [100, 200, 300, 500, 800].forEach(timeout => setTimeout(() => refs.customerCode.current?.focus(), timeout));
+                    [100, 200, 300, 500, 800].forEach(timeout => setTimeout(() => refs.customer_code_input.current?.focus(), timeout));
                 });
             } else if (e.key === "F5") { e.preventDefault(); handleMarkAllProcessed(); }
+            // Note: F10 is for refresh and is manually handled/does not need to be here unless it needs different logic
         };
         window.addEventListener("keydown", handleShortcut);
         // FIX: Ensure cleanup dependencies include state variables used inside handleShortcut
@@ -1374,8 +1413,8 @@ export default function SalesEntry() {
 
     // --- Render ---
     return (
-        <Layout>
-            <div className="sales-layout">
+        <Layout style={{ backgroundColor: '#99ff99' }}>
+            <div className="sales-layout" style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 {/* Show subtle loading indicator instead of blocking screen */}
                 {isLoading && (
                     <div className="fixed top-0 left-0 right-0 bg-blue-500 text-white py-1 text-center text-sm z-50">
@@ -1390,10 +1429,30 @@ export default function SalesEntry() {
                     </div>
                 )}
 
-                <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1 }}>
+                {/* === THREE COLUMN LAYOUT === */}
+                <div
+                    className="three-column-layout"
+                    style={{
+                        opacity: isLoading ? 0.7 : 1,
+                        // 🚀 Apply explicit grid styles based on CSS definition
+                        display: 'grid',
+                        gridTemplateColumns: '280px 1fr 280px',
+                        gap: '16px',
+                        padding: '10px',
+                        marginTop: '-149px', // Added from CSS
+                    }}
+                >
 
                     {/* Left Sidebar */}
-                    <div className="left-sidebar">
+                    <div className="left-sidebar" style={{
+                        backgroundColor: '#1ec139ff',
+                        borderRadius: '0.75rem',
+                        maxHeight: '80.5vh',
+                        width: '150px', // Fixed width from CSS
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        width: '150px'
+                    }}>
                         {hasData ? (
                             <CustomerList
                                 customers={printedCustomers}
@@ -1421,314 +1480,329 @@ export default function SalesEntry() {
                         )}
                     </div>
 
-                    {/* Center Form */}
-                    <div className="center-form" style={{ marginRight: "-20px" }}>
+                    {/* Center Form - MODIFIED FOR FIXED TOP SECTION AND SCROLLABLE TABLE */}
+                    <div className="center-form flex flex-col" style={{
+                        backgroundColor: '#111439ff',
+                        padding: '20px',
+                        borderRadius: '0.75rem',
+                        color: 'white',
+                        // 🚀 Apply fixed width and center positioning from CSS
+                        width: '886px',
+                        minWidth: '886px',
+                        maxWidth: '886px',
+                        marginLeft: 'calc(50% - 369px)',
+                        marginRight: 'auto',
+                        // Fixed height for non-jumping behavior
+                        height: '150.5vh',
+                        boxSizing: 'border-box',
+                        // Adjust grid column span since custom margins are used.
+                        gridColumnStart: 2, gridColumnEnd: 3
+                    }}>
 
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            {/* === ROW 1: BILL NO & TOTAL SALES === */}
-                            <div className="w-full flex justify-between items-center">
-                                <div className="text-red-600 font-bold text-lg">
-                                    Bill No: {currentBillNo}
-                                </div>
-                                <div className="text-red-600 font-bold text-xl whitespace-nowrap" style={{ marginLeft: "650px", marginTop: "-30px" }}>
-                                    Total Sales: Rs. {formatDecimal(mainTotal)}
-                                </div>
+                        {/* === FIXED TOP SECTION (Input Form, Totals, and Buttons) === */}
+                        <div className="flex-shrink-0">
 
-                            </div>
-
-                            {/* === ROW 2: CUSTOMER CODE, SELECT CUSTOMER & LOAN === */}
-                            <div className="flex items-end gap-3 w-full">
-                                {/* Customer Code */}
-                                <div className="flex-1 min-w-0">
-                                    <input
-                                        id="customer_code_input"
-                                        ref={refs.customerCode}
-                                        name="customer_code"
-                                        value={formData.customer_code || autoCustomerCode}
-                                        onChange={(e) => {
-                                            const value = e.target.value.toUpperCase();
-                                            handleInputChange("customer_code", value);
-                                            if (value.trim() === "") {
-                                                setFormData(prev => ({ ...prev, customer_code: "", customer_name: "", given_amount: "" }));
-                                                updateState({ selectedPrintedCustomer: null, selectedUnprintedCustomer: null });
-                                            }
-                                        }}
-                                        onKeyDown={(e) => handleKeyDown(e, 0)}
-                                        type="text"
-                                        maxLength={10}
-                                        placeholder="CUSTOMER CODE"
-                                        className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500"
-                                    />
-                                </div>
-
-                                {/* Customer Select */}
-                                <div style={{ flex: '0 0 250px', minWidth: '250px' }}>
-                                    <Select
-                                        id="customer_code_select"
-                                        ref={refs.customerSelect}
-                                        value={
-                                            formData.customer_code
-                                                ? { value: formData.customer_code, label: `${formData.customer_code}` }
-                                                : null
-                                        }
-                                        onChange={handleCustomerSelect}
-                                        options={customers
-                                            .filter(
-                                                (c) =>
-                                                    !customerSearchInput ||
-                                                    c.short_name.charAt(0).toUpperCase() ===
-                                                    customerSearchInput.charAt(0).toUpperCase()
-                                            )
-                                            .map((c) => ({ value: c.short_name, label: `${c.short_name}` }))
-                                        }
-                                        onInputChange={(inputValue, { action }) => {
-                                            if (action === "input-change")
-                                                updateState({ customerSearchInput: inputValue.toUpperCase() });
-                                        }}
-                                        inputValue={customerSearchInput}
-                                        placeholder="SELECT CUSTOMER"
-                                        isClearable
-                                        isSearchable
-                                        styles={{
-                                            control: (base) => ({
-                                                ...base,
-                                                minHeight: "36px",
-                                                height: "36px",
-                                                fontSize: "12px",
-                                                backgroundColor: "white",
-                                                borderColor: "#4a5568",
-                                            }),
-                                            valueContainer: (base) => ({
-                                                ...base,
-                                                padding: "0 6px",
-                                                height: "36px",
-                                            }),
-                                            placeholder: (base) => ({
-                                                ...base,
-                                                fontSize: "12px",
-                                                color: "gray",
-                                            }),
-                                            input: (base) => ({
-                                                ...base,
-                                                fontSize: "12px",
-                                                color: "black",
-                                            }),
-                                            singleValue: (base) => ({
-                                                ...base,
-                                                color: "black",
-                                                fontSize: "12px",
-                                                fontWeight: "bold",
-                                            }),
-
-                                            // ⭐ ADDING BOLD + BLACK DROPDOWN OPTIONS HERE
-                                            option: (base, state) => ({
-                                                ...base,
-                                                color: "black",
-                                                fontWeight: "bold",
-                                                fontSize: "12px",
-                                                backgroundColor: state.isFocused ? "#e5e7eb" : "white",
-                                                cursor: "pointer",
-                                            }),
-                                        }}
-                                    />
-
-                                </div>
-
-                                {/* Loan */}
-                                <div className="flex-1 min-w-0">
-                                    <div
-                                        className="p-2 rounded-lg text-center border relative"
-                                        style={{
-                                            backgroundColor: "white",
-                                            flex: "0 0 200px",
-                                            marginLeft: "80px"
-                                        }}
-                                    >
-                                        <span className="absolute left-2 top-1 text-gray-400 text-xs pointer-events-none">
-                                            Loan Amount
-                                        </span>
-                                        <span className="text-black font-bold text-sm">
-                                            Rs. {loanAmount < 0 ? formatDecimal(Math.abs(loanAmount)) : formatDecimal(loanAmount)}
-                                        </span>
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                {/* === ROW 1: BILL NO & TOTAL SALES === */}
+                                <div className="w-full flex justify-between items-center">
+                                    <div className="text-red-600 font-bold text-lg" style={{ fontSize: '1.25rem' }}>
+                                        Bill No: {currentBillNo}
+                                    </div>
+                                    <div className="text-red-600 font-bold text-xl whitespace-nowrap" style={{ marginLeft: "650px", marginTop: "-30px" }}>
+                                        Total Sales: Rs. {formatDecimal(mainTotal)}
                                     </div>
                                 </div>
-                            </div>
 
+                                {/* === ROW 2: CUSTOMER CODE, SELECT CUSTOMER & LOAN === */}
+                                <div className="flex items-end gap-3 w-full">
+                                    {/* Customer Code (Inline Compact Style) */}
+                                    <div className="flex-1 min-w-0">
+                                        <input
+                                            id="customer_code_input"
+                                            ref={refs.customer_code_input}
+                                            name="customer_code"
+                                            value={formData.customer_code || autoCustomerCode}
+                                            onChange={(e) => {
+                                                const value = e.target.value.toUpperCase();
+                                                handleInputChange("customer_code", value);
+                                                if (value.trim() === "") {
+                                                    setFormData(prev => ({ ...prev, customer_code: "", customer_name: "", given_amount: "" }));
+                                                    updateState({ selectedPrintedCustomer: null, selectedUnprintedCustomer: null });
+                                                }
+                                            }}
+                                            onKeyDown={(e) => handleKeyDown(e, "customer_code_input")}
+                                            type="text"
+                                            maxLength={10}
+                                            placeholder="CUSTOMER CODE"
+                                            className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500"
+                                            style={{
+                                                backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white',
+                                                height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem',
+                                                boxSizing: 'border-box'
+                                            }}
+                                        />
+                                    </div>
 
+                                    {/* Customer Select (Inline Compact Style) */}
+                                    <div style={{ flex: '0 0 250px', minWidth: '250px' }}>
+                                        <Select
+                                            id="customer_code_select"
+                                            ref={refs.customer_code_select}
+                                            value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null}
+                                            onChange={handleCustomerSelect}
+                                            options={customers
+                                                .filter((c) => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase())
+                                                .map((c) => ({ value: c.short_name, label: `${c.short_name}` }))
+                                            }
+                                            onInputChange={(inputValue, { action }) => { if (action === "input-change") updateState({ customerSearchInput: inputValue.toUpperCase() }); }}
+                                            inputValue={customerSearchInput}
+                                            placeholder="SELECT CUSTOMER"
+                                            isClearable
+                                            isSearchable
+                                            styles={{
+                                                control: (base) => ({
+                                                    ...base,
+                                                    minHeight: "36px", height: "36px", fontSize: "12px",
+                                                    backgroundColor: "#0d0d4d", borderColor: "#4a5568", borderRadius: '0.5rem'
+                                                }),
+                                                valueContainer: (base) => ({ ...base, padding: "0 6px", height: "36px" }),
+                                                placeholder: (base) => ({ ...base, fontSize: "12px", color: "#a0aec0", fontWeight: "normal" }),
+                                                input: (base) => ({ ...base, fontSize: "12px", color: "white" }),
+                                                singleValue: (base) => ({ ...base, color: "white", fontSize: "12px", fontWeight: "bold" }),
+                                                option: (base, state) => ({ ...base, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: state.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }),
+                                            }}
+                                        />
+                                    </div>
 
-                            {/* === ROW 4: GRID LAYOUT FOR FIELDS === */}
-                            <div
-                                className="w-full"
-                                style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "repeat(12, 1fr)",
-                                    columnGap: "8px",
-                                    alignItems: "end",
-                                    marginTop: "8px",
-                                }}
-                            >
-                                {/* Supplier */}
-                                <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
-                                    <input
-                                        id="supplier_code"
-                                        ref={refs.supplierCode}
-                                        name="supplier_code"
-                                        value={formData.supplier_code}
-                                        onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())}
-                                        onKeyDown={(e) => handleKeyDown(e, 3)}
-                                        type="text"
-                                        placeholder="SUPPLIER"
-                                        className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full"
-                                        style={{ width: "150px" }}
-                                    />
+                                    {/* Loan */}
+                                    <div className="flex-1 min-w-0">
+                                        <div
+                                            className="p-2 rounded-lg text-center border relative"
+                                            style={{ backgroundColor: "white", flex: "0 0 200px", marginLeft: "80px" }}
+                                        >
+                                            <span className="absolute left-2 top-1 text-gray-400 text-xs pointer-events-none">
+                                                Loan Amount
+                                            </span>
+                                            <span className="text-black font-bold text-sm">
+                                                Rs. {loanAmount < 0 ? formatDecimal(Math.abs(loanAmount)) : formatDecimal(loanAmount)}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Item */}
-                                <div style={{ gridColumnStart: 5, gridColumnEnd: 8, marginLeft: "-120px", marginRight: "-02px" }}>
-                                    <Select
-                                        id="item_code_select"
-                                        ref={refs.itemCodeSelect}
-                                        value={formData.item_code ? {
-                                            value: formData.item_code,
-                                            label: `${formData.item_name} (${formData.item_code})`,
-                                            item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due },
-                                        } : null}
-                                        onChange={handleItemSelect}
-                                        options={items
-                                            .filter(item => {
-                                                if (!state.itemSearchInput) return true;
-                                                const search = state.itemSearchInput.toLowerCase();
-                                                return (
-                                                    String(item.no).toLowerCase().startsWith(search) ||
-                                                    String(item.type).toLowerCase().includes(search)
-                                                );
-                                            })
-                                            .map(item => ({
-                                                value: item.no,
-                                                label: `${item.type} (${item.no})`,
-                                                item,
-                                            }))
-                                        }
-                                        onInputChange={(inputValue) =>
-                                            updateState({ itemSearchInput: inputValue.toUpperCase() })
-                                        }
-                                        inputValue={state.itemSearchInput}
-                                        onKeyDown={(e) => handleKeyDown(e, 4)}
-                                        placeholder="SELECT ITEM"
-                                        className="react-select-container font-bold text-sm w-full"
-                                        styles={{
-                                            control: (base) => ({
-                                                ...base,
-                                                minHeight: "32px",
-                                                height: "32px",
-                                            }),
-                                            option: (base, state) => ({
-                                                ...base,
-                                                color: "black",
-                                                fontWeight: "bold",
-                                                fontSize: "12px",
-                                                backgroundColor: state.isFocused ? "#e5e7eb" : "white", // optional hover color
-                                                cursor: "pointer",
-                                            }),
-                                            singleValue: (base) => ({
-                                                ...base,
-                                                fontWeight: "bold",
-                                                color: "black"
-                                            })
+
+                                {/* === ROW 4: GRID LAYOUT FOR FIELDS (Supplier, Item, Weight, Price, Packs, Total) === */}
+                                <div
+                                    className="w-full"
+                                    style={{
+                                        display: "grid",
+                                        gridTemplateColumns: "repeat(12, 1fr)",
+                                        columnGap: "8px",
+                                        alignItems: "end",
+                                        marginTop: "8px",
+                                    }}
+                                >
+                                    {/* Supplier */}
+                                    <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
+                                        <input
+                                            id="supplier_code"
+                                            ref={refs.supplier_code}
+                                            name="supplier_code"
+                                            value={formData.supplier_code}
+                                            onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())}
+                                            onKeyDown={(e) => handleKeyDown(e, "supplier_code")}
+                                            type="text"
+                                            placeholder="SUPPLIER"
+                                            className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full"
+                                            style={{
+                                                width: "150px",
+                                                backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white',
+                                                height: '44px', fontSize: '1.25rem', padding: '0 1rem', borderRadius: '0.5rem',
+                                                boxSizing: 'border-box'
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* Item Select */}
+                                    <div
+                                        style={{
+                                            gridColumnStart: 5,
+                                            gridColumnEnd: 8,
+                                            marginLeft: "-120px",
+                                            marginRight: "-02px",
                                         }}
-                                    />
+                                    >
+                                        <Select
+                                            id="item_code_select"
+                                            ref={refs.item_code_select}
+                                            value={
+                                                formData.item_code
+                                                    ? {
+                                                        value: formData.item_code,
+                                                        label: `${formData.item_name} (${formData.item_code})`,
+                                                        item: {
+                                                            no: formData.item_code,
+                                                            type: formData.item_name,
+                                                            pack_due: formData.pack_due,
+                                                        },
+                                                    }
+                                                    : null
+                                            }
+                                            onChange={handleItemSelect}
+                                            options={items
+                                                .filter((item) => {
+                                                    return (
+                                                        !state.itemSearchInput ||
+                                                        String(item.no)
+                                                            .toLowerCase()
+                                                            .startsWith(state.itemSearchInput.toLowerCase()) ||
+                                                        String(item.type)
+                                                            .toLowerCase()
+                                                            .includes(state.itemSearchInput.toLowerCase())
+                                                    );
+                                                })
+                                                .map((item) => ({
+                                                    value: item.no,
+                                                    label: `${item.type} (${item.no})`,
+                                                    item,
+                                                }))}
+                                            onInputChange={(inputValue) =>
+                                                updateState({ itemSearchInput: inputValue.toUpperCase() })
+                                            }
+                                            inputValue={state.itemSearchInput}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                    return; // ★ allow react-select to select highlighted option
+                                                }
+                                                handleKeyDown(e, "item_code_select");
+                                            }}
+                                            placeholder="SELECT ITEM"
+                                            className="react-select-container font-bold text-sm w-full"
+                                            styles={{
+                                                control: (base) => ({
+                                                    ...base,
+                                                    height: "44px",
+                                                    minHeight: "44px",
+                                                    fontSize: "1.25rem",
+                                                    backgroundColor: "#0d0d4d",
+                                                    borderColor: "#4a5568",
+                                                    borderRadius: "0.5rem",
+                                                }),
+                                                valueContainer: (base) => ({
+                                                    ...base,
+                                                    padding: "0 1rem",
+                                                    height: "44px",
+                                                }),
+                                                input: (base) => ({
+                                                    ...base,
+                                                    color: "white",
+                                                    fontSize: "1.25rem",
+                                                }),
+                                                singleValue: (base) => ({
+                                                    ...base,
+                                                    color: "white",
+                                                    fontWeight: "bold",
+                                                    fontSize: "1.25rem",
+                                                }),
+                                                placeholder: (base) => ({
+                                                    ...base,
+                                                    color: "#a0aec0",
+                                                    fontWeight: "normal",
+                                                }),
 
+                                                // ★★ NEW OPTION STYLING — Bold Black Dropdown Items
+                                                option: (base, state) => ({
+                                                    ...base,
+                                                    fontWeight: "bold",
+                                                    color: "black",
+                                                    backgroundColor: state.isFocused ? "#e5e7eb" : "white",
+                                                    fontSize: "1rem",
+                                                }),
+                                            }}
+                                        />
+                                    </div>
+
+
+                                    {/* Weight, Price, Packs, Total (White Background Fields) */}
+                                    {/* Note: The order of refs passed to the input's ref prop must match the keys in the refs object */}
+                                    {[
+                                        { id: 'weight', placeholder: "බර", fieldRef: refs.weight, isReadOnly: false },
+                                        { id: 'price_per_kg', placeholder: "මිල", fieldRef: refs.price_per_kg, isReadOnly: false },
+                                        { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs, isReadOnly: false },
+                                        { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }
+                                    ].map(({ id, placeholder, fieldRef, isReadOnly }, index) => (
+                                        <div key={id} style={{
+                                            gridColumnStart: 8 + index,
+                                            gridColumnEnd: 9 + index,
+                                            ...(id === 'total' && { gridColumnEnd: 14, marginLeft: "10px" })
+                                        }}>
+                                            <input
+                                                id={id}
+                                                ref={fieldRef}
+                                                name={id}
+                                                type="text"
+                                                value={formData[id]}
+                                                onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange(id, v); }}
+                                                onKeyDown={(e) => handleKeyDown(e, id)}
+                                                placeholder={placeholder}
+                                                readOnly={isReadOnly}
+                                                className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
+                                                style={{
+                                                    backgroundColor: 'white', color: 'black', borderRadius: '0.5rem',
+                                                    textAlign: 'right', fontSize: '1.125rem', fontWeight: 600,
+                                                    height: '40px', padding: '0.5rem 0.75rem', width: '100%',
+                                                    boxSizing: 'border-box'
+                                                }}
+                                            />
+                                        </div>
+                                    ))}
                                 </div>
 
-                                {/* Weight */}
-                                <div style={{ gridColumnStart: 8, gridColumnEnd: 9 }}>
-                                    <input
-                                        id="weight"
-                                        ref={refs.weight}
-                                        name="weight"
-                                        type="text"
-                                        value={formData.weight}
-                                        onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('weight', v); }}
-                                        onKeyDown={(e) => handleKeyDown(e, 6)}
-                                        placeholder="බර"
-                                        className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
-                                    />
+                                {/* Given amount input (Moved here from the bottom section) */}
+                                {/* This element needs to be inside the form if the 'Enter' key on it submits a given amount */}
+                                <div className="flex justify-end" style={{ marginTop: '20px' }}>
+                                   
                                 </div>
 
-                                {/* Price */}
-                                <div style={{ gridColumnStart: 9, gridColumnEnd: 10 }}>
-                                    <input
-                                        id="price_per_kg"
-                                        ref={refs.pricePerKg}
-                                        name="price_per_kg"
-                                        type="text"
-                                        value={formData.price_per_kg}
-                                        onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('price_per_kg', v); }}
-                                        onKeyDown={(e) => handleKeyDown(e, 7)}
-                                        placeholder="මිල"
-                                        className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
-                                    />
+
+                                {/* Hidden submit button */}
+                                <div className="flex space-x-4">
+                                    <button type="submit" style={{ display: "none" }}>
+                                        {editingSaleId ? "Update Sales Entry" : "Add Sales Entry"}
+                                    </button>
                                 </div>
+                            </form>
 
-                                {/* Packs */}
-                                <div style={{ gridColumnStart: 10, gridColumnEnd: 11 }}>
-                                    <input
-                                        id="packs"
-                                        ref={refs.packs}
-                                        name="packs"
-                                        type="text"
-                                        value={formData.packs}
-                                        onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d*$/.test(v)) handleInputChange('packs', v); }}
-                                        onKeyDown={(e) => handleKeyDown(e, 8)}
-                                        placeholder="අසුරුම්"
-                                        className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
-                                    />
-                                </div>
+                            {/* Form errors */}
+                            {errors.form && <div className="mt-6 p-3 bg-red-100 text-red-700 rounded-xl">{errors.form}</div>}
 
-                                {/* Total */}
-                                <div style={{ gridColumnStart: 11, gridColumnEnd: 14, marginLeft: "10px" }}>
-                                    <input
-                                        id="total"
-                                        ref={refs.total}
-                                        name="total"
-                                        type="number"
-                                        value={formData.total}
-                                        readOnly
-                                        placeholder="TOTAL"
-                                        className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
-                                    />
-                                </div>
-                            </div>
+                        </div>
+                        {/* === END FIXED TOP SECTION === */}
 
-                            {/* Hidden submit button */}
-                            <div className="flex space-x-4">
-                                <button type="submit" style={{ display: "none" }}>
-                                    {editingSaleId ? "Update Sales Entry" : "Add Sales Entry"}
-                                </button>
-                            </div>
-                        </form>
+                        {/* === SCROLLABLE SALES TABLE SECTION === */}
+                        <div className="flex-grow overflow-y-auto mt-4">
 
-                        {/* Form errors */}
-                        {errors.form && <div className="mt-6 p-3 bg-red-100 text-red-700 rounded-xl">{errors.form}</div>}
-
-                        {/* Sales table */}
-                        <div className="mt-4 overflow-x-auto">
+                            {/* Sales table */}
                             {displayedSales.length === 0 ? (
                                 <div className="text-center py-8 text-gray-500 border rounded-lg bg-gray-50">
                                     No sales records found. Add your first sale above.
                                 </div>
                             ) : (
-                                <table className="min-w-full border-gray-200 rounded-xl text-sm">
+                                <table className="min-w-full border-gray-200 rounded-xl text-sm" style={{
+                                    backgroundColor: '#000000', color: 'white', border: 'none', borderCollapse: 'collapse',
+                                    margin: '20px 0', marginTop: '05px', width: '100%' // Ensure table takes 100% width of its container
+                                }}>
                                     <thead>
-                                        <tr>
-                                             <th className="px-4 py-2 border">Sup code</th>
-                                             <th className="px-4 py-2 border">කේතය</th>
-                                             <th className="px-4 py-2 border">අයිතමය</th>
-                                             <th className="px-2 py-2 border w-20">බර(kg)</th>
-                                             <th className="px-2 py-2 border w-20">මිල</th>
-                                             <th className="px-2 py-2 border w-24">අගය</th>
-                                             <th className="px-2 py-2 border w-16">මලු</th>
-                                             <th className="px-2 py-2 border w-16" style={{ paddingLeft: '16px' }}>Actions</th>
+                                        <tr style={{ backgroundColor: '#000000' }}>
+                                            {/* 🚀 Apply table header styles */}
+                                            {['Sup code', 'කේතය', 'අයිතමය', 'බර(kg)', 'මිල', 'අගය', 'මලු', 'Actions'].map((header, index) => (
+                                                <th key={index} className="px-4 py-2 border" style={{
+                                                    backgroundColor: '#f5fafb', fontWeight: 'bold', color: '#000000', padding: '8px 10px',
+                                                    border: '1px solid white', whiteSpace: 'nowrap', marginTop: '90px'
+                                                }}>
+                                                    {header}
+                                                </th>
+                                            ))}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1740,31 +1814,68 @@ export default function SalesEntry() {
                                                 onClick={() => handleEditClick(s)}
                                                 onKeyDown={(e) => handleTableRowKeyDown(e, s)}
                                             >
-                                                 <td className="px-4 py-2 border">{s.supplier_code}</td>
-                                                 <td className="px-4 py-2 border">{s.item_code}</td>
-                                                 <td className="px-4 py-2 border">{s.item_name}</td>
-                                                 <td className="px-2 py-2 border w-20">{formatDecimal(s.weight)}</td>
-                                                 <td className="px-2 py-2 border w-20">{formatDecimal(s.price_per_kg)}</td>
-                                                 <td className="px-2 py-2 border w-24">{formatDecimal(
-                                                    (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) + 
-                                                    (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0) // Use pack_due for display total
-                                                 )}</td>
-                                                 <td className="px-2 py-2 border w-16">{s.packs}</td>
-                                                 <td className="px-2 py-2 border w-16 text-center">
-                                                     <button
-                                                         onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }}
-                                                         className="text-black font-bold p-1 rounded-full hover:bg-gray-200 transition-colors"
-                                                         title="Delete record"
-                                                     >
-                                                         🗑️
-                                                     </button>
-                                                 </td>
-
+                                                {/* 🚀 Apply table cell styles */}
+                                                <td className="px-4 py-2 border" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>{s.supplier_code}</td>
+                                                <td className="px-4 py-2 border" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>{s.item_code}</td>
+                                                <td className="px-4 py-2 border" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>{s.item_name}</td>
+                                                <td className="px-2 py-2 border w-20" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>{formatDecimal(s.weight)}</td>
+                                                <td className="px-2 py-2 border w-20" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>{formatDecimal(s.price_per_kg)}</td>
+                                                <td className="px-2 py-2 border w-24" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>{formatDecimal(
+                                                    (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) +
+                                                    (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0)
+                                                )}</td>
+                                                <td className="px-2 py-2 border w-16" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>{s.packs}</td>
+                                                <td className="px-2 py-2 border w-16 text-center" style={{ backgroundColor: '#000000', border: '1px solid #4a5568', padding: '6px 10px', marginTop: '90px' }}>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }}
+                                                        className="text-black font-bold p-1 rounded-full hover:bg-gray-200 transition-colors"
+                                                        title="Delete record"
+                                                    >
+                                                        🗑️
+                                                    </button>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
                             )}
+
+                            {/* Buttons and Summary (Below Table) */}
+                            <div className="flex items-center mt-6 space-x-3 overflow-x-auto whitespace-nowrap py-2">
+
+                                {/* Buttons (Styles maintained from previous iteration) */}
+                                <button type="button" onClick={() => handlePrintAndClear().finally(() => { [100, 200, 300, 500, 800].forEach(timeout => setTimeout(() => refs.customer_code_input.current?.focus(), timeout)); })} disabled={state.isPrinting || displayedSales.length === 0}
+                                    className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
+                                    style={{ backgroundColor: '#059669', color: 'white', opacity: state.isPrinting ? 0.5 : 1 }}>
+                                    {state.isPrinting ? 'Printing...' : 'F1-PRINT'}
+                                </button>
+                                <button type="button" onClick={handleMarkAllProcessed} disabled={selectedPrintedCustomer}
+                                    className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${selectedPrintedCustomer ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}
+                                    style={!selectedPrintedCustomer ? { backgroundColor: '#2563eb', color: 'white' } : { color: 'white' }}>
+                                    F5-HOLD
+                                </button>
+                                <button type="button" onClick={handleFullRefresh}
+                                    className="px-4 py-1 text-sm hover:bg-gray-700 font-bold rounded-xl shadow transition pr-3"
+                                    style={{ backgroundColor: '#4b5563', color: 'white' }}>
+                                    F10-Refresh
+                                </button>
+                                 <div style={{ marginLeft: '660px', marginTop: '-25px' }}>
+                                        <input
+                                            id="given_amount"
+                                            ref={refs.given_amount}
+                                            name="given_amount"
+                                            type="number"
+                                            step="0.01"
+                                            value={formData.given_amount}
+                                            onChange={(e) => handleInputChange('given_amount', e.target.value)}
+                                            onKeyDown={(e) => handleKeyDown(e, "given_amount")}
+                                            placeholder="Given Amount"
+                                            className="px-4 py-2 border rounded-xl text-right w-40"
+                                            style={{ backgroundColor: 'white', color: 'black', textAlign: 'right', width: '180px', borderRadius: '0.5rem' }}
+                                        />
+                                    </div>
+                                {/* Removed Given Amount input from this section as it was moved above to be inside the form */}
+                            </div>
 
                             {/* Item summary and sales+pack cost in white */}
                             <ItemSummary sales={displayedSales} formatDecimal={formatDecimal} />
@@ -1794,81 +1905,23 @@ export default function SalesEntry() {
                             </div>
 
                         </div>
-
-                        <div className="flex items-center mt-6 space-x-3 overflow-x-auto whitespace-nowrap py-2">
-
-                            {/* Buttons */}
-                            <button
-                                type="button"
-                                onClick={handlePrintAndClear}
-                                disabled={state.isPrinting || displayedSales.length === 0}
-                                className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
-                                style={{ 
-                                    backgroundColor: '#059669', 
-                                    color: 'white',
-                                    opacity: state.isPrinting ? 0.5 : 1
-                                }}
-                            >
-                                {state.isPrinting ? 'Printing...' : 'F1-PRINT'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleMarkAllProcessed}
-                                disabled={selectedPrintedCustomer}
-                                // 🟢 MODIFIED CLASSNAME: Removed conditional text class and kept the base text-white
-                                className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${selectedPrintedCustomer
-                                    ? "bg-gray-400 cursor-not-allowed"
-                                    : "bg-blue-600 hover:bg-blue-700"
-                                    }`}
-                                // 🚀 CUSTOM PIXEL OVERRIDE: Using inline style to force white text and 
-                                // blue background when active to ensure the styles are applied correctly 
-                                // over any inherited styles from .center-form.
-                                style={!selectedPrintedCustomer
-                                    ? { backgroundColor: '#2563eb', color: 'white' } // Active: Blue BG, White Text
-                                    : { color: 'white' } // Disabled: Gray BG (from class), White Text
-                                }
-                            >
-                                F5-HOLD
-                            </button>
-
-                            {/* Add a gap here */}
-                            <button
-                                type="button"
-                                onClick={handleFullRefresh}
-                                // Removed bg-gray-600 and text-white from className to use inline styles for high precedence
-                                className="px-4 py-1 text-sm hover:bg-gray-700 font-bold rounded-xl shadow transition pr-3"
-                                // 🚀 CUSTOM PIXEL OVERRIDE: Force Ash background and White text
-                                style={{ backgroundColor: '#4b5563', color: 'white' }} // #4b5563 is the hex code for Tailwind's gray-600
-                            >
-                                F10-Refresh
-                            </button>
-
-                            {/* Given amount input (Pushed right with ml-auto) */}
-                            <div
-                                style={{ marginLeft: '660px', marginTop: '-25px' }} // Custom margin to keep it slightly off the right edge of its outer container
-                                className="ml-auto" // Pushes this div and its content to the far right
-                            >
-                                <input
-                                    id="given_amount"
-                                    ref={refs.givenAmount}
-                                    name="given_amount"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.given_amount}
-                                    onChange={(e) => handleInputChange('given_amount', e.target.value)}
-                                    onKeyDown={(e) => handleKeyDown(e, 2)}
-                                    placeholder="Given Amount"
-                                    // The custom margin-right has been moved to the wrapping div above for control.
-                                    // We use className for the basic styling now.
-                                    className="px-4 py-2 border rounded-xl text-right w-40"
-                                />
-                            </div>
-                        </div>
+                        {/* === END SCROLLABLE SALES TABLE SECTION === */}
 
                     </div>
 
                     {/* Right Sidebar */}
-                    <div className="right-sidebar">
+                    <div className="right-sidebar" style={{
+                        backgroundColor: '#1ec139ff',
+                        borderRadius: '0.75rem',
+                        maxHeight: '80.5vh',
+                        width: '150px', // Fixed width from CSS
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        // 🚀 Apply custom margin-left from CSS
+                        marginLeft: '288px',
+                        // Adjust grid column span since custom margins are used.
+                        gridColumnStart: 3, gridColumnEnd: 4
+                    }}>
                         {hasData ? (
                             <CustomerList
                                 customers={unprintedCustomers}
