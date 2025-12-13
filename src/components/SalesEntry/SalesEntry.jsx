@@ -27,7 +27,7 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
 
     const getUnprintedCustomers = () => {
         const customerMap = {};
-        allSales.filter(s => s.bill_printed === 'N' ).forEach(sale => {
+        allSales.filter(s => s.bill_printed === 'N').forEach(sale => {
             const customerCode = sale.customer_code;
             const saleTimestamp = new Date(sale.timestamp || sale.created_at || sale.date || sale.id);
             if (!customerMap[customerCode] || saleTimestamp > new Date(customerMap[customerCode].latestTimestamp)) {
@@ -86,17 +86,58 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                             const isItemSelected = isSelected(item);
                             return (
                                 <li key={type === "printed" ? `${item.customerCode}-${item.billNo}` : item.customerCode} className="flex">
-                                    <button onClick={() => {
-                                        if (type === "printed") {
-                                            const billSales = allSales.filter(s => s.customer_code === item.customerCode && s.bill_no === item.billNo);
-                                            handleCustomerClick(type, item.customerCode, item.billNo, billSales);
-                                        } else {
-                                            const customerSales = allSales.filter(s => s.customer_code === item.customerCode && (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === ''));
-                                            handleCustomerClick(type, item.customerCode, null, customerSales);
+                                    <button
+                                        onClick={() => {
+                                            if (type === "printed") {
+                                                const billSales = allSales.filter(
+                                                    s => s.customer_code === item.customerCode && s.bill_no === item.billNo
+                                                );
+                                                handleCustomerClick(type, item.customerCode, item.billNo, billSales);
+                                            } else {
+                                                const customerSales = allSales.filter(
+                                                    s =>
+                                                        s.customer_code === item.customerCode &&
+                                                        (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+                                                );
+                                                handleCustomerClick(type, item.customerCode, null, customerSales);
+                                            }
+                                        }}
+                                        className={`py-1 mb-2 rounded-xl border ${isItemSelected
+                                            ? "border-blue-600"
+                                            : "bg-gray-50 hover:bg-gray-100 border-gray-200"
+                                            }`}
+                                        style={
+                                            isItemSelected
+                                                ? {
+                                                    backgroundColor: '#93C5FD',
+                                                    paddingLeft: '05px',
+                                                    width: '280px',  // Fixed width
+                                                    textAlign: 'left'  // Text alignment
+                                                }
+                                                : {
+                                                    paddingLeft: '1px',
+                                                    width: '280px',  // Fixed width
+                                                    textAlign: 'left'  // Text alignment
+                                                }
                                         }
-                                    }} className={`w-full py-1 mb-2 rounded-xl border text-left ${isItemSelected ? "border-blue-600" : "bg-gray-50 hover:bg-gray-100 border-gray-200"}`} style={isItemSelected ? { backgroundColor: '#93C5FD' } : {}}>
-                                        <span className={`font-semibold truncate pl-4 text-right ${isItemSelected ? 'text-black' : 'text-gray-700'}`} style={{ display: 'inline-block', width: '120px' }}>{displayText} - {formatDecimal(totalAmount)}</span>
+                                    >
+                                        <span
+                                            style={{
+                                                display: 'block',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                textAlign: 'inherit',  // Inherits from button
+                                                width: '100%'
+                                            }}
+                                            className={`font-semibold ${isItemSelected ? 'text-black' : 'text-gray-700'
+                                                }`}
+                                            title={`${displayText} - ${formatDecimal(totalAmount)}`}
+                                        >
+                                            {`${displayText.replace(/\n/g, ' ')} - ${formatDecimal(totalAmount)}`}
+                                        </span>
                                     </button>
+
                                 </li>
                             );
                         })}
@@ -243,7 +284,7 @@ export default function SalesEntry() {
         const packDue = parseFloat(formData.pack_due) || 0;
         const total = (w * p) + (packs * packDue);
         setFormData(prev => ({ ...prev, total: Number(total.toFixed(2)) }));
-        
+
         // When formData.price_per_kg changes (via bulk field or edit), update the grid field's state to keep them visually in sync
         if (!state.priceManuallyChanged) { // Prevent the top field from mirroring the grid field during the grid field's manual input
             updateState({ gridPricePerKg: formData.price_per_kg });
@@ -266,7 +307,7 @@ export default function SalesEntry() {
             e.preventDefault();
             if (currentFieldName === "given_amount" && formData.given_amount) return handleSubmitGivenAmount(e);
             if (currentFieldName === "packs") return handleSubmit(e);
-            
+
             // Handle Tab order
             let nextFieldName = skipMap[currentFieldName];
             if (!nextFieldName) {
@@ -276,7 +317,7 @@ export default function SalesEntry() {
                 while (nextIndex < fieldOrder.length && (fieldOrder[nextIndex] === "customer_code_select" || fieldOrder[nextIndex] === "item_name" || fieldOrder[nextIndex] === "total")) nextIndex++;
                 nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
             }
-            
+
             const nextRef = refs[nextFieldName];
             if (nextRef?.current) {
                 requestAnimationFrame(() => setTimeout(() => {
@@ -289,7 +330,7 @@ export default function SalesEntry() {
 
     // 2. INPUT HANDLER UPDATE: Separate logic for price_per_kg (bulk) and price_per_kg_grid_item (single)
     const handleInputChange = (field, value) => {
-        
+
         // --- BULK UPDATE TRIGGER LOGIC ---
         if (field === 'price_per_kg') {
             // Field: price_per_kg (Top Bulk Field)
@@ -297,16 +338,13 @@ export default function SalesEntry() {
             // Set flag to trigger bulk update on submit, and sync the grid field
             updateState({ priceManuallyChanged: true, gridPricePerKg: value });
         } else if (field === 'price_per_kg_grid_item') {
-            // Field: price_per_kg_grid_item (Grid Edit Field)
-            // It updates the primary formData.price_per_kg for calculation/submission, 
-            // but its *own value* is controlled by the separate state `gridPricePerKg` to prevent the top field from automatically mirroring it while typing.
             setFormData(prev => ({ ...prev, 'price_per_kg': value }));
             updateState({ gridPricePerKg: value, priceManuallyChanged: false }); // Update its own value and reset bulk flag
         } else {
             // All other fields
             setFormData(prev => ({ ...prev, [field]: value }));
         }
-        
+
         if (field === 'customer_code') {
             const trimmedValue = value.trim();
             updateState({ isManualClear: value === '' });
@@ -348,7 +386,7 @@ export default function SalesEntry() {
         setFormData(prev => ({ ...prev, customer_code: short || "", customer_name: customer?.name || "", given_amount: existingGivenAmount }));
         fetchLoanAmount(short);
         updateState({ isManualClear: false });
-        
+
         // Focus the new price_per_kg field for bulk editing, as requested, when a customer is selected.
         setTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100);
     };
@@ -365,7 +403,7 @@ export default function SalesEntry() {
     };
 
     const handleTableRowKeyDown = (e, sale) => { if (e.key === "Enter") { e.preventDefault(); handleEditClick(sale); } };
-    
+
     const handleClearForm = (clearBillNo = false) => {
         setFormData(initialFormData);
         updateState({ editingSaleId: null, loanAmount: 0, isManualClear: false, packCost: 0, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "", ...(clearBillNo && { currentBillNo: null }) }); // ⭐ Clear grid field state
@@ -404,7 +442,7 @@ export default function SalesEntry() {
         e.preventDefault();
         if (state.isSubmitting) return;
         updateState({ errors: {}, isSubmitting: true });
-        
+
         // Get the price change flag
         const shouldUpdateRelatedPrice = state.priceManuallyChanged;
 
@@ -429,39 +467,39 @@ export default function SalesEntry() {
             }
             const customerSales = allSales.filter(s => s.customer_code === customerCode);
             const isFirstRecordForCustomer = customerSales.length === 0 && !isEditing;
-            
+
             // Use formData.price_per_kg for submission, which is correctly calculated/set by both price fields
             const payload = {
                 supplier_code: formData.supplier_code.toUpperCase(), customer_code: customerCode.toUpperCase(), customer_name: formData.customer_name, item_code: formData.item_code, item_name: formData.item_name,
                 weight: parseFloat(formData.weight) || 0, price_per_kg: parseFloat(formData.price_per_kg) || 0, pack_due: parseFloat(formData.pack_due) || 0, total: parseFloat(formData.total) || 0, packs: parseFloat(formData.packs) || 0,
                 given_amount: (isFirstRecordForCustomer || (isEditing && customerSales[0]?.id === editingSaleId)) ? (formData.given_amount ? parseFloat(formData.given_amount) : null) : null,
                 ...(billPrintedStatus && { bill_printed: billPrintedStatus }), ...(billNoToUse && { bill_no: billNoToUse }),
-                
+
                 // Pass the flag to the backend
-                update_related_price: shouldUpdateRelatedPrice, 
+                update_related_price: shouldUpdateRelatedPrice,
             };
-            
+
             const url = isEditing ? `${routes.sales}/${editingSaleId}` : routes.sales;
             const method = isEditing ? "put" : "post";
             const response = await api[method](url, payload);
-            
+
             let updatedSales = [];
             if (response.data.sales) updatedSales = response.data.sales;
             else if (response.data.sale) updatedSales = [response.data.sale];
             else if (response.data.data) updatedSales = [response.data.data];
             else if (response.data.id) updatedSales = [response.data];
-            
+
             if (updatedSales.length === 0) throw new Error("Server response structure is unexpected or empty.");
-            
+
             const updatedIds = updatedSales.map(s => s.id);
             const newAllSales = allSales.filter(s => !updatedIds.includes(s.id)).concat(updatedSales);
-            
+
             updateState({ allSales: newAllSales });
             setFormData(prevForm => ({ customer_code: prevForm.customer_code || customerCode, customer_name: prevForm.customer_name, supplier_code: "", code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "" }));
-            
+
             // Reset the priceManuallyChanged flag and clear grid price on success
             updateState({ editingSaleId: null, isManualClear: false, isSubmitting: false, packCost: 0, priceManuallyChanged: false, gridPricePerKg: "" });
-            
+
             refs.supplier_code.current?.focus();
         } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message || error.toString() }, isSubmitting: false }); }
     };
@@ -526,10 +564,44 @@ export default function SalesEntry() {
         });
     };
 
+    // Inside SalesEntry component
+
     const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+        // --- New Receipt-Specific Formatting Function ---
+        const formatReceiptValue = (val) => {
+            const num = parseFloat(val);
+            if (!Number.isFinite(num)) return "";
+
+            // Use Math.round to handle floating point precision issues when checking for decimals
+            const roundedNum = Math.round(num * 100) / 100;
+
+            // Check if the number is an integer (e.g., 50.00 should show as 50)
+            if (roundedNum === Math.floor(roundedNum)) {
+                return Math.floor(roundedNum).toString();
+            }
+            // Otherwise, show up to two decimal places
+            return roundedNum.toFixed(2);
+        };
+
         const date = new Date().toLocaleDateString();
         const time = new Date().toLocaleTimeString();
-        let totalAmountSum = 0, totalPacksSum = 0;
+        let totalAmountSum = 0;
+
+        // --- 1. Calculate Consolidated Item Summary & totalAmountSum ---
+        const consolidatedSummary = {};
+        salesData.forEach(s => {
+            const itemName = s.item_name || 'Unknown';
+            if (!consolidatedSummary[itemName]) {
+                consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+            }
+            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+            totalAmountSum += parseFloat(s.total) || 0;
+        });
+
+        // Total Packs for the table footer, calculated from the summary
+        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+
         const is4Inch = billSize === '4inch';
         const receiptMaxWidth = is4Inch ? '4in' : '300px';
         const fontSizeHeader = is4Inch ? '1.2em' : '1.8em';
@@ -537,6 +609,7 @@ export default function SalesEntry() {
         const fontSizeText = is4Inch ? '0.8rem' : '0.9rem';
         const fontSizeItems = is4Inch ? '0.9em' : '1.5em';
         const fontSizeTotalLarge = is4Inch ? '1.2em' : '1.5em';
+
         let colGroups, itemHeader;
         if (is4Inch) {
             colGroups = `<colgroup><col style="width:25%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:25%;"></colgroup>`;
@@ -545,34 +618,86 @@ export default function SalesEntry() {
             colGroups = `<colgroup><col style="width:30%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:20%;"></colgroup>`;
             itemHeader = 'වර්ගය';
         }
+
+        // HTML for the detailed item list
         const itemsHtml = salesData.map(s => {
-            totalAmountSum += parseFloat(s.total) || 0;
             const packs = parseInt(s.packs) || 0;
-            totalPacksSum += packs;
             const weight = parseFloat(s.weight) || 0;
             const price = parseFloat(s.price_per_kg) || 0;
             const value = (weight * price).toFixed(2);
-            if (is4Inch) return `<tr style="font-size:${fontSizeItems};"><td style="text-align:left; padding:2px 4px;">${s.item_name || ""} (${packs})</td><td style="text-align:center; padding:2px 4px;">${weight.toFixed(2)}</td><td style="text-align:center; padding:2px 4px;">${price.toFixed(2)}</td><td style="text-align:right; padding:2px 4px;">${value}</td><td style="text-align:right; padding:2px 4px; font-size:0.8em;">${s.supplier_code || ""}</td></tr>`;
-            else return `<tr style="font-size:${fontSizeItems};"><td style="text-align:left; padding:2px 4px; vertical-align:top;">${s.item_name || ""}<div style="font-size:0.9em; color:#666; margin-top:2px;">${packs}</div></td><td style="text-align:center; padding:2px 4px; vertical-align:top;">${weight.toFixed(2)}</td><td style="text-align:center; padding:2px 4px; vertical-align:top;">${price.toFixed(2)}</td><td style="text-align:right; padding:2px 4px; vertical-align:top;">${value}</td><td style="text-align:right; padding:2px 4px; vertical-align:top; font-size:0.8em;">${s.supplier_code || ""}</td></tr>`;
+
+            const formattedWeight = formatReceiptValue(weight);
+            const formattedPrice = formatReceiptValue(price);
+            const formattedValue = formatReceiptValue(value);
+
+            if (is4Inch) return `<tr style="font-size:${fontSizeItems};"><td style="text-align:left; padding:2px 4px;">${s.item_name || ""} (${packs})</td><td style="text-align:center; padding:2px 4px;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; font-size:0.8em;">${s.supplier_code || ""}</td></tr>`;
+            else return `<tr style="font-size:${fontSizeItems};"><td style="text-align:left; padding:2px 4px; vertical-align:top;">${s.item_name || ""}<div style="font-size:0.9em; color:#666; margin-top:2px;">${packs}</div></td><td style="text-align:center; padding:2px 4px; vertical-align:top;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px; vertical-align:top;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px; vertical-align:top;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; vertical-align:top; font-size:0.8em;">${s.supplier_code || ""}</td></tr>`;
         }).join("");
+
         const totalPrice = totalAmountSum;
         const totalSalesExcludingPackDue = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
         const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
         const remaining = parseFloat(givenAmount) - totalPrice;
-        const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${parseFloat(givenAmount).toFixed(2)}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${Math.abs(remaining).toFixed(2)}</span></td></tr>` : '';
+
+        // ⭐ FIX: Calculate totalAmountWithLoan BEFORE it is used in loanRow
         const totalAmountWithLoan = Math.abs(globalLoanAmount) + totalPrice;
-        const loanRow = globalLoanAmount !== 0 ? `<tr><td style="font-size:${fontSizeText}; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${Math.abs(globalLoanAmount).toFixed(2)}</span></td><td style="font-weight:bold; text-align:right; font-size:${fontSizeTotalLarge}; padding:4px 0;">Rs. ${Math.abs(totalAmountWithLoan).toFixed(2)}</td></tr>` : '';
+
+        // --- Apply Receipt Formatting to Summary Values ---
+        const formattedTotalSalesExcludingPackDue = formatReceiptValue(totalSalesExcludingPackDue);
+        const formattedTotalPackDueCost = formatReceiptValue(totalPackDueCost);
+        const formattedTotalPrice = formatReceiptValue(totalPrice);
+        const formattedGivenAmount = formatReceiptValue(givenAmount);
+        const formattedRemaining = formatReceiptValue(Math.abs(remaining));
+        const formattedGlobalLoanAmount = formatReceiptValue(Math.abs(globalLoanAmount));
+        const formattedTotalAmountWithLoan = formatReceiptValue(Math.abs(totalAmountWithLoan));
+
+
+        const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
+
+        // ⭐ FIX: loanRow now uses the correctly initialized totalAmountWithLoan
+        const loanRow = globalLoanAmount !== 0 ? `<tr><td style="font-size:${fontSizeText}; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td><td style="font-weight:bold; text-align:right; font-size:${fontSizeTotalLarge}; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td></tr>` : '';
+
+        // --- 3. Format Consolidated Item Summary HTML (Two items per row, no units) ---
+        const summaryEntries = Object.entries(consolidatedSummary);
+        let summaryHtmlContent = '';
+
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [itemName1, data1] = summaryEntries[i];
+            const [itemName2, data2] = summaryEntries[i + 1] || [null, null]; // Second item in the pair
+
+            const item1Text = `${itemName1}: ${formatReceiptValue(data1.totalWeight)} / ${formatReceiptValue(data1.totalPacks)}`;
+            const item2Text = data2 ? `${itemName2}: ${formatReceiptValue(data2.totalWeight)} / ${formatReceiptValue(data2.totalPacks)}` : '';
+
+            summaryHtmlContent += `
+            <tr style="font-size:${fontSizeText};">
+                <td style="width:50%; text-align:left; padding:2px 0; border:1px solid #000; padding:2px 4px; margin-top:1px;">${item1Text}</td>
+                <td style="width:50%; text-align:left; padding:2px 4px; border:1px solid #000; margin-top:1px;">${item2Text}</td>
+            </tr>
+        `;
+        }
+
+        const itemSummaryHtml = `
+        <div style="margin-top: 10px; text-align: center; font-size: 12px; text-transform: lowercase;">
+    ${summaryHtmlContent}
+</div>
+
+    `;
+
+        // --- Final HTML Structure ---
         return `<div class="receipt-container" style="width:100%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;">
     <div style="text-align:center; margin-bottom:5px; border-bottom:1px solid #000;"><h3 style="font-size:${fontSizeHeader}; font-weight:bold; margin:0 0 5px 0;">NVDS</h3></div>
     <div style="text-align:left; margin-bottom:5px;"><table style="width:100%; font-size:9px; border-collapse:collapse;"><tr><td>දිනය: ${date}</td><td style="text-align:right;">${time}</td></tr><tr><td colspan="2">දුර: ${mobile || ''}</td></tr><tr><td>බිල් අංකය: <strong>${billNo}</strong></td><td style="text-align:right;"><strong style="font-size:${fontSizeTitle};">${customerName.toUpperCase()}</strong></td></tr></table></div>
     <hr style="border:1px solid #000; margin:5px 0;">
     <table style="width:100%; font-size:${is4Inch ? '10px' : '9px'}; border-collapse:collapse; table-layout:fixed;">${colGroups}<thead><tr style="border-bottom:1px solid #000;">
     ${is4Inch ? `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.1em;">මිල</th><th style="text-align:right; padding:4px; font-size:1.1em;">අගය</th><th style="text-align:right; padding:4px; font-size:1.1em;">sup code</th>` : `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.2em;">මිල</th><th style="text-align:right; padding:4px; font-size:1.2em;">අගය</th><th style="text-align:right; padding:4px; font-size:1.2em;">sup code</th>`}</tr></thead>
-    <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="${is4Inch ? '1' : '1'}" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td colspan="3" style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalSalesExcludingPackDue.toFixed(2)}</td></tr></tbody></table>
-    <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">00</td></tr>
-    <tr><td style="text-align:left; padding:2px 0;">කුලිය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${totalPackDueCost.toFixed(2)}</td></tr>
-    <tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${totalPrice.toFixed(2)}</span></td></tr>${givenAmountRow}${loanRow}</table>
+    <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="${is4Inch ? '1' : '1'}" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td colspan="3" style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${formattedTotalSalesExcludingPackDue}</td></tr></tbody></table>
+    
+    ${itemSummaryHtml}
+
+    <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formatReceiptValue(0)}</td></tr>
+    <tr><td style="text-align:left; padding:2px 0;">කුලිය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
+    <tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
     <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
     };
 
@@ -617,7 +742,7 @@ export default function SalesEntry() {
     };
 
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
-    
+
     useEffect(() => {
         const handleShortcut = (e) => {
             if (selectedPrintedCustomer && e.key === "F5") { e.preventDefault(); return; }
@@ -635,25 +760,25 @@ export default function SalesEntry() {
             <div className="sales-layout" style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 {isLoading && (<div className="fixed top-0 left-0 right-0 bg-blue-500 text-white py-1 text-center text-sm z-50">Refreshing data...</div>)}
                 {state.isPrinting && (<div className="fixed top-0 left-0 right-0 bg-yellow-500 text-black py-1 text-center text-sm z-50">Printing in progress... Please wait</div>)}
-                <div 
-                    className="three-column-layout" 
-                    style={{ 
-                        opacity: isLoading ? 0.7 : 1, 
-                        display: 'grid', 
+                <div
+                    className="three-column-layout"
+                    style={{
+                        opacity: isLoading ? 0.7 : 1,
+                        display: 'grid',
                         // FIXED: Use flexible grid columns to prevent sidebar overlap
-                        gridTemplateColumns: '200px 1fr 200px', 
-                        gap: '16px', 
-                        padding: '10px', 
-                        marginTop: '-149px' 
+                        gridTemplateColumns: '200px 1fr 200px',
+                        gap: '16px',
+                        padding: '10px',
+                        marginTop: '-149px'
                     }}
                 >
-                    <div 
-                        className="left-sidebar" 
-                        style={{ 
-                            backgroundColor: '#1ec139ff', 
-                            borderRadius: '0.75rem', 
-                            maxHeight: '80.5vh', 
-                            overflowY: 'auto' 
+                    <div
+                        className="left-sidebar"
+                        style={{
+                            backgroundColor: '#1ec139ff',
+                            borderRadius: '0.75rem',
+                            maxHeight: '80.5vh',
+                            overflowY: 'auto'
                         }}
                     >
                         {hasData ? (<CustomerList customers={printedCustomers} type="printed" searchQuery={searchQueries.printed} onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} formatDecimal={formatDecimal} allSales={allSales} lastUpdate={state.forceUpdate || state.windowFocused} />) : (
@@ -662,25 +787,25 @@ export default function SalesEntry() {
                             </div>
                         )}
                     </div>
-                    <div 
-                        className="center-form flex flex-col" 
-                        style={{ 
-                            backgroundColor: '#111439ff', 
-                            padding: '20px', 
-                            borderRadius: '0.75rem', 
-                            color: 'white', 
+                    <div
+                        className="center-form flex flex-col"
+                        style={{
+                            backgroundColor: '#111439ff',
+                            padding: '20px',
+                            borderRadius: '0.75rem',
+                            color: 'white',
                             // REMOVED fixed width/margin that caused overlap
-                            height: '150.5vh', 
-                            boxSizing: 'border-box', 
-                            gridColumnStart: 2, 
-                            gridColumnEnd: 3 
+                            height: '150.5vh',
+                            boxSizing: 'border-box',
+                            gridColumnStart: 2,
+                            gridColumnEnd: 3
                         }}
                     >
                         <div className="flex-shrink-0">
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div className="w-full flex justify-between items-center">
-                                   <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.25rem' }}>Bill No: {currentBillNo}</div>
-                                   <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "650px", marginTop: "-30px" }}>Total Sales: Rs. {formatDecimal(mainTotal)}</div>
+                                    <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.25rem' }}>Bill No: {currentBillNo}</div>
+                                    <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "650px", marginTop: "-30px" }}>Total Sales: Rs. {formatDecimal(mainTotal)}</div>
                                 </div>
                                 <div className="flex items-end gap-3 w-full">
                                     <div className="flex-1 min-w-0">
@@ -689,25 +814,25 @@ export default function SalesEntry() {
                                     <div style={{ flex: '0 0 250px', minWidth: '250px' }}>
                                         <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customers.filter((c) => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map((c) => ({ value: c.short_name, label: `${c.short_name}` }))} onInputChange={(inputValue, { action }) => { if (action === "input-change") updateState({ customerSearchInput: inputValue.toUpperCase() }); }} inputValue={customerSearchInput} placeholder="SELECT CUSTOMER" isClearable isSearchable styles={{ control: (base) => ({ ...base, minHeight: "36px", height: "36px", fontSize: "12px", backgroundColor: "#0d0d4d", borderColor: "#4a5568", borderRadius: '0.5rem' }), valueContainer: (base) => ({ ...base, padding: "0 6px", height: "36px" }), placeholder: (base) => ({ ...base, fontSize: "12px", color: "#a0aec0", fontWeight: "normal" }), input: (base) => ({ ...base, fontSize: "12px", color: "white" }), singleValue: (base) => ({ ...base, color: "white", fontSize: "12px", fontWeight: "bold" }), option: (base, state) => ({ ...base, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: state.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }), }} />
                                     </div>
-                                    
+
                                     {/* ⭐ NEW PRICE PER KG INPUT FIELD for Bulk Sync (ID: price_per_kg) - REMAINS NUMERIC ⭐ */}
                                     <div style={{ flex: '0 0 60px', minWidth: '120px' }}>
 
-                                        <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text" 
-                                            value={formData.price_per_kg} 
-                                            onChange={(e) => { 
-                                                const v = e.target.value; 
+                                        <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text"
+                                            value={formData.price_per_kg}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
                                                 // Retain numeric validation for the BULK field
-                                                if (/^\d*\.?\d*$/.test(v)) handleInputChange('price_per_kg', v); 
+                                                if (/^\d*\.?\d*$/.test(v)) handleInputChange('price_per_kg', v);
                                             }}
-                                            onKeyDown={(e) => handleKeyDown(e, "price_per_kg")} 
-                                            placeholder="PRICE/KG (Bulk Sync)" 
-                                            className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" 
-                                            style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} 
+                                            onKeyDown={(e) => handleKeyDown(e, "price_per_kg")}
+                                            placeholder="PRICE/KG (Bulk Sync)"
+                                            className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500"
+                                            style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }}
                                         />
                                     </div>
                                     {/* ⭐ END NEW PRICE PER KG INPUT FIELD ⭐ */}
-                                    
+
                                     <div className="flex-1 min-w-0">
                                         <div className="p-2 rounded-lg text-center border relative" style={{ backgroundColor: "white", flex: "0 0 200px", marginLeft: "05px" }}>
                                             <span className="absolute left-2 top-1 text-gray-400 text-xs pointer-events-none">Loan Amount</span>
@@ -723,39 +848,39 @@ export default function SalesEntry() {
                                         <Select id="item_code_select" ref={refs.item_code_select} value={formData.item_code ? { value: formData.item_code, label: `${formData.item_name} (${formData.item_code})`, item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due } } : null} onChange={handleItemSelect} options={items.filter((item) => !state.itemSearchInput || String(item.no).toLowerCase().startsWith(state.itemSearchInput.toLowerCase()) || String(item.type).toLowerCase().includes(state.itemSearchInput.toLowerCase())).map((item) => ({ value: item.no, label: `${item.type} (${item.no})`, item }))} onInputChange={(inputValue) => updateState({ itemSearchInput: inputValue.toUpperCase() })} inputValue={state.itemSearchInput} onKeyDown={(e) => { if (e.key === "Enter") return; handleKeyDown(e, "item_code_select"); }} placeholder="SELECT ITEM" className="react-select-container font-bold text-sm w-full" styles={{ control: (base) => ({ ...base, height: "44px", minHeight: "44px", fontSize: "1.25rem", backgroundColor: "#0d0d4d", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: (base) => ({ ...base, padding: "0 1rem", height: "44px" }), input: (base) => ({ ...base, color: "white", fontSize: "1.25rem" }), singleValue: (base) => ({ ...base, color: "white", fontWeight: "bold", fontSize: "1.25rem" }), placeholder: (base) => ({ ...base, color: "#a0aec0", fontWeight: "normal" }), option: (base, state) => ({ ...base, fontWeight: "bold", color: "black", backgroundColor: state.isFocused ? "#e5e7eb" : "white", fontSize: "1rem" }), }} />
                                     </div>
                                     {[
-                                        { id: 'weight', placeholder: "බර", fieldRef: refs.weight }, 
+                                        { id: 'weight', placeholder: "බර", fieldRef: refs.weight },
                                         { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item }, // 3. JSX Update: Use correct ref for grid item
-                                        { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs }, 
+                                        { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs },
                                         { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }
                                     ].map(({ id, placeholder, fieldRef, isReadOnly = false }, index) => (
-                                        <div key={id} style={{ 
-                                            gridColumnStart: 8 + index + (index > 0 ? 0 : 0), 
-                                            gridColumnEnd: 9 + index + (index > 0 ? 0 : 0), 
-                                            ...(id === 'total' && { gridColumnEnd: 14, marginLeft: "10px" }) 
+                                        <div key={id} style={{
+                                            gridColumnStart: 8 + index + (index > 0 ? 0 : 0),
+                                            gridColumnEnd: 9 + index + (index > 0 ? 0 : 0),
+                                            ...(id === 'total' && { gridColumnEnd: 14, marginLeft: "10px" })
                                         }}>
-                                            <input 
-                                                id={id} 
+                                            <input
+                                                id={id}
                                                 // Grid item should use its separate state for its value
-                                                ref={id === 'price_per_kg_grid_item' ? refs.price_per_kg_grid_item : fieldRef} 
+                                                ref={id === 'price_per_kg_grid_item' ? refs.price_per_kg_grid_item : fieldRef}
                                                 name={id === 'price_per_kg_grid_item' ? 'price_per_kg' : id} // Use 'price_per_kg' as name for form data update
-                                                type="text" 
+                                                type="text"
                                                 // ⭐ 3. JSX Update: Use gridPricePerKg for the grid input's visual value
-                                                value={id === 'price_per_kg_grid_item' ? gridPricePerKg : formData[id]} 
-                                                onChange={(e) => { 
-                                                    const v = e.target.value; 
-                                                    
+                                                value={id === 'price_per_kg_grid_item' ? gridPricePerKg : formData[id]}
+                                                onChange={(e) => {
+                                                    const v = e.target.value;
+
                                                     // Handle price_per_kg_grid_item separately to isolate it from the bulk field's onChange logic
                                                     if (id === 'price_per_kg_grid_item') {
-                                                        handleInputChange(id, v); 
-                                                    } else if (/^\d*\.?\d*$/.test(v)) { 
-                                                        handleInputChange(id, v); 
+                                                        handleInputChange(id, v);
+                                                    } else if (/^\d*\.?\d*$/.test(v)) {
+                                                        handleInputChange(id, v);
                                                     }
                                                 }}
-                                                onKeyDown={(e) => handleKeyDown(e, id)} 
-                                                placeholder={placeholder} 
-                                                readOnly={isReadOnly} 
-                                                className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full" 
-                                                style={{ backgroundColor: isReadOnly ? '#e2e8f0' : 'white', color: 'black', borderRadius: '0.5rem', textAlign: 'right', fontSize: '1.125rem', fontWeight: 600, height: '40px', padding: '0.5rem 0.75rem', width: '100%', boxSizing: 'border-box' }} 
+                                                onKeyDown={(e) => handleKeyDown(e, id)}
+                                                placeholder={placeholder}
+                                                readOnly={isReadOnly}
+                                                className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
+                                                style={{ backgroundColor: isReadOnly ? '#e2e8f0' : 'white', color: 'black', borderRadius: '0.5rem', textAlign: 'right', fontSize: '1.125rem', fontWeight: 600, height: '40px', padding: '0.5rem 0.75rem', width: '100%', boxSizing: 'border-box' }}
                                             />
                                         </div>
                                     ))}
@@ -804,15 +929,15 @@ export default function SalesEntry() {
                             </div>
                         </div>
                     </div>
-                    <div 
-                        className="right-sidebar" 
-                        style={{ 
-                            backgroundColor: '#1ec139ff', 
-                            borderRadius: '0.75rem', 
-                            maxHeight: '80.5vh', 
-                            overflowY: 'auto', 
-                            gridColumnStart: 3, 
-                            gridColumnEnd: 4 
+                    <div
+                        className="right-sidebar"
+                        style={{
+                            backgroundColor: '#1ec139ff',
+                            borderRadius: '0.75rem',
+                            maxHeight: '80.5vh',
+                            overflowY: 'auto',
+                            gridColumnStart: 3,
+                            gridColumnEnd: 4
                         }}
                     >
                         {hasData ? (<CustomerList customers={unprintedCustomers} type="unprinted" searchQuery={searchQueries.unprinted} onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } })} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} formatDecimal={formatDecimal} allSales={allSales} lastUpdate={state.forceUpdate || state.windowFocused} />) : (
