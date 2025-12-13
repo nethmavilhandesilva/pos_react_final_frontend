@@ -24,14 +24,14 @@ body {
     background-color: #1ec139ff; 
     border-radius: 0.75rem;
     max-height: 80.5vh;
-    width: 150px;
+    width: 180px;
     /* 🟢 FIX: Ensure vertical scrolling works, hide horizontal */
     overflow-y: auto; 
     overflow-x: hidden; 
 }
 
 .right-sidebar {
-    margin-left: 240px; /* increase the value to move further right */
+    margin-left: 170px; /* increase the value to move further right */
 }
 
 .center-form {
@@ -43,12 +43,12 @@ body {
     /* Fixed dimensions */
     width: 886px; /* or whatever fixed width you want */
     min-width: 886px;
-    max-width: 995px;
+    max-width: 95px;
     height: auto; /* adjust as needed */
 
     /* Center horizontally */
     margin-left: calc(50% - 369px);
-    margin-right: 120px;
+    margin-right: 170px;
 
     /* Optional: prevent other components from affecting it */
     box-sizing: border-box;

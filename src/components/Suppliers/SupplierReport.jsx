@@ -2,25 +2,24 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from "../../api";
-// 1. IMPORT useNavigate from react-router-dom
 import { useNavigate } from 'react-router-dom';
 
 const SupplierReport = () => {
-    // Initialize useNavigate hook
     const navigate = useNavigate();
 
     // State for all data
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
+    
+    // 🚀 NEW STATE: Bill size selector (3mm or 4mm)
+    const [billSize, setBillSize] = useState('3mm');
 
     const [printedSearchTerm, setPrintedSearchTerm] = useState('');
     const [unprintedSearchTerm, setUnprintedSearchTerm] = useState('');
 
-    // --- REPORT VIEW STATE (Profit Removed) ---
-    // 'summary' or 'details'
     const [currentView, setCurrentView] = useState('summary');
 
-    // State for Details Panel (always displayed)
+    // State for Details Panel
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [selectedBillNo, setSelectedBillNo] = useState(null);
     const [isUnprintedBill, setIsUnprintedBill] = useState(false);
@@ -30,7 +29,7 @@ const SupplierReport = () => {
     // --- Function to fetch the summary data ---
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
-        setCurrentView('summary'); // Reset view to summary on refresh
+        setCurrentView('summary');
         try {
             const response = await api.get('/suppliers/bill-status-summary');
             setSummary({
@@ -51,12 +50,11 @@ const SupplierReport = () => {
     }, [fetchSummary]);
 
     // --- Navigation Handler ---
-    // 2. Handler function to navigate to SalesEntry page
     const goToSalesEntry = () => {
         navigate('/sales');
     };
 
-    // --- Filtering Logic (omitted for brevity) ---
+    // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
         return summary.printed.filter(item =>
@@ -72,7 +70,7 @@ const SupplierReport = () => {
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    // --- Handle Unprinted Bill Click (omitted for brevity) ---
+    // --- Handle Unprinted Bill Click ---
     const handleUnprintedBillClick = async (supplierCode, billNo) => {
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
@@ -90,7 +88,7 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Handle Printed Bill Click (omitted for brevity) ---
+    // --- Handle Printed Bill Click ---
     const handlePrintedBillClick = async (supplierCode, billNo) => {
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
@@ -108,16 +106,16 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Function to reset details (omitted for brevity) ---
+    // --- Function to reset details ---
     const resetDetails = () => {
         setSelectedSupplier(null);
         setSelectedBillNo(null);
         setIsUnprintedBill(false);
         setSupplierDetails([]);
-        fetchSummary(); // Refresh summary after possible print action
+        fetchSummary();
     };
 
-    // --- Helper function for details panel (omitted for brevity) ---
+    // --- Helper function for details panel ---
     const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
@@ -125,7 +123,7 @@ const SupplierReport = () => {
 
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
-    // --- CALCULATIONS for details panel (omitted for brevity) ---
+    // --- CALCULATIONS for details panel ---
     const {
         totalWeight,
         totalCommission,
@@ -164,7 +162,7 @@ const SupplierReport = () => {
             itemSummary[itemName].totalPacks += packs;
         });
 
-        const finalAmountPayable = totalsupplierSales ;
+        const finalAmountPayable = totalsupplierSales;
 
         return {
             totalWeight,
@@ -177,16 +175,45 @@ const SupplierReport = () => {
         };
     }, [supplierDetails]);
 
-    // --- BILL CONTENT GENERATION (omitted for brevity) ---
+    // --- BILL CONTENT GENERATION (UPDATED FOR BILL SIZE SUPPORT) ---
     const getBillContent = useCallback((currentBillNo) => {
-        // ... (HTML generation logic remains the same)
         const date = new Date().toLocaleDateString('si-LK');
         const time = new Date().toLocaleTimeString('si-LK');
-
         const mobile = '071XXXXXXX';
         const totalPackDueCost = totalSupplierPackCost;
         const finaltotal = totalsupplierSales + totalPackDueCost;
+        
+        const is4mm = billSize === '4mm';
 
+        // Define column widths based on bill size
+        let colGroups, itemHeader;
+        if (is4mm) {
+            // 4mm format: Single line with item name and packs
+            colGroups = `
+                <colgroup>
+                    <col style="width:30%;"> <!-- Item + Packs -->
+                    <col style="width:15%;"> <!-- Weight -->
+                    <col style="width:15%;"> <!-- Price -->
+                    <col style="width:20%;"> <!-- Value -->
+                    <col style="width:20%;"> <!-- Customer Code -->
+                </colgroup>
+            `;
+            itemHeader = 'වර්ගය (මලු)';
+        } else {
+            // 3mm format: Item name and packs on separate lines
+            colGroups = `
+                <colgroup>
+                    <col style="width:25%;"> <!-- Item -->
+                    <col style="width:15%;"> <!-- Weight -->
+                    <col style="width:15%;"> <!-- Price -->
+                    <col style="width:25%;"> <!-- Value -->
+                    <col style="width:20%;"> <!-- Customer Code -->
+                </colgroup>
+            `;
+            itemHeader = 'වර්ගය';
+        }
+
+        // Item Summary HTML
         const itemSummaryKeys = Object.keys(itemSummaryData);
         const itemSummaryHtml = itemSummaryKeys.map(itemName => {
             const sum = itemSummaryData[itemName];
@@ -198,31 +225,55 @@ const SupplierReport = () => {
             `;
         }).join('');
 
+        // Detailed Items HTML with bill size support
         const detailedItemsHtml = supplierDetails.map(record => {
             const weight = parseFloat(record.weight) || 0;
             const packs = parseInt(record.packs) || 0;
             const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
             const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
             const itemName = record.item_name || 'Unknown Item';
+            const customerCode = record.customer_code?.toUpperCase() || '';
 
-            return `
-                <tr>
-                    <td style="text-align:left; padding:3px; border-bottom:1px solid #eee;">
-                        <strong>${itemName}</strong><br>${packs} packs
-                    </td>
-                    <td style="text-align:center; padding:3px; border-bottom:1px solid #eee;">${weight.toFixed(3)}</td>
-                    <td style="text-align:center; padding:3px; border-bottom:1px solid #eee;">${SupplierPricePerKg.toFixed(2)}</td>
-                    <td style="text-align:right; padding:3px; border-bottom:1px solid #eee;">
-                        <strong style="font-size:0.9em;">${record.customer_code?.toUpperCase() || ''}</strong><br>${SupplierTotal.toFixed(2)}
-                    </td>
-                </tr>
-            `;
+            if (is4mm) {
+                // 4mm: Single line with item name and packs
+                return `
+                    <tr>
+                        <td style="text-align:left; padding:3px; border-bottom:1px solid #eee;">
+                            <strong>${itemName}</strong> (${packs})
+                        </td>
+                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee;">${weight.toFixed(3)}</td>
+                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee;">${SupplierPricePerKg.toFixed(2)}</td>
+                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee;">${SupplierTotal.toFixed(2)}</td>
+                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee; font-size:0.9em;">${customerCode}</td>
+                    </tr>
+                `;
+            } else {
+                // 3mm: Item name on top, packs on bottom
+                return `
+                    <tr>
+                        <td style="text-align:left; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">
+                            <strong>${itemName}</strong><br>${packs}
+                        </td>
+                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">${weight.toFixed(3)}</td>
+                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">${SupplierPricePerKg.toFixed(2)}</td>
+                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">${SupplierTotal.toFixed(2)}</td>
+                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee; vertical-align:top; font-size:0.9em;">${customerCode}</td>
+                    </tr>
+                `;
+            }
         }).join('');
 
+        // Adjust font sizes based on bill size
+        const fontSizeHeader = is4mm ? '1.4em' : '1.6em';
+        const fontSizeTitle = is4mm ? '1.2em' : '1.5em';
+        const fontSizeTable = is4mm ? '8px' : '9px';
+        const fontSizeTotal = is4mm ? '10px' : '12px';
+        const maxWidth = is4mm ? '320px' : '300px';
+
         return `
-        <div class="receipt-container" style="width:100%; max-width:300px; margin:0 auto; padding:5px; font-family:Arial, sans-serif;">
+        <div class="receipt-container" style="width:100%; max-width:${maxWidth}; margin:0 auto; padding:5px; font-family:Arial, sans-serif;">
             <div style="text-align:center; margin-bottom:5px;">
-                <h3 style="font-size:1.6em; margin:0;">NVDS</h3>
+                <h3 style="font-size:${fontSizeHeader}; margin:0;">NVDS</h3>
             </div>
 
             <div style="margin-bottom:5px;">
@@ -236,34 +287,36 @@ const SupplierReport = () => {
                     </tr>
                     <tr>
                         <td>බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong></td>
-                        <td style="text-align:right;"><strong style="font-size:1.5em;">${selectedSupplier?.toUpperCase() || ''}</strong></td>
+                        <td style="text-align:right;"><strong style="font-size:${fontSizeTitle};">${selectedSupplier?.toUpperCase() || ''}</strong></td>
                     </tr>
                 </table>
             </div>
 
             <hr style="border:1px solid #000; margin:5px 0;">
 
-            <table style="width:100%; font-size:9px; border-collapse:collapse;">
+            <table style="width:100%; font-size:${fontSizeTable}; border-collapse:collapse; table-layout:fixed;">
+                ${colGroups}
                 <thead>
                     <tr>
-                        <th style="text-align:left; padding:2px;">වර්ගය / මලු</th>
+                        <th style="text-align:left; padding:2px;">${itemHeader}</th>
                         <th style="text-align:center; padding:2px;">කිලෝ</th>
                         <th style="text-align:center; padding:2px;">මිල</th>
                         <th style="text-align:right; padding:2px;">අගය</th>
+                        <th style="text-align:right; padding:2px;">කේතය</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td colspan="4"><hr style="border:1px solid #000; margin:5px 0;"></td></tr>
+                    <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0;"></td></tr>
                     ${detailedItemsHtml}
-                    <tr><td colspan="4"><hr style="border:1px solid #000; margin:5px 0;"></td></tr>
+                    <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0;"></td></tr>
                     <tr>
-                        <td colspan="2" style="text-align:left; font-weight:bold;">${totalPacksSum}</td>
-                        <td colspan="2" style="text-align:right; font-weight:bold;">${totalsupplierSales.toFixed(2)}</td>
+                        <td colspan="${is4mm ? '1' : '1'}" style="text-align:left; font-weight:bold;">${totalPacksSum}</td>
+                        <td colspan="${is4mm ? '4' : '4'}" style="text-align:right; font-weight:bold;">${totalsupplierSales.toFixed(2)}</td>
                     </tr>
                 </tbody>
             </table>
 
-            <table style="width:100%; font-size:12px; border-collapse:collapse; margin-top:5px;">
+            <table style="width:100%; font-size:${fontSizeTotal}; border-collapse:collapse; margin-top:5px;">
                 <tr>
                     <td>කුලිය:</td>
                     <td style="text-align:right; font-weight:bold;">${totalPackDueCost.toFixed(2)}</td>
@@ -271,14 +324,14 @@ const SupplierReport = () => {
                 <tr>
                     <td>අගය:</td>
                     <td style="text-align:right; font-weight:bold;">
-                        <span style="display:inline-block; border-top:1px solid #000; border-bottom:2px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.2em;">
+                        <span style="display:inline-block; border-top:1px solid #000; border-bottom:2px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:${is4mm ? '1em' : '1.2em'};">
                             ${finaltotal.toFixed(2)}
                         </span>
                     </td>
                 </tr>
             </table>
 
-            <div style="font-size:10px; margin-top:10px;">
+            <div style="font-size:9px; margin-top:10px;">
                 <table style="width:100%; border-collapse:collapse;">
                     ${itemSummaryHtml}
                 </table>
@@ -286,15 +339,15 @@ const SupplierReport = () => {
 
             <hr style="border:1px solid #000; margin:5px 0;">
 
-            <div style="text-align:center; font-size:10px;">
+            <div style="text-align:center; font-size:9px;">
                 <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
                 <p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
             </div>
         </div>
         `;
-    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData]);
+    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData, billSize]);
 
-    // --- Print function (omitted for brevity) ---
+    // --- Print function ---
     const handlePrint = useCallback(async () => {
         if (!supplierDetails || supplierDetails.length === 0) {
             console.log('Cannot print: No details available.');
@@ -329,7 +382,7 @@ const SupplierReport = () => {
 
         if (printWindow) {
             printWindow.document.write('<html><head><title>Bill Print</title>');
-            printWindow.document.write(`<style>body { font-family: sans-serif; margin: 0; padding: 0; }.receipt-container { width: 80mm; padding: 5px; margin: 0 auto; }@media print { body { margin: 0; } }</style>`);
+            printWindow.document.write(`<style>body { font-family: sans-serif; margin: 0; padding: 0; }.receipt-container { padding: 5px; margin: 0 auto; }@media print { body { margin: 0; } }</style>`);
             printWindow.document.write('</head><body>');
             printWindow.document.write(content);
             printWindow.document.write('</body></html>');
@@ -348,7 +401,7 @@ const SupplierReport = () => {
                         };
                         setTimeout(async () => {
                             await api.post('/suppliers/mark-as-printed', payload);
-                            resetDetails(); // Refresh and clear
+                            resetDetails();
                         }, 50);
                     } catch (err) {
                         console.error('❌ Failed to mark supplier records as printed:', err);
@@ -361,7 +414,7 @@ const SupplierReport = () => {
         }
     }, [supplierDetails, selectedBillNo, isUnprintedBill, getBillContent, resetDetails]);
 
-    // --- Keyboard event listener (omitted for brevity) ---
+    // --- Keyboard event listener ---
     useEffect(() => {
         const handleKeyDown = (event) => {
             if (event.key === 'F4' || event.keyCode === 115) {
@@ -379,9 +432,8 @@ const SupplierReport = () => {
         };
     }, [supplierDetails, handlePrint, isDetailsLoading]);
 
-    // Helper component for rendering supplier codes (UPDATED FOR FULL WIDTH)
+    // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
-        // ... (Component logic remains the same)
         const groupedItems = useMemo(() => {
             return items.reduce((acc, item) => {
                 const { supplier_code, supplier_bill_no } = item;
@@ -402,7 +454,7 @@ const SupplierReport = () => {
 
         const buttonBaseStyle = {
             width: '100%',
-            display: 'block', // Ensures full width and correct alignment
+            display: 'block',
             textAlign: 'left',
             padding: '10px 15px',
             borderRadius: '6px',
@@ -452,8 +504,7 @@ const SupplierReport = () => {
             <div style={listContainerStyle}>
                 {supplierCodes.map(supplierCode => (
                     <div key={supplierCode} style={groupContainerStyle}>
-                        {/* UPDATED: Changed display to 'block' for simpler flow and full width buttons */}
-                        <div style={{ display: 'block', width: '100%' }}>	
+                        <div style={{ display: 'block', width: '100%' }}>
                             {groupedItems[supplierCode].map(billIdentifier => (
                                 <button
                                     key={billIdentifier}
@@ -480,9 +531,8 @@ const SupplierReport = () => {
         );
     };
 
-    // --- ALWAYS DISPLAYED DETAILS PANEL (INLINED STRUCTURE) (UPDATED FOR COMPACTNESS) ---
+    // --- ALWAYS DISPLAYED DETAILS PANEL ---
     const renderDetailsPanel = () => {
-        // ... (Panel styles and content logic remain the same)
         const panelContainerStyle = {
             backgroundColor: '#ffffff',
             padding: '30px',
@@ -529,17 +579,16 @@ const SupplierReport = () => {
         const tableStyle = {
             width: '100%',
             borderCollapse: 'collapse',
-            minWidth: '250px', // Reduced minimum width
+            minWidth: '250px',
             fontSize: '0.7rem',
             marginBottom: '30px',
         };
-
 
         const thStyle = {
             backgroundColor: '#007bff',
             color: 'white',
             fontWeight: '600',
-            padding: '6px 8px', // Reduced Padding for compactness
+            padding: '6px 8px',
             textAlign: 'left',
             position: 'sticky',
             top: '0',
@@ -549,13 +598,12 @@ const SupplierReport = () => {
         };
 
         const tdStyle = {
-            padding: '6px 8px', // Reduced Padding for compactness
+            padding: '6px 8px',
             textAlign: 'left',
             borderBottom: '1px solid #dee2e6',
-            whiteSpace: 'normal', // Allow content wrap
+            whiteSpace: 'normal',
         };
 
-        // Render empty content block
         const renderEmptyContent = () => (
             <div style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0', minHeight: '400px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <h2 style={{ color: '#343a40', fontSize: '2rem', marginBottom: '20px' }}>Select a Bill to View Details</h2>
@@ -565,8 +613,6 @@ const SupplierReport = () => {
             </div>
         );
 
-
-        // Render data rows when available
         const renderDataRows = () => (
             <tbody>
                 {supplierDetails.map((record, index) => (
@@ -574,7 +620,6 @@ const SupplierReport = () => {
                         key={record.id || index}
                         style={getRowStyle(index)}
                     >
-                        
                         <td style={tdStyle}>{record.bill_no || selectedBillNo}</td>
                         <td style={tdStyle}>{record.customer_code}</td>
                         <td style={tdStyle}><strong>{record.item_name}</strong></td>
@@ -583,33 +628,29 @@ const SupplierReport = () => {
                         <td style={tdStyle}>{formatDecimal(record.price_per_kg)}</td>
                         <td style={tdStyle}>{formatDecimal(record.SupplierPricePerKg)}</td>
                         <td style={tdStyle}>
-  {formatDecimal(
-    (parseFloat(record?.total) || 0) - (parseFloat(record?.CustomerPackLabour) || 0)
-  )}
-</td>
-
+                            {formatDecimal(
+                                (parseFloat(record?.total) || 0) - (parseFloat(record?.CustomerPackLabour) || 0)
+                            )}
+                        </td>
                         <td style={tdStyle}>{formatDecimal(record.SupplierTotal)}</td>
                         <td style={tdStyle}>{formatDecimal(record.commission_amount)}</td>
-                        <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(amountPayable)}</td>
+                        <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(record.SupplierTotal)}</td>
                     </tr>
                 ))}
-                {/* FIX APPLIED HERE: colSpan changed to 3 to align with the first three header columns */}
                 <tr style={{ ...getRowStyle(supplierDetails.length), fontWeight: 'bold', borderTop: '2px solid #000' }}>
-                    <td style={tdStyle} colSpan="3"><strong>TOTALS</strong></td> {/* Spans Bill No, Cus, Item */}
-                    <td style={tdStyle}>{totalPacksSum}</td> {/* Packs */}
-                    <td style={tdStyle}>{formatDecimal(totalWeight, 3)}</td> {/* Weight */}
-                    <td style={tdStyle}>-</td> {/* CusPrice/kg - Placeholder, no total needed */}
-                    <td style={tdStyle}>-</td> {/* SupPrice/kg - Placeholder, no total needed */}
-                    <td style={tdStyle}>-</td> {/* Cus Gross Total - Placeholder, complex total */}
-                    <td style={tdStyle}>{formatDecimal(totalsupplierSales)}</td> {/* Sup Gross Total */}
-                    <td style={tdStyle}>{formatDecimal(totalCommission)}</td> {/* Comm */}
-                    <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(amountPayable)}</td> {/* NetPay */}
+                    <td style={tdStyle} colSpan="3"><strong>TOTALS</strong></td>
+                    <td style={tdStyle}>{totalPacksSum}</td>
+                    <td style={tdStyle}>{formatDecimal(totalWeight, 3)}</td>
+                    <td style={tdStyle}>-</td>
+                    <td style={tdStyle}>-</td>
+                    <td style={tdStyle}>-</td>
+                    <td style={tdStyle}>{formatDecimal(totalsupplierSales)}</td>
+                    <td style={tdStyle}>{formatDecimal(totalCommission)}</td>
+                    <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(amountPayable)}</td>
                 </tr>
             </tbody>
         );
 
-
-        // Item Summary Component
         const ItemSummary = ({ summaryData }) => {
             const itemNames = Object.keys(summaryData);
             if (itemNames.length === 0) return null;
@@ -629,7 +670,6 @@ const SupplierReport = () => {
                 borderCollapse: 'collapse',
                 marginTop: '0px',
             };
-
 
             return (
                 <div>
@@ -671,27 +711,19 @@ const SupplierReport = () => {
 
         return (
             <div style={panelContainerStyle}>
-
-                {/* Clear/Back Button */}
-
-
-                {/* Supplier Code in Header */}
                 <div style={headerStyle}>
                     <h2 style={{ fontSize: "1.5rem" }}>
                         Transaction Details (Bill No: <strong>{selectedBillNo}</strong>)
                     </h2>
-
                     <span style={supplierCodeBadgeStyle}>
                         {selectedSupplier || 'NO DATA'}
                     </span>
                 </div>
 
-                {/* Detailed Table */}
                 <div style={tableContainerStyle}>
                     <table style={tableStyle}>
                         <thead>
                             <tr>
-                                
                                 <th style={thStyle}>Bill No</th>
                                 <th style={thStyle}>Cus</th>
                                 <th style={thStyle}>Item</th>
@@ -703,19 +735,16 @@ const SupplierReport = () => {
                                 <th style={{ ...thStyle, whiteSpace: 'normal' }}>Sup Gross Total</th>
                                 <th style={thStyle}>Comm</th>
                                 <th style={{ ...thStyle, paddingLeft: '8px' }}>NetPay</th>
-
                             </tr>
                         </thead>
                         {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ padding: 0 }}>{renderEmptyContent()}</td></tr></tbody>}
                     </table>
                 </div>
 
-                {/* Item Summary (only when data exists) */}
                 {selectedSupplier && Object.keys(itemSummaryData).length > 0 && (
                     <ItemSummary summaryData={itemSummaryData} />
                 )}
 
-                {/* Print Button */}
                 <div style={{ textAlign: 'center' }}>
                     <button
                         style={printButtonStyle}
@@ -735,19 +764,18 @@ const SupplierReport = () => {
         );
     };
 
-    // --- Central Content Renderer (omitted for brevity) ---
     const renderCenterContent = () => {
         return renderDetailsPanel();
     };
 
-    // 3. Define the style for the top navigation bar
+    // 🚀 UPDATED: Navigation bar with bill size selector
     const navBarStyle = {
-        backgroundColor: '#343a40', // Dark background for the nav bar
+        backgroundColor: '#343a40',
         padding: '15px 50px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        position: 'fixed', // Make it sticky at the top
+        position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
@@ -761,37 +789,62 @@ const SupplierReport = () => {
         margin: 0,
     };
 
-    const navButtonStyle = {
-        padding: '10px 20px',
+    const navControlsStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '20px',
+    };
+
+    const billSizeSelectorStyle = {
+        padding: '8px 15px',
         fontSize: '1rem',
         fontWeight: 'bold',
-        backgroundColor: '#28a745', // Green button
+        backgroundColor: '#17a2b8',
         color: 'white',
         border: 'none',
         borderRadius: '5px',
         cursor: 'pointer',
         transition: 'background-color 0.2s',
-        marginLeft: '20px',
     };
-    
-    // 4. Update the reportContainerStyle to account for the fixed navbar height
+
+    const navButtonStyle = {
+        padding: '10px 20px',
+        fontSize: '1rem',
+        fontWeight: 'bold',
+        backgroundColor: '#28a745',
+        color: 'white',
+        border: 'none',
+        borderRadius: '5px',
+        cursor: 'pointer',
+        transition: 'background-color 0.2s',
+    };
+
     const reportContainerStyle = {
         minHeight: '100vh',
-        padding: '90px 50px 50px 50px', // Increased top padding to push content below the fixed nav
+        padding: '90px 50px 50px 50px',
         fontFamily: 'Roboto, Arial, sans-serif',
         boxSizing: 'border-box',
         backgroundColor: '#99ff99',
     };
 
-
     if (isLoading) return <div style={loadingStyle}>Loading Supplier Report...</div>;
 
     return (
         <>
-            {/* 5. The new Navigation Bar structure */}
+            {/* Navigation Bar with Bill Size Selector */}
             <nav style={navBarStyle}>
                 <h1 style={navTitleStyle}>Supplier Report</h1>
-                <div>
+                <div style={navControlsStyle}>
+                    {/* 🚀 Bill Size Selector */}
+                    <button
+                        style={billSizeSelectorStyle}
+                        onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}
+                        onMouseOver={e => e.currentTarget.style.backgroundColor = '#138496'}
+                        onMouseOut={e => e.currentTarget.style.backgroundColor = '#17a2b8'}
+                    >
+                        📏 Bill Size: {billSize}
+                    </button>
+                    
                     <button
                         style={navButtonStyle}
                         onClick={goToSalesEntry}
@@ -805,11 +858,11 @@ const SupplierReport = () => {
 
             <div style={reportContainerStyle}>
                 <header style={headerContainerStyle}>
-                    {/* The original header content here (currently empty in the original code) */}
+                    {/* Header content if needed */}
                 </header>
 
                 <div style={sectionsContainerStyle}>
-                    {/* --- Left Section: Printed Bills --- */}
+                    {/* Left Section: Printed Bills */}
                     <div style={printedContainerStyle}>
                         <div style={printedSectionStyle}>
                             <h2 style={printedHeaderStyle}> Printed Bills </h2>
@@ -824,12 +877,12 @@ const SupplierReport = () => {
                         </div>
                     </div>
 
-                    {/* --- Center Section: Always Displayed Details Panel --- */}
+                    {/* Center Section: Details Panel */}
                     <div style={centerPanelContainerStyle}>
                         {renderCenterContent()}
                     </div>
 
-                    {/* --- Right Section: Unprinted Bills --- */}
+                    {/* Right Section: Unprinted Bills */}
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
                             <h2 style={unprintedHeaderStyle}> Unprinted Bills </h2>
@@ -849,7 +902,7 @@ const SupplierReport = () => {
     );
 };
 
-// --- STYLES (Kept styles that weren't modified above) ---
+// --- STYLES ---
 
 const headerContainerStyle = {
     padding: '40px 0 30px 0',
@@ -860,9 +913,6 @@ const headerContainerStyle = {
     alignItems: 'flex-end',
     backgroundColor: '#99ff99',
 };
-
-// ... (Other styles are unchanged or defined within the component for brevity)
-// ...
 
 const searchBarStyle = {
     width: '100%',
@@ -896,7 +946,6 @@ const unprintedContainerStyle = {
     marginTop: '-95px',
     marginLeft: '0',
 };
-
 
 const centerPanelContainerStyle = {
     flex: '3',
@@ -968,6 +1017,5 @@ const loadingStyle = {
     color: '#1E88E5',
     backgroundColor: '#99ff99',
 };
-
 
 export default SupplierReport;

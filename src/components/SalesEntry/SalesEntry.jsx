@@ -27,7 +27,7 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
 
     const getUnprintedCustomers = () => {
         const customerMap = {};
-        allSales.filter(s => s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '').forEach(sale => {
+        allSales.filter(s => s.bill_printed === 'N' ).forEach(sale => {
             const customerCode = sale.customer_code;
             const saleTimestamp = new Date(sale.timestamp || sale.created_at || sale.date || sale.id);
             if (!customerMap[customerCode] || saleTimestamp > new Date(customerMap[customerCode].latestTimestamp)) {
@@ -65,7 +65,7 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
         <div key={`${type}-${lastUpdate || ''}`} className="w-full shadow-xl rounded-xl overflow-y-auto border border-black" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh", overflowY: "auto" }}>
             <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
                 <h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>{type === "printed" ? "මුද්‍රණය කළ" : "මුද්‍රණය නොකළ"}</h2>
-                <input type="text" placeholder={`Search by ${type === "printed" ? "Bill No or Code..." : "Customer Code..."}`} value={searchQuery} onChange={(e) => onSearchChange(e.target.value.toUpperCase())} className="px-4 py-0.5 border rounded-xl focus:ring-2 focus:ring-blue-300 uppercase" style={{ width: '155px' }} />
+                <input type="text" placeholder={`Search by ${type === "printed" ? "Bill No or Code..." : "Customer Code..."}`} value={searchQuery} onChange={(e) => onSearchChange(e.target.value.toUpperCase())} className="px-4 py-0.5 border rounded-xl focus:ring-2 focus:ring-blue-300 uppercase" style={{ width: '169px' }} />
             </div>
             <div className="py-1">
                 {displayItems.length === 0 ? (<p className="text-gray-700">No {type === "printed" ? "printed sales" : "unprinted sales"} found.</p>) : (
@@ -140,7 +140,7 @@ const ItemSummary = ({ sales, formatDecimal }) => {
 
 export default function SalesEntry() {
     const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "" };
-    
+
     const refs = {
         customer_code_input: useRef(null),
         customer_code_select: useRef(null),
@@ -152,24 +152,25 @@ export default function SalesEntry() {
         price_per_kg: useRef(null), // Refers to the main bulk update price input
         packs: useRef(null),
         total: useRef(null),
+        price_per_kg_grid_item: useRef(null), // Refers to the grid edit price input
     };
 
-    // UPDATED fieldOrder/skipMap to reflect the top price field and the rest of the flow
-    const fieldOrder = ["customer_code_input", "customer_code_select", "price_per_kg", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
-    // Note: The new 'price_per_kg' field doesn't automatically skip, and we remove the specific next field logic for Enter in handleKeyDown
-    const skipMap = { customer_code_input: "price_per_kg", customer_code_select: "price_per_kg", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg_grid_item: "packs" };
-    
+    // 1. STATE UPDATE: Modified fieldOrder to correctly sequence weight -> price_per_kg_grid_item
+    const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
+    const skipMap = { customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg_grid_item: "packs" };
+
     const [state, setState] = useState({
         allSales: [], selectedPrintedCustomer: null, selectedUnprintedCustomer: null, editingSaleId: null, searchQueries: { printed: "", unprinted: "" }, errors: {}, loanAmount: 0, isManualClear: false,
         isSubmitting: false, formData: initialFormData, packCost: 0, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", currentBillNo: null, isLoading: false, customers: [], items: [],
         suppliers: [], forceUpdate: null, windowFocused: null, isPrinting: false, billSize: '3inch',
         priceManuallyChanged: false, // Flag to control bulk price update
+        gridPricePerKg: "", // ⭐ NEW STATE FIELD for the grid input value
     });
 
     const setFormData = (updater) => setState(prev => ({ ...prev, formData: typeof updater === 'function' ? updater(prev.formData) : updater }));
     const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
 
-    const { allSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId, searchQueries, errors, loanAmount, isManualClear, formData, packCost, isLoading, customers, items, suppliers, isPrinting, billSize } = state;
+    const { allSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId, searchQueries, errors, loanAmount, isManualClear, formData, packCost, isLoading, customers, items, suppliers, isPrinting, billSize, gridPricePerKg } = state;
 
     const { newSales, printedSales, unprintedSales } = useMemo(() => ({
         newSales: allSales.filter(s => s.id && s.bill_printed !== 'Y' && s.bill_printed !== 'N'),
@@ -235,12 +236,18 @@ export default function SalesEntry() {
     };
 
     useEffect(() => {
+        // Calculate total using the primary price_per_kg field, which holds the current value for submission/display.
         const w = parseFloat(formData.weight) || 0;
         const p = parseFloat(formData.price_per_kg) || 0;
         const packs = parseInt(formData.packs) || 0;
         const packDue = parseFloat(formData.pack_due) || 0;
         const total = (w * p) + (packs * packDue);
         setFormData(prev => ({ ...prev, total: Number(total.toFixed(2)) }));
+        
+        // When formData.price_per_kg changes (via bulk field or edit), update the grid field's state to keep them visually in sync
+        if (!state.priceManuallyChanged) { // Prevent the top field from mirroring the grid field during the grid field's manual input
+            updateState({ gridPricePerKg: formData.price_per_kg });
+        }
     }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
 
     useEffect(() => {
@@ -280,20 +287,21 @@ export default function SalesEntry() {
         }
     };
 
+    // 2. INPUT HANDLER UPDATE: Separate logic for price_per_kg (bulk) and price_per_kg_grid_item (single)
     const handleInputChange = (field, value) => {
         
         // --- BULK UPDATE TRIGGER LOGIC ---
         if (field === 'price_per_kg') {
             // Field: price_per_kg (Top Bulk Field)
             setFormData(prev => ({ ...prev, [field]: value }));
-            // Set flag to trigger bulk update on submit
-            updateState({ priceManuallyChanged: true });
+            // Set flag to trigger bulk update on submit, and sync the grid field
+            updateState({ priceManuallyChanged: true, gridPricePerKg: value });
         } else if (field === 'price_per_kg_grid_item') {
             // Field: price_per_kg_grid_item (Grid Edit Field)
-            // It maps to formData.price_per_kg but DOES NOT trigger bulk update flag
+            // It updates the primary formData.price_per_kg for calculation/submission, 
+            // but its *own value* is controlled by the separate state `gridPricePerKg` to prevent the top field from automatically mirroring it while typing.
             setFormData(prev => ({ ...prev, 'price_per_kg': value }));
-            // Ensure flag is false for single edits
-            updateState({ priceManuallyChanged: false });
+            updateState({ gridPricePerKg: value, priceManuallyChanged: false }); // Update its own value and reset bulk flag
         } else {
             // All other fields
             setFormData(prev => ({ ...prev, [field]: value }));
@@ -322,11 +330,11 @@ export default function SalesEntry() {
             const fetchedPackDue = parseFloat(item?.pack_due) || 0;
             const fetchedPackCost = parseFloat(item?.pack_cost) || 0;
             setFormData(prev => ({ ...prev, item_code: item.no, item_name: item.type, pack_due: fetchedPackDue, weight: editingSaleId ? prev.weight : "", price_per_kg: editingSaleId ? prev.price_per_kg : "", packs: editingSaleId ? prev.packs : "", leading_sales_id: editingSaleId ? prev.leading_sales_id : "", total: editingSaleId ? prev.total : "" }));
-            updateState({ packCost: fetchedPackCost, itemSearchInput: "" });
+            updateState({ packCost: fetchedPackCost, itemSearchInput: "", gridPricePerKg: editingSaleId ? formData.price_per_kg : "" }); // ⭐ Initialize grid field state on item select
             setTimeout(() => refs.weight.current?.focus(), 100);
         } else {
             setFormData(prev => ({ ...prev, item_code: "", item_name: "", pack_due: "", price_per_kg: "", weight: "", packs: "", leading_sales_id: "", total: "" }));
-            updateState({ packCost: 0, itemSearchInput: "" });
+            updateState({ packCost: 0, itemSearchInput: "", gridPricePerKg: "" }); // ⭐ Clear grid field state
         }
     };
 
@@ -342,7 +350,7 @@ export default function SalesEntry() {
         updateState({ isManualClear: false });
         
         // Focus the new price_per_kg field for bulk editing, as requested, when a customer is selected.
-        setTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100); 
+        setTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100);
     };
 
     const handleEditClick = (sale) => {
@@ -352,7 +360,7 @@ export default function SalesEntry() {
             fetchedPackDue = parseFloat(matchingItem?.pack_due) || sale.pack_due || "";
         }
         setFormData({ ...sale, item_name: sale.item_name || "", customer_code: sale.customer_code || "", customer_name: sale.customer_name || "", supplier_code: sale.supplier_code || "", item_code: sale.item_code || "", weight: sale.weight || "", price_per_kg: sale.price_per_kg || "", pack_due: fetchedPackDue, total: sale.total || "", packs: sale.packs || "" });
-        updateState({ editingSaleId: sale.id, isManualClear: false, priceManuallyChanged: false }); // Reset flag on edit
+        updateState({ editingSaleId: sale.id, isManualClear: false, priceManuallyChanged: false, gridPricePerKg: sale.price_per_kg || "" }); // ⭐ Set grid field state on edit
         setTimeout(() => { refs.weight.current?.focus(); refs.weight.current?.select(); }, 0);
     };
 
@@ -360,7 +368,7 @@ export default function SalesEntry() {
     
     const handleClearForm = (clearBillNo = false) => {
         setFormData(initialFormData);
-        updateState({ editingSaleId: null, loanAmount: 0, isManualClear: false, packCost: 0, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", priceManuallyChanged: false, ...(clearBillNo && { currentBillNo: null }) });
+        updateState({ editingSaleId: null, loanAmount: 0, isManualClear: false, packCost: 0, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "", ...(clearBillNo && { currentBillNo: null }) }); // ⭐ Clear grid field state
     };
 
     const handleDeleteClick = async () => {
@@ -422,6 +430,7 @@ export default function SalesEntry() {
             const customerSales = allSales.filter(s => s.customer_code === customerCode);
             const isFirstRecordForCustomer = customerSales.length === 0 && !isEditing;
             
+            // Use formData.price_per_kg for submission, which is correctly calculated/set by both price fields
             const payload = {
                 supplier_code: formData.supplier_code.toUpperCase(), customer_code: customerCode.toUpperCase(), customer_name: formData.customer_name, item_code: formData.item_code, item_name: formData.item_name,
                 weight: parseFloat(formData.weight) || 0, price_per_kg: parseFloat(formData.price_per_kg) || 0, pack_due: parseFloat(formData.pack_due) || 0, total: parseFloat(formData.total) || 0, packs: parseFloat(formData.packs) || 0,
@@ -450,8 +459,8 @@ export default function SalesEntry() {
             updateState({ allSales: newAllSales });
             setFormData(prevForm => ({ customer_code: prevForm.customer_code || customerCode, customer_name: prevForm.customer_name, supplier_code: "", code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "" }));
             
-            // Reset the priceManuallyChanged flag on success
-            updateState({ editingSaleId: null, isManualClear: false, isSubmitting: false, packCost: 0, priceManuallyChanged: false });
+            // Reset the priceManuallyChanged flag and clear grid price on success
+            updateState({ editingSaleId: null, isManualClear: false, isSubmitting: false, packCost: 0, priceManuallyChanged: false, gridPricePerKg: "" });
             
             refs.supplier_code.current?.focus();
         } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message || error.toString() }, isSubmitting: false }); }
@@ -474,7 +483,7 @@ export default function SalesEntry() {
             handleClearForm();
             setTimeout(() => { if (refs.customer_code_input.current) refs.customer_code_input.current.focus(); }, 50);
         }
-        updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false }); // Reset flag on customer click
+        updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" }); // ⭐ Clear grid field state on customer click
     };
 
     const handleMarkAllProcessed = async () => {
@@ -585,7 +594,7 @@ export default function SalesEntry() {
             try { const loanResponse = await api.post(routes.getLoanAmount, { customer_short_name: customerCode }); globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0; } catch { }
             const salesIdsToUpdate = salesData.map(s => s.id);
             const updatedAllSales = allSales.map(s => salesIdsToUpdate.includes(s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s);
-            updateState({ allSales: updatedAllSales, selectedPrintedCustomer: null, selectedUnprintedCustomer: null, currentBillNo: null, loanAmount: 0, editingSaleId: null, searchQueries: { printed: "", unprinted: "" }, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", isManualClear: true, packCost: 0, forceUpdate: Date.now(), isPrinting: false });
+            updateState({ allSales: updatedAllSales, selectedPrintedCustomer: null, selectedUnprintedCustomer: null, currentBillNo: null, loanAmount: 0, editingSaleId: null, searchQueries: { printed: "", unprinted: "" }, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", isManualClear: true, packCost: 0, forceUpdate: Date.now(), isPrinting: false, gridPricePerKg: "" }); // ⭐ Clear grid field state
             setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
             const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount, billSize);
             const printPromise = printSingleContent(receiptHtml, customerName);
@@ -670,8 +679,8 @@ export default function SalesEntry() {
                         <div className="flex-shrink-0">
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div className="w-full flex justify-between items-center">
-                                    <div className="text-red-600 font-bold text-lg" style={{ fontSize: '1.25rem' }}>Bill No: {currentBillNo}</div>
-                                    <div className="text-red-600 font-bold text-xl whitespace-nowrap" style={{ marginLeft: "650px", marginTop: "-30px" }}>Total Sales: Rs. {formatDecimal(mainTotal)}</div>
+                                   <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.25rem' }}>Bill No: {currentBillNo}</div>
+                                   <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "650px", marginTop: "-30px" }}>Total Sales: Rs. {formatDecimal(mainTotal)}</div>
                                 </div>
                                 <div className="flex items-end gap-3 w-full">
                                     <div className="flex-1 min-w-0">
@@ -713,7 +722,12 @@ export default function SalesEntry() {
                                     <div style={{ gridColumnStart: 5, gridColumnEnd: 8, marginLeft: "-120px", marginRight: "-02px" }}>
                                         <Select id="item_code_select" ref={refs.item_code_select} value={formData.item_code ? { value: formData.item_code, label: `${formData.item_name} (${formData.item_code})`, item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due } } : null} onChange={handleItemSelect} options={items.filter((item) => !state.itemSearchInput || String(item.no).toLowerCase().startsWith(state.itemSearchInput.toLowerCase()) || String(item.type).toLowerCase().includes(state.itemSearchInput.toLowerCase())).map((item) => ({ value: item.no, label: `${item.type} (${item.no})`, item }))} onInputChange={(inputValue) => updateState({ itemSearchInput: inputValue.toUpperCase() })} inputValue={state.itemSearchInput} onKeyDown={(e) => { if (e.key === "Enter") return; handleKeyDown(e, "item_code_select"); }} placeholder="SELECT ITEM" className="react-select-container font-bold text-sm w-full" styles={{ control: (base) => ({ ...base, height: "44px", minHeight: "44px", fontSize: "1.25rem", backgroundColor: "#0d0d4d", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: (base) => ({ ...base, padding: "0 1rem", height: "44px" }), input: (base) => ({ ...base, color: "white", fontSize: "1.25rem" }), singleValue: (base) => ({ ...base, color: "white", fontWeight: "bold", fontSize: "1.25rem" }), placeholder: (base) => ({ ...base, color: "#a0aec0", fontWeight: "normal" }), option: (base, state) => ({ ...base, fontWeight: "bold", color: "black", backgroundColor: state.isFocused ? "#e5e7eb" : "white", fontSize: "1rem" }), }} />
                                     </div>
-                                    {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight }, { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: null }, { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs }, { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }].map(({ id, placeholder, fieldRef, isReadOnly = false }, index) => (
+                                    {[
+                                        { id: 'weight', placeholder: "බර", fieldRef: refs.weight }, 
+                                        { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item }, // 3. JSX Update: Use correct ref for grid item
+                                        { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs }, 
+                                        { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }
+                                    ].map(({ id, placeholder, fieldRef, isReadOnly = false }, index) => (
                                         <div key={id} style={{ 
                                             gridColumnStart: 8 + index + (index > 0 ? 0 : 0), 
                                             gridColumnEnd: 9 + index + (index > 0 ? 0 : 0), 
@@ -721,15 +735,16 @@ export default function SalesEntry() {
                                         }}>
                                             <input 
                                                 id={id} 
-                                                // Grid item should use the price_per_kg ref for keyboard focus
-                                                ref={id === 'price_per_kg_grid_item' ? refs.price_per_kg : fieldRef} 
-                                                name={id === 'price_per_kg_grid_item' ? 'price_per_kg' : id} 
+                                                // Grid item should use its separate state for its value
+                                                ref={id === 'price_per_kg_grid_item' ? refs.price_per_kg_grid_item : fieldRef} 
+                                                name={id === 'price_per_kg_grid_item' ? 'price_per_kg' : id} // Use 'price_per_kg' as name for form data update
                                                 type="text" 
-                                                value={formData[id === 'price_per_kg_grid_item' ? 'price_per_kg' : id]} 
+                                                // ⭐ 3. JSX Update: Use gridPricePerKg for the grid input's visual value
+                                                value={id === 'price_per_kg_grid_item' ? gridPricePerKg : formData[id]} 
                                                 onChange={(e) => { 
                                                     const v = e.target.value; 
                                                     
-                                                    // Allow non-numeric input (letters) for the grid item
+                                                    // Handle price_per_kg_grid_item separately to isolate it from the bulk field's onChange logic
                                                     if (id === 'price_per_kg_grid_item') {
                                                         handleInputChange(id, v); 
                                                     } else if (/^\d*\.?\d*$/.test(v)) { 
@@ -783,7 +798,7 @@ export default function SalesEntry() {
                             <div className="flex items-center justify-between mt-6 mb-4">
                                 <div className="flex justify-between items-center w-full">
                                     <div className="flex items-center gap-0">
-                                        <div className="text-2xl font-bold text-white">(<span>Sales: Rs. {formatDecimal(displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span><span> + Pack Cost: Rs. {formatDecimal(displayedSales.reduce((sum, s) => { const itemCost = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0); const totalCost = parseFloat(s.total) || 0; const packCost = totalCost - itemCost; return sum + Math.max(0, packCost); }, 0))}</span>)</div>
+                                        <div className="text-2xl font-bold" style={{ color: 'red' }}>(<span>Sales: Rs. {formatDecimal(displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span><span> + Pack Cost: Rs. {formatDecimal(displayedSales.reduce((sum, s) => { const itemCost = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0); const totalCost = parseFloat(s.total) || 0; const packCost = totalCost - itemCost; return sum + Math.max(0, packCost); }, 0))}</span>)</div>
                                     </div>
                                 </div>
                             </div>
