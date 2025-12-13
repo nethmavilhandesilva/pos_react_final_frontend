@@ -31,7 +31,7 @@ body {
 }
 
 .right-sidebar {
-    margin-left: 288px; /* increase the value to move further right */
+    margin-left: 240px; /* increase the value to move further right */
 }
 
 .center-form {
@@ -43,12 +43,12 @@ body {
     /* Fixed dimensions */
     width: 886px; /* or whatever fixed width you want */
     min-width: 886px;
-    max-width: 886px;
+    max-width: 995px;
     height: auto; /* adjust as needed */
 
     /* Center horizontally */
     margin-left: calc(50% - 369px);
-    margin-right: auto;
+    margin-right: 120px;
 
     /* Optional: prevent other components from affecting it */
     box-sizing: border-box;
