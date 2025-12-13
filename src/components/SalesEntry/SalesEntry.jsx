@@ -250,10 +250,6 @@ const ItemSummary = ({ sales, formatDecimal }) => {
 
 export default function SalesEntry() {
     // --- Configuration ---
-    const initialData = {
-        csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "",
-        routes: routes
-    };
     const initialFormData = {
         customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "",
         item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "",
@@ -262,23 +258,23 @@ export default function SalesEntry() {
 
     // 🚀 FIXED: Renaming refs to match the strings used in fieldOrder array for clarity and reliability
     const refs = {
-        customer_code_input: useRef(null),    // 0
-        customer_code_select: useRef(null),   // 1
-        given_amount: useRef(null),         // 2
-        supplier_code: useRef(null),      // 3
-        item_code_select: useRef(null),     // 4
-        item_name: useRef(null),             // 5 (Not used for focus, skipping to 6)
-        weight: useRef(null),             // 6
-        price_per_kg: useRef(null),         // 7
-        packs: useRef(null),              // 8
-        total: useRef(null),               // 9 (Not used for focus/skip, last field)
+        customer_code_input: useRef(null),    // 0
+        customer_code_select: useRef(null),   // 1
+        given_amount: useRef(null),         // 2 (Added ref for given amount)
+        supplier_code: useRef(null),      // 3
+        item_code_select: useRef(null),     // 4
+        item_name: useRef(null),             // 5 (Not used for focus, skipping to 6)
+        weight: useRef(null),             // 6
+        price_per_kg: useRef(null),         // 7
+        packs: useRef(null),              // 8
+        total: useRef(null),               // 9 (Not used for focus/skip, last field)
     };
 
-    const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "item_name", "weight", "price_per_kg", "packs", "total"];
+    const fieldOrder = ["customer_code_input", "customer_code_select", "given_amount", "supplier_code", "item_code_select", "weight", "price_per_kg", "packs", "total"];
     // Simplified skip map to jump over the fields that don't need manual text entry/selection
     const skipMap = {
-        customer_code_input: "supplier_code",
-        customer_code_select: "supplier_code", // If selected via dropdown, still moves to given amount
+        customer_code_input: "given_amount",
+        customer_code_select: "given_amount", // If selected via dropdown, still moves to given amount
         given_amount: "supplier_code",
         supplier_code: "item_code_select",
         item_code_select: "weight"
@@ -307,7 +303,9 @@ export default function SalesEntry() {
         suppliers: [],
         forceUpdate: null, // Added for forcing re-renders
         windowFocused: null, // Added for window focus tracking
-        isPrinting: false // Added for print status
+        isPrinting: false, // Added for print status
+        // 🚀 NEW STATE: To track the selected bill size
+        billSize: '3inch' // Default to 3inch
     });
 
     const setFormData = (updater) => setState(prev => ({
@@ -318,7 +316,7 @@ export default function SalesEntry() {
     const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
 
     const { allSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId, searchQueries, errors, loanAmount, isManualClear, formData, packCost,
-        isLoading, customers, items, suppliers, isPrinting
+        isLoading, customers, items, suppliers, isPrinting, billSize
     } = state;
 
     // --- Derived State (useMemo) ---
@@ -382,7 +380,6 @@ export default function SalesEntry() {
     );
 
     const mainTotal = calculateTotal(displayedSales);
-    const unprintedTotal = calculateTotal(unprintedSales);
     const formatDecimal = (val) => (Number.isFinite(parseFloat(val)) ? parseFloat(val).toFixed(2) : "0.00");
     // --- End Derived State ---
 
@@ -443,7 +440,7 @@ export default function SalesEntry() {
 
         setFormData(prev => ({
             ...prev,
-            total: Number(total.toFixed(2))    // ALWAYS shows 0.00 instead of ""
+            total: Number(total.toFixed(2))    // ALWAYS shows 0.00 instead of ""
         }));
     }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
 
@@ -631,7 +628,7 @@ export default function SalesEntry() {
 
         if (hasUnprintedSales) {
             // Immediately save the existing given amount if there are unsaved sales
-            // This is handled by a call to handleSubmitGivenAmount 
+            // This is handled by a call to handleSubmitGivenAmount 
         }
 
         // Focus on given_amount after selection (index 2)
@@ -1096,153 +1093,207 @@ export default function SalesEntry() {
         });
     };
 
-    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0) => {
-        const date = new Date().toLocaleDateString();
-        const time = new Date().toLocaleTimeString();
-        let totalAmountSum = 0, totalPacksSum = 0;
-        const itemGroups = {};
+    // 🚀 MODIFIED: Implemented conditional logic to switch between 3inch (original format) and 4inch (one-line item name)
+  const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+    const date = new Date().toLocaleDateString();
+    const time = new Date().toLocaleTimeString();
+    let totalAmountSum = 0, totalPacksSum = 0;
 
-        const itemsHtml = salesData.map(s => {
-            totalAmountSum += parseFloat(s.total) || 0;
-            const packs = parseInt(s.packs) || 0;
-            totalPacksSum += packs;
+    // Define styles based on billSize
+    const is4Inch = billSize === '4inch';
+    const receiptMaxWidth = is4Inch ? '4in' : '300px';
+    const fontSizeHeader = is4Inch ? '1.2em' : '1.8em';
+    const fontSizeTitle = is4Inch ? '1.4em' : '2.0em';
+    const fontSizeText = is4Inch ? '0.8rem' : '0.9rem';
+    const fontSizeItems = is4Inch ? '0.9em' : '1.5em';
+    const fontSizeTotalLarge = is4Inch ? '1.2em' : '1.5em';
 
-            if (!itemGroups[s.item_name]) itemGroups[s.item_name] = { totalWeight: 0, totalPacks: 0 };
-            itemGroups[s.item_name].totalWeight += parseFloat(s.weight) || 0;
-            itemGroups[s.item_name].totalPacks += packs;
+    // Define column widths for both formats
+    let colGroups, itemHeader;
+    
+    if (is4Inch) {
+        // 4-inch format: Item+Packs | Weight | Price | Value | Supplier
+        colGroups = `
+            <colgroup>
+                <col style="width:25%;"> <!-- Item + Packs -->
+                <col style="width:15%;"> <!-- Weight -->
+                <col style="width:15%;"> <!-- Price -->
+                <col style="width:20%;"> <!-- Value -->
+                <col style="width:25%;"> <!-- Supplier -->
+            </colgroup>
+        `;
+        itemHeader = 'වර්ගය (මලු)';
+    } else {
+        // 3-inch format: Item | Weight | Price | Value | Supplier
+        colGroups = `
+            <colgroup>
+                <col style="width:30%;"> <!-- Item + Packs below -->
+                <col style="width:15%;"> <!-- Weight -->
+                <col style="width:15%;"> <!-- Price -->
+                <col style="width:20%;"> <!-- Value -->
+                <col style="width:20%;"> <!-- Supplier -->
+            </colgroup>
+        `;
+        itemHeader = 'වර්ගය';
+    }
 
-            // 🔧 FIXED ALIGNMENT ROW
-            return `
-<tr style="font-size:1.5em;">
-
-  <td style="text-align:left;">${s.item_name || ""}<br>${packs}</td>
-  <td style="text-align:center;">${(parseFloat(s.weight) || 0).toFixed(2)}</td>
-  <td style="text-align:center;">${(parseFloat(s.price_per_kg) || 0).toFixed(2)}</td>
-  <td style="text-align:right;">${((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)).toFixed(2)}</td>
-   <td style="text-align:right;">${s.supplier_code || ""}</td>
-</tr>`;
-        }).join("");
-
-        const totalPrice = totalAmountSum;
-        const totalSalesExcludingPackDue = salesData.reduce(
-            (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0
-        );
-
-        const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
-
-        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-        const remaining = parseFloat(givenAmount) - totalPrice;
-
-        const givenAmountRow = givenAmount > 0 ? `
-<tr>
-  <td style="width:50%; text-align:left;">
-    <span style="font-size:0.75rem;">දුන් මුදල: </span>
-    <span style="font-weight:bold; font-size:0.9rem;">${parseFloat(givenAmount).toFixed(2)}</span>
-  </td>
-  <td style="width:50%; text-align:right;">
-    <span style="font-size:0.8rem;">ඉතිරිය: </span>
-    <span style="font-weight:bold; font-size:1.5rem;">${Math.abs(remaining).toFixed(2)}</span>
-  </td>
-</tr>` : '';
-
-        const totalAmount = Math.abs(globalLoanAmount) + totalPrice;
-
-        const loanRow = globalLoanAmount !== 0 ? `
-<tr>
-  <td style="font-size:0.9rem; text-align:left;">
-    පෙර ණය: Rs. 
-    <span>${Math.abs(globalLoanAmount).toFixed(2)}</span>
-  </td>
-  <td style="font-weight:bold; text-align:right; font-size:1.5em;">
-    Rs. ${Math.abs(totalAmount).toFixed(2)}
-  </td>
-</tr>` : '';
-
-        return `
-<div class="receipt-container" style="width:100%; max-width:300px; margin:0 auto; padding:5px;">
-
-  <div style="text-align:center; margin-bottom:5px;">
-    <h3 style="font-size:1.8em; font-weight:bold; margin:0;">NVDS</h3>
-  </div>
-
-  <div style="text-align:left; margin-bottom:5px;">
-    <table style="width:100%; font-size:9px; border-collapse:collapse;">
-      <tr><td>දිනය : ${date}</td><td style="text-align:right;">${time}</td></tr>
-      <tr><td colspan="2">දුර : ${mobile || ''}</td></tr>
-      <tr>
-        <td>බිල් අංකය : <strong>${billNo}</strong></td>
-        <td style="text-align:right;">
-          <strong style="font-size:2.0em;">${customerName.toUpperCase()}</strong>
-        </td>
-      </tr>
-    </table>
-  </div>
-
-  <hr style="border:1px solid #000; margin:5px 0; opacity:1;">
-
-  <table style="width:100%; font-size:9px; border-collapse:collapse; table-layout:fixed;">
-    <colgroup>
-      <col style="width:22%;">
-      <col style="width:28%;">
-      <col style="width:15%;">
-      <col style="width:15%;">
-      <col style="width:20%;">
-    </colgroup>
-
-    <thead style="font-size:1.6em;">
-      <tr>
+    const itemsHtml = salesData.map(s => {
+        totalAmountSum += parseFloat(s.total) || 0;
+        const packs = parseInt(s.packs) || 0;
+        totalPacksSum += packs;
         
-        <th style="text-align:left;">වර්ගය<br>මලු</th>
-        <th style="text-align:center;">කිලෝ</th>
-        <th style="text-align:center;">මිල</th>
-        <th style="text-align:right;">අගය</th>
-        <th style="text-align:right;">sup code</th>
-      </tr>
-    </thead>
+        const weight = parseFloat(s.weight) || 0;
+        const price = parseFloat(s.price_per_kg) || 0;
+        const value = (weight * price).toFixed(2);
 
-    <tbody>
-      <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0; opacity:1;"></td></tr>
+        if (is4Inch) {
+            // 4-inch: Single line with item name and packs in parentheses
+            return `
+<tr style="font-size:${fontSizeItems};">
+    <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} (${packs})</td>
+    <td style="text-align:center; padding:2px 4px;">${weight.toFixed(2)}</td>
+    <td style="text-align:center; padding:2px 4px;">${price.toFixed(2)}</td>
+    <td style="text-align:right; padding:2px 4px;">${value}</td>
+    <td style="text-align:right; padding:2px 4px; font-size:0.8em;">${s.supplier_code || ""}</td>
+</tr>`;
+        } else {
+            // 3-inch: Item name on first line, packs on second line BELOW it
+            return `
+<tr style="font-size:${fontSizeItems};">
+    <td style="text-align:left; padding:2px 4px; vertical-align:top;">
+        ${s.item_name || ""}
+        <div style="font-size:0.9em; color:#666; margin-top:2px;">${packs}</div>
+    </td>
+    <td style="text-align:center; padding:2px 4px; vertical-align:top;">${weight.toFixed(2)}</td>
+    <td style="text-align:center; padding:2px 4px; vertical-align:top;">${price.toFixed(2)}</td>
+    <td style="text-align:right; padding:2px 4px; vertical-align:top;">${value}</td>
+    <td style="text-align:right; padding:2px 4px; vertical-align:top; font-size:0.8em;">${s.supplier_code || ""}</td>
+</tr>`;
+        }
+    }).join("");
 
-      ${itemsHtml}
+    const totalPrice = totalAmountSum;
+    const totalSalesExcludingPackDue = salesData.reduce(
+        (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0
+    );
 
-      <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0; opacity:1;"></td></tr>
+    const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
 
-      <tr style="font-size:1.6em; font-weight:bold;">
-        <td colspan="3" style="text-align:left;">${totalPacksSum}</td>
-        <td colspan="2" style="text-align:right;">${totalSalesExcludingPackDue.toFixed(2)}</td>
-      </tr>
-    </tbody>
-  </table>
+    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+    const remaining = parseFloat(givenAmount) - totalPrice;
 
-  <table style="width:100%; font-size:15px; border-collapse:collapse; table-layout:fixed;">
-    <tr>
-      <td style="text-align:left;">ප්‍රවාහන ගාස්තු:</td>
-      <td style="text-align:right; font-weight:bold;">00</td>
-    </tr>
-    <tr>
-      <td style="text-align:left;">කුලිය:</td>
-      <td style="text-align:right; font-weight:bold;">${totalPackDueCost.toFixed(2)}</td>
-    </tr>
-    <tr>
-      <td style="text-align:left;">අගය:</td>
-      <td style="text-align:right; font-weight:bold;">
-        <span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:1.5em;">
-          ${(totalPrice).toFixed(2)}
-        </span>
-      </td>
-    </tr>
+    const givenAmountRow = givenAmount > 0 ? `
+<tr>
+    <td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;">
+        <span style="font-size:0.75rem;">දුන් මුදල: </span>
+        <span style="font-weight:bold; font-size:0.9rem;">${parseFloat(givenAmount).toFixed(2)}</span>
+    </td>
+    <td style="width:50%; text-align:right; padding:4px 0;">
+        <span style="font-size:0.8rem;">ඉතිරිය: </span>
+        <span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${Math.abs(remaining).toFixed(2)}</span>
+    </td>
+</tr>` : '';
 
-    ${givenAmountRow}
-    ${loanRow}
-  </table>
+    const totalAmountWithLoan = Math.abs(globalLoanAmount) + totalPrice;
 
-  <div style="text-align:center; margin-top:10px; font-size:10px;">
-    <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
-    <p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
-  </div>
+    const loanRow = globalLoanAmount !== 0 ? `
+<tr>
+    <td style="font-size:${fontSizeText}; text-align:left; padding:4px 0;">
+        පෙර ණය: Rs. 
+        <span>${Math.abs(globalLoanAmount).toFixed(2)}</span>
+    </td>
+    <td style="font-weight:bold; text-align:right; font-size:${fontSizeTotalLarge}; padding:4px 0;">
+        Rs. ${Math.abs(totalAmountWithLoan).toFixed(2)}
+    </td>
+</tr>` : '';
+
+    return `
+<div class="receipt-container" style="width:100%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;">
+
+    <div style="text-align:center; margin-bottom:5px; border-bottom:1px solid #000;">
+        <h3 style="font-size:${fontSizeHeader}; font-weight:bold; margin:0 0 5px 0;">NVDS</h3>
+    </div>
+
+    <div style="text-align:left; margin-bottom:5px;">
+        <table style="width:100%; font-size:9px; border-collapse:collapse;">
+            <tr>
+                <td>දිනය: ${date}</td>
+                <td style="text-align:right;">${time}</td>
+            </tr>
+            <tr>
+                <td colspan="2">දුර: ${mobile || ''}</td>
+            </tr>
+            <tr>
+                <td>බිල් අංකය: <strong>${billNo}</strong></td>
+                <td style="text-align:right;">
+                    <strong style="font-size:${fontSizeTitle};">${customerName.toUpperCase()}</strong>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <hr style="border:1px solid #000; margin:5px 0;">
+
+    <table style="width:100%; font-size:${is4Inch ? '10px' : '9px'}; border-collapse:collapse; table-layout:fixed;">
+        ${colGroups}
+        <thead>
+            <tr style="border-bottom:1px solid #000;">
+                ${is4Inch ? `
+                <th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th>
+                <th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th>
+                <th style="text-align:center; padding:4px; font-size:1.1em;">මිල</th>
+                <th style="text-align:right; padding:4px; font-size:1.1em;">අගය</th>
+                <th style="text-align:right; padding:4px; font-size:1.1em;">sup code</th>
+                ` : `
+                <th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th>
+                <th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th>
+                <th style="text-align:center; padding:4px; font-size:1.2em;">මිල</th>
+                <th style="text-align:right; padding:4px; font-size:1.2em;">අගය</th>
+                <th style="text-align:right; padding:4px; font-size:1.2em;">sup code</th>
+                `}
+            </tr>
+        </thead>
+        <tbody>
+            ${itemsHtml}
+            <tr style="border-top:1px solid #000;">
+                <td colspan="${is4Inch ? '1' : '1'}" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">
+                    ${totalPacksSum}
+                </td>
+                <td colspan="3" style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">
+                    ${totalSalesExcludingPackDue.toFixed(2)}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;">
+        <tr>
+            <td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td>
+            <td style="text-align:right; padding:2px 0; font-weight:bold;">00</td>
+        </tr>
+        <tr>
+            <td style="text-align:left; padding:2px 0;">කුලිය:</td>
+            <td style="text-align:right; padding:2px 0; font-weight:bold;">${totalPackDueCost.toFixed(2)}</td>
+        </tr>
+        <tr>
+            <td style="text-align:left; padding:2px 0;">අගය:</td>
+            <td style="text-align:right; padding:2px 0; font-weight:bold;">
+                <span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">
+                    ${totalPrice.toFixed(2)}
+                </span>
+            </td>
+        </tr>
+        ${givenAmountRow}
+        ${loanRow}
+    </table>
+
+    <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;">
+        <p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+        <p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p>
+    </div>
 
 </div>`;
-    };
+};
 
     const handlePrintAndClear = async () => {
         const salesData = displayedSales.filter(s => s.id);
@@ -1333,7 +1384,8 @@ export default function SalesEntry() {
             });
 
             // Step 5: Build receipt HTML
-            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount);
+            // 🚀 MODIFIED: Pass current billSize to the HTML builder
+            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount, billSize);
 
             // Step 6: Print in separate window
             const printPromise = printSingleContent(receiptHtml, customerName);
@@ -1389,6 +1441,11 @@ export default function SalesEntry() {
         }
     };
 
+    // 🚀 NEW HANDLER: To update billSize state
+    const handleBillSizeChange = (e) => {
+        updateState({ billSize: e.target.value });
+    };
+
     useEffect(() => {
         const handleShortcut = (e) => {
             if (selectedPrintedCustomer && e.key === "F5") {
@@ -1413,7 +1470,12 @@ export default function SalesEntry() {
 
     // --- Render ---
     return (
-        <Layout style={{ backgroundColor: '#99ff99' }}>
+        // 🚀 MODIFIED: Pass state and handler to Layout
+        <Layout 
+            style={{ backgroundColor: '#99ff99' }}
+            billSize={billSize}
+            handleBillSizeChange={handleBillSizeChange}
+        >
             <div className="sales-layout" style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 {/* Show subtle loading indicator instead of blocking screen */}
                 {isLoading && (
@@ -1451,7 +1513,7 @@ export default function SalesEntry() {
                         width: '150px', // Fixed width from CSS
                         overflowY: 'auto',
                         overflowX: 'hidden',
-                        width: '150px'
+                       
                     }}>
                         {hasData ? (
                             <CustomerList
@@ -1761,7 +1823,7 @@ export default function SalesEntry() {
                                 {/* Given amount input (Moved here from the bottom section) */}
                                 {/* This element needs to be inside the form if the 'Enter' key on it submits a given amount */}
                                 <div className="flex justify-end" style={{ marginTop: '20px' }}>
-                                   
+
                                 </div>
 
 
@@ -1859,21 +1921,21 @@ export default function SalesEntry() {
                                     style={{ backgroundColor: '#4b5563', color: 'white' }}>
                                     F10-Refresh
                                 </button>
-                                 <div style={{ marginLeft: '660px', marginTop: '-25px' }}>
-                                        <input
-                                            id="given_amount"
-                                            ref={refs.given_amount}
-                                            name="given_amount"
-                                            type="number"
-                                            step="0.01"
-                                            value={formData.given_amount}
-                                            onChange={(e) => handleInputChange('given_amount', e.target.value)}
-                                            onKeyDown={(e) => handleKeyDown(e, "given_amount")}
-                                            placeholder="Given Amount"
-                                            className="px-4 py-2 border rounded-xl text-right w-40"
-                                            style={{ backgroundColor: 'white', color: 'black', textAlign: 'right', width: '180px', borderRadius: '0.5rem' }}
-                                        />
-                                    </div>
+                                <div style={{ marginLeft: '660px', marginTop: '-25px' }}>
+                                    <input
+                                        id="given_amount"
+                                        ref={refs.given_amount}
+                                        name="given_amount"
+                                        type="number"
+                                        step="0.01"
+                                        value={formData.given_amount}
+                                        onChange={(e) => handleInputChange('given_amount', e.target.value)}
+                                        onKeyDown={(e) => handleKeyDown(e, "given_amount")}
+                                        placeholder="Given Amount"
+                                        className="px-4 py-2 border rounded-xl text-right w-40"
+                                        style={{ backgroundColor: 'white', color: 'black', textAlign: 'right', width: '180px', borderRadius: '0.5rem' }}
+                                    />
+                                </div>
                                 {/* Removed Given Amount input from this section as it was moved above to be inside the form */}
                             </div>
 
