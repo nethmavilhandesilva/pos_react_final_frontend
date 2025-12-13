@@ -175,7 +175,7 @@ const SupplierReport = () => {
         };
     }, [supplierDetails]);
 
-    // --- BILL CONTENT GENERATION (UPDATED FOR BILL SIZE SUPPORT) ---
+    // --- BILL CONTENT GENERATION (UPDATED WITH PROPER ALIGNMENT) ---
     const getBillContent = useCallback((currentBillNo) => {
         const date = new Date().toLocaleDateString('si-LK');
         const time = new Date().toLocaleTimeString('si-LK');
@@ -186,31 +186,33 @@ const SupplierReport = () => {
         const is4mm = billSize === '4mm';
 
         // Define column widths based on bill size
-        let colGroups, itemHeader;
+        let colGroups, itemHeader, columnCount;
         if (is4mm) {
             // 4mm format: Single line with item name and packs
             colGroups = `
                 <colgroup>
-                    <col style="width:30%;"> <!-- Item + Packs -->
+                    <col style="width:40%;"> <!-- Item + Packs -->
                     <col style="width:15%;"> <!-- Weight -->
                     <col style="width:15%;"> <!-- Price -->
-                    <col style="width:20%;"> <!-- Value -->
-                    <col style="width:20%;"> <!-- Customer Code -->
+                    <col style="width:15%;"> <!-- Value -->
+                    <col style="width:15%;"> <!-- Customer Code -->
                 </colgroup>
             `;
             itemHeader = 'වර්ගය (මලු)';
+            columnCount = 5;
         } else {
             // 3mm format: Item name and packs on separate lines
             colGroups = `
                 <colgroup>
-                    <col style="width:25%;"> <!-- Item -->
+                    <col style="width:35%;"> <!-- Item -->
                     <col style="width:15%;"> <!-- Weight -->
                     <col style="width:15%;"> <!-- Price -->
-                    <col style="width:25%;"> <!-- Value -->
-                    <col style="width:20%;"> <!-- Customer Code -->
+                    <col style="width:20%;"> <!-- Value -->
+                    <col style="width:15%;"> <!-- Customer Code -->
                 </colgroup>
             `;
             itemHeader = 'වර්ගය';
+            columnCount = 5;
         }
 
         // Item Summary HTML
@@ -238,46 +240,47 @@ const SupplierReport = () => {
                 // 4mm: Single line with item name and packs
                 return `
                     <tr>
-                        <td style="text-align:left; padding:3px; border-bottom:1px solid #eee;">
+                        <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee;">
                             <strong>${itemName}</strong> (${packs})
                         </td>
-                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee;">${weight.toFixed(3)}</td>
-                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee;">${SupplierPricePerKg.toFixed(2)}</td>
-                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee;">${SupplierTotal.toFixed(2)}</td>
-                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee; font-size:0.9em;">${customerCode}</td>
+                        <td style="text-align:center; padding:2px 4px; border-bottom:1px solid #eee;">${weight.toFixed(3)}</td>
+                        <td style="text-align:center; padding:2px 4px; border-bottom:1px solid #eee;">${SupplierPricePerKg.toFixed(2)}</td>
+                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee;">${SupplierTotal.toFixed(2)}</td>
+                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee; font-size:0.8em;">${customerCode}</td>
                     </tr>
                 `;
             } else {
                 // 3mm: Item name on top, packs on bottom
                 return `
                     <tr>
-                        <td style="text-align:left; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">
+                        <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
                             <strong>${itemName}</strong><br>${packs}
                         </td>
-                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">${weight.toFixed(3)}</td>
-                        <td style="text-align:center; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">${SupplierPricePerKg.toFixed(2)}</td>
-                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee; vertical-align:top;">${SupplierTotal.toFixed(2)}</td>
-                        <td style="text-align:right; padding:3px; border-bottom:1px solid #eee; vertical-align:top; font-size:0.9em;">${customerCode}</td>
+                        <td style="text-align:center; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">${weight.toFixed(3)}</td>
+                        <td style="text-align:center; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">${SupplierPricePerKg.toFixed(2)}</td>
+                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">${SupplierTotal.toFixed(2)}</td>
+                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top; font-size:0.8em;">${customerCode}</td>
                     </tr>
                 `;
             }
         }).join('');
 
         // Adjust font sizes based on bill size
-        const fontSizeHeader = is4mm ? '1.4em' : '1.6em';
-        const fontSizeTitle = is4mm ? '1.2em' : '1.5em';
+        const fontSizeHeader = is4mm ? '1.3em' : '1.5em';
+        const fontSizeTitle = is4mm ? '1.1em' : '1.3em';
         const fontSizeTable = is4mm ? '8px' : '9px';
-        const fontSizeTotal = is4mm ? '10px' : '12px';
+        const fontSizeTotal = is4mm ? '9px' : '10px';
+        const fontSizeHeaderRow = is4mm ? '0.9em' : '1em';
         const maxWidth = is4mm ? '320px' : '300px';
 
         return `
-        <div class="receipt-container" style="width:100%; max-width:${maxWidth}; margin:0 auto; padding:5px; font-family:Arial, sans-serif;">
+        <div class="receipt-container" style="width:100%; max-width:${maxWidth}; margin:0 auto; padding:3px; font-family:'Courier New', monospace;">
             <div style="text-align:center; margin-bottom:5px;">
-                <h3 style="font-size:${fontSizeHeader}; margin:0;">NVDS</h3>
+                <h3 style="font-size:${fontSizeHeader}; margin:0 0 2px 0; font-weight:bold;">NVDS</h3>
             </div>
 
             <div style="margin-bottom:5px;">
-                <table style="width:100%; font-size:9px; border-collapse:collapse;">
+                <table style="width:100%; font-size:8px; border-collapse:collapse;">
                     <tr>
                         <td>දිනය : ${date}</td>
                         <td style="text-align:right;">${time}</td>
@@ -292,46 +295,44 @@ const SupplierReport = () => {
                 </table>
             </div>
 
-            <hr style="border:1px solid #000; margin:5px 0;">
+            <hr style="border:1px solid #000; margin:3px 0;">
 
             <table style="width:100%; font-size:${fontSizeTable}; border-collapse:collapse; table-layout:fixed;">
                 ${colGroups}
                 <thead>
-                    <tr>
-                        <th style="text-align:left; padding:2px;">${itemHeader}</th>
-                        <th style="text-align:center; padding:2px;">කිලෝ</th>
-                        <th style="text-align:center; padding:2px;">මිල</th>
-                        <th style="text-align:right; padding:2px;">අගය</th>
-                        <th style="text-align:right; padding:2px;">කේතය</th>
+                    <tr style="font-size:${fontSizeHeaderRow}; font-weight:bold;">
+                        <th style="text-align:left; padding:3px 4px; border-bottom:1px solid #000;">${itemHeader}</th>
+                        <th style="text-align:center; padding:3px 4px; border-bottom:1px solid #000;">කිලෝ</th>
+                        <th style="text-align:center; padding:3px 4px; border-bottom:1px solid #000;">මිල</th>
+                        <th style="text-align:right; padding:3px 4px; border-bottom:1px solid #000;">අගය</th>
+                        <th style="text-align:right; padding:3px 4px; border-bottom:1px solid #000;">කේතය</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0;"></td></tr>
                     ${detailedItemsHtml}
-                    <tr><td colspan="5"><hr style="border:1px solid #000; margin:5px 0;"></td></tr>
-                    <tr>
-                        <td colspan="${is4mm ? '1' : '1'}" style="text-align:left; font-weight:bold;">${totalPacksSum}</td>
-                        <td colspan="${is4mm ? '4' : '4'}" style="text-align:right; font-weight:bold;">${totalsupplierSales.toFixed(2)}</td>
+                    <tr style="border-top:1px solid #000;">
+                        <td colspan="2" style="text-align:left; padding:4px; font-weight:bold;">${totalPacksSum}</td>
+                        <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">${totalsupplierSales.toFixed(2)}</td>
                     </tr>
                 </tbody>
             </table>
 
             <table style="width:100%; font-size:${fontSizeTotal}; border-collapse:collapse; margin-top:5px;">
                 <tr>
-                    <td>කුලිය:</td>
-                    <td style="text-align:right; font-weight:bold;">${totalPackDueCost.toFixed(2)}</td>
+                    <td style="text-align:left; padding:2px 0;">කුලිය:</td>
+                    <td style="text-align:right; padding:2px 0; font-weight:bold;">${totalPackDueCost.toFixed(2)}</td>
                 </tr>
                 <tr>
-                    <td>අගය:</td>
-                    <td style="text-align:right; font-weight:bold;">
-                        <span style="display:inline-block; border-top:1px solid #000; border-bottom:2px double #000; padding:2px 4px; min-width:80px; text-align:right; font-size:${is4mm ? '1em' : '1.2em'};">
+                    <td style="text-align:left; padding:2px 0;">අගය:</td>
+                    <td style="text-align:right; padding:2px 0; font-weight:bold;">
+                        <span style="display:inline-block; border-top:1px solid #000; border-bottom:2px double #000; padding:2px 4px; text-align:right; font-size:${is4mm ? '1em' : '1.1em'};">
                             ${finaltotal.toFixed(2)}
                         </span>
                     </td>
                 </tr>
             </table>
 
-            <div style="font-size:9px; margin-top:10px;">
+            <div style="font-size:8px; margin-top:8px; padding-top:5px; border-top:1px dashed #000;">
                 <table style="width:100%; border-collapse:collapse;">
                     ${itemSummaryHtml}
                 </table>
@@ -339,9 +340,9 @@ const SupplierReport = () => {
 
             <hr style="border:1px solid #000; margin:5px 0;">
 
-            <div style="text-align:center; font-size:9px;">
-                <p style="margin:0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
-                <p style="margin:0;">නැවත භාර ගනු නොලැබේ</p>
+            <div style="text-align:center; font-size:8px; margin-top:8px;">
+                <p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+                <p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p>
             </div>
         </div>
         `;
@@ -382,14 +383,26 @@ const SupplierReport = () => {
 
         if (printWindow) {
             printWindow.document.write('<html><head><title>Bill Print</title>');
-            printWindow.document.write(`<style>body { font-family: sans-serif; margin: 0; padding: 0; }.receipt-container { padding: 5px; margin: 0 auto; }@media print { body { margin: 0; } }</style>`);
+            printWindow.document.write(`<style>
+                body { font-family: 'Courier New', monospace; margin: 0; padding: 0; }
+                .receipt-container { padding: 3px; margin: 0 auto; }
+                @media print { 
+                    body { margin: 0; padding: 0; }
+                    .receipt-container { max-width: ${billSize === '4mm' ? '320px' : '300px'} !important; }
+                }
+                table { table-layout: fixed; width: 100%; }
+                td, th { padding: 2px 3px; }
+            </style>`);
             printWindow.document.write('</head><body>');
             printWindow.document.write(content);
             printWindow.document.write('</body></html>');
             printWindow.document.close();
             printWindow.focus();
 
-            printWindow.print();
+            // Auto-print after short delay
+            setTimeout(() => {
+                printWindow.print();
+            }, 300);
 
             if (isUnprintedBill) {
                 const transactionIds = supplierDetails.map(record => record.id).filter(id => id);
@@ -412,7 +425,7 @@ const SupplierReport = () => {
         } else {
             alert("Please allow pop-ups to print the bill.");
         }
-    }, [supplierDetails, selectedBillNo, isUnprintedBill, getBillContent, resetDetails]);
+    }, [supplierDetails, selectedBillNo, isUnprintedBill, getBillContent, resetDetails, billSize]);
 
     // --- Keyboard event listener ---
     useEffect(() => {
@@ -491,6 +504,17 @@ const SupplierReport = () => {
             width: '100%',
             boxSizing: 'border-box',
         };
+        
+        const listContainerStyle = {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0px',
+            marginTop: '5px',
+            overflowY: 'auto',
+            padding: '0 5px 0 5px',
+            flexGrow: 1,
+            height: '900px',
+        };
 
         if (items.length === 0) {
             return (
@@ -504,27 +528,25 @@ const SupplierReport = () => {
             <div style={listContainerStyle}>
                 {supplierCodes.map(supplierCode => (
                     <div key={supplierCode} style={groupContainerStyle}>
-                        <div style={{ display: 'block', width: '100%' }}>
-                            {groupedItems[supplierCode].map(billIdentifier => (
-                                <button
-                                    key={billIdentifier}
-                                    onClick={() => type === 'printed'
+                        {groupedItems[supplierCode].map(billIdentifier => (
+                            <button
+                                key={billIdentifier}
+                                onClick={() => type === 'printed'
                                         ? handlePrintedBillClick(supplierCode, billIdentifier)
                                         : handleUnprintedBillClick(supplierCode, null)
                                     }
-                                    style={buttonStyle}
-                                    onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                                    onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
-                                >
-                                    <span style={{ display: "block", textAlign: "left", fontSize: "15px", fontWeight: "600" }}>
-                                        {type === 'printed'
-                                            ? `${supplierCode}-${billIdentifier}`
-                                            : `${supplierCode}`
+                                style={buttonStyle}
+                                onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                <span style={{ display: "block", textAlign: "left", fontSize: "15px", fontWeight: "600" }}>
+                                    {type === 'printed'
+                                        ? `${supplierCode}-${billIdentifier}`
+                                        : `${supplierCode}`
                                         }
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
+                                </span>
+                            </button>
+                        ))}
                     </div>
                 ))}
             </div>
@@ -865,13 +887,13 @@ const SupplierReport = () => {
                     {/* Left Section: Printed Bills */}
                     <div style={printedContainerStyle}>
                         <div style={printedSectionStyle}>
-                            <h2 style={printedHeaderStyle}> Printed Bills </h2>
+                            <h2 style={{...printedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px'}}> Printed Bills </h2>
                             <input
                                 type="text"
                                 placeholder="🔍 Search Printed Codes/Bills..."
                                 value={printedSearchTerm}
                                 onChange={(e) => setPrintedSearchTerm(e.target.value)}
-                                style={{ ...searchBarStyle, marginBottom: '20px', height: '22px' }}
+                                style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}
                             />
                             <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
                         </div>
@@ -885,13 +907,13 @@ const SupplierReport = () => {
                     {/* Right Section: Unprinted Bills */}
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
-                            <h2 style={unprintedHeaderStyle}> Unprinted Bills </h2>
+                            <h2 style={{...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px'}}> Unprinted Bills </h2>
                             <input
                                 type="text"
                                 placeholder="🔍 Search Unprinted Codes/Bills..."
                                 value={unprintedSearchTerm}
                                 onChange={(e) => setUnprintedSearchTerm(e.target.value)}
-                                style={{ ...searchBarStyle, marginBottom: '20px', height: '22px' }}
+                                style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}
                             />
                             <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
                         </div>
@@ -916,7 +938,6 @@ const headerContainerStyle = {
 
 const searchBarStyle = {
     width: '100%',
-    padding: '12px 15px',
     fontSize: '1rem',
     borderRadius: '6px',
     border: '1px solid #E0E0E0',
@@ -958,7 +979,7 @@ const centerPanelContainerStyle = {
 };
 
 const baseSectionStyle = {
-    padding: '25px',
+    padding: '25px 0 25px 0',
     borderRadius: '12px',
     boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)',
     display: 'flex',
@@ -982,18 +1003,14 @@ const unprintedSectionStyle = {
 
 const printedHeaderStyle = {
     color: '#1E88E5',
-    marginBottom: '15px',
     borderBottom: '2px solid #1E88E530',
-    paddingBottom: '10px',
     flexShrink: 0,
     fontSize: '1.3rem',
 };
 
 const unprintedHeaderStyle = {
     color: '#FF7043',
-    marginBottom: '15px',
     borderBottom: '2px solid #FF704330',
-    paddingBottom: '10px',
     flexShrink: 0,
     fontSize: '1.3rem',
 };
@@ -1004,9 +1021,8 @@ const listContainerStyle = {
     gap: '0px',
     marginTop: '5px',
     overflowY: 'auto',
-    padding: '5px',
+    padding: '0 5px 0 5px',
     flexGrow: 1,
-    alignItems: 'flex-start',
     height: '900px',
 };
 
