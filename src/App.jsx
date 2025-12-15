@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
+// Import All Components
 import CustomerList from './components/Customers/CustomerList';
 import CustomerForm from './components/Customers/CustomerForm';
 import ItemList from './components/Items/ItemList';
@@ -21,199 +22,217 @@ import LoanReportView from './components/LoanReport/LoanReportView';
 import SalesEntry from './components/SalesEntry/SalesEntry';
 import SupplierReport from './components/Suppliers/SupplierReport';
 import SupplierDetailsModal from './components/Suppliers/SupplierDetailsModal';
-import CommissionPage from './components/Commission/CommissionPage'; // The component you created
+import CommissionPage from './components/Commission/CommissionPage';
 import SupplierProfitReport from './components/Suppliers/SupplierProfitReport';
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
 const ProtectedRoute = ({ children }) => {
-  const user = localStorage.getItem('user');
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-  return children;
+    const user = localStorage.getItem('user');
+    if (!user) {
+        return <Navigate to="/login" replace />;
+    }
+    return children;
 };
 
 export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        {/* ✅ Auth Routes */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+    return (
+        <BrowserRouter>
+            <Routes>
+                {/* 🔒 Auth Routes: Login and Register are public */}
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
 
-        {/* ✅ Protected Routes */}
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
+                {/* 🏠 CORE ROUTES: Protected */}
+                <Route
+                    path="/"
+                    element={
+                        <ProtectedRoute>
+                            <Dashboard />
+                        </ProtectedRoute>
+                    }
+                />
 
-        {/* CUSTOMERS */}
-        <Route
-          path="/customers"
-          element={
+                {/* CUSTOMERS */}
+                <Route
+                    path="/customers"
+                    // 🚀 CORRECTION: CustomerList was unprotected. It should be protected.
+                    element={
+                        <ProtectedRoute>
+                            <CustomerList />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/customers/create"
+                    element={
+                        <ProtectedRoute>
+                            <CustomerForm mode="create" />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/customers/:id/edit"
+                    element={
+                        <ProtectedRoute>
+                            <CustomerForm mode="edit" />
+                        </ProtectedRoute>
+                    }
+                />
 
-            <CustomerList />
+                {/* ITEMS */}
+                <Route
+                    path="/items"
+                    element={
+                        <ProtectedRoute>
+                            <ItemList />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/items/create"
+                    element={
+                        <ProtectedRoute>
+                            <CreateItem />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/items/edit/:id"
+                    element={
+                        <ProtectedRoute>
+                            <EditItem />
+                        </ProtectedRoute>
+                    }
+                />
 
-          }
-        />
-        <Route
-          path="/customers/create"
-          element={
-            <ProtectedRoute>
-              <CustomerForm mode="create" />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/customers/:id/edit"
-          element={
-            <ProtectedRoute>
-              <CustomerForm mode="edit" />
-            </ProtectedRoute>
-          }
-        />
+                {/* SUPPLIERS */}
+                <Route
+                    path="/suppliers"
+                    element={
+                        <ProtectedRoute>
+                            <SupplierList />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/suppliers/create"
+                    element={
+                        <ProtectedRoute>
+                            <CreateSupplier />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/suppliers/edit/:id"
+                    element={
+                        <ProtectedRoute>
+                            <EditSupplier />
+                        </ProtectedRoute>
+                    }
+                />
 
-        {/* ITEMS */}
-        <Route
-          path="/items"
-          element={
-            <ProtectedRoute>
-              <ItemList />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/items/create"
-          element={
-            <ProtectedRoute>
-              <CreateItem />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/items/edit/:id"
-          element={
-            <ProtectedRoute>
-              <EditItem />
-            </ProtectedRoute>
-          }
-        />
+                {/* GRN Routes */}
+                <Route
+                    path="/grn"
+                    element={
+                        <ProtectedRoute>
+                            <GrnList />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/grn/create"
+                    element={
+                        <ProtectedRoute>
+                            <CreateGrn />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/grn/edit/:id"
+                    element={
+                        <ProtectedRoute>
+                            <EditGrn />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/grn/entries"
+                    element={
+                        <ProtectedRoute>
+                            <GrnEntryForm />
+                        </ProtectedRoute>
+                    }
+                />
 
-        {/* SUPPLIERS */}
-        <Route
-          path="/suppliers"
-          element={
-            <ProtectedRoute>
-              <SupplierList />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/suppliers/create"
-          element={
-            <ProtectedRoute>
-              <CreateSupplier />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/suppliers/edit/:id"
-          element={
-            <ProtectedRoute>
-              <EditSupplier />
-            </ProtectedRoute>
-          }
-        />
+                {/* CUSTOMERS LOANS & SALES */}
+                <Route
+                    path="/customers-loans"
+                    element={
+                        <ProtectedRoute>
+                            <CustomersLoanList />
+                        </ProtectedRoute>
+                    }
+                />
+                {/* Loan Report View is often considered protected data */}
+                <Route 
+                    path="/customers-loans/report" 
+                    element={
+                        <ProtectedRoute>
+                            <LoanReportView />
+                        </ProtectedRoute>
+                    } 
+                />
+                
+                {/* ⚠️ CRITICAL CORRECTION: Sales Entry MUST be Protected */}
+                <Route 
+                    path="/sales" 
+                    element={
+                        <ProtectedRoute>
+                            <SalesEntry />
+                        </ProtectedRoute>
+                    } 
+                />
 
-        {/* GRN Routes */}
-        <Route
-          path="/grn"
-          element={
-            <ProtectedRoute>
-              <GrnList />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/grn/create"
-          element={
-            <ProtectedRoute>
-              <CreateGrn />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/grn/edit/:id"
-          element={
-            <ProtectedRoute>
-              <EditGrn />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/grn/entries"
-          element={
-            <ProtectedRoute>
-              <GrnEntryForm />
-            </ProtectedRoute>
-          }
-        />
+                {/* REPORTING & COMMISSIONS */}
+                <Route
+                    path="/commissions"
+                    element={
+                        <ProtectedRoute>
+                            <CommissionPage />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/supplierreport"
+                    element={
+                        <ProtectedRoute>
+                            <SupplierReport />
+                        </ProtectedRoute>
+                    }
+                />
+                {/* Supplier Details Modal is likely a standalone page for quick links, should be protected */}
+                <Route
+                    path="/suppliermodal"
+                    element={
+                        <ProtectedRoute>
+                            <SupplierDetailsModal />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/supplier-profit"
+                    element={
+                        <ProtectedRoute>
+                            <SupplierProfitReport />
+                        </ProtectedRoute>
+                    }
+                />
 
-        {/* CUSTOMERS LOANS & SALES */}
-        <Route
-          path="/customers-loans"
-          element={
-            <ProtectedRoute>
-              <CustomersLoanList />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/customers-loans/report" element={<LoanReportView />} />
-        <Route path="/sales" element={<SalesEntry />} />
-
-        {/* 💰 COMMISSIONS (NEW) 💰 */}
-        <Route
-          path="/commissions" // Changed path to simply /commissions 
-          element={
-            <ProtectedRoute>
-              <CommissionPage /> 
-            </ProtectedRoute>
-          }
-        />
-         <Route
-          path="/supplierreport" // Changed path to simply /commissions 
-          element={
-            <ProtectedRoute>
-              <SupplierReport /> 
-            </ProtectedRoute>
-          }
-        />
-         <Route
-          path="/suppliermodal" // Changed path to simply /commissions 
-          element={
-            <ProtectedRoute>
-              <SupplierDetailsModal /> 
-            </ProtectedRoute>
-          }
-        />
-        <Route
-  path="/supplier-profit"
-  element={
-    <ProtectedRoute>
-      <SupplierProfitReport />
-    </ProtectedRoute>
-  }
-/>
-
-
-        {/* Fallback route */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
-  );
+                {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+        </BrowserRouter>
+    );
 }

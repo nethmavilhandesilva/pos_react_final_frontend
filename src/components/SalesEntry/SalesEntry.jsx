@@ -606,8 +606,8 @@ export default function SalesEntry() {
         const receiptMaxWidth = is4Inch ? '4in' : '300px';
         const fontSizeHeader = is4Inch ? '1.2em' : '1.8em';
         const fontSizeTitle = is4Inch ? '1.4em' : '2.0em';
-        const fontSizeText = is4Inch ? '0.8rem' : '0.9rem';
-        const fontSizeItems = is4Inch ? '0.9em' : '1.5em';
+        const fontSizeText = is4Inch ? '1.0rem' : '1.7rem';
+        const fontSizeItems = is4Inch ? '1.1em' : '1.8em';
         const fontSizeTotalLarge = is4Inch ? '1.2em' : '1.5em';
 
         let colGroups, itemHeader;
@@ -630,8 +630,10 @@ export default function SalesEntry() {
             const formattedPrice = formatReceiptValue(price);
             const formattedValue = formatReceiptValue(value);
 
-            if (is4Inch) return `<tr style="font-size:${fontSizeItems};"><td style="text-align:left; padding:2px 4px;">${s.item_name || ""} (${packs})</td><td style="text-align:center; padding:2px 4px;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; font-size:0.8em;">${s.supplier_code || ""}</td></tr>`;
-            else return `<tr style="font-size:${fontSizeItems};"><td style="text-align:left; padding:2px 4px; vertical-align:top;">${s.item_name || ""}<div style="font-size:0.9em; color:#666; margin-top:2px;">${packs}</div></td><td style="text-align:center; padding:2px 4px; vertical-align:top;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px; vertical-align:top;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px; vertical-align:top;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; vertical-align:top; font-size:0.8em;">${s.supplier_code || ""}</td></tr>`;
+            if (is4Inch) return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;"><td style="text-align:left; padding:2px 4px; font-weight:bold; color:black;">${s.item_name || ""} (${packs})</td><td style="text-align:center; padding:2px 4px; font-weight:bold; color:black;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px; font-weight:bold; color:black;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px; font-weight:bold; color:black;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; font-size:0.8em; font-weight:bold; color:black;">${s.supplier_code || ""}</td></tr>
+`;
+            else return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;"><td style="text-align:left; padding:2px 4px;">${s.item_name || ""} (${packs})</td><td style="text-align:center; padding:2px 4px;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; font-size:0.8em;">${s.supplier_code || ""}</td></tr>
+`;
         }).join("");
 
         const totalPrice = totalAmountSum;
