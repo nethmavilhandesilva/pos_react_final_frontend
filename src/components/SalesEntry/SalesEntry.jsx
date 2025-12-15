@@ -693,11 +693,12 @@ export default function SalesEntry() {
     ${is4Inch ? `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.1em;">මිල</th><th style="text-align:right; padding:4px; font-size:1.1em;">අගය</th><th style="text-align:right; padding:4px; font-size:1.1em;">sup code</th>` : `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.2em;">මිල</th><th style="text-align:right; padding:4px; font-size:1.2em;">අගය</th><th style="text-align:right; padding:4px; font-size:1.2em;">sup code</th>`}</tr></thead>
     <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="${is4Inch ? '1' : '1'}" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td colspan="3" style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${formattedTotalSalesExcludingPackDue}</td></tr></tbody></table>
     
-    ${itemSummaryHtml}
+  
 
     <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formatReceiptValue(0)}</td></tr>
     <tr><td style="text-align:left; padding:2px 0;">කුලිය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
     <tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
+      ${itemSummaryHtml}
     <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
     };
 
@@ -812,7 +813,7 @@ export default function SalesEntry() {
                                         <input id="customer_code_input" ref={refs.customer_code_input} name="customer_code" value={formData.customer_code || autoCustomerCode} onChange={(e) => { const value = e.target.value.toUpperCase(); handleInputChange("customer_code", value); if (value.trim() === "") { setFormData(prev => ({ ...prev, customer_code: "", customer_name: "", given_amount: "" })); updateState({ selectedPrintedCustomer: null, selectedUnprintedCustomer: null }); } }} onKeyDown={(e) => handleKeyDown(e, "customer_code_input")} type="text" maxLength={10} placeholder="CUSTOMER CODE" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                     </div>
                                     <div style={{ flex: '0 0 250px', minWidth: '250px' }}>
-                                        <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customers.filter((c) => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map((c) => ({ value: c.short_name, label: `${c.short_name}` }))} onInputChange={(inputValue, { action }) => { if (action === "input-change") updateState({ customerSearchInput: inputValue.toUpperCase() }); }} inputValue={customerSearchInput} placeholder="SELECT CUSTOMER" isClearable isSearchable styles={{ control: (base) => ({ ...base, minHeight: "36px", height: "36px", fontSize: "12px", backgroundColor: "#0d0d4d", borderColor: "#4a5568", borderRadius: '0.5rem' }), valueContainer: (base) => ({ ...base, padding: "0 6px", height: "36px" }), placeholder: (base) => ({ ...base, fontSize: "12px", color: "#a0aec0", fontWeight: "normal" }), input: (base) => ({ ...base, fontSize: "12px", color: "white" }), singleValue: (base) => ({ ...base, color: "white", fontSize: "12px", fontWeight: "bold" }), option: (base, state) => ({ ...base, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: state.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }), }} />
+                                        <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customers.filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map(c => ({ value: c.short_name, label: `${c.short_name}` }))} onInputChange={(inputValue, { action }) => { if (action === "input-change") updateState({ customerSearchInput: inputValue.toUpperCase() }); }} inputValue={customerSearchInput} placeholder="SELECT CUSTOMER" isClearable isSearchable styles={{ control: base => ({ ...base, minHeight: "36px", height: "36px", fontSize: "25px", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: base => ({ ...base, padding: "0 6px", height: "36px" }), placeholder: base => ({ ...base, fontSize: "12px", color: "#a0aec0", fontWeight: "normal" }), input: base => ({ ...base, fontSize: "12px", color: "black", fontWeight: "bold" }), singleValue: base => ({ ...base, color: "black", fontSize: "12px", fontWeight: "bold" }), option: (base, state) => ({ ...base, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: state.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }) }} />
                                     </div>
 
                                     {/* ⭐ NEW PRICE PER KG INPUT FIELD for Bulk Sync (ID: price_per_kg) - REMAINS NUMERIC ⭐ */}
@@ -844,32 +845,34 @@ export default function SalesEntry() {
                                     <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
                                         <input id="supplier_code" ref={refs.supplier_code} name="supplier_code" value={formData.supplier_code} onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "supplier_code")} type="text" placeholder="SUPPLIER" className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full" style={{ width: "150px", backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '44px', fontSize: '1.25rem', padding: '0 1rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                     </div>
-                                    <div style={{ gridColumnStart: 5, gridColumnEnd: 8, marginLeft: "-120px", marginRight: "-02px" }}>
-                                        <Select id="item_code_select" ref={refs.item_code_select} value={formData.item_code ? { value: formData.item_code, label: `${formData.item_name} (${formData.item_code})`, item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due } } : null} onChange={handleItemSelect} options={items.filter((item) => !state.itemSearchInput || String(item.no).toLowerCase().startsWith(state.itemSearchInput.toLowerCase()) || String(item.type).toLowerCase().includes(state.itemSearchInput.toLowerCase())).map((item) => ({ value: item.no, label: `${item.type} (${item.no})`, item }))} onInputChange={(inputValue) => updateState({ itemSearchInput: inputValue.toUpperCase() })} inputValue={state.itemSearchInput} onKeyDown={(e) => { if (e.key === "Enter") return; handleKeyDown(e, "item_code_select"); }} placeholder="SELECT ITEM" className="react-select-container font-bold text-sm w-full" styles={{ control: (base) => ({ ...base, height: "44px", minHeight: "44px", fontSize: "1.25rem", backgroundColor: "#0d0d4d", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: (base) => ({ ...base, padding: "0 1rem", height: "44px" }), input: (base) => ({ ...base, color: "white", fontSize: "1.25rem" }), singleValue: (base) => ({ ...base, color: "white", fontWeight: "bold", fontSize: "1.25rem" }), placeholder: (base) => ({ ...base, color: "#a0aec0", fontWeight: "normal" }), option: (base, state) => ({ ...base, fontWeight: "bold", color: "black", backgroundColor: state.isFocused ? "#e5e7eb" : "white", fontSize: "1rem" }), }} />
+                                    <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
+                                        <Select id="item_code_select" ref={refs.item_code_select} value={formData.item_code ? { value: formData.item_code, label: `${formData.item_name} (${formData.item_code})`, item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due } } : null} onChange={handleItemSelect} options={items.filter(item => !state.itemSearchInput || String(item.no).toLowerCase().startsWith(state.itemSearchInput.toLowerCase()) || String(item.type).toLowerCase().includes(state.itemSearchInput.toLowerCase())).map(item => ({ value: item.no, label: `${item.type} (${item.no})`, item }))} onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })} inputValue={state.itemSearchInput} onKeyDown={e => e.key !== "Enter" && handleKeyDown(e, "item_code_select")} placeholder="SELECT ITEM" className="react-select-container font-bold text-sm w-full" styles={{ control: b => ({ ...b, height: "44px", minHeight: "44px", fontSize: "1.25rem", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }), input: b => ({ ...b, color: "black", fontSize: "1.25rem" }), singleValue: b => ({ ...b, color: "black", fontWeight: "bold", fontSize: "1.25rem" }), placeholder: b => ({ ...b, color: "#6b7280" }), option: (b, s) => ({ ...b, fontWeight: "bold", color: "black", backgroundColor: s.isFocused ? "#e5e7eb" : "white", fontSize: "1rem" }) }} />
                                     </div>
+
                                     {[
                                         { id: 'weight', placeholder: "බර", fieldRef: refs.weight },
-                                        { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item }, // 3. JSX Update: Use correct ref for grid item
+                                        { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item },
                                         { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs },
                                         { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }
                                     ].map(({ id, placeholder, fieldRef, isReadOnly = false }, index) => (
-                                        <div key={id} style={{
-                                            gridColumnStart: 8 + index + (index > 0 ? 0 : 0),
-                                            gridColumnEnd: 9 + index + (index > 0 ? 0 : 0),
-                                            ...(id === 'total' && { gridColumnEnd: 14, marginLeft: "10px" })
-                                        }}>
+                                        <div
+                                            key={id}
+                                            style={{
+                                                gridColumnStart: 8 + index,
+                                                gridColumnEnd: 9 + index,
+                                                ...(id === 'weight' && { marginLeft: "-70px", width: "100px" }),
+                                                ...(id === 'price_per_kg_grid_item' && { marginLeft: "-30px", width: "100px" }), // 👈 moved LEFT
+                                                ...(id === 'total' && { gridColumnEnd: 14, marginLeft: "10px" }),
+                                            }}
+                                        >
                                             <input
                                                 id={id}
-                                                // Grid item should use its separate state for its value
                                                 ref={id === 'price_per_kg_grid_item' ? refs.price_per_kg_grid_item : fieldRef}
-                                                name={id === 'price_per_kg_grid_item' ? 'price_per_kg' : id} // Use 'price_per_kg' as name for form data update
+                                                name={id === 'price_per_kg_grid_item' ? 'price_per_kg' : id}
                                                 type="text"
-                                                // ⭐ 3. JSX Update: Use gridPricePerKg for the grid input's visual value
                                                 value={id === 'price_per_kg_grid_item' ? gridPricePerKg : formData[id]}
                                                 onChange={(e) => {
                                                     const v = e.target.value;
-
-                                                    // Handle price_per_kg_grid_item separately to isolate it from the bulk field's onChange logic
                                                     if (id === 'price_per_kg_grid_item') {
                                                         handleInputChange(id, v);
                                                     } else if (/^\d*\.?\d*$/.test(v)) {
@@ -880,10 +883,22 @@ export default function SalesEntry() {
                                                 placeholder={placeholder}
                                                 readOnly={isReadOnly}
                                                 className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full"
-                                                style={{ backgroundColor: isReadOnly ? '#e2e8f0' : 'white', color: 'black', borderRadius: '0.5rem', textAlign: 'right', fontSize: '1.125rem', fontWeight: 600, height: '40px', padding: '0.5rem 0.75rem', width: '100%', boxSizing: 'border-box' }}
+                                                style={{
+                                                    backgroundColor: isReadOnly ? '#e2e8f0' : 'white',
+                                                    color: 'black',
+                                                    borderRadius: '0.5rem',
+                                                    textAlign: 'right',
+                                                    fontSize: '1.125rem',
+                                                    fontWeight: 600,
+                                                    height: '40px',
+                                                    padding: '0.5rem 0.75rem',
+                                                    width: '100%',
+                                                    boxSizing: 'border-box',
+                                                }}
                                             />
                                         </div>
                                     ))}
+
                                 </div>
                                 <div className="flex justify-end" style={{ marginTop: '20px' }}></div>
                                 <div className="flex space-x-4"><button type="submit" style={{ display: "none" }}>{editingSaleId ? "Update Sales Entry" : "Add Sales Entry"}</button></div>
