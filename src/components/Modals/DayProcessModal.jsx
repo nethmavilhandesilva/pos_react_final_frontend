@@ -84,7 +84,7 @@ const DayProcessModal = ({ isOpen, onClose }) => {
                                 value={processDate}
                                 onChange={(e) => setProcessDate(e.target.value)}
                                 disabled={isLoading}
-                                max={getTodayDate()} // Optionally prevent selecting future dates
+                                 // Optionally prevent selecting future dates
                             />
                         </div>
                     </div>

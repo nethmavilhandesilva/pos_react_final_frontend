@@ -163,15 +163,50 @@ const ItemSummary = ({ sales, formatDecimal }) => {
     if (Object.keys(summary).length === 0) return null;
 
     return (
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200 w-[100px] mx-auto">
+        // 🚀 MODIFIED: Set a fixed, ample width for the container
+        <div
+            className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200"
+            style={{ width: '450px', margin: '0 auto', boxSizing: 'border-box' }} // Use auto margins for centering if desired
+        >
             <h3 className="text-xs font-bold text-gray-700 mb-2 text-center">Item Summary</h3>
-            <div className="flex flex-wrap gap-1 justify-center">
+
+            {/* 🚀 NEW: Use inline Flexbox to guarantee horizontal wrapping, and fix item width */}
+            <div style={{
+                display: 'flex',
+                flexDirection: 'row', // Display items in a row
+                flexWrap: 'wrap',      // Allow wrapping to the next line
+                gap: '4px',           // Small gap between items
+                justifyContent: 'center' // Center the blocks
+            }}>
                 {Object.entries(summary).map(([itemName, data]) => (
-                    <div key={itemName} className="px-2 py-1 bg-white border border-gray-300 rounded-full text-[10px] font-medium">
-                        <span className="font-bold text-black">{itemName}:</span>
-                        <span className="ml-1 font-extrabold text-black">{data.totalWeight}kg</span>
-                        <span className="ml-1 font-extrabold text-black">/</span>
-                        <span className="ml-1 font-extrabold text-black">{data.totalPacks}p</span>
+                    <div
+                        key={itemName}
+                        // 🚀 CRITICAL: Set an explicit, small fixed width for the item block
+                        style={{
+                            width: '185px', // Guaranteed width for one item block
+                            padding: '3px',
+                            backgroundColor: 'white',
+                            border: '1px solid #ccc',
+                            borderRadius: '4px',
+                            textAlign: 'center',
+                            lineHeight: '1.1',
+                            fontSize: '16px', // Smallest practical font size
+                            boxSizing: 'border-box'
+                        }}
+                    >
+                        {/* Line 1: Item Name (Truncated) */}
+                        <span
+                            className="font-bold text-black"
+                            style={{ display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
+                            title={itemName}
+                        >
+                            {itemName.length > 5 ? `${itemName.substring(0, 4)}..` : itemName}
+                        </span>
+
+                        {/* Line 2: Weight / Packs */}
+                        <span className="font-extrabold text-black" style={{ display: 'block' }}>
+                            {formatDecimal(data.totalWeight)}kg / {data.totalPacks}p
+                        </span>
                     </div>
                 ))}
             </div>
@@ -198,7 +233,17 @@ export default function SalesEntry() {
 
     // 1. STATE UPDATE: Modified fieldOrder to correctly sequence weight -> price_per_kg_grid_item
     const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
-    const skipMap = { customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg_grid_item: "packs" };
+
+    // ⭐ UPDATED skipMap: Added 'price_per_kg' to move to 'packs' on Enter
+    const skipMap = {
+        customer_code_input: "supplier_code",
+        customer_code_select: "supplier_code",
+        given_amount: "supplier_code",
+        supplier_code: "item_code_select",
+        item_code_select: "weight",
+        price_per_kg: "packs", // <-- ADDED THIS LINE
+        price_per_kg_grid_item: "packs"
+    };
 
     const [state, setState] = useState({
         allSales: [], selectedPrintedCustomer: null, selectedUnprintedCustomer: null, editingSaleId: null, searchQueries: { printed: "", unprinted: "" }, errors: {}, loanAmount: 0, isManualClear: false,
@@ -282,7 +327,7 @@ export default function SalesEntry() {
         const p = parseFloat(formData.price_per_kg) || 0;
         const packs = parseInt(formData.packs) || 0;
         const packDue = parseFloat(formData.pack_due) || 0;
-        const total = (w * p) + (packs * packDue);
+        const total = (w * p) ;
         setFormData(prev => ({ ...prev, total: Number(total.toFixed(2)) }));
 
         // When formData.price_per_kg changes (via bulk field or edit), update the grid field's state to keep them visually in sync
@@ -327,6 +372,24 @@ export default function SalesEntry() {
             }
         }
     };
+    // Calculate Sales
+const salesTotal = displayedSales.reduce(
+  (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)),
+  0
+);
+
+// Calculate Pack Cost
+const packCostTotal = displayedSales.reduce(
+  (sum, s) => {
+    const labourCost = (parseFloat(s.CustomerPackLabour) || 0) * (parseFloat(s.packs) || 0);
+    return sum + labourCost;
+  },
+  0
+);
+
+// Total of both
+const totalSales = salesTotal + packCostTotal;
+
 
     // 2. INPUT HANDLER UPDATE: Separate logic for price_per_kg (bulk) and price_per_kg_grid_item (single)
     const handleInputChange = (field, value) => {
@@ -598,6 +661,7 @@ export default function SalesEntry() {
             consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
             totalAmountSum += parseFloat(s.total) || 0;
         });
+        
 
         // Total Packs for the table footer, calculated from the summary
         const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
@@ -700,7 +764,7 @@ export default function SalesEntry() {
     <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formatReceiptValue(0)}</td></tr>
     <tr><td style="text-align:left; padding:2px 0;">කුලිය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
     <tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
-      ${itemSummaryHtml}
+        ${itemSummaryHtml}
     <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
     };
 
@@ -808,7 +872,7 @@ export default function SalesEntry() {
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div className="w-full flex justify-between items-center">
                                     <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.25rem' }}>Bill No: {currentBillNo}</div>
-                                    <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "650px", marginTop: "-30px" }}>Total Sales: Rs. {formatDecimal(mainTotal)}</div>
+                                    <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "650px", marginTop: "-30px" }}>Total Sales: Rs. {formatDecimal(totalSales)}</div>
                                 </div>
                                 <div className="flex items-end gap-3 w-full">
                                     <div className="flex-1 min-w-0">
@@ -940,7 +1004,28 @@ export default function SalesEntry() {
                             <div className="flex items-center justify-between mt-6 mb-4">
                                 <div className="flex justify-between items-center w-full">
                                     <div className="flex items-center gap-0">
-                                        <div className="text-2xl font-bold" style={{ color: 'red' }}>(<span>Sales: Rs. {formatDecimal(displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span><span> + Pack Cost: Rs. {formatDecimal(displayedSales.reduce((sum, s) => { const itemCost = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0); const totalCost = parseFloat(s.total) || 0; const packCost = totalCost - itemCost; return sum + Math.max(0, packCost); }, 0))}</span>)</div>
+                                        <div className="text-2xl font-bold" style={{ color: 'red' }}>
+                                            (
+                                            <span>
+                                                Sales: Rs. {formatDecimal(
+                                                    displayedSales.reduce(
+                                                        (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)),
+                                                        0
+                                                    )
+                                                )}
+                                            </span>
+                                            <span> + Pack Cost: Rs. {formatDecimal(
+                                                displayedSales.reduce(
+                                                    (sum, s) => {
+                                                        const labourCost = (parseFloat(s.CustomerPackLabour) || 0) * (parseFloat(s.packs) || 0);
+                                                        return sum + labourCost;
+                                                    },
+                                                    0
+                                                )
+                                            )}</span>
+                                            )
+                                        </div>
+
                                     </div>
                                 </div>
                             </div>

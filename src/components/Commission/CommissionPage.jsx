@@ -14,7 +14,9 @@ const CommissionPage = () => {
     const fetchCommissions = useCallback(async () => {
         try {
             const response = await api.get('/commissions');
-            setCommissions(response.data);
+            // Sort commissions by ID ascending
+            const sortedData = response.data.sort((a, b) => a.id - b.id);
+            setCommissions(sortedData);
             setStatus('');
         } catch (error) {
             console.error('Error fetching commissions:', error);
@@ -161,33 +163,35 @@ const CommissionPage = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        {commissions.map(commission => (
-                            <tr key={commission.id} style={{ backgroundColor: editingCommission?.id === commission.id ? '#fff3cd' : '#fff' }}>
-                                <td>{commission.id}</td>
-                                <td>
-                                    {commission.item_code ? (
-                                        <>
-                                            <strong>{commission.item_code}</strong>
-                                            <br />
-                                            <small>{commission.item_name}</small>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <strong>{commission.supplier_code}</strong>
-                                            <br />
-                                            <small>{commission.supplier_code}</small>
-                                        </>
-                                    )}
-                                </td>
-                                <td>{parseFloat(commission.starting_price).toFixed(2)}</td>
-                                <td>{parseFloat(commission.end_price).toFixed(2)}</td>
-                                <td>{parseFloat(commission.commission_amount).toFixed(2)}</td>
-                                <td>
-                                    <button onClick={() => handleEditClick(commission)}>Edit</button>
-                                    <button onClick={() => handleDelete(commission.id, commission.item_name || commission.supplier_name)}>Delete</button>
-                                </td>
-                            </tr>
-                        ))}
+                        {commissions
+                            .sort((a, b) => a.id - b.id) // Ensure sorted by ID ascending
+                            .map(commission => (
+                                <tr key={commission.id} style={{ backgroundColor: editingCommission?.id === commission.id ? '#fff3cd' : '#fff' }}>
+                                    <td>{commission.id}</td>
+                                    <td>
+                                        {commission.item_code ? (
+                                            <>
+                                                <strong>{commission.item_code}</strong>
+                                                <br />
+                                                <small>{commission.item_name}</small>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <strong>{commission.supplier_code}</strong>
+                                                <br />
+                                                <small>{commission.supplier_name}</small>
+                                            </>
+                                        )}
+                                    </td>
+                                    <td>{parseFloat(commission.starting_price).toFixed(2)}</td>
+                                    <td>{parseFloat(commission.end_price).toFixed(2)}</td>
+                                    <td>{parseFloat(commission.commission_amount).toFixed(2)}</td>
+                                    <td>
+                                        <button onClick={() => handleEditClick(commission)}>Edit</button>
+                                        <button onClick={() => handleDelete(commission.id, commission.item_name || commission.supplier_name)}>Delete</button>
+                                    </td>
+                                </tr>
+                            ))}
                     </tbody>
                 </table>
             )}

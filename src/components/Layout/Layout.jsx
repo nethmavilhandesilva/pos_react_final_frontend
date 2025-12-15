@@ -157,7 +157,15 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 </ul>
                             </div>
                             
-                            {/* 🚀 NEW: Day Process Button */}
+                           
+
+                            <Link
+                                to="/supplierreport"
+                                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
+                            >
+                                <i className="material-icons align-middle me-1">list_alt</i> Supplier Bills
+                            </Link>
+                             {/* 🚀 NEW: Day Process Button */}
                             <button
                                 type="button"
                                 className="btn btn-warning btn-sm mx-1"
@@ -166,13 +174,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                             >
                                 <i className="material-icons align-middle me-1">calendar_today</i> Day Process
                             </button>
-
-                            <Link
-                                to="/supplierreport"
-                                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
-                            >
-                                <i className="material-icons align-middle me-1">list_alt</i> Supplier Bills
-                            </Link>
                         </div>
                         
                         {/* 🚀 ADDED: Bill Size Selector in Top Nav */}
