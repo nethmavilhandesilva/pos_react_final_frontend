@@ -9,7 +9,7 @@ import GrnSalesOverviewReport from '../GrnSalesOverview/GrnSalesOverviewReport';
 import GrnSalesOverviewReport2 from '../GrnSalesOverview/GrnSalesOverviewReport2';
 import SalesReportModal from '../SalesReport/SalesReportModal';
 // 🚀 NEW: Import the DayProcessModal
-import DayProcessModal from '../Modals/DayProcessModal'; 
+import DayProcessModal from '../Modals/DayProcessModal';
 
 // 🚀 MODIFIED: Accept billSize and handleBillSizeChange as props
 const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
@@ -97,6 +97,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                         </Link>
 
                         <div className="navbar-nav d-flex flex-row align-items-center">
+
                             {/* Master Dropdown */}
                             <div className="nav-item dropdown mx-1">
                                 <button
@@ -112,7 +113,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                     <li>
                                         <Link
                                             to="/customers"
-                                            className={`dropdown-item ${location.pathname === '/customers' ? 'active' : ''}`}
+                                            className={`dropdown-item ${location.pathname.startsWith('/customers') && !location.pathname.includes('loans') ? 'active' : ''}`}
                                         >
                                             <i className="material-icons align-middle me-1">people</i> Customers
                                         </Link>
@@ -143,7 +144,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                     </li>
                                     <li><hr className="dropdown-divider" /></li>
 
-                                    {/* === New Report Buttons inside Dropdown === */}
+                                    {/* === New Report Buttons inside Dropdown (Loan Report) === */}
                                     <li>
                                         <button
                                             type="button"
@@ -156,27 +157,40 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                     </li>
                                 </ul>
                             </div>
-                            
-                           
+
+                            {/* 🚀 NEW: Customers Loans Link */}
+                            <Link
+                                to="/customers-loans"
+                                className={`btn btn-outline-success btn-sm mx-1 ${location.pathname === '/customers-loans' ? 'active' : ''}`}
+                                style={{ fontWeight: 'bold' }}
+                            >
+                                <i className="material-icons align-middle me-1">paid</i> Customer Loans
+                            </Link>
 
                             <Link
                                 to="/supplierreport"
-                                className={`nav-link btn btn-outline-light btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
+                                className={`btn btn-outline-success btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
+                                style={{ fontWeight: 'bold' }}
                             >
-                                <i className="material-icons align-middle me-1">list_alt</i> Supplier Bills
+                                <i className="material-icons align-middle me-1">list_alt</i>
+                                Supplier Bills
                             </Link>
-                             {/* 🚀 NEW: Day Process Button */}
+
+                            {/* 🚀 NEW: Day Process Button */}
                             <button
                                 type="button"
-                                className="btn btn-warning btn-sm mx-1"
+                                className="btn btn-outline-success btn-sm mx-1"
+                                style={{ fontWeight: 'bold' }}
                                 onClick={openDayProcessModal}
                                 title="Move sales data of a specific date to history."
                             >
-                                <i className="material-icons align-middle me-1">calendar_today</i> Day Process
+                                <i className="material-icons align-middle me-1">calendar_today</i>
+                                Day Process
                             </button>
+
                         </div>
-                        
-                        {/* 🚀 ADDED: Bill Size Selector in Top Nav */}
+
+                        {/* 🚀 Bill Size Selector in Top Nav */}
                         {isSalesEntryPage && (
                             <div className="d-flex align-items-center me-3" style={{ marginLeft: '20px' }}>
                                 <label htmlFor="bill-size-select" className="text-white me-2" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
@@ -248,7 +262,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                             <i className="material-icons align-middle me-1">shopping_cart</i> Sales Report
                         </button>
 
-                        {/* ===== New Profit Report Button ===== */}
+                        {/* ===== Profit Report Button ===== */}
                         <button
                             onClick={handleProfitReportClick}
                             style={profitReportButtonStyle}
@@ -272,7 +286,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             <GrnSalesOverviewReport2 isOpen={isGrnSalesOverviewReport2Open} onClose={closeGrnSalesOverviewReport2} />
             <SalesReportModal isOpen={isSalesReportModalOpen} onClose={closeSalesReportModal} />
             <GrnReportModal isOpen={isGrnReportModalOpen} onClose={closeGrnReportModal} />
-            
+
             {/* 🚀 NEW: Day Process Modal */}
             <DayProcessModal isOpen={isDayProcessModalOpen} onClose={closeDayProcessModal} />
         </div>
