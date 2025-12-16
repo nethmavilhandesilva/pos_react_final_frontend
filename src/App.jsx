@@ -1,3 +1,4 @@
+// src/App.jsx 
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
@@ -13,7 +14,7 @@ import EditSupplier from './components/Suppliers/EditSupplier';
 import GrnList from './components/Grn/GrnList';
 import CreateGrn from './components/Grn/CreateGrn';
 import EditGrn from './components/Grn/EditGrn';
-import CustomersLoanList from './components/CustomersLoans/CustomersLoanList';
+import LoanManager from './components/LoanManager/LoanManager'; // ✅ NEW: Import LoanManager
 import GrnEntryForm from './components/Grn/GrnEntryForm';
 import Dashboard from './components/Dashboard/Dashboard';
 import LoginPage from './components/Auth/LoginPage';
@@ -29,7 +30,11 @@ import SupplierProfitReport from './components/Suppliers/SupplierProfitReport';
 // ✅ ProtectedRoute component — blocks access if user not logged in
 const ProtectedRoute = ({ children }) => {
     const user = localStorage.getItem('user');
-    if (!user) {
+    // NOTE: It's better practice to check for the token, not 'user' 
+    // since the provided API uses the 'token'.
+    const token = localStorage.getItem('token'); 
+
+    if (!token) {
         return <Navigate to="/login" replace />;
     }
     return children;
@@ -56,7 +61,6 @@ export default function App() {
                 {/* CUSTOMERS */}
                 <Route
                     path="/customers"
-                    // 🚀 CORRECTION: CustomerList was unprotected. It should be protected.
                     element={
                         <ProtectedRoute>
                             <CustomerList />
@@ -171,7 +175,8 @@ export default function App() {
                     path="/customers-loans"
                     element={
                         <ProtectedRoute>
-                            <CustomersLoanList />
+                            {/* 🚀 CORRECTION: Use LoanManager for the main loans page */}
+                            <LoanManager /> 
                         </ProtectedRoute>
                     }
                 />
