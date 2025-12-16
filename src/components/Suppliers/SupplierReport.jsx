@@ -30,14 +30,34 @@ const SupplierReport = () => {
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
         setCurrentView('summary');
+        console.log("➡️ Attempting to fetch supplier summary data from backend...");
         try {
             const response = await api.get('/suppliers/bill-status-summary');
-            setSummary({
-                printed: response.data.printed || [],
-                unprinted: response.data.unprinted || [],
-            });
+            
+            if (response.data) {
+                console.log("✅ Summary data received.");
+                console.log("   - Printed count:", response.data.printed?.length || 0);
+                console.log("   - Unprinted count:", response.data.unprinted?.length || 0);
+                
+                // Inspecting the first item of each array for structure verification
+                if (response.data.printed && response.data.printed.length > 0) {
+                    console.log("   - Example Printed Item:", response.data.printed[0]);
+                }
+                if (response.data.unprinted && response.data.unprinted.length > 0) {
+                    console.log("   - Example Unprinted Item:", response.data.unprinted[0]);
+                }
+
+                setSummary({
+                    printed: response.data.printed || [],
+                    unprinted: response.data.unprinted || [],
+                });
+            } else {
+                 console.warn("⚠️ Received empty response body or data structure from /suppliers/bill-status-summary.");
+                 setSummary({ printed: [], unprinted: [] });
+            }
+
         } catch (error) {
-            console.error('Error fetching summary data:', error);
+            console.error('❌ Error fetching summary data:', error.message, error.response?.data);
             setSummary({ printed: [], unprinted: [] });
         } finally {
             setIsLoading(false);
@@ -57,17 +77,21 @@ const SupplierReport = () => {
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
-        return summary.printed.filter(item =>
+        const filtered = summary.printed.filter(item =>
             item.supplier_code.toLowerCase().includes(lowerCaseSearch) ||
             (item.supplier_bill_no && item.supplier_bill_no.toLowerCase().includes(lowerCaseSearch))
         );
+        console.log(`ℹ️ Filtered Printed Items: ${filtered.length} results.`);
+        return filtered;
     }, [printedSearchTerm, summary.printed]);
 
     const filteredUnprintedItems = useMemo(() => {
         const lowerCaseSearch = unprintedSearchTerm.toLowerCase();
-        return summary.unprinted.filter(item =>
+        const filtered = summary.unprinted.filter(item =>
             item.supplier_code.toLowerCase().includes(lowerCaseSearch)
         );
+        console.log(`ℹ️ Filtered Unprinted Items: ${filtered.length} results.`);
+        return filtered;
     }, [unprintedSearchTerm, summary.unprinted]);
 
     // --- Handle Unprinted Bill Click ---
@@ -78,11 +102,13 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
+        console.log(`➡️ Fetching unprinted details for supplier: ${supplierCode}`);
         try {
             const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
             setSupplierDetails(response.data);
+            console.log(`✅ Unprinted details fetched. Records: ${response.data?.length || 0}`);
         } catch (error) {
-            console.error(`Error fetching unprinted details for ${supplierCode}:`, error);
+            console.error(`❌ Error fetching unprinted details for ${supplierCode}:`, error.message, error.response?.data);
         } finally {
             setIsDetailsLoading(false);
         }
@@ -96,11 +122,13 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
+        console.log(`➡️ Fetching printed details for bill: ${billNo}`);
         try {
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
+            console.log(`✅ Printed details fetched. Records: ${response.data?.length || 0}`);
         } catch (error) {
-            console.error(`Error fetching printed details for bill ${billNo}:`, error);
+            console.error(`❌ Error fetching printed details for bill ${billNo}:`, error.message, error.response?.data);
         } finally {
             setIsDetailsLoading(false);
         }
@@ -191,12 +219,7 @@ const SupplierReport = () => {
             // 4mm format: Single line with item name and packs
             colGroups = `
                 <colgroup>
-                    <col style="width:40%;"> <!-- Item + Packs -->
-                    <col style="width:15%;"> <!-- Weight -->
-                    <col style="width:15%;"> <!-- Price -->
-                    <col style="width:15%;"> <!-- Value -->
-                    <col style="width:15%;"> <!-- Customer Code -->
-                </colgroup>
+                    <col style="width:40%;"> <col style="width:15%;"> <col style="width:15%;"> <col style="width:15%;"> <col style="width:15%;"> </colgroup>
             `;
             itemHeader = 'වර්ගය (මලු)';
             columnCount = 5;
@@ -204,28 +227,40 @@ const SupplierReport = () => {
             // 3mm format: Item name and packs on separate lines
             colGroups = `
                 <colgroup>
-                    <col style="width:35%;"> <!-- Item -->
-                    <col style="width:15%;"> <!-- Weight -->
-                    <col style="width:15%;"> <!-- Price -->
-                    <col style="width:20%;"> <!-- Value -->
-                    <col style="width:15%;"> <!-- Customer Code -->
-                </colgroup>
+                    <col style="width:35%;"> <col style="width:15%;"> <col style="width:15%;"> <col style="width:20%;"> <col style="width:15%;"> </colgroup>
             `;
             itemHeader = 'වර්ගය';
             columnCount = 5;
         }
 
-        // Item Summary HTML
-        const itemSummaryKeys = Object.keys(itemSummaryData);
-        const itemSummaryHtml = itemSummaryKeys.map(itemName => {
-            const sum = itemSummaryData[itemName];
-            return `
-                <tr>
-                    <td style="width:60%; padding:2px;">${itemName}</td>
-                    <td style="width:40%; text-align:right; padding:2px;">${sum.totalPacks} / ${sum.totalWeight.toFixed(3)}kg</td>
-                </tr>
-            `;
-        }).join('');
+        
+       // Item Summary HTML (3 items per row + smaller font)
+// Item Summary HTML (2 items per row: left + right aligned)
+const itemSummaryKeys = Object.keys(itemSummaryData);
+
+const itemSummaryHtml = itemSummaryKeys
+    .reduce((rows, itemName, index) => {
+        if (index % 2 === 0) rows.push([]);
+        rows[rows.length - 1].push(itemName);
+        return rows;
+    }, [])
+    .map(itemGroup => `
+        <tr style="font-size:10px;">
+            <td style="width:50%; padding:2px; text-align:left; white-space:nowrap;">
+                ${itemGroup[0]
+                    ? `${itemGroup[0]} (${itemSummaryData[itemGroup[0]].totalPacks}/${itemSummaryData[itemGroup[0]].totalWeight.toFixed(3)}kg)`
+                    : ''}
+            </td>
+            <td style="width:50%; padding:2px; text-align:right; white-space:nowrap;">
+                ${itemGroup[1]
+                    ? `${itemGroup[1]} (${itemSummaryData[itemGroup[1]].totalPacks}/${itemSummaryData[itemGroup[1]].totalWeight.toFixed(3)}kg)`
+                    : ''}
+            </td>
+        </tr>
+    `)
+    .join('');
+
+
 
         // Detailed Items HTML with bill size support
         const detailedItemsHtml = supplierDetails.map(record => {
@@ -448,19 +483,35 @@ const SupplierReport = () => {
     // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
         const groupedItems = useMemo(() => {
-            return items.reduce((acc, item) => {
+            console.log(`ℹ️ SupplierCodeList (Type: ${type}): Processing ${items.length} items.`);
+            const result = items.reduce((acc, item) => {
                 const { supplier_code, supplier_bill_no } = item;
+
+                if (!supplier_code) {
+                    console.warn(`⚠️ Skipping item due to missing supplier_code:`, item);
+                    return acc;
+                }
 
                 if (!acc[supplier_code]) {
                     acc[supplier_code] = [];
                 }
-                if (type === 'printed' && supplier_bill_no) {
-                    acc[supplier_code].push(supplier_bill_no);
-                } else if (type === 'unprinted' && !acc[supplier_code].includes(supplier_code)) {
-                    acc[supplier_code].push(supplier_code);
+                
+                if (type === 'printed') {
+                    if (supplier_bill_no) {
+                        acc[supplier_code].push(supplier_bill_no);
+                    } else {
+                        console.warn(`⚠️ Printed item missing supplier_bill_no:`, item);
+                    }
+                } else if (type === 'unprinted') {
+                    // Only add the supplier code once to represent the single "unprinted" bill for that supplier
+                    if (!acc[supplier_code].includes(supplier_code)) {
+                        acc[supplier_code].push(supplier_code);
+                    }
                 }
                 return acc;
             }, {});
+            console.log(`🔍 Grouped ${type} suppliers:`, Object.keys(result).length, 'groups.');
+            return result;
         }, [items, type]);
 
         const supplierCodes = Object.keys(groupedItems);
@@ -532,8 +583,8 @@ const SupplierReport = () => {
                             <button
                                 key={billIdentifier}
                                 onClick={() => type === 'printed'
-                                        ? handlePrintedBillClick(supplierCode, billIdentifier)
-                                        : handleUnprintedBillClick(supplierCode, null)
+                                    ? handlePrintedBillClick(supplierCode, billIdentifier)
+                                    : handleUnprintedBillClick(supplierCode, null)
                                     }
                                 style={buttonStyle}
                                 onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
