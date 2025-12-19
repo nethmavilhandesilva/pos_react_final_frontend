@@ -5,8 +5,8 @@ import api from '../../api'; // Your provided axios instance
 
 // Utility to convert raw customer data into React-Select format
 const formatCustomerOptions = (customers) => customers.map(c => ({
-    value: c.id, 
-    label: `${c.short_name} - ${c.name}`, 
+    value: c.id,
+    label: `${c.short_name}`,
     shortName: c.short_name,
     creditLimit: c.credit_limit
 }));
@@ -52,7 +52,7 @@ const LoanManager = () => {
     // Removed isGrnDamage check since the radio button and fields are being removed
     const isReturns = form.loan_type === 'returns';
     const isIncomeOrExpense = form.loan_type === 'ingoing' || form.loan_type === 'outgoing';
-    
+
     // Description is editable if it's I/E, GRN, or we are in edit mode. Since GRN is removed, we simplify.
     const isDescriptionEditable = isIncomeOrExpense || isEditMode;
 
@@ -62,8 +62,8 @@ const LoanManager = () => {
     // Fetches customers from the dedicated API route /customers
     const fetchCustomers = useCallback(async () => {
         try {
-            const { data } = await api.get('/customers'); 
-            setCustomersRaw(data); 
+            const { data } = await api.get('/customers');
+            setCustomersRaw(data);
         } catch (error) {
             console.error('Error fetching customers:', error);
         }
@@ -93,7 +93,7 @@ const LoanManager = () => {
 
     useEffect(() => {
         fetchCustomers();
-        fetchData(); 
+        fetchData();
         fetchBillNos();
     }, [fetchCustomers, fetchData, fetchBillNos]);
 
@@ -104,31 +104,31 @@ const LoanManager = () => {
     };
 
     const handleSelectChange = (name) => (selectedOption) => {
-        setForm(prev => ({ 
-            ...prev, 
+        setForm(prev => ({
+            ...prev,
             [name]: selectedOption ? selectedOption.value : null,
         }));
     };
 
     const handleLoanTypeChange = (e) => {
         const { value } = e.target;
-        
+
         // --- Core Logic for hiding fields on I/E and Returns ---
-        const resetFields = (value === 'ingoing' || value === 'outgoing' || value === 'returns') 
-            ? { 
-                customer_id: null, 
-                bill_no: '', 
+        const resetFields = (value === 'ingoing' || value === 'outgoing' || value === 'returns')
+            ? {
+                customer_id: null,
+                bill_no: '',
                 settling_way: 'cash' // Reset settling way
-            } 
+            }
             : {};
-        
+
         // Hide edit mode on certain transitions
         if (value === 'returns') {
-             setIsEditMode(false);
+            setIsEditMode(false);
         }
-        
-        setForm(prev => ({ 
-            ...prev, 
+
+        setForm(prev => ({
+            ...prev,
             loan_type: value,
             ...resetFields
         }));
@@ -141,11 +141,11 @@ const LoanManager = () => {
         if (code) {
             try {
                 const { data } = await api.get(`/api/grn-entry/${code}`);
-                setForm(prev => ({ 
-                    ...prev, 
+                setForm(prev => ({
+                    ...prev,
                     wasted_code: code,
                     return_grn_code: code,
-                    return_item_code: data.item_code 
+                    return_item_code: data.item_code
                 }));
             } catch (error) {
                 console.error('Error fetching GRN item code:', error);
@@ -157,7 +157,7 @@ const LoanManager = () => {
 
     const fetchLoanTotal = useCallback(async (customerId, showTotalLoan) => {
         if (customerId && showTotalLoan) {
-             try {
+            try {
                 const res = await api.get(`/customers/${customerId}/loans-total`);
                 const totalAmount = Math.abs(parseFloat(res.data.total_amount));
                 setTotalLoanDisplay(`(Total Loans: ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`);
@@ -184,13 +184,13 @@ const LoanManager = () => {
         } else if (loan_type === 'outgoing') {
             // Description is editable for outgoing/ingoing, avoid overwriting auto-description
         }
-        
-        if (!isEditMode && !isIncomeOrExpense) { 
-             setForm(prev => ({ ...prev, description: newDescription }));
+
+        if (!isEditMode && !isIncomeOrExpense) {
+            setForm(prev => ({ ...prev, description: newDescription }));
         }
 
         fetchLoanTotal(customer_id, showTotalLoan);
-        
+
     }, [form.loan_type, form.settling_way, form.customer_id, form.bank, isEditMode, isCustomerRelated, isIncomeOrExpense, fetchLoanTotal]);
 
 
@@ -198,7 +198,7 @@ const LoanManager = () => {
     useEffect(() => {
         const { loan_type, customer_id, amount } = form;
         const submitButton = document.getElementById('submitButton');
-        
+
         const selectedCustomerData = customersRaw.find(c => c.id === customer_id);
         const creditLimit = selectedCustomerData?.credit_limit;
 
@@ -221,14 +221,14 @@ const LoanManager = () => {
 
         let formData = { ...form };
         let url = isEditMode ? `/customers-loans/${form.loan_id}` : '/customers-loans';
-        
+
         if (isReturn) {
-             formData = { ...form, loan_type: 'returns', amount: 0, description: 'Return entry' };
-             url = '/customers-loans'; 
+            formData = { ...form, loan_type: 'returns', amount: 0, description: 'Return entry' };
+            url = '/customers-loans';
         }
 
         try {
-            const method = isEditMode ? 'POST' : 'POST'; 
+            const method = isEditMode ? 'POST' : 'POST';
             const payload = isEditMode ? { ...formData, _method: 'PUT' } : formData;
 
             const response = await api({
@@ -238,12 +238,12 @@ const LoanManager = () => {
             });
 
             alert(response.data.message);
-            handleCancelEdit(); 
-            fetchData(); 
+            handleCancelEdit();
+            fetchData();
             fetchCustomers();
         } catch (error) {
-            const errorMsg = error.response?.data?.message || error.response?.data?.errors 
-                ? Object.values(error.response.data.errors).flat().join('\n') 
+            const errorMsg = error.response?.data?.message || error.response?.data?.errors
+                ? Object.values(error.response.data.errors).flat().join('\n')
                 : 'An unexpected error occurred.';
             alert(errorMsg);
             console.error('Submission error:', error);
@@ -251,7 +251,7 @@ const LoanManager = () => {
             setLoading(false);
         }
     };
-    
+
     // --- Edit and Reset ---
 
     const handleEdit = (loan) => {
@@ -264,7 +264,7 @@ const LoanManager = () => {
             settling_way: loan.settling_way || 'cash',
             customer_id: loan.customer_id,
             bill_no: loan.bill_no || '',
-            amount: Math.abs(loan.amount), 
+            amount: Math.abs(loan.amount),
             description: loan.description,
             cheque_no: loan.cheque_no || '',
             bank: loan.bank || '',
@@ -278,7 +278,7 @@ const LoanManager = () => {
         setIsEditMode(false);
         setForm(getInitialFormState());
     };
-    
+
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure you want to delete this record?')) return;
 
@@ -286,7 +286,7 @@ const LoanManager = () => {
             await api.delete(`/customers-loans/${id}`);
             alert('Record deleted successfully!');
             fetchData();
-            fetchCustomers(); 
+            fetchCustomers();
         } catch (error) {
             const errorMsg = error.response?.data?.message || 'Failed to delete record.';
             alert(errorMsg);
@@ -297,7 +297,7 @@ const LoanManager = () => {
     // Memoize options creation from raw data
     const customerOptions = useMemo(() => formatCustomerOptions(customersRaw), [customersRaw]);
     const billOptions = useMemo(() => billNos.map(bill => ({ value: bill, label: bill })), [billNos]);
-    
+
     // Custom filter for single-character short-name search
     const customFilter = (option, searchText) => {
         const term = searchText.toLowerCase().trim();
@@ -338,20 +338,20 @@ const LoanManager = () => {
                 .select__placeholder { font-size: 0.75rem !important; font-weight: bold !important; color: #aaa !important;}
                 .select__single-value { font-size: 0.75rem !important; font-weight: bold !important; color: black !important; }
             `}</style>
-            
+
             <div className="custom-card">
                 {/* Loan Entry Form */}
                 <form onSubmit={e => handleSubmit(e, isReturns)} className="p-3 border border-2 border-dark rounded bg-custom-dark">
-                    
+
                     <div className="row gy-2">
                         {/* Loan Type Radios (GRN Damages removed) */}
                         <div className="col-md-8">
                             {['old', 'today', 'ingoing', 'outgoing', 'returns'].map(type => (
                                 <label key={type} className="me-3" style={{ color: 'white' }}>
-                                    <input 
-                                        type="radio" 
-                                        name="loan_type" 
-                                        value={type} 
+                                    <input
+                                        type="radio"
+                                        name="loan_type"
+                                        value={type}
                                         checked={form.loan_type === type}
                                         onChange={handleLoanTypeChange}
                                     />
@@ -368,13 +368,13 @@ const LoanManager = () => {
                         {/* Settling Way Section (Visible only for 'old' loan type) */}
                         {isSettlingWayVisible && (
                             <div className="col-md-4">
-                                <label className="text-form-label" style={{ color: 'white' }}><strong>Settling Way:</strong></label><br/>
+                                <label className="text-form-label" style={{ color: 'white' }}><strong>Settling Way:</strong></label><br />
                                 {['cash', 'cheque'].map(way => (
                                     <label key={way} className="me-3" style={{ color: 'white' }}>
-                                        <input 
-                                            type="radio" 
-                                            name="settling_way" 
-                                            value={way} 
+                                        <input
+                                            type="radio"
+                                            name="settling_way"
+                                            value={way}
                                             checked={form.settling_way === way}
                                             onChange={handleInputChange}
                                         />
@@ -388,29 +388,53 @@ const LoanManager = () => {
                         {/* Customer Section (Visible only for 'old' or 'today' loan types) */}
                         {isCustomerRelated && (
                             <div className="col-md-4">
-                                <label htmlFor="customer_id" className="text-form-label">ගෙණුම්කරු</label>
+                                <label htmlFor="customer_id" className="text-form-label">
+                                    ගෙණුම්කරු
+                                </label>
+
                                 <Select
                                     id="customer_id"
                                     name="customer_id"
                                     options={customerOptions}
                                     onChange={handleSelectChange('customer_id')}
-                                    value={customerOptions.find(opt => opt.value === form.customer_id)}
+                                    value={customerOptions.find(
+                                        opt => opt.value === form.customer_id
+                                    )}
                                     filterOption={customFilter}
                                     placeholder="-- Select Customer --"
                                     isClearable
                                     classNamePrefix="select"
+
+                                    styles={{
+                                        option: (provided, state) => ({
+                                            ...provided,
+                                            color: 'black',
+                                            fontWeight: 'bold',
+                                            backgroundColor: state.isFocused ? '#f0f0f0' : 'white'
+                                        }),
+                                        singleValue: (provided) => ({
+                                            ...provided,
+                                            color: 'black',
+                                            fontWeight: 'bold'
+                                        }),
+                                        placeholder: (provided) => ({
+                                            ...provided,
+                                            color: '#666'
+                                        })
+                                    }}
                                 />
                             </div>
+
                         )}
 
                         {/* Bill No Section (Visible only for 'old' or 'today' loan types, and if not Cheque) */}
                         {isCustomerRelated && !isCheque && (
                             <div className="col-md-3">
                                 <label htmlFor="bill_no" className="text-form-label">Bill No</label>
-                                <input 
-                                    type="text" 
-                                    className="form-control form-control-sm" 
-                                    name="bill_no" 
+                                <input
+                                    type="text"
+                                    className="form-control form-control-sm"
+                                    name="bill_no"
                                     value={form.bill_no}
                                     onChange={handleInputChange}
                                 />
@@ -424,11 +448,11 @@ const LoanManager = () => {
                             <div id="loan-details-row" className="row gx-2">
                                 <div className={`col-md-${isIncomeOrExpense ? 4 : 2}`} id="amount_section">
                                     <label htmlFor="amount" className="text-form-label">මුදල</label>
-                                    <input 
-                                        type="number" 
-                                        step="0.01" 
-                                        className="form-control form-control-sm" 
-                                        name="amount" 
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        className="form-control form-control-sm"
+                                        name="amount"
                                         value={form.amount}
                                         onChange={handleInputChange}
                                         required
@@ -440,13 +464,13 @@ const LoanManager = () => {
                                 <div className={`col-md-${isIncomeOrExpense ? 8 : 5}`} id="description_section">
                                     <label htmlFor="description" className="text-form-label">විස්තරය</label>
                                     {form.loan_type === 'outgoing' ? (
-                                         <>
-                                            <input 
-                                                list="descriptionOptions" 
-                                                className="form-control form-control-sm" 
-                                                name="description" 
-                                                id="description" 
-                                                placeholder="Type or select" 
+                                        <>
+                                            <input
+                                                list="descriptionOptions"
+                                                className="form-control form-control-sm"
+                                                name="description"
+                                                id="description"
+                                                placeholder="Type or select"
                                                 value={form.description}
                                                 onChange={handleInputChange}
                                                 required
@@ -458,10 +482,10 @@ const LoanManager = () => {
                                             </datalist>
                                         </>
                                     ) : (
-                                        <input 
-                                            type="text" 
-                                            className="form-control form-control-sm" 
-                                            name="description" 
+                                        <input
+                                            type="text"
+                                            className="form-control form-control-sm"
+                                            name="description"
                                             id="description"
                                             value={form.description}
                                             onChange={handleInputChange}
@@ -516,10 +540,10 @@ const LoanManager = () => {
                         {/* Main Submit Section */}
                         {!isReturns && (
                             <div className="col-12 mt-3" id="mainSubmitSection">
-                                <button 
-                                    type="submit" 
-                                    className={`btn ${isEditMode ? 'btn-success' : 'btn-light text-dark'}`} 
-                                    id="submitButton" 
+                                <button
+                                    type="submit"
+                                    className={`btn ${isEditMode ? 'btn-success' : 'btn-light text-dark'}`}
+                                    id="submitButton"
                                     disabled={loading || (isCustomerRelated && creditLimitMessage)}
                                 >
                                     {isEditMode ? 'Update Loan' : 'Add Loan'}

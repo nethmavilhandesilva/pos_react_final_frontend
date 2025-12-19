@@ -327,7 +327,7 @@ export default function SalesEntry() {
         const p = parseFloat(formData.price_per_kg) || 0;
         const packs = parseInt(formData.packs) || 0;
         const packDue = parseFloat(formData.pack_due) || 0;
-        const total = (w * p) ;
+        const total = (w * p);
         setFormData(prev => ({ ...prev, total: Number(total.toFixed(2)) }));
 
         // When formData.price_per_kg changes (via bulk field or edit), update the grid field's state to keep them visually in sync
@@ -373,22 +373,22 @@ export default function SalesEntry() {
         }
     };
     // Calculate Sales
-const salesTotal = displayedSales.reduce(
-  (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)),
-  0
-);
+    const salesTotal = displayedSales.reduce(
+        (sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)),
+        0
+    );
 
-// Calculate Pack Cost
-const packCostTotal = displayedSales.reduce(
-  (sum, s) => {
-    const labourCost = (parseFloat(s.CustomerPackLabour) || 0) * (parseFloat(s.packs) || 0);
-    return sum + labourCost;
-  },
-  0
-);
+    // Calculate Pack Cost
+    const packCostTotal = displayedSales.reduce(
+        (sum, s) => {
+            const labourCost = (parseFloat(s.CustomerPackLabour) || 0) * (parseFloat(s.packs) || 0);
+            return sum + labourCost;
+        },
+        0
+    );
 
-// Total of both
-const totalSales = salesTotal + packCostTotal;
+    // Total of both
+    const totalSales = salesTotal + packCostTotal;
 
 
     // 2. INPUT HANDLER UPDATE: Separate logic for price_per_kg (bulk) and price_per_kg_grid_item (single)
@@ -661,7 +661,7 @@ const totalSales = salesTotal + packCostTotal;
             consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
             totalAmountSum += parseFloat(s.total) || 0;
         });
-        
+
 
         // Total Packs for the table footer, calculated from the summary
         const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
@@ -676,11 +676,11 @@ const totalSales = salesTotal + packCostTotal;
 
         let colGroups, itemHeader;
         if (is4Inch) {
-            colGroups = `<colgroup><col style="width:25%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:25%;"></colgroup>`;
-            itemHeader = 'වර්ගය (මලු)';
+            colGroups = `<colgroup><col style="width:30%;"><col style="width:15%;"><col style="width:15%;"><col style="width:25%;"><col style="width:15%;"></colgroup>`;
+            itemHeader = 'වර්ගය <br> (මලු)';
         } else {
-            colGroups = `<colgroup><col style="width:30%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:20%;"></colgroup>`;
-            itemHeader = 'වර්ගය';
+            colGroups = `<colgroup><col style="width:35%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:15%;"></colgroup>`;
+            itemHeader = 'වර්ගය <br> (මලු)';
         }
 
         // HTML for the detailed item list
@@ -694,15 +694,47 @@ const totalSales = salesTotal + packCostTotal;
             const formattedPrice = formatReceiptValue(price);
             const formattedValue = formatReceiptValue(value);
 
-            if (is4Inch) return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;"><td style="text-align:left; padding:2px 4px; font-weight:bold; color:black;">${s.item_name || ""} (${packs})</td><td style="text-align:center; padding:2px 4px; font-weight:bold; color:black;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px; font-weight:bold; color:black;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px; font-weight:bold; color:black;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; font-size:0.8em; font-weight:bold; color:black;">${s.supplier_code || ""}</td></tr>
-`;
-            else return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;"><td style="text-align:left; padding:2px 4px;">${s.item_name || ""} (${packs})</td><td style="text-align:center; padding:2px 4px;">${formattedWeight}</td><td style="text-align:center; padding:2px 4px;">${formattedPrice}</td><td style="text-align:right; padding:2px 4px;">${formattedValue}</td><td style="text-align:right; padding:2px 4px; font-size:0.8em;">${s.supplier_code || ""}</td></tr>
-`;
+            if (is4Inch) {
+                return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
+                <td style="text-align:left; padding:2px 4px; font-weight:bold; color:black;">${s.item_name || ""} (${packs})</td>
+                <td style="text-align:center; padding:2px 4px; font-weight:bold; color:black;">${formattedWeight}</td>
+                <td style="padding:2px 4px; font-weight:bold; color:black;">
+  <div style="display:inline-block; margin-left:50px;">${formattedPrice}</div>
+</td>
+
+                <td style="text-align:right; padding:2px 4px; font-weight:bold; color:black;">
+                    <div style="display:flex; flex-direction:column; margin-left:180px; padding-left:20px; text-align:right; align-items:flex-end;">
+                        <div style="font-size:0.9em;">${s.supplier_code || ""}</div>
+                        <div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div>
+                    </div>
+                </td>
+                <td style="text-align:right; padding:2px 4px; font-weight:bold; color:black;"></td>
+            </tr>`;
+            } else {
+                return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
+                <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} <br> (${packs})</td>
+                <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
+                <td style="padding:2px 4px;">
+  <div style="display:inline-block; margin-left:50px;">${formattedPrice}</div>
+</td>
+
+                <td style="text-align:right; padding:2px 4px;">
+                   <div style="display:flex; flex-direction:column; margin-left:100px; text-align:right; align-items:flex-end;">
+                        <div style="font-size:0.9em;">${s.supplier_code || ""}</div>
+                        <div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div>
+                    </div>
+                </td>
+                <td style="text-align:right; padding:2px 4px;"></td>
+            </tr>`;
+            }
         }).join("");
 
         const totalPrice = totalAmountSum;
         const totalSalesExcludingPackDue = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-        const totalPackDueCost = totalPrice - totalSalesExcludingPackDue;
+        const totalPackDueCost = salesData.reduce((sum, s) => {
+            const packCharge = (parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0);
+            return sum + packCharge;
+        }, 0);
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
         const remaining = parseFloat(givenAmount) - totalPrice;
 
@@ -718,6 +750,13 @@ const totalSales = salesTotal + packCostTotal;
         const formattedGlobalLoanAmount = formatReceiptValue(Math.abs(globalLoanAmount));
         const formattedTotalAmountWithLoan = formatReceiptValue(Math.abs(totalAmountWithLoan));
 
+        // Calculate total of all values in the last column (sum of all item values)
+        const totalValuesSum = salesData.reduce((sum, s) => {
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            return sum + (weight * price);
+        }, 0);
+        const formattedTotalValuesSum = formatReceiptValue(totalValuesSum);
 
         const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
 
@@ -736,36 +775,71 @@ const totalSales = salesTotal + packCostTotal;
             const item2Text = data2 ? `${itemName2}: ${formatReceiptValue(data2.totalWeight)} / ${formatReceiptValue(data2.totalPacks)}` : '';
 
             summaryHtmlContent += `
-            <tr style="font-size:${fontSizeText};">
-                <td style="width:50%; text-align:left; padding:2px 0; border:1px solid #000; padding:2px 4px; margin-top:1px;">${item1Text}</td>
-                <td style="width:50%; text-align:left; padding:2px 4px; border:1px solid #000; margin-top:1px;">${item2Text}</td>
-            </tr>
-        `;
+        <tr style="font-size:${fontSizeText};">
+            <td style="width:50%; text-align:left; padding:2px 0; border:1px solid #000; padding:2px 4px; margin-top:1px;">${item1Text}</td>
+            <td style="width:50%; text-align:left; padding:2px 4px; border:1px solid #000; margin-top:1px;">${item2Text}</td>
+        </tr>
+    `;
         }
 
         const itemSummaryHtml = `
-        <div style="margin-top: 10px; text-align: center; font-size: 12px; text-transform: lowercase;">
-    ${summaryHtmlContent}
+    <div style="margin-top: 10px; text-align: center; font-size: 12px; text-transform: lowercase;">
+${summaryHtmlContent}
 </div>
 
-    `;
-
+`;
         // --- Final HTML Structure ---
         return `<div class="receipt-container" style="width:100%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;">
-    <div style="text-align:center; margin-bottom:5px; border-bottom:1px solid #000;"><h3 style="font-size:${fontSizeHeader}; font-weight:bold; margin:0 0 5px 0;">NVDS</h3></div>
-    <div style="text-align:left; margin-bottom:5px;"><table style="width:100%; font-size:9px; border-collapse:collapse;"><tr><td>දිනය: ${date}</td><td style="text-align:right;">${time}</td></tr><tr><td colspan="2">දුර: ${mobile || ''}</td></tr><tr><td>බිල් අංකය: <strong>${billNo}</strong></td><td style="text-align:right;"><strong style="font-size:${fontSizeTitle};">${customerName.toUpperCase()}</strong></td></tr></table></div>
-    <hr style="border:1px solid #000; margin:5px 0;">
-    <table style="width:100%; font-size:${is4Inch ? '10px' : '9px'}; border-collapse:collapse; table-layout:fixed;">${colGroups}<thead><tr style="border-bottom:1px solid #000;">
-    ${is4Inch ? `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.1em;">මිල</th><th style="text-align:right; padding:4px; font-size:1.1em;">අගය</th><th style="text-align:right; padding:4px; font-size:1.1em;">sup code</th>` : `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.2em;">මිල</th><th style="text-align:right; padding:4px; font-size:1.2em;">අගය</th><th style="text-align:right; padding:4px; font-size:1.2em;">sup code</th>`}</tr></thead>
-    <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="${is4Inch ? '1' : '1'}" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td colspan="3" style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${formattedTotalSalesExcludingPackDue}</td></tr></tbody></table>
-    
-  
+<div style="text-align:center; margin-bottom:5px; border-bottom:1px solid #000;"><h3 style="font-size:${fontSizeHeader}; font-weight:bold; margin:0 0 5px 0;">NVDS</h3></div>
+<div style="text-align:left; margin-bottom:5px;"><table style="width:100%; font-size:9px; border-collapse:collapse;"><tr><td>දිනය: ${date}</td><td style="text-align:right;">${time}</td></tr><tr><td colspan="2">දුර: ${mobile || ''}</td></tr><tr><td>බිල් අංකය: <strong>${billNo}</strong></td><td style="text-align:right;"><strong style="font-size:${fontSizeTitle};">${customerName.toUpperCase()}</strong></td></tr></table></div>
+<hr style="border:1px solid #000; margin:5px 0;">
+<table style="width:100%; font-size:${is4Inch ? '10px' : '9px'}; border-collapse:collapse; table-layout:fixed;">${colGroups}<thead><tr style="border-bottom:1px solid #000;">
+${is4Inch ?
+                `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th>
+     <th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th>
+     <th style="text-align:center; padding:4px; font-size:1.1em;">
+  <span style="display:inline-block; margin-left:50px;">මිල</span>
+</th>
 
-    <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formatReceiptValue(0)}</td></tr>
-    <tr><td style="text-align:left; padding:2px 0;">කුලිය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
-    <tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
-        ${itemSummaryHtml}
-    <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
+     <th style="text-align:right; padding:4px; font-size:1.1em;">
+        <div style="display:flex; flex-direction:column; align-items:flex-end;">
+            <div>sup code</div>
+            <div style="font-size:0.9em; margin-top:2px;">අගය</div>
+        </div>
+     </th>
+     <th style="text-align:right; padding:4px; font-size:1.1em;"></th>` :
+                `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th>
+     <th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th>
+     <th style="text-align:center; padding:4px; font-size:1.2em;">
+  <span style="display:inline-block; margin-left:50px;">මිල</span>
+</th>
+     <th style="text-align:right; padding:4px; font-size:1.2em;">
+       <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:100px; text-align:right;">
+    <div>supcode</div>
+    <div style="font-size:0.9em; margin-top:2px;">අගය</div>
+</div>
+     </th>
+     <th style="text-align:right; padding:4px; font-size:1.2em;"></th>`}
+</tr></thead>
+<tbody>${itemsHtml}
+<tr style="border-top:1px solid #000;">
+    <td colspan="3" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td>
+    <td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">
+        <div style="display:flex; flex-direction:column; align-items:flex-end;">
+            <div style="font-size:0.9em;"></div>
+        </div>
+    </td>
+    <td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${formattedTotalSalesExcludingPackDue}</td>
+</tr>
+</tbody></table>
+
+
+
+<table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formatReceiptValue(0)}</td></tr>
+<tr><td style="text-align:left; padding:2px 0;">කුලිය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
+<tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
+    ${itemSummaryHtml}
+<div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
     };
 
     const handlePrintAndClear = async () => {
