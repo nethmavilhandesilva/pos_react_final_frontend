@@ -39,7 +39,6 @@ const SupplierReport = () => {
                 console.log("   - Printed count:", response.data.printed?.length || 0);
                 console.log("   - Unprinted count:", response.data.unprinted?.length || 0);
                 
-                // Inspecting the first item of each array for structure verification
                 if (response.data.printed && response.data.printed.length > 0) {
                     console.log("   - Example Printed Item:", response.data.printed[0]);
                 }
@@ -151,7 +150,7 @@ const SupplierReport = () => {
 
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
-    // --- CALCULATIONS for details panel ---
+    // --- CALCULATIONS for details panel (UPDATED TO INCLUDE CUS GROSS TOTAL) ---
     const {
         totalWeight,
         totalCommission,
@@ -160,12 +159,14 @@ const SupplierReport = () => {
         totalPacksSum,
         totalsupplierSales,
         totalSupplierPackCost,
+        totalCusGross, // 🚀 NEW TOTAL ADDED
     } = useMemo(() => {
         let totalWeight = 0;
         let totalsupplierSales = 0;
         let totalCommission = 0;
         let totalPacksSum = 0;
         let totalSupplierPackCost = 0;
+        let totalCusGross = 0; // 🚀 INITIALIZED
 
         const itemSummary = {};
 
@@ -176,12 +177,16 @@ const SupplierReport = () => {
             const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
             const itemName = record.item_name || 'Unknown Item';
             const SupplierPackCost = parseFloat(record.SupplierPackCost) || 0;
+            
+            // Logic for Cus Gross: Total - CustomerPackLabour
+            const rowCusGross = (parseFloat(record?.total) || 0) - (parseFloat(record?.CustomerPackLabour) || 0);
 
             totalWeight += weight;
             totalsupplierSales += SupplierTotal;
             totalCommission += commission;
             totalPacksSum += packs;
             totalSupplierPackCost += SupplierPackCost;
+            totalCusGross += rowCusGross; // 🚀 ACCUMULATED
 
             if (!itemSummary[itemName]) {
                 itemSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
@@ -200,6 +205,7 @@ const SupplierReport = () => {
             totalPacksSum,
             totalsupplierSales,
             totalSupplierPackCost,
+            totalCusGross, // 🚀 RETURNED
         };
     }, [supplierDetails]);
 
@@ -216,7 +222,6 @@ const SupplierReport = () => {
         // Define column widths based on bill size
         let colGroups, itemHeader, columnCount;
         if (is4mm) {
-            // 4mm format: Single line with item name and packs
             colGroups = `
                 <colgroup>
                     <col style="width:40%;"> <col style="width:15%;"> <col style="width:15%;"> <col style="width:15%;"> <col style="width:15%;"> </colgroup>
@@ -224,7 +229,6 @@ const SupplierReport = () => {
             itemHeader = 'වර්ගය (මලු)';
             columnCount = 5;
         } else {
-            // 3mm format: Item name and packs on separate lines
             colGroups = `
                 <colgroup>
                     <col style="width:35%;"> <col style="width:15%;"> <col style="width:15%;"> <col style="width:20%;"> <col style="width:15%;"> </colgroup>
@@ -234,8 +238,6 @@ const SupplierReport = () => {
         }
 
         
-       // Item Summary HTML (3 items per row + smaller font)
-// Item Summary HTML (2 items per row: left + right aligned)
 const itemSummaryKeys = Object.keys(itemSummaryData);
 
 const itemSummaryHtml = itemSummaryKeys
@@ -272,7 +274,6 @@ const itemSummaryHtml = itemSummaryKeys
             const customerCode = record.customer_code?.toUpperCase() || '';
 
             if (is4mm) {
-                // 4mm: Single line with item name and packs
                 return `
                     <tr>
                         <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee;">
@@ -285,7 +286,6 @@ const itemSummaryHtml = itemSummaryKeys
                     </tr>
                 `;
             } else {
-                // 3mm: Item name on top, packs on bottom
                 return `
                     <tr>
                         <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
@@ -300,7 +300,6 @@ const itemSummaryHtml = itemSummaryKeys
             }
         }).join('');
 
-        // Adjust font sizes based on bill size
         const fontSizeHeader = is4mm ? '1.3em' : '1.5em';
         const fontSizeTitle = is4mm ? '1.1em' : '1.3em';
         const fontSizeTable = is4mm ? '8px' : '9px';
@@ -434,7 +433,6 @@ const itemSummaryHtml = itemSummaryKeys
             printWindow.document.close();
             printWindow.focus();
 
-            // Auto-print after short delay
             setTimeout(() => {
                 printWindow.print();
             }, 300);
@@ -503,7 +501,6 @@ const itemSummaryHtml = itemSummaryKeys
                         console.warn(`⚠️ Printed item missing supplier_bill_no:`, item);
                     }
                 } else if (type === 'unprinted') {
-                    // Only add the supplier code once to represent the single "unprinted" bill for that supplier
                     if (!acc[supplier_code].includes(supplier_code)) {
                         acc[supplier_code].push(supplier_code);
                     }
@@ -687,42 +684,39 @@ const itemSummaryHtml = itemSummaryKeys
         );
 
         const renderDataRows = () => (
-            <tbody>
-                {supplierDetails.map((record, index) => (
-                    <tr
-                        key={record.id || index}
-                        style={getRowStyle(index)}
-                    >
-                        <td style={tdStyle}>{record.bill_no || selectedBillNo}</td>
-                        <td style={tdStyle}>{record.customer_code}</td>
-                        <td style={tdStyle}><strong>{record.item_name}</strong></td>
-                        <td style={tdStyle}>{record.packs}</td>
-                        <td style={tdStyle}>{formatDecimal(record.weight, 3)}</td>
-                        <td style={tdStyle}>{formatDecimal(record.price_per_kg)}</td>
-                        <td style={tdStyle}>{formatDecimal(record.SupplierPricePerKg)}</td>
-                        <td style={tdStyle}>
-                            {formatDecimal(
-                                (parseFloat(record?.total) || 0) - (parseFloat(record?.CustomerPackLabour) || 0)
-                            )}
-                        </td>
-                        <td style={tdStyle}>{formatDecimal(record.SupplierTotal)}</td>
-                        <td style={tdStyle}>{formatDecimal(record.commission_amount)}</td>
-                        <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(record.SupplierTotal)}</td>
-                    </tr>
-                ))}
-                <tr style={{ ...getRowStyle(supplierDetails.length), fontWeight: 'bold', borderTop: '2px solid #000' }}>
-                    <td style={tdStyle} colSpan="3"><strong>TOTALS</strong></td>
-                    <td style={tdStyle}>{totalPacksSum}</td>
-                    <td style={tdStyle}>{formatDecimal(totalWeight, 3)}</td>
-                    <td style={tdStyle}>-</td>
-                    <td style={tdStyle}>-</td>
-                    <td style={tdStyle}>-</td>
-                    <td style={tdStyle}>{formatDecimal(totalsupplierSales)}</td>
-                    <td style={tdStyle}>{formatDecimal(totalCommission)}</td>
-                    <td style={{ ...tdStyle, fontSize: '1.1em', color: '#17a2b8' }}>{formatDecimal(amountPayable)}</td>
-                </tr>
-            </tbody>
-        );
+    <tbody>
+        {supplierDetails.map((record, index) => (
+            <tr
+                key={record.id || index}
+                style={getRowStyle(index)}
+            >
+                <td style={tdStyle}>{record.bill_no || selectedBillNo}</td>
+                <td style={tdStyle}>{record.customer_code}</td>
+                <td style={tdStyle}><strong>{record.item_name}</strong></td>
+                <td style={tdStyle}>{record.packs}</td>
+                <td style={tdStyle}>{record.weight}</td>
+                <td style={tdStyle}>{record.price_per_kg}</td>
+                <td style={tdStyle}>{record.SupplierPricePerKg}</td>
+                <td style={tdStyle}>
+                    {formatDecimal((record?.total || 0) - (record?.CustomerPackLabour || 0))}
+                </td>
+                <td style={tdStyle}>{record.SupplierTotal}</td>
+                <td style={tdStyle}>{record.commission_amount}</td>
+            </tr>
+        ))}
+        <tr style={{ ...getRowStyle(supplierDetails.length), fontWeight: 'bold', borderTop: '2px solid #000' }}>
+            <td style={tdStyle} colSpan="3"><strong>TOTALS</strong></td>
+            <td style={tdStyle}>{totalPacksSum}</td>
+            <td style={tdStyle}>{totalWeight.toFixed(3)}</td>
+            <td style={tdStyle}>-</td>
+            <td style={tdStyle}>-</td>
+            <td style={tdStyle}>{totalCusGross.toFixed(2)}</td> {/* 🚀 ADDED COLUMN TOTAL HERE */}
+            <td style={tdStyle}>{totalsupplierSales.toFixed(2)}</td>
+            <td style={tdStyle}>-</td>
+        </tr>
+    </tbody>
+);
+
 
         const ItemSummary = ({ summaryData }) => {
             const itemNames = Object.keys(summaryData);
@@ -801,13 +795,13 @@ const itemSummaryHtml = itemSummaryKeys
                                 <th style={thStyle}>Cus</th>
                                 <th style={thStyle}>Item</th>
                                 <th style={thStyle}>Packs</th>
-                                <th style={{ ...thStyle, whiteSpace: 'normal' }}>Weight</th>
-                                <th style={{ ...thStyle, whiteSpace: 'normal' }}>CusPrice/kg</th>
-                                <th style={{ ...thStyle, whiteSpace: 'normal' }}>SupPrice/kg</th>
-                                <th style={{ ...thStyle, whiteSpace: 'normal' }}>Cus Gross Total</th>
-                                <th style={{ ...thStyle, whiteSpace: 'normal' }}>Sup Gross Total</th>
+                                <th style={thStyle}>Weight</th>
+                                <th style={thStyle}>CusPrice/kg</th>
+                                <th style={thStyle}>SupPrice/kg</th>
+                                <th style={thStyle}>Cus Gross Total</th>
+                                <th style={thStyle}>Sup Gross Total</th>
                                 <th style={thStyle}>Comm</th>
-                                <th style={{ ...thStyle, paddingLeft: '8px' }}>NetPay</th>
+                               
                             </tr>
                         </thead>
                         {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ padding: 0 }}>{renderEmptyContent()}</td></tr></tbody>}
@@ -841,7 +835,6 @@ const itemSummaryHtml = itemSummaryKeys
         return renderDetailsPanel();
     };
 
-    // 🚀 UPDATED: Navigation bar with bill size selector
     const navBarStyle = {
         backgroundColor: '#343a40',
         padding: '15px 50px',
@@ -904,16 +897,12 @@ const itemSummaryHtml = itemSummaryKeys
 
     return (
         <>
-            {/* Navigation Bar with Bill Size Selector */}
             <nav style={navBarStyle}>
                 <h1 style={navTitleStyle}>Supplier Report</h1>
                 <div style={navControlsStyle}>
-                    {/* 🚀 Bill Size Selector */}
                     <button
                         style={billSizeSelectorStyle}
                         onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}
-                        onMouseOver={e => e.currentTarget.style.backgroundColor = '#138496'}
-                        onMouseOut={e => e.currentTarget.style.backgroundColor = '#17a2b8'}
                     >
                         📏 Bill Size: {billSize}
                     </button>
@@ -921,8 +910,6 @@ const itemSummaryHtml = itemSummaryKeys
                     <button
                         style={navButtonStyle}
                         onClick={goToSalesEntry}
-                        onMouseOver={e => e.currentTarget.style.backgroundColor = '#218838'}
-                        onMouseOut={e => e.currentTarget.style.backgroundColor = '#28a745'}
                     >
                         Go to Sales Entry
                     </button>
@@ -930,18 +917,14 @@ const itemSummaryHtml = itemSummaryKeys
             </nav>
 
             <div style={reportContainerStyle}>
-                <header style={headerContainerStyle}>
-                    {/* Header content if needed */}
-                </header>
-
+                <header style={headerContainerStyle}></header>
                 <div style={sectionsContainerStyle}>
-                    {/* Left Section: Printed Bills */}
                     <div style={printedContainerStyle}>
                         <div style={printedSectionStyle}>
                             <h2 style={{...printedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px'}}> Printed Bills </h2>
                             <input
                                 type="text"
-                                placeholder="🔍 Search Printed Codes/Bills..."
+                                placeholder="🔍 Search Printed..."
                                 value={printedSearchTerm}
                                 onChange={(e) => setPrintedSearchTerm(e.target.value)}
                                 style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}
@@ -950,18 +933,16 @@ const itemSummaryHtml = itemSummaryKeys
                         </div>
                     </div>
 
-                    {/* Center Section: Details Panel */}
                     <div style={centerPanelContainerStyle}>
                         {renderCenterContent()}
                     </div>
 
-                    {/* Right Section: Unprinted Bills */}
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
                             <h2 style={{...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px'}}> Unprinted Bills </h2>
                             <input
                                 type="text"
-                                placeholder="🔍 Search Unprinted Codes/Bills..."
+                                placeholder="🔍 Search Unprinted..."
                                 value={unprintedSearchTerm}
                                 onChange={(e) => setUnprintedSearchTerm(e.target.value)}
                                 style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}
@@ -977,112 +958,18 @@ const itemSummaryHtml = itemSummaryKeys
 
 // --- STYLES ---
 
-const headerContainerStyle = {
-    padding: '40px 0 30px 0',
-    borderBottom: '1px solid #E0E0E0',
-    marginBottom: '30px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    backgroundColor: '#99ff99',
-};
-
-const searchBarStyle = {
-    width: '100%',
-    fontSize: '1rem',
-    borderRadius: '6px',
-    border: '1px solid #E0E0E0',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-    transition: 'border-color 0.2s',
-    boxSizing: 'border-box',
-    backgroundColor: 'white',
-};
-
-const sectionsContainerStyle = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '20px',
-};
-
-const printedContainerStyle = {
-    width: '200px',
-    flexShrink: 0,
-    marginLeft: '-45px',
-    marginTop: '-95px',
-};
-
-const unprintedContainerStyle = {
-    width: '180px',
-    flexShrink: 0,
-    marginRight: '-45px',
-    marginTop: '-95px',
-    marginLeft: '0',
-};
-
-const centerPanelContainerStyle = {
-    flex: '3',
-    minWidth: '700px',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    marginLeft: '0',
-    width: 'auto',
-};
-
-const baseSectionStyle = {
-    padding: '25px 0 25px 0',
-    borderRadius: '12px',
-    boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)',
-    display: 'flex',
-    flexDirection: 'column',
-    height: 'calc(100vh - 210px)',
-};
-
-const printedSectionStyle = {
-    ...baseSectionStyle,
-    backgroundColor: '#E6FFE6',
-    borderLeft: '5px solid #1E88E5',
-    minHeight: '550px',
-};
-
-const unprintedSectionStyle = {
-    ...baseSectionStyle,
-    backgroundColor: '#FFEBE6',
-    borderLeft: '5px solid #FF7043',
-    minHeight: '550px',
-};
-
-const printedHeaderStyle = {
-    color: '#1E88E5',
-    borderBottom: '2px solid #1E88E530',
-    flexShrink: 0,
-    fontSize: '1.3rem',
-};
-
-const unprintedHeaderStyle = {
-    color: '#FF7043',
-    borderBottom: '2px solid #FF704330',
-    flexShrink: 0,
-    fontSize: '1.3rem',
-};
-
-const listContainerStyle = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0px',
-    marginTop: '5px',
-    overflowY: 'auto',
-    padding: '0 5px 0 5px',
-    flexGrow: 1,
-    height: '900px',
-};
-
-const loadingStyle = {
-    textAlign: 'center',
-    padding: '50px',
-    fontSize: '1.5rem',
-    color: '#1E88E5',
-    backgroundColor: '#99ff99',
-};
+const headerContainerStyle = { padding: '40px 0 30px 0', borderBottom: '1px solid #E0E0E0', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', backgroundColor: '#99ff99' };
+const searchBarStyle = { width: '100%', fontSize: '1rem', borderRadius: '6px', border: '1px solid #E0E0E0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', boxSizing: 'border-box', backgroundColor: 'white' };
+const sectionsContainerStyle = { display: 'flex', justifyContent: 'space-between', gap: '20px' };
+const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45px', marginTop: '-95px' };
+const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-95px', marginLeft: '0' };
+const centerPanelContainerStyle = { flex: '3', minWidth: '700px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' };
+const baseSectionStyle = { padding: '25px 0 25px 0', borderRadius: '12px', boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 210px)' };
+const printedSectionStyle = { ...baseSectionStyle, backgroundColor: '#E6FFE6', borderLeft: '5px solid #1E88E5', minHeight: '550px' };
+const unprintedSectionStyle = { ...baseSectionStyle, backgroundColor: '#FFEBE6', borderLeft: '5px solid #FF7043', minHeight: '550px' };
+const printedHeaderStyle = { color: '#1E88E5', borderBottom: '2px solid #1E88E530', flexShrink: 0, fontSize: '1.3rem' };
+const unprintedHeaderStyle = { color: '#FF7043', borderBottom: '2px solid #FF704330', flexShrink: 0, fontSize: '1.3rem' };
+const listContainerStyle = { display: 'flex', flexDirection: 'column', gap: '0px', marginTop: '5px', overflowY: 'auto', padding: '0 5px 0 5px', flexGrow: 1, height: '900px' };
+const loadingStyle = { textAlign: 'center', padding: '50px', fontSize: '1.5rem', color: '#1E88E5', backgroundColor: '#99ff99' };
 
 export default SupplierReport;

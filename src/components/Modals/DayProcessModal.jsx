@@ -46,10 +46,8 @@ const DayProcessModal = ({ isOpen, onClose }) => {
                 // Close modal first
                 onClose();
 
-                // ✅ FULL PAGE REFRESH
-                setTimeout(() => {
-                    window.location.reload();
-                }, 300); // small delay so toast is visible
+                // ✅ Redirect immediately to login page
+                window.location.href = "http://localhost:5173/login";
             } else {
                 toast.error(
                     response.data.message || "An unknown error occurred during day process."
@@ -110,7 +108,6 @@ const DayProcessModal = ({ isOpen, onClose }) => {
                                 value={processDate}
                                 onChange={(e) => setProcessDate(e.target.value)}
                                 disabled={isLoading}
-                               
                             />
                         </div>
                     </div>
