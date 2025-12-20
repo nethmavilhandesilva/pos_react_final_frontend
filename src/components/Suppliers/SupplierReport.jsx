@@ -276,13 +276,25 @@ const SupplierReport = () => {
             if (is4mm) {
                 return `
                     <tr>
-                        <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee;">
-                            <strong>${itemName}</strong> (${packs})
+                        <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+                            <strong>${itemName}</strong><br>${packs}
                         </td>
-                        <td style="text-align:center; padding:2px 4px; border-bottom:1px solid #eee;">${weight.toFixed(3)}</td>
-                        <td style="text-align:center; padding:2px 4px; border-bottom:1px solid #eee;">${SupplierPricePerKg.toFixed(2)}</td>
-                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee;">${SupplierTotal.toFixed(2)}</td>
-                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee; font-size:0.8em;">${customerCode}</td>
+                        <td style="text-align:center;  padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+  ${weight.toFixed(3)}
+</td>
+
+                        <td style="text-align:center; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+    <span style="display:inline-block; margin-left:40px;">
+        ${SupplierPricePerKg.toFixed(2)}
+    </span>
+</td>
+
+                        <td style="text-align:right; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+    <span style="display:inline-block; margin-left:52px;">
+        ${SupplierTotal.toFixed(2)}
+    </span>
+</td>
+                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top; font-size:0.8em;">${customerCode}</td>
                     </tr>
                 `;
             } else {
@@ -314,7 +326,7 @@ const SupplierReport = () => {
 
         const fontSizeHeader = is4mm ? '1.3em' : '1.5em';
         const fontSizeTitle = is4mm ? '1.5em' : '1.6em';
-        const fontSizeTable = is4mm ? '8px' : '9px';
+        const fontSizeTable = is4mm ? '12px' : '11px';
         const fontSizeTotal = is4mm ? '9px' : '10px';
         const fontSizeHeaderRow = is4mm ? '0.9em' : '1em';
         const maxWidth = is4mm ? '320px' : '300px';
@@ -397,7 +409,7 @@ const SupplierReport = () => {
                 </td>
                 <td colspan="2"
     style="text-align:right; padding:4px; font-weight:bold;">
-    <span style="display:inline-block; margin-left:110px;">
+    <span style="display:inline-block; margin-left:100px;">
         ${totalsupplierSales.toFixed(2)}
     </span>
 </td>
@@ -409,12 +421,7 @@ const SupplierReport = () => {
     <!-- TOTAL SUMMARY -->
     <table style="width:100%; font-size:${fontSizeTotal};
                   border-collapse:collapse; margin-top:6px;">
-        <tr>
-            <td style="text-align:left; padding:2px 0;">කුලිය:</td>
-            <td style="text-align:right; padding:2px 0; font-weight:bold;">
-                ${totalPackDueCost.toFixed(2)}
-            </td>
-        </tr>
+       
 
         <tr>
             <td style="text-align:left; padding:2px 0;">අගය:</td>

@@ -696,19 +696,19 @@ export default function SalesEntry() {
 
             if (is4Inch) {
                 return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
-                <td style="text-align:left; padding:2px 4px; font-weight:bold; color:black;">${s.item_name || ""} (${packs})</td>
-                <td style="text-align:center; padding:2px 4px; font-weight:bold; color:black;">${formattedWeight}</td>
-                <td style="padding:2px 4px; font-weight:bold; color:black;">
+                <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} <br> (${packs})</td>
+                <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
+                <td style="padding:2px 4px;">
   <div style="display:inline-block; margin-left:50px;">${formattedPrice}</div>
 </td>
 
-                <td style="text-align:right; padding:2px 4px; font-weight:bold; color:black;">
-                    <div style="display:flex; flex-direction:column; margin-left:180px; padding-left:20px; text-align:right; align-items:flex-end;">
+                <td style="text-align:right; padding:2px 4px;">
+                   <div style="display:flex; flex-direction:column; margin-left:142px; text-align:right; align-items:flex-end;">
                         <div style="font-size:0.9em;">${s.supplier_code || ""}</div>
                         <div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div>
                     </div>
                 </td>
-                <td style="text-align:right; padding:2px 4px; font-weight:bold; color:black;"></td>
+                <td style="text-align:right; padding:2px 4px;"></td>
             </tr>`;
             } else {
                 return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
@@ -802,8 +802,8 @@ ${is4Inch ?
 </th>
 
      <th style="text-align:right; padding:4px; font-size:1.1em;">
-        <div style="display:flex; flex-direction:column; align-items:flex-end;">
-            <div>sup code</div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:150px; text-align:right;">
+            <div>supcode</div>
             <div style="font-size:0.9em; margin-top:2px;">අගය</div>
         </div>
      </th>
@@ -815,7 +815,7 @@ ${is4Inch ?
 </th>
      <th style="text-align:right; padding:4px; font-size:1.2em;">
        <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:100px; text-align:right;">
-    <div>supcode</div>
+    <div>sup code</div>
     <div style="font-size:0.9em; margin-top:2px;">අගය</div>
 </div>
      </th>
