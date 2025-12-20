@@ -744,7 +744,7 @@ export default function SalesEntry() {
         // --- Apply Receipt Formatting to Summary Values ---
         const formattedTotalSalesExcludingPackDue = formatReceiptValue(totalSalesExcludingPackDue);
         const formattedTotalPackDueCost = formatReceiptValue(totalPackDueCost);
-        const formattedTotalPrice = formatReceiptValue(totalPrice);
+        const formattedTotalPrice = formatReceiptValue(totalPrice+totalPackDueCost);
         const formattedGivenAmount = formatReceiptValue(givenAmount);
         const formattedRemaining = formatReceiptValue(Math.abs(remaining));
         const formattedGlobalLoanAmount = formatReceiptValue(Math.abs(globalLoanAmount));
@@ -803,7 +803,7 @@ ${is4Inch ?
 
      <th style="text-align:right; padding:4px; font-size:1.1em;">
         <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:150px; text-align:right;">
-            <div>supcode</div>
+            <div>අයිතිය</div>
             <div style="font-size:0.9em; margin-top:2px;">අගය</div>
         </div>
      </th>
@@ -815,7 +815,7 @@ ${is4Inch ?
 </th>
      <th style="text-align:right; padding:4px; font-size:1.2em;">
        <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:100px; text-align:right;">
-    <div>sup code</div>
+    <div>අයිතිය</div>
     <div style="font-size:0.9em; margin-top:2px;">අගය</div>
 </div>
      </th>
@@ -836,7 +836,7 @@ ${is4Inch ?
 
 
 <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formatReceiptValue(0)}</td></tr>
-<tr><td style="text-align:left; padding:2px 0;">කුලිය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
+<tr><td style="text-align:left; padding:2px 0;">මලු වටිනකම:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
 <tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
     ${itemSummaryHtml}
 <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
