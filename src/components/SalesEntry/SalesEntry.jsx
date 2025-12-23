@@ -671,7 +671,7 @@ export default function SalesEntry() {
         const fontSizeHeader = is4Inch ? '1.2em' : '1.8em';
         const fontSizeTitle = is4Inch ? '1.4em' : '2.0em';
         const fontSizeText = is4Inch ? '1.0rem' : '1.7rem';
-        const fontSizeItems = is4Inch ? '1.1em' : '1.8em';
+        const fontSizeItems = is4Inch ? '1.1em' : '1.5em';
         const fontSizeTotalLarge = is4Inch ? '1.2em' : '1.5em';
 
         let colGroups, itemHeader;
@@ -712,12 +712,11 @@ export default function SalesEntry() {
             </tr>`;
             } else {
                 return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
-                <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} <br> (${packs})</td>
+               <td style="text-align:left; padding:2px 4px; white-space:nowrap;">${s.item_name || ""} <br> (${packs})</td>
                 <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
                 <td style="padding:2px 4px;">
   <div style="display:inline-block; margin-left:50px;">${formattedPrice}</div>
 </td>
-
                 <td style="text-align:right; padding:2px 4px;">
                    <div style="display:flex; flex-direction:column; margin-left:100px; text-align:right; align-items:flex-end;">
                         <div style="font-size:0.9em;">${s.supplier_code || ""}</div>
@@ -835,7 +834,7 @@ ${is4Inch ?
 
 
 
-<table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr><td style="text-align:left; padding:2px 0;">ප්‍රවාහන ගාස්තු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formatReceiptValue(0)}</td></tr>
+<table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr></tr>
 <tr><td style="text-align:left; padding:2px 0;">මලු වටිනකම:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
 <tr><td style="text-align:left; padding:2px 0;">අගය:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
     ${itemSummaryHtml}

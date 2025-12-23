@@ -285,56 +285,112 @@ const SupplierReport = () => {
             if (is4mm) {
                 return `
                     <tr>
-                        <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            <strong>${itemName}</strong>
-                        </td>
-                        <td style="text-align:center; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            ${packs}
-                        </td>
-                        <td style="text-align:center; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            ${weight.toFixed(3)}
-                        </td>
-                        <td style="text-align:center; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            <span style="display:inline-block;">
-                                ${SupplierPricePerKg.toFixed(2)}
-                            </span>
-                        </td>
-                        <td style="text-align:right; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            <span style="display:inline-block;">
-                                ${SupplierTotal.toFixed(2)}
-                            </span>
-                        </td>
-                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top; font-size:0.8em;">
-                            ${customerCode}
-                        </td>
+                       <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+    <strong>
+        <span style="white-space:nowrap;">
+            ${itemName}
+        </span>
+        <br>
+        ${packs}
+    </strong>
+</td>
+
+                       <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+    <span style="display:inline-block; margin-left:40px;">
+        ${weight.toFixed(3)}
+    </span>
+</td>
+
+                       <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+    <span style="display:inline-block; margin-left:90px;">
+        ${SupplierPricePerKg.toFixed(2)}
+    </span>
+</td>
+
+                       <td style="
+    text-align:right;
+    padding:15px 4px 2px 4px;
+    border-bottom:1px solid #eee;
+    vertical-align:top;
+">
+    <span style="display:inline-block; margin-left:120px; white-space:nowrap;">
+        ${SupplierTotal.toFixed(2)}
+    </span>
+</td>
+
+                       <td style="
+    text-align:right;
+    padding:2px 4px;
+    border-bottom:1px solid #eee;
+    vertical-align:top;
+    font-size:0.8em;
+">
+    <span style="display:inline-block; margin-left:90px; white-space:nowrap;">
+        ${customerCode}
+    </span>
+</td>
+
                     </tr>
                 `;
             } else {
                 return `
                     <tr>
-                        <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            <strong>${itemName}</strong>
-                        </td>
-                        <td style="text-align:center; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            ${packs}
-                        </td>
-                        <td style="text-align:center; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            ${weight.toFixed(3)}
-                        </td>
-                        <td style="text-align:center; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                            <span style="display:inline-block;">
-                                ${SupplierPricePerKg.toFixed(2)}
-                            </span>
-                        </td>
+                      <td style="
+    text-align:left;
+    padding:2px 4px;
+    border-bottom:1px solid #eee;
+    vertical-align:top;
+    white-space: nowrap;
+">
+    <strong>${itemName}</strong><br>
+    <span style="white-space: normal;">(${packs})</span>
+</td>
+
+                       <td style="
+    text-align:center;
+    padding:15px 4px 2px 4px;
+    border-bottom:1px solid #eee;
+    vertical-align:top;
+">
+    <span style="
+        display:inline-block;
+        margin-left:50px;   /* 👈 adjust this value */
+    ">
+        ${weight.toFixed(3)}
+    </span>
+</td>
+
+                        <td style="
+    text-align:left;
+    padding:15px 4px 2px 4px;
+    border-bottom:1px solid #eee;
+    vertical-align:top;
+">
+    <span style="
+        display:inline-block;
+        margin-left:95px; /* adjust this value */
+    ">
+        ${SupplierPricePerKg.toFixed(2)}
+    </span>
+</td>
+
                        <td style="text-align:right; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-    <span style="display:inline-block; margin-left:75px;">
+    <span style="display:inline-block; margin-left:125px;">
         ${SupplierTotal.toFixed(2)}
     </span>
 </td>
 
-                        <td style="text-align:right; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top; font-size:0.8em;">
-                            ${customerCode}
-                        </td>
+                        <td style="
+    padding: 2px 4px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+    font-size: 0.8em;
+">
+    <span style="display:inline-block; margin-left: 95px;">
+        ${customerCode}
+    </span>
+</td>
+
                     </tr>
                 `;
             }
@@ -391,22 +447,41 @@ const SupplierReport = () => {
         border-bottom:2px solid #000;
     ">
         <th style="text-align:left; padding:3px 4px;">
-            ${itemHeader}
+            ${itemHeader}<br>මලු
         </th>
-        <th style="text-align:center; padding:3px 4px;">
-            මලු
-        </th>
-        <th style="text-align:center; padding:3px 4px;">
-            කිලෝ
-        </th>
-        <th style="text-align:center; padding:3px 4px;">
-            මිල
-        </th>
-       <th style="padding:3px 4px;">
-    <div style="text-align:right; margin-left:75px;">
+       <th style="text-align:center; padding:3px 4px;">
+    <span style="
+        display:inline-block;
+        ${is4mm === true ? 'margin-left:40px;' : ''}
+        ${!is4mm ? 'margin-left:50px;' : ''}
+    ">
+       කිලෝ
+    </span>
+</th>
+
+      <th style="padding:3px 4px;">
+    <span style="
+        display:inline-block;
+        text-align:center;
+        ${is4mm === true ? 'margin-left:90px;' : ''}
+        ${is4mm === false ? 'margin-left:95px;' : ''}
+    ">
+        මිල
+    </span>
+</th>
+
+
+     <th style="padding:3px 4px;">
+    <div style="
+        text-align:right;
+        ${is4mm === true ? 'margin-left:110px;' : ''}
+        ${is4mm === false ? 'margin-left:115px;' : ''}
+    ">
         කේතය <br> අගය
     </div>
 </th>
+
+
 
     </tr>
 </thead>
