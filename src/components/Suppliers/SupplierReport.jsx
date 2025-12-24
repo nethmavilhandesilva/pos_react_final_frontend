@@ -272,129 +272,146 @@ const SupplierReport = () => {
         </tr>
     `)
             .join('');
+            const formatNumber = (value, maxDecimals = 3) => {
+    if (Number.isInteger(value)) {
+        return value.toString();
+    }
+    return value
+        .toFixed(maxDecimals)
+        .replace(/\.?0+$/, ''); // remove trailing zeros
+};
+
 
         // Detailed Items HTML with bill size support - NOW 6 COLUMNS
-        const detailedItemsHtml = supplierDetails.map(record => {
-            const weight = parseFloat(record.weight) || 0;
-            const packs = parseInt(record.packs) || 0;
-            const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
-            const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
-            const itemName = record.item_name || 'Unknown Item';
-            const customerCode = record.customer_code?.toUpperCase() || '';
+     const detailedItemsHtml = supplierDetails.map(record => {
+    const weight = parseFloat(record.weight) || 0;
+    const packs = parseInt(record.packs) || 0;
+    const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
+    const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
+    const itemName = record.item_name || 'Unknown Item';
+    const customerCode = record.customer_code?.toUpperCase() || '';
 
-            if (is4mm) {
-                return `
-                    <tr>
-                       <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-    <strong>
-        <span style="white-space:nowrap;">
-            ${itemName}
-        </span>
-        <br>
-        ${packs}
-    </strong>
-</td>
+    if (is4mm) {
+        return `
+            <tr>
+                <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+                    <strong>
+                        <span style="white-space:nowrap;">
+                            ${itemName}
+                        </span>
+                        <br>
+                        ${packs}
+                    </strong>
+                </td>
 
-                       <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-    <span style="display:inline-block; margin-left:40px;">
-        ${weight.toFixed(3)}
-    </span>
-</td>
+                <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+                    <span style="display:inline-block; margin-left:40px;">
+                        ${formatNumber(weight, 3)}
+                    </span>
+                </td>
 
-                       <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-    <span style="display:inline-block; margin-left:90px;">
-        ${SupplierPricePerKg.toFixed(2)}
-    </span>
-</td>
+                <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+                    <span style="display:inline-block; margin-left:90px;">
+                        ${formatNumber(SupplierPricePerKg, 2)}
+                    </span>
+                </td>
 
-                       <td style="
-    text-align:right;
-    padding:15px 4px 2px 4px;
-    border-bottom:1px solid #eee;
-    vertical-align:top;
-">
-    <span style="display:inline-block; margin-left:120px; white-space:nowrap;">
-        ${SupplierTotal.toFixed(2)}
-    </span>
-</td>
+                <td style="
+                    text-align:right;
+                    padding:15px 4px 2px 4px;
+                    border-bottom:1px solid #eee;
+                    vertical-align:top;
+                ">
+                    <span style="
+                        display:inline-block;
+                        width:90px;
+                        text-align:right;
+                        margin-left:72px;
+                        white-space:nowrap;
+                    ">
+                        ${formatNumber(SupplierTotal, 2)}
+                    </span>
+                </td>
 
-                       <td style="
-    text-align:right;
-    padding:2px 4px;
-    border-bottom:1px solid #eee;
-    vertical-align:top;
-    font-size:0.8em;
-">
-    <span style="display:inline-block; margin-left:90px; white-space:nowrap;">
-        ${customerCode}
-    </span>
-</td>
+                <td style="
+                    text-align:right;
+                    padding:2px 4px;
+                    border-bottom:1px solid #eee;
+                    vertical-align:top;
+                    font-size:0.8em;
+                ">
+                    <span style="display:inline-block; margin-left:90px; white-space:nowrap;">
+                        ${customerCode}
+                    </span>
+                </td>
+            </tr>
+        `;
+    } else {
+        return `
+            <tr>
+                <td style="
+                    text-align:left;
+                    padding:2px 4px;
+                    border-bottom:1px solid #eee;
+                    vertical-align:top;
+                    white-space: nowrap;
+                ">
+                    <strong>${itemName}</strong><br>
+                    <span style="white-space: normal;">(${packs})</span>
+                </td>
 
-                    </tr>
-                `;
-            } else {
-                return `
-                    <tr>
-                      <td style="
-    text-align:left;
-    padding:2px 4px;
-    border-bottom:1px solid #eee;
-    vertical-align:top;
-    white-space: nowrap;
-">
-    <strong>${itemName}</strong><br>
-    <span style="white-space: normal;">(${packs})</span>
-</td>
+                <td style="
+                    text-align:center;
+                    padding:15px 4px 2px 4px;
+                    border-bottom:1px solid #eee;
+                    vertical-align:top;
+                ">
+                    <span style="display:inline-block; margin-left:43px;">
+                        ${formatNumber(weight, 3)}
+                    </span>
+                </td>
 
-                       <td style="
-    text-align:center;
-    padding:15px 4px 2px 4px;
-    border-bottom:1px solid #eee;
-    vertical-align:top;
-">
-    <span style="
-        display:inline-block;
-        margin-left:50px;   /* 👈 adjust this value */
-    ">
-        ${weight.toFixed(3)}
-    </span>
-</td>
+                <td style="
+                    text-align:left;
+                    padding:15px 4px 2px 4px;
+                    border-bottom:1px solid #eee;
+                    vertical-align:top;
+                ">
+                    <span style="display:inline-block; margin-left:85px;">
+                        ${formatNumber(SupplierPricePerKg, 2)}
+                    </span>
+                </td>
 
-                        <td style="
-    text-align:left;
-    padding:15px 4px 2px 4px;
-    border-bottom:1px solid #eee;
-    vertical-align:top;
-">
-    <span style="
-        display:inline-block;
-        margin-left:95px; /* adjust this value */
-    ">
-        ${SupplierPricePerKg.toFixed(2)}
-    </span>
-</td>
+                <td style="
+                    text-align:right;
+                    padding:15px 4px 2px 4px;
+                    border-bottom:1px solid #eee;
+                    vertical-align:top;
+                ">
+                    <span style="
+                        display:inline-block;
+                        width:90px;
+                        text-align:right;
+                        margin-left:75px;
+                    ">
+                        ${formatNumber(SupplierTotal, 2)}
+                    </span>
+                </td>
 
-                       <td style="text-align:right; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-    <span style="display:inline-block; margin-left:125px;">
-        ${SupplierTotal.toFixed(2)}
-    </span>
-</td>
-
-                        <td style="
-    padding: 2px 4px;
-    border-bottom: 1px solid #eee;
-    vertical-align: top;
-    font-size: 0.8em;
-">
-    <span style="display:inline-block; margin-left: 95px;">
-        ${customerCode}
-    </span>
-</td>
-
-                    </tr>
-                `;
-            }
-        }).join('');
+                <td style="
+                    padding:2px 4px;
+                    border-bottom:1px solid #eee;
+                    vertical-align:top;
+                    font-size:0.8em;
+                ">
+                    <span style="display:inline-block; margin-left:95px;">
+                        ${customerCode}
+                    </span>
+                </td>
+            </tr>
+        `;
+    }
+}).join('');
 
         const fontSizeHeader = is4mm ? '1.3em' : '1.5em';
         const fontSizeTitle = is4mm ? '1.5em' : '1.6em';
@@ -464,7 +481,7 @@ const SupplierReport = () => {
         display:inline-block;
         text-align:center;
         ${is4mm === true ? 'margin-left:90px;' : ''}
-        ${is4mm === false ? 'margin-left:95px;' : ''}
+        ${is4mm === false ? 'margin-left:90px;' : ''}
     ">
         මිල
     </span>
@@ -495,11 +512,12 @@ const SupplierReport = () => {
                     style="text-align:left; padding:4px; font-weight:bold;">
                     ${totalPacksSum}
                 </td>
-                <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
-    <span style="display:inline-block; margin-left:157px;">
-        ${totalsupplierSales.toFixed(2)}
+               <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
+    <span style="display:inline-block; margin-left:157px; white-space:nowrap;">
+        ${formatNumber(totalsupplierSales, 2)}
     </span>
 </td>
+
 
                 <td style="text-align:right; padding:4px; font-weight:bold;">
                 </td>
