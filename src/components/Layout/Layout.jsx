@@ -257,6 +257,14 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                         <button type="button" className="btn btn-outline-secondary btn-sm mx-2" onClick={openSalesAdjustmentReportModal}>
                             <i className="material-icons align-middle me-1">edit</i> Sales Adjustment
                         </button>
+                        
+<button 
+    type="button" 
+    className="btn btn-outline-primary btn-sm mx-2" 
+    onClick={() => window.location.href = '/financial-report'}
+>
+    <i className="material-icons align-middle me-1">receipt_long</i> Financial Report
+</button>
 
                         <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={openSalesReportModal}>
                             <i className="material-icons align-middle me-1">shopping_cart</i> Sales Report
