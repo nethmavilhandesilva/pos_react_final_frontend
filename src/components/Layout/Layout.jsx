@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+// 🚀 IMPORT your custom api instance
+import api from '../../api';
 import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
 import GrnSaleReportModal from '../GrnSale/ReportModal';
@@ -8,10 +10,8 @@ import SalesAdjustmentReportModal from '../SalesAdjustmentReport/SalesAdjustment
 import GrnSalesOverviewReport from '../GrnSalesOverview/GrnSalesOverviewReport';
 import GrnSalesOverviewReport2 from '../GrnSalesOverview/GrnSalesOverviewReport2';
 import SalesReportModal from '../SalesReport/SalesReportModal';
-// 🚀 NEW: Import the DayProcessModal
 import DayProcessModal from '../Modals/DayProcessModal';
 
-// 🚀 MODIFIED: Accept billSize and handleBillSizeChange as props
 const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const location = useLocation();
 
@@ -24,24 +24,44 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const [isGrnSalesOverviewReport2Open, setIsGrnSalesOverviewReport2Open] = useState(false);
     const [isSalesReportModalOpen, setIsSalesReportModalOpen] = useState(false);
     const [isGrnReportModalOpen, setIsGrnReportModalOpen] = useState(false);
-    // 🚀 NEW: State for Day Process Modal
     const [isDayProcessModalOpen, setIsDayProcessModalOpen] = useState(false);
 
-    // === User State ===
+    // === User & Settings State ===
     const [user, setUser] = useState(null);
+    const [settingValue, setSettingValue] = useState(''); // 🚀 NEW: State for the 'value' column
 
     useEffect(() => {
+        // 1. Handle User Session
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
             setUser(JSON.parse(storedUser));
         } else {
             window.location.href = '/login';
         }
+
+        // 🚀 2. Fetch Setting Value from Backend using your api.js
+        const fetchSettings = async () => {
+            try {
+                // Adjust this URL to your actual Laravel route (e.g., /settings)
+                const response = await api.get('/settings'); 
+                // Assuming backend returns an object or array, get the 'value' field
+                if (response.data) {
+                    // If it's a single object: response.data.value
+                    // If it's an array: response.data[0].value
+                    setSettingValue(response.data.value || response.data[0]?.value || '');
+                }
+            } catch (error) {
+                console.error("Error fetching settings data:", error);
+            }
+        };
+
+        fetchSettings();
     }, []);
 
     const handleLogout = () => {
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        localStorage.removeItem('token'); // Also clear token on logout
+        window.location.href = 'sms/login';
     };
 
     // === Modal Handlers ===
@@ -61,35 +81,20 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const closeSalesReportModal = () => setIsSalesReportModalOpen(false);
     const openGrnReportModal = () => setIsGrnReportModalOpen(true);
     const closeGrnReportModal = () => setIsGrnReportModalOpen(false);
-    // 🚀 NEW: Day Process Modal Handlers
     const openDayProcessModal = () => setIsDayProcessModalOpen(true);
     const closeDayProcessModal = () => setIsDayProcessModalOpen(false);
 
-    // Profit Report Handler -> navigates to the new page
     const handleProfitReportClick = () => {
         window.location.href = '/supplier-profit';
     };
 
-    // Check if current page is SalesEntry to apply full-width layout
     const isSalesEntryPage = location.pathname === '/sales' || location.pathname === '/sales-entry';
-
-    // Styles for profit button (you can tweak)
-    const profitReportButtonStyle = {
-        backgroundColor: "#ffc107",
-        color: "#000",
-        border: "1px solid #ffca2c",
-        padding: "6px 14px",
-        borderRadius: "6px",
-        fontWeight: "600",
-        marginLeft: "8px"
-    };
 
     return (
         <div>
             {/* === Top Navigation Bar === */}
             <nav className="navbar navbar-expand-lg navbar-dark fixed-top" style={{ backgroundColor: '#004d00', width: '100%' }}>
                 <div className="container-fluid d-flex align-items-center justify-content-between">
-                    {/* Left: Logo + Navigation Links */}
                     <div className="d-flex align-items-center">
                         <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to="/">
                             <i className="material-icons align-middle me-2">warehouse</i>
@@ -97,112 +102,41 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                         </Link>
 
                         <div className="navbar-nav d-flex flex-row align-items-center">
-
-                            {/* Master Dropdown */}
                             <div className="nav-item dropdown mx-1">
-                                <button
-                                    className="btn btn-outline-light btn-sm dropdown-toggle"
-                                    id="masterDropdown"
-                                    data-bs-toggle="dropdown"
-                                    aria-expanded="false"
-                                >
+                                <button className="btn btn-outline-light btn-sm dropdown-toggle" id="masterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i className="material-icons align-middle me-1">menu_book</i> Master
                                 </button>
-
                                 <ul className="dropdown-menu dropdown-menu-dark" aria-labelledby="masterDropdown">
-                                    <li>
-                                        <Link
-                                            to="/customers"
-                                            className={`dropdown-item ${location.pathname.startsWith('/customers') && !location.pathname.includes('loans') ? 'active' : ''}`}
-                                        >
-                                            <i className="material-icons align-middle me-1">people</i> Customers
-                                        </Link>
-                                    </li>
-                                    <li>
-                                        <Link
-                                            to="/items"
-                                            className={`dropdown-item ${location.pathname === '/items' ? 'active' : ''}`}
-                                        >
-                                            <i className="material-icons align-middle me-1">inventory_2</i> Items
-                                        </Link>
-                                    </li>
-                                    <li>
-                                        <Link
-                                            to="/suppliers"
-                                            className={`dropdown-item ${location.pathname === '/suppliers' ? 'active' : ''}`}
-                                        >
-                                            <i className="material-icons align-middle me-1">local_shipping</i> Suppliers
-                                        </Link>
-                                    </li>
-                                    <li>
-                                        <Link
-                                            to="/commissions"
-                                            className={`dropdown-item ${location.pathname === '/commissions' ? 'active' : ''}`}
-                                        >
-                                            <i className="material-icons align-middle me-1">attach_money</i> Commisions
-                                        </Link>
-                                    </li>
+                                    <li><Link to="/customers" className="dropdown-item"><i className="material-icons align-middle me-1">people</i> Customers</Link></li>
+                                    <li><Link to="/items" className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i> Items</Link></li>
+                                    <li><Link to="/suppliers" className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> Suppliers</Link></li>
+                                    <li><Link to="/commissions" className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i> Commisions</Link></li>
                                     <li><hr className="dropdown-divider" /></li>
-
-                                    {/* === New Report Buttons inside Dropdown (Loan Report) === */}
                                     <li>
-                                        <button
-                                            type="button"
-                                            className="dropdown-item text-warning"
-                                            onClick={() => window.location.href = '/customers-loans/report'}
-                                        >
-                                            <i className="material-icons align-middle me-1 text-warning">account_balance</i>
-                                            Loan Report
+                                        <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = '/customers-loans/report'}>
+                                            <i className="material-icons align-middle me-1 text-warning">account_balance</i> Loan Report
                                         </button>
                                     </li>
                                 </ul>
                             </div>
 
-                            {/* 🚀 NEW: Customers Loans Link */}
-                            <Link
-                                to="/customers-loans"
-                                className={`btn btn-outline-success btn-sm mx-1 ${location.pathname === '/customers-loans' ? 'active' : ''}`}
-                                style={{ fontWeight: 'bold' }}
-                            >
-                                <i className="material-icons align-middle me-1">paid</i> Customer Loans
+                            <Link to="/customers-loans" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold' }}>
+                                <i className="material-icons align-middle me-1">paid</i> ණය දීම/ගැනීම
                             </Link>
 
-                            <Link
-                                to="/supplierreport"
-                                className={`btn btn-outline-success btn-sm mx-1 ${location.pathname === '/supplierreport' ? 'active' : ''}`}
-                                style={{ fontWeight: 'bold' }}
-                            >
-                                <i className="material-icons align-middle me-1">list_alt</i>
-                                Supplier Bills
+                            <Link to="/supplierreport" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold' }}>
+                                <i className="material-icons align-middle me-1">list_alt</i> සැපයුම්කරු බිල්පත්
                             </Link>
 
-                            {/* 🚀 NEW: Day Process Button */}
-                            <button
-                                type="button"
-                                className="btn btn-outline-success btn-sm mx-1"
-                                style={{ fontWeight: 'bold' }}
-                                onClick={openDayProcessModal}
-                                title="Move sales data of a specific date to history."
-                            >
-                                <i className="material-icons align-middle me-1">calendar_today</i>
-                                Day Process
+                            <button type="button" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold' }} onClick={openDayProcessModal}>
+                                <i className="material-icons align-middle me-1">calendar_today</i> Day Process
                             </button>
-
                         </div>
 
-                        {/* 🚀 Bill Size Selector in Top Nav */}
                         {isSalesEntryPage && (
                             <div className="d-flex align-items-center me-3" style={{ marginLeft: '20px' }}>
-                                <label htmlFor="bill-size-select" className="text-white me-2" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
-                                    Bill Size:
-                                </label>
-                                <select
-                                    id="bill-size-select"
-                                    value={billSize}
-                                    onChange={handleBillSizeChange}
-                                    className="form-select form-select-sm" // Use Bootstrap classes for styling
-                                    style={{ width: '100px', backgroundColor: '#006400', color: 'white', border: '1px solid #4a5568' }}
-                                >
+                                <label htmlFor="bill-size-select" className="text-white me-2" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>Bill Size:</label>
+                                <select id="bill-size-select" value={billSize} onChange={handleBillSizeChange} className="form-select form-select-sm" style={{ width: '100px', backgroundColor: '#006400', color: 'white', border: '1px solid #4a5568' }}>
                                     <option value="3inch">3 Inch (Def)</option>
                                     <option value="4inch">4 Inch</option>
                                 </select>
@@ -210,13 +144,14 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                         )}
                     </div>
 
-                    {/* Right: User Info + Logout */}
+                    {/* Right Side: Display fetched value in Red and Logout Button */}
                     {user && (
                         <div className="d-flex align-items-center text-white">
-                            <span className="me-3">
-                                <i className="material-icons align-middle me-1">account_circle</i>
-                                {user.name || user.user_id} ({user.role})
+                            {/* 🚀 Setting Value in Red Color */}
+                            <span className="me-3 fw-bold" style={{ color: '#ff4444', fontSize: '1.1rem' }}>
+                                {settingValue}
                             </span>
+                            
                             <button
                                 onClick={handleLogout}
                                 className="btn btn-sm btn-outline-light"
@@ -229,63 +164,25 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                 </div>
             </nav>
 
-            {/* === Main Content === */}
-            <main
-                className={isSalesEntryPage ? "p-0" : "container-fluid py-4"}
-                style={{
-                    marginTop: '80px',
-                    marginBottom: '80px',
-                    width: '100%',
-                    maxWidth: isSalesEntryPage ? '100%' : undefined
-                }}
-            >
+            <main className={isSalesEntryPage ? "p-0" : "container-fluid py-4"} style={{ marginTop: '80px', marginBottom: '80px', width: '100%', maxWidth: isSalesEntryPage ? '100%' : undefined }}>
                 {children}
             </main>
 
-            {/* === Bottom Navigation Bar === */}
+            {/* Bottom Nav */}
             <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
                 <div className="container-fluid d-flex justify-content-center">
                     <div className="navbar-nav d-flex flex-row align-items-center">
-                        <button type="button" className="btn btn-outline-warning btn-sm mx-2" onClick={openItemReportModal}>
-                            <i className="material-icons align-middle me-1">analytics</i> Item Report
-                        </button>
-
-                        <button type="button" className="btn btn-outline-info btn-sm mx-2" onClick={openWeightReportModal}>
-                            <i className="material-icons align-middle me-1">scale</i> Weight Report
-                        </button>
-
-                        <button type="button" className="btn btn-outline-secondary btn-sm mx-2" onClick={openSalesAdjustmentReportModal}>
-                            <i className="material-icons align-middle me-1">edit</i> Sales Adjustment
-                        </button>
-                        
-<button 
-    type="button" 
-    className="btn btn-outline-primary btn-sm mx-2" 
-    onClick={() => window.location.href = '/financial-report'}
->
-    <i className="material-icons align-middle me-1">receipt_long</i> Financial Report
-</button>
-
-                        <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={openSalesReportModal}>
-                            <i className="material-icons align-middle me-1">shopping_cart</i> Sales Report
-                        </button>
-
-                        {/* ===== Profit Report Button ===== */}
-                        <button
-                            onClick={handleProfitReportClick}
-                            style={profitReportButtonStyle}
-                            className="mx-2"
-                            disabled={currentView === 'details'} // optional: disable based on prop
-                            title="View total profit by supplier"
-                        >
-                            💰 View Supplier Profit Report
-                        </button>
-
+                        <button type="button" className="btn btn-outline-warning btn-sm mx-2" onClick={openItemReportModal}><i className="material-icons align-middle me-1">analytics</i> එළවළු</button>
+                        <button type="button" className="btn btn-outline-info btn-sm mx-2" onClick={openWeightReportModal}><i className="material-icons align-middle me-1">scale</i> බර මත</button>
+                        <button type="button" className="btn btn-outline-secondary btn-sm mx-2" onClick={openSalesAdjustmentReportModal}><i className="material-icons align-middle me-1">edit</i> වෙනස් කිරීම</button>
+                        <button type="button" className="btn btn-outline-primary btn-sm mx-2" onClick={() => window.location.href = '/financial-report'}><i className="material-icons align-middle me-1">receipt_long</i> ආදායම් / වියදම්</button>
+                        <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={openSalesReportModal}><i className="material-icons align-middle me-1">shopping_cart</i> විකුණුම් වාර්තාව</button>
+                        <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={handleProfitReportClick} title="View total profit by supplier"><i className="material-icons align-middle me-1">payments</i> සැපයුම්කරු ලාභ වාර්තාව</button>
                     </div>
                 </div>
             </nav>
 
-            {/* === Modals === */}
+            {/* Modals */}
             <ItemReportModal isOpen={isItemReportModalOpen} onClose={closeItemReportModal} onGenerateReport={() => { }} loading={false} />
             <WeightReportModal isOpen={isWeightReportModalOpen} onClose={closeWeightReportModal} />
             <GrnSaleReportModal isOpen={isGrnSaleReportModalOpen} onClose={closeGrnSaleReportModal} />
@@ -294,8 +191,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             <GrnSalesOverviewReport2 isOpen={isGrnSalesOverviewReport2Open} onClose={closeGrnSalesOverviewReport2} />
             <SalesReportModal isOpen={isSalesReportModalOpen} onClose={closeSalesReportModal} />
             <GrnReportModal isOpen={isGrnReportModalOpen} onClose={closeGrnReportModal} />
-
-            {/* 🚀 NEW: Day Process Modal */}
             <DayProcessModal isOpen={isDayProcessModalOpen} onClose={closeDayProcessModal} />
         </div>
     );

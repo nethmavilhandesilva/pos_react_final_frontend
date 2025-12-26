@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const ItemList = () => {
     const [items, setItems] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const navigate = useNavigate();
 
     useEffect(() => {
         loadItems();
@@ -22,6 +23,12 @@ const ItemList = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        window.location.href = '/login';
     };
 
     const handleSearch = async (e) => {
@@ -55,113 +62,157 @@ const ItemList = () => {
     };
 
     if (loading) {
-        return <div className="text-center">Loading...</div>;
+        return <div className="text-center mt-5">Loading...</div>;
     }
 
     return (
-        <div className="container-fluid mt-5">
-            <div className="custom-card">
-                <h2 className="mb-4 text-center text-primary">භාණ්ඩ ලැයිස්තුව (Items List)</h2>
+        <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#99ff99' }}>
+            
+            {/* --- VERTICAL SIDEBAR --- */}
+            <div
+                style={{
+                    width: '260px',
+                    backgroundColor: '#004d00',
+                    color: 'white',
+                    padding: '20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    position: 'fixed',
+                    height: '100vh',
+                    overflowY: 'auto',
+                    boxShadow: '2px 0 5px rgba(0,0,0,0.2)',
+                    zIndex: 1000
+                }}
+            >
+                <Link className="navbar-brand fw-bold d-flex align-items-center mb-4 text-white text-decoration-none" to="/sales">
+                    <i className="material-icons me-2">warehouse</i>
+                    Dashboard
+                </Link>
 
-                <div className="d-flex justify-content-between mb-3">
-                    <Link to="/items/create" className="btn btn-success">
-                        + නව භාණ්ඩයක් එකතු කරන්න
-                    </Link>
+                <h6 className="text-uppercase text-light opacity-50 small fw-bold mb-3">Master Data</h6>
+                <ul className="list-unstyled flex-grow-1">
+                    <li className="mb-2">
+                        <Link to="/customers" className="nav-link text-white d-flex align-items-center p-2 rounded">
+                            <i className="material-icons me-2">people</i> Customers
+                        </Link>
+                    </li>
+                    <li className="mb-2">
+                        <Link to="/items" className="nav-link text-white d-flex align-items-center p-2 rounded" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
+                            <i className="material-icons me-2">inventory_2</i> Items
+                        </Link>
+                    </li>
+                    <li className="mb-2">
+                        <Link to="/suppliers" className="nav-link text-white d-flex align-items-center p-2 rounded">
+                            <i className="material-icons me-2">local_shipping</i> Suppliers
+                        </Link>
+                    </li>
+                    <li className="mb-2">
+                        <Link to="/commissions" className="nav-link text-white d-flex align-items-center p-2 rounded">
+                            <i className="material-icons me-2">attach_money</i> Commissions
+                        </Link>
+                    </li>
+                    <hr className="bg-light" />
+                    <li className="mb-2">
+                        <button
+                            type="button"
+                            className="btn btn-link text-warning text-decoration-none d-flex align-items-center p-0"
+                            onClick={() => (window.location.href = '/customers-loans/report')}
+                        >
+                            <i className="material-icons me-2">account_balance</i> Loan Report
+                        </button>
+                    </li>
+                </ul>
 
-                    <input
-                        type="text"
-                        value={searchTerm}
-                        onChange={handleSearch}
-                        className="form-control form-control-sm"
-                        placeholder="අංකය හෝ වර්ගය අනුව සොයන්න"
-                        style={{ maxWidth: '300px' }}
-                    />
-                </div>
-
-                {message && (
-                    <div className={`alert ${message.includes('Error') ? 'alert-danger' : 'alert-success'} text-center`}>
-                        {message}
-                    </div>
-                )}
-
-                <div className="table-responsive">
-                    <table className="table table-bordered table-striped table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>අංකය</th>
-                                <th>වර්ගය</th>
-                                <th>මල්ලක අගය</th>
-                                <th>මල්ලක කුලිය</th>
-                                <th>මෙහෙයුම්</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            {items.map((item) => (
-                                <tr key={item.id}>
-                                    <td style={{ textTransform: 'uppercase' }}>{item.no}</td>
-                                    <td>{item.type}</td>
-                                    <td>{Number(item.pack_cost).toFixed(2)}</td>
-                                    <td>{Number(item.pack_due).toFixed(2)}</td>
-
-                                    <td>
-                                        <Link
-                                            to={`/items/edit/${item.id}`}
-                                            className="btn btn-primary btn-sm me-1"
-                                        >
-                                            යාවත්කාලීන
-                                        </Link>
-
-                                        <button
-                                            onClick={() => handleDelete(item.id)}
-                                            className="btn btn-danger btn-sm"
-                                        >
-                                            මකන්න
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-
-                            {items.length === 0 && (
-                                <tr>
-                                    <td colSpan="5" className="text-center text-muted">
-                                        භාණ්ඩ නොමැත
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                <div className="mt-auto pt-3 border-top border-secondary">
+                    <button
+                        onClick={handleLogout}
+                        className="btn btn-outline-light w-100 fw-bold d-flex align-items-center justify-content-center"
+                    >
+                        <i className="material-icons me-2">logout</i> Logout
+                    </button>
                 </div>
             </div>
 
-            <style jsx>{`
-                .custom-card {
-                    background-color: #006400 !important;
-                    border-radius: 12px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-                    padding: 24px;
-                }
-                body {
-                    background-color: #99ff99;
-                }
+            {/* --- MAIN CONTENT AREA --- */}
+            <div style={{ marginLeft: '260px', flexGrow: 1, padding: '30px', width: 'calc(100vw - 260px)' }}>
+                <div
+                    style={{
+                        backgroundColor: '#006400',
+                        borderRadius: '12px',
+                        padding: '24px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    }}
+                >
+                    <h2 className="mb-4 text-center text-white">භාණ්ඩ ලැයිස්තුව (Items List)</h2>
+
+                    <div className="d-flex justify-content-between mb-3">
+                        <Link to="/items/create" className="btn btn-success fw-bold">
+                            + නව භාණ්ඩයක් එකතු කරන්න
+                        </Link>
+
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={handleSearch}
+                            className="form-control form-control-sm"
+                            placeholder="අංකය හෝ වර්ගය අනුව සොයන්න"
+                            style={{ maxWidth: '300px' }}
+                        />
+                    </div>
+
+                    {message && (
+                        <div className={`alert ${message.includes('Error') ? 'alert-danger' : 'alert-success'} text-center`}>
+                            {message}
+                        </div>
+                    )}
+
+                    <div className="table-responsive">
+                        <table className="table table-bordered table-striped table-hover align-middle bg-white">
+                            <thead>
+                                <tr style={{ backgroundColor: '#e6f0ff', color: '#003366', textAlign: 'center' }}>
+                                    <th>අංකය</th>
+                                    <th>වර්ගය</th>
+                                    <th>මල්ලක අගය</th>
+                                    <th>මල්ලක කුලිය</th>
+                                    <th>මෙහෙයුම්</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {items.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="5" className="text-center text-muted">භාණ්ඩ නොමැත</td>
+                                    </tr>
+                                ) : (
+                                    items.map((item) => (
+                                        <tr key={item.id} style={{ textAlign: 'center' }}>
+                                            <td style={{ textTransform: 'uppercase' }} className="fw-bold">{item.no}</td>
+                                            <td>{item.type}</td>
+                                            <td>Rs. {Number(item.pack_cost).toFixed(2)}</td>
+                                            <td>Rs. {Number(item.pack_due).toFixed(2)}</td>
+                                            <td>
+                                                <Link to={`/items/edit/${item.id}`} className="btn btn-primary btn-sm me-1">
+                                                    යාවත්කාලීන
+                                                </Link>
+                                                <button onClick={() => handleDelete(item.id)} className="btn btn-danger btn-sm">
+                                                    මකන්න
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <style jsx="true">{`
                 .table thead th {
-                    background-color: #e6f0ff;
-                    color: #003366;
-                    text-align: center;
-                }
-                .table tbody td {
-                    vertical-align: middle;
-                    text-align: center;
-                }
-                .btn-sm {
-                    font-size: 0.875rem;
-                    padding: 6px 12px;
+                    background-color: #e6f0ff !important;
+                    color: #003366 !important;
                 }
                 .table-hover tbody tr:hover {
-                    background-color: #f1f5ff;
-                }
-                .btn-success {
-                    background-color: #198754;
+                    background-color: #f1f5ff !important;
                 }
             `}</style>
         </div>

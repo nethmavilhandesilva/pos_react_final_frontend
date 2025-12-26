@@ -366,7 +366,7 @@ const SupplierReport = () => {
                     border-bottom:1px solid #eee;
                     vertical-align:top;
                 ">
-                    <span style="display:inline-block; margin-left:43px;">
+                    <span style="display:inline-block; margin-left:60px;">
                         ${formatNumber(weight, 3)}
                     </span>
                 </td>
@@ -374,10 +374,10 @@ const SupplierReport = () => {
                 <td style="
                     text-align:left;
                     padding:15px 4px 2px 4px;
-                    border-bottom:1px solid #eee;
+                    border-bottom:2px solid #eee;
                     vertical-align:top;
                 ">
-                    <span style="display:inline-block; margin-left:85px;">
+                    <span style="display:inline-block; margin-left:95px;">
                         ${formatNumber(SupplierPricePerKg, 2)}
                     </span>
                 </td>
@@ -507,20 +507,19 @@ const SupplierReport = () => {
             ${detailedItemsHtml}
 
             <!-- TOTAL ROW -->
-            <tr style="border-top:1px solid #000;">
+            <tr>
                 <td colspan="2"
                     style="text-align:left; padding:4px; font-weight:bold;">
                     ${totalPacksSum}
                 </td>
                <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
-    <span style="display:inline-block; margin-left:157px; white-space:nowrap;">
+    <span style="display:inline-block; margin-left:180px; white-space:nowrap;">
         ${formatNumber(totalsupplierSales, 2)}
     </span>
 </td>
 
 
-                <td style="text-align:right; padding:4px; font-weight:bold;">
-                </td>
+                
             </tr>
         </tbody>
     </table>

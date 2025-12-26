@@ -114,7 +114,7 @@ const CreateCustomerLoan = ({ customers, grnCodes, onLoanCreated, editingLoan, o
 
         switch (loan_type) {
             case 'old':
-                description = "වෙළෙන්දාගේ ලාද පරණ නය";
+                description = "වෙළෙන්දාගේ1 ලාද පරණ නය";
                 if (formData.settling_way === 'cheque') {
                     description = `Cheque payment from ${bank || 'bank'}`;
                 }
