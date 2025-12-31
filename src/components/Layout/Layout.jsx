@@ -30,6 +30,11 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const [user, setUser] = useState(null);
     const [settingValue, setSettingValue] = useState(''); // 🚀 NEW: State for the 'value' column
 
+    // === Bottom Password States ===
+    const [bottomPassword, setBottomPassword] = useState('');
+    const [isBottomUnlocked, setIsBottomUnlocked] = useState(false);
+    const HARD_CODED_PASSWORD = 'nethma123';
+
     useEffect(() => {
         // 1. Handle User Session
         const storedUser = localStorage.getItem('user');
@@ -42,12 +47,8 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         // 🚀 2. Fetch Setting Value from Backend using your api.js
         const fetchSettings = async () => {
             try {
-                // Adjust this URL to your actual Laravel route (e.g., /settings)
                 const response = await api.get('/settings');
-                // Assuming backend returns an object or array, get the 'value' field
                 if (response.data) {
-                    // If it's a single object: response.data.value
-                    // If it's an array: response.data[0].value
                     setSettingValue(response.data.value || response.data[0]?.value || '');
                 }
             } catch (error) {
@@ -60,7 +61,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
 
     const handleLogout = () => {
         localStorage.removeItem('user');
-        localStorage.removeItem('token'); // Also clear token on logout
+        localStorage.removeItem('token');
         window.location.href = 'sms/login';
     };
 
@@ -95,12 +96,22 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         color: "#fff",
         fontWeight: "700",
         fontSize: "14px",
-        margin: "0 28px", // ⬅ increase gap here
+        margin: "0 28px",
         padding: "0",
         cursor: "pointer",
         whiteSpace: "nowrap"
     };
 
+    // === Password input handler for bottom buttons ===
+    const handleBottomPasswordChange = (e) => {
+        const value = e.target.value;
+        setBottomPassword(value);
+        if (value === HARD_CODED_PASSWORD) {
+            setIsBottomUnlocked(true);
+        } else {
+            setIsBottomUnlocked(false);
+        }
+    };
 
     return (
         <div>
@@ -143,21 +154,16 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 ණය දීම/ගැනීම
                             </Link>
 
-
                             <Link
                                 to="/supplierreport"
                                 className="btn btn-outline-success btn-sm mx-1"
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                             >
-                                <i
-                                    className="material-icons align-middle me-1"
-                                    style={{ color: '#fff' }}
-                                >
+                                <i className="material-icons align-middle me-1" style={{ color: '#fff' }}>
                                     list_alt
                                 </i>
                                 සැපයුම්කරු බිල්පත්
                             </Link>
-
 
                             <button
                                 type="button"
@@ -165,15 +171,11 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                                 onClick={openDayProcessModal}
                             >
-                                <i
-                                    className="material-icons align-middle me-1"
-                                    style={{ color: '#fff' }}
-                                >
+                                <i className="material-icons align-middle me-1" style={{ color: '#fff' }}>
                                     calendar_today
                                 </i>
                                 Day Process
                             </button>
-
                         </div>
 
                         {isSalesEntryPage && (
@@ -190,7 +192,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                     {/* Right Side: Display fetched value in Red and Logout Button */}
                     {user && (
                         <div className="d-flex align-items-center text-white">
-                            {/* 🚀 Setting Value in Red Color */}
                             <span className="me-3 fw-bold" style={{ color: '#ff4444', fontSize: '1.1rem' }}>
                                 {settingValue}
                             </span>
@@ -207,66 +208,63 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                 </div>
             </nav>
 
+            {/* Main Content */}
             <main className={isSalesEntryPage ? "p-0" : "container-fluid py-4"} style={{ marginTop: '80px', marginBottom: '80px', width: '100%', maxWidth: isSalesEntryPage ? '100%' : undefined }}>
                 {children}
             </main>
 
-            {/* Bottom Nav */}
+            {/* === Bottom Nav with Password Protection === */}
             <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
-                <div className="container-fluid d-flex justify-content-center">
-                    <div className="navbar-nav d-flex flex-row align-items-center">
-                        <button
-                            type="button"
-                            onClick={openItemReportModal}
-                            style={navTextBtn}
-                        >
-                            එළවළු
-                        </button>
+    <div className="container-fluid d-flex justify-content-start align-items-center">
+        {/* Password Input on the Left */}
+        <input
+            type="password"
+            placeholder="Enter password"
+            value={bottomPassword}
+            onChange={handleBottomPasswordChange}
+            className="form-control form-control-sm me-3"
+            style={{
+                width: '180px',
+                backgroundColor: '#003300',
+                color: '#fff',
+                border: '1px solid #66bb6a'
+            }}
+        />
 
-                        <button
-                            type="button"
-                            onClick={openWeightReportModal}
-                            style={navTextBtn}
-                        >
-                            බර මත
-                        </button>
+        {/* Bottom Buttons */}
+        {[ 
+            { label: 'එළවළු', onClick: openItemReportModal },
+            { label: 'බර මත', onClick: openWeightReportModal },
+            { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
+            { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
+            { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
+            { label: 'සැපයුම්කරු ලාභ වාර්තාව', onClick: handleProfitReportClick }
+        ].map((btn, idx) => (
+            <button
+                key={idx}
+                type="button"
+                onClick={btn.onClick}
+                style={{
+                    ...navTextBtn,
+                    opacity: isBottomUnlocked ? 1 : 0.4,
+                    pointerEvents: isBottomUnlocked ? 'auto' : 'none',
+                    marginRight: '20px' // gap between buttons
+                }}
+            >
+                {btn.label}
+            </button>
+        ))}
 
-                        <button
-                            type="button"
-                            onClick={openSalesAdjustmentReportModal}
-                            style={navTextBtn}
-                        >
-                            වෙනස් කිරීම
-                        </button>
+        {/* Feedback Text */}
+        {!isBottomUnlocked && bottomPassword.length > 0 && (
+            <small style={{ color: '#ff6666', marginLeft: '10px' }}>Incorrect password</small>
+        )}
+        {isBottomUnlocked && (
+            <small style={{ color: '#66ff66', marginLeft: '10px' }}>Access granted</small>
+        )}
+    </div>
+</nav>
 
-                        <button
-                            type="button"
-                            onClick={() => window.location.href = '/financial-report'}
-                            style={navTextBtn}
-                        >
-                            ආදායම් / වියදම්
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={openSalesReportModal}
-                            style={navTextBtn}
-                        >
-                            විකුණුම් වාර්තාව
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={handleProfitReportClick}
-                            title="View total profit by supplier"
-                            style={navTextBtn}
-                        >
-                            සැපයුම්කරු ලාභ වාර්තාව
-                        </button>
-                    </div>
-
-                </div>
-            </nav>
 
             {/* Modals */}
             <ItemReportModal isOpen={isItemReportModalOpen} onClose={closeItemReportModal} onGenerateReport={() => { }} loading={false} />
