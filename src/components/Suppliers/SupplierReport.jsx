@@ -293,7 +293,7 @@ const SupplierReport = () => {
 
     if (is4mm) {
         return `
-            <tr>
+            <tr style="border-bottom:1px solid #eee;">
                 <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
                     <strong>
                         <span style="white-space:nowrap;">
@@ -326,7 +326,7 @@ const SupplierReport = () => {
                         display:inline-block;
                         width:90px;
                         text-align:right;
-                        margin-left:72px;
+                        margin-left:60px;
                         white-space:nowrap;
                     ">
                         ${formatNumber(SupplierTotal, 2)}
@@ -348,7 +348,7 @@ const SupplierReport = () => {
         `;
     } else {
         return `
-            <tr>
+            <tr style="border-bottom:1px solid #eee;">
                 <td style="
                     text-align:left;
                     padding:2px 4px;
@@ -374,7 +374,6 @@ const SupplierReport = () => {
                 <td style="
                     text-align:left;
                     padding:15px 4px 2px 4px;
-                    border-bottom:2px solid #eee;
                     vertical-align:top;
                 ">
                     <span style="display:inline-block; margin-left:95px;">

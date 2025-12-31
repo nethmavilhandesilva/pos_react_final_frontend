@@ -43,7 +43,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         const fetchSettings = async () => {
             try {
                 // Adjust this URL to your actual Laravel route (e.g., /settings)
-                const response = await api.get('/settings'); 
+                const response = await api.get('/settings');
                 // Assuming backend returns an object or array, get the 'value' field
                 if (response.data) {
                     // If it's a single object: response.data.value
@@ -89,6 +89,18 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     };
 
     const isSalesEntryPage = location.pathname === '/sales' || location.pathname === '/sales-entry';
+    const navTextBtn = {
+        background: "none",
+        border: "none",
+        color: "#fff",
+        fontWeight: "700",
+        fontSize: "14px",
+        margin: "0 28px", // ⬅ increase gap here
+        padding: "0",
+        cursor: "pointer",
+        whiteSpace: "nowrap"
+    };
+
 
     return (
         <div>
@@ -120,17 +132,48 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 </ul>
                             </div>
 
-                            <Link to="/customers-loans" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold' }}>
-                                <i className="material-icons align-middle me-1">paid</i> ණය දීම/ගැනීම
+                            <Link
+                                to="/customers-loans"
+                                className="btn btn-outline-success btn-sm mx-1"
+                                style={{ fontWeight: 'bold', color: '#fff' }}
+                            >
+                                <i className="material-icons align-middle me-1" style={{ color: '#fff' }}>
+                                    paid
+                                </i>
+                                ණය දීම/ගැනීම
                             </Link>
 
-                            <Link to="/supplierreport" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold' }}>
-                                <i className="material-icons align-middle me-1">list_alt</i> සැපයුම්කරු බිල්පත්
+
+                            <Link
+                                to="/supplierreport"
+                                className="btn btn-outline-success btn-sm mx-1"
+                                style={{ fontWeight: 'bold', color: '#fff' }}
+                            >
+                                <i
+                                    className="material-icons align-middle me-1"
+                                    style={{ color: '#fff' }}
+                                >
+                                    list_alt
+                                </i>
+                                සැපයුම්කරු බිල්පත්
                             </Link>
 
-                            <button type="button" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold' }} onClick={openDayProcessModal}>
-                                <i className="material-icons align-middle me-1">calendar_today</i> Day Process
+
+                            <button
+                                type="button"
+                                className="btn btn-outline-success btn-sm mx-1"
+                                style={{ fontWeight: 'bold', color: '#fff' }}
+                                onClick={openDayProcessModal}
+                            >
+                                <i
+                                    className="material-icons align-middle me-1"
+                                    style={{ color: '#fff' }}
+                                >
+                                    calendar_today
+                                </i>
+                                Day Process
                             </button>
+
                         </div>
 
                         {isSalesEntryPage && (
@@ -151,7 +194,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                             <span className="me-3 fw-bold" style={{ color: '#ff4444', fontSize: '1.1rem' }}>
                                 {settingValue}
                             </span>
-                            
+
                             <button
                                 onClick={handleLogout}
                                 className="btn btn-sm btn-outline-light"
@@ -172,13 +215,56 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
                 <div className="container-fluid d-flex justify-content-center">
                     <div className="navbar-nav d-flex flex-row align-items-center">
-                        <button type="button" className="btn btn-outline-warning btn-sm mx-2" onClick={openItemReportModal}><i className="material-icons align-middle me-1">analytics</i> එළවළු</button>
-                        <button type="button" className="btn btn-outline-info btn-sm mx-2" onClick={openWeightReportModal}><i className="material-icons align-middle me-1">scale</i> බර මත</button>
-                        <button type="button" className="btn btn-outline-secondary btn-sm mx-2" onClick={openSalesAdjustmentReportModal}><i className="material-icons align-middle me-1">edit</i> වෙනස් කිරීම</button>
-                        <button type="button" className="btn btn-outline-primary btn-sm mx-2" onClick={() => window.location.href = '/financial-report'}><i className="material-icons align-middle me-1">receipt_long</i> ආදායම් / වියදම්</button>
-                        <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={openSalesReportModal}><i className="material-icons align-middle me-1">shopping_cart</i> විකුණුම් වාර්තාව</button>
-                        <button type="button" className="btn btn-outline-light btn-sm mx-2" onClick={handleProfitReportClick} title="View total profit by supplier"><i className="material-icons align-middle me-1">payments</i> සැපයුම්කරු ලාභ වාර්තාව</button>
+                        <button
+                            type="button"
+                            onClick={openItemReportModal}
+                            style={navTextBtn}
+                        >
+                            එළවළු
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={openWeightReportModal}
+                            style={navTextBtn}
+                        >
+                            බර මත
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={openSalesAdjustmentReportModal}
+                            style={navTextBtn}
+                        >
+                            වෙනස් කිරීම
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => window.location.href = '/financial-report'}
+                            style={navTextBtn}
+                        >
+                            ආදායම් / වියදම්
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={openSalesReportModal}
+                            style={navTextBtn}
+                        >
+                            විකුණුම් වාර්තාව
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleProfitReportClick}
+                            title="View total profit by supplier"
+                            style={navTextBtn}
+                        >
+                            සැපයුම්කරු ලාභ වාර්තාව
+                        </button>
                     </div>
+
                 </div>
             </nav>
 

@@ -153,9 +153,7 @@ const CustomersLoanList = () => {
 
                     {/* Additional Buttons */}
                     <div className="d-flex flex-wrap align-items-center gap-2 mb-3 mt-4">
-                        <button className="btn btn-dark">
-                            ආදායම් / වියදම්
-                        </button>
+                       
                         <button className="btn btn-dark">
                             ණය වාර්තාව
                         </button>

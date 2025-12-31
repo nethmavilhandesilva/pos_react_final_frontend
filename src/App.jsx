@@ -26,6 +26,7 @@ import SupplierDetailsModal from './components/Suppliers/SupplierDetailsModal';
 import CommissionPage from './components/Commission/CommissionPage';
 import SupplierProfitReport from './components/Suppliers/SupplierProfitReport';
 import FinancialReport from './components/Reports/FinancialReport';
+import LoanReportManager from './components/LoanManager/LoanReportManager'; // ✅ Add this
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -240,6 +241,14 @@ export default function App() {
                     element={
                         <ProtectedRoute>
                             <FinancialReport />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/loan-report"
+                    element={
+                        <ProtectedRoute>
+                            <LoanReportManager />
                         </ProtectedRoute>
                     }
                 />

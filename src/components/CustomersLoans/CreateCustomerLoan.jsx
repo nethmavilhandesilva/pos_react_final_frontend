@@ -120,7 +120,7 @@ const CreateCustomerLoan = ({ customers, grnCodes, onLoanCreated, editingLoan, o
                 }
                 break;
             case 'today':
-                description = "වෙළෙන්දාගේ අද දින නය ගැනීම";
+                description = "වෙ12ළෙන්දාගේ අද දින නය ගැනීම";
                 break;
             case 'ingoing':
                 description = "වෙනත් ලාභීම/ආදායම්";
