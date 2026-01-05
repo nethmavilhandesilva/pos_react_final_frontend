@@ -74,7 +74,7 @@ const SalesAdjustmentReportView = ({ reportData, onClose }) => {
         win.document.write(`
             <html>
             <head>
-                <title>Sales Adjustment Report</title>
+                <title>වෙනස්කිරීම් වාර්තාව</title>
                 <style>
                     body { font-family: sans-serif; font-size: 12px; }
                     table { width:100%; border-collapse: collapse; }
@@ -143,7 +143,7 @@ const SalesAdjustmentReportView = ({ reportData, onClose }) => {
                 boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
             }}>
                 <h2 style={{ fontWeight: '700', margin: 0 }}>{companyName}</h2>
-                <h3 style={{ margin: 0 }}>📦 Sales Adjustment Report</h3>
+                <h3 style={{ margin: 0 }}>📦 වෙනස්කිරීම් වාර්තාව</h3>
                 <p style={{ fontSize: '0.9rem', margin: 0 }}>{reportDate}</p>
             </div>
 

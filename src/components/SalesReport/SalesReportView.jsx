@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-
-const BACKEND_URL = 'http://localhost:8000/api';
+import api from '../../api'; // ✅ import your axios instance
 
 const SalesReportView = ({ reportData, onClose }) => {
-    const { salesData, filters } = reportData;
+    const { salesData: initialSalesData, filters } = reportData;
+    const [salesData, setSalesData] = useState(initialSalesData || []);
     const [companyName, setCompanyName] = useState('Default Company');
     const [settingDate, setSettingDate] = useState(new Date().toLocaleDateString('en-CA'));
     const [isClient, setIsClient] = useState(false);
@@ -13,20 +13,35 @@ const SalesReportView = ({ reportData, onClose }) => {
     useEffect(() => setIsClient(true), []);
 
     useEffect(() => {
+        // Fetch company info
         const fetchCompanyInfo = async () => {
             try {
-                const res = await fetch(`${BACKEND_URL}/company-info`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setCompanyName(data.companyName || 'Default Company');
-                    setSettingDate(data.settingDate || new Date().toLocaleDateString('en-CA'));
-                }
+                const { data } = await api.get('/settings');
+                setCompanyName(data.companyName || 'Default Company');
+                setSettingDate(data.settingDate || new Date().toLocaleDateString('en-CA'));
             } catch (err) {
                 console.error('Error fetching company info:', err);
             }
         };
+
+        // Fetch sales data if needed
+        const fetchSalesData = async () => {
+            try {
+                const params = {
+                    start_date: filters?.start_date,
+                    end_date: filters?.end_date,
+                    code: filters?.code
+                };
+                const { data } = await api.get('/processed-sales', { params });
+                setSalesData(data || []);
+            } catch (err) {
+                console.error('Error fetching sales data:', err);
+            }
+        };
+
         fetchCompanyInfo();
-    }, []);
+        fetchSalesData();
+    }, [filters]);
 
     // Group sales by customer → bill
     const groupedData = salesData.reduce((acc, sale) => {
@@ -71,7 +86,7 @@ const SalesReportView = ({ reportData, onClose }) => {
                     }
                 </style>
             </head>
-            <body>${printContent}</body>
+            <body>${printRef.current.innerHTML}</body>
             </html>
         `);
         win.document.close();

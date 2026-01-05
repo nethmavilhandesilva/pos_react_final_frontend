@@ -91,7 +91,7 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
         <div className="modal-dialog modal-xl">
           <div className="modal-content">
             <div className="modal-header">
-              <h5 className="modal-title">Sales Adjustment Report</h5>
+              <h5 className="modal-title">වෙනස්කිරීම් වාර්තාව</h5>
               <button type="button" className="btn-close" onClick={handleCloseReport}></button>
             </div>
             <div className="modal-body">

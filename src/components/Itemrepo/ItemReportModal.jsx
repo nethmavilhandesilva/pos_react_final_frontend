@@ -42,10 +42,10 @@ const ItemReportModal = ({ isOpen, onClose }) => {
     try {
       console.log('🟢 Fetching items using api client...');
       // ⚠️ Note: api.js sets baseURL to http://127.0.0.1:8000/api, so the path is '/allitems'
-      const response = await api.get('/allitems'); 
+      const response = await api.get('/allitems');
       console.log('🟢 Items fetched successfully.');
       // Axios puts the response body in the .data property
-      setItems(response.data.items || []); 
+      setItems(response.data.items || []);
     } catch (error) {
       // Axios error structure: error.response for server errors, error.request, etc.
       console.error('❌ Error fetching items:', error.response ? error.response.data : error.message);
@@ -89,10 +89,10 @@ const ItemReportModal = ({ isOpen, onClose }) => {
       // Axios automatically handles query string serialization with the 'params' property
       const response = await api.get('/item-report', { params });
       console.log('🟢 API call completed, status:', response.status);
-      
+
       const data = response.data; // Axios response body is in .data
       console.log('🟢 Response data received:', data);
-      
+
       if (data.error) {
         console.log('❌ API returned error:', data.error);
         throw new Error(data.error);
@@ -109,9 +109,9 @@ const ItemReportModal = ({ isOpen, onClose }) => {
       console.log(`Found ${data.sales.length} sales records`);
 
       // Set the report data and show the report view
-      setReportData({ 
-        sales: data.sales, 
-        filters: filters 
+      setReportData({
+        sales: data.sales,
+        filters: filters
       });
       setShowReport(true);
       console.log('🟢 Report view should now be visible');
@@ -157,17 +157,17 @@ const ItemReportModal = ({ isOpen, onClose }) => {
           <div className="modal-content">
             <div className="modal-header">
               <h5 className="modal-title">Item Report</h5>
-              <button 
-                type="button" 
-                className="btn-close" 
+              <button
+                type="button"
+                className="btn-close"
                 onClick={handleCloseReport}
                 aria-label="Close"
               ></button>
             </div>
             <div className="modal-body">
-              <ItemReportView 
-                reportData={reportData} 
-                onClose={handleCloseReport} 
+              <ItemReportView
+                reportData={reportData}
+                onClose={handleCloseReport}
               />
             </div>
           </div>
@@ -185,9 +185,9 @@ const ItemReportModal = ({ isOpen, onClose }) => {
         <div className="modal-content" style={{ backgroundColor: '#99ff99' }}>
           <div className="modal-header">
             <h5 className="modal-title">📦 අයිතමය අනුව වාර්තාව</h5>
-            <button 
-              type="button" 
-              className="btn-close" 
+            <button
+              type="button"
+              className="btn-close"
               onClick={onClose}
               aria-label="Close"
               disabled={loading}
@@ -226,12 +226,16 @@ const ItemReportModal = ({ isOpen, onClose }) => {
                   disabled={loading}
                 >
                   <option value="">-- අයිතමයක් තෝරන්න --</option>
-                  {items.map((item) => (
-                    <option key={item.no} value={item.no}>
-                      {item.no} - {item.type}
-                    </option>
-                  ))}
+
+                  {[...items]
+                    .sort((a, b) => a.no.localeCompare(b.no))
+                    .map((item) => (
+                      <option key={item.no} value={item.no}>
+                        {item.no} - {item.type}
+                      </option>
+                    ))}
                 </select>
+
               </div>
 
               {showDateRange && (
@@ -270,9 +274,9 @@ const ItemReportModal = ({ isOpen, onClose }) => {
             </div>
 
             <div className="modal-footer">
-              <button 
-                type="submit" 
-                className="btn btn-primary w-100" 
+              <button
+                type="submit"
+                className="btn btn-primary w-100"
                 disabled={loading || !filters.item_code}
               >
                 {loading ? (

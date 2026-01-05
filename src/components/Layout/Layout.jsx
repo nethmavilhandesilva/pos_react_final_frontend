@@ -121,23 +121,23 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                     <div className="d-flex align-items-center">
                         <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to="/">
                             <i className="material-icons align-middle me-2">warehouse</i>
-                            Dashboard
+                            මුල් පිටුව
                         </Link>
 
                         <div className="navbar-nav d-flex flex-row align-items-center">
                             <div className="nav-item dropdown mx-1">
                                 <button className="btn btn-outline-light btn-sm dropdown-toggle" id="masterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i className="material-icons align-middle me-1">menu_book</i> Master
+                                    <i className="material-icons align-middle me-1">menu_book</i> ප්‍රධාන ගොනුව
                                 </button>
                                 <ul className="dropdown-menu dropdown-menu-dark" aria-labelledby="masterDropdown">
-                                    <li><Link to="/customers" className="dropdown-item"><i className="material-icons align-middle me-1">people</i> Customers</Link></li>
-                                    <li><Link to="/items" className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i> Items</Link></li>
-                                    <li><Link to="/suppliers" className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> Suppliers</Link></li>
-                                    <li><Link to="/commissions" className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i> Commisions</Link></li>
+                                    <li><Link to="/customers" className="dropdown-item"><i className="material-icons align-middle me-1">people</i> පාරිභෝගිකයින්</Link></li>
+                                    <li><Link to="/items" className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i> භාණ්ඩ</Link></li>
+                                    <li><Link to="/suppliers" className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
+                                    <li><Link to="/commissions" className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
                                     <li><hr className="dropdown-divider" /></li>
                                     <li>
                                         <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = '/customers-loans/report'}>
-                                            <i className="material-icons align-middle me-1 text-warning">account_balance</i> Loan Report
+                                            <i className="material-icons align-middle me-1 text-warning">account_balance</i> ණය වාර්තාව
                                         </button>
                                     </li>
                                 </ul>
@@ -148,9 +148,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 className="btn btn-outline-success btn-sm mx-1"
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                             >
-                                <i className="material-icons align-middle me-1" style={{ color: '#fff' }}>
-                                    paid
-                                </i>
+                                
                                 ණය දීම/ගැනීම
                             </Link>
 
@@ -159,9 +157,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 className="btn btn-outline-success btn-sm mx-1"
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                             >
-                                <i className="material-icons align-middle me-1" style={{ color: '#fff' }}>
-                                    list_alt
-                                </i>
+                                
                                 සැපයුම්කරු බිල්පත්
                             </Link>
 
@@ -171,10 +167,8 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                                 onClick={openDayProcessModal}
                             >
-                                <i className="material-icons align-middle me-1" style={{ color: '#fff' }}>
-                                    calendar_today
-                                </i>
-                                Day Process
+                                
+                                දින අවසාන ක්‍රියාවලිය
                             </button>
                         </div>
 
@@ -216,53 +210,49 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             {/* === Bottom Nav with Password Protection === */}
             <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
     <div className="container-fluid d-flex justify-content-start align-items-center">
-        {/* Password Input on the Left */}
-        <input
-            type="password"
-            placeholder="Enter password"
-            value={bottomPassword}
-            onChange={handleBottomPasswordChange}
-            className="form-control form-control-sm me-3"
+    {/* Password Input on the Left */}
+    <input
+        type="password"
+        placeholder="Enter password"
+        value={bottomPassword}
+        onChange={handleBottomPasswordChange}
+        className="form-control form-control-sm me-3"
+        style={{
+            width: '100px',
+            backgroundColor: '#003300',
+            color: '#fff',
+            border: '1px solid #66bb6a'
+        }}
+    />
+
+    {/* Bottom Buttons */}
+    {[
+        { label: 'එළවළු', onClick: openItemReportModal },
+        { label: 'බර මත', onClick: openWeightReportModal },
+        { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
+        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
+        { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
+        { label: 'සැපයුම්කරු ලාභ වාර්තාව', onClick: handleProfitReportClick }
+    ].map((btn, idx) => (
+        <button
+            key={idx}
+            type="button"
+            onClick={btn.onClick}
             style={{
-                width: '180px',
-                backgroundColor: '#003300',
-                color: '#fff',
-                border: '1px solid #66bb6a'
+                ...navTextBtn,
+                fontSize: '16px',        // 🔹 increase font size (try 17px / 18px if needed)
+                fontWeight: '700',       // 🔹 bold text
+                letterSpacing: '0.5px',  // 🔹 nicer Sinhala spacing
+                opacity: isBottomUnlocked ? 1 : 0.4,
+                pointerEvents: isBottomUnlocked ? 'auto' : 'none',
+                marginRight: '20px'      // gap between buttons
             }}
-        />
+        >
+            {btn.label}
+        </button>
+    ))}
+</div>
 
-        {/* Bottom Buttons */}
-        {[ 
-            { label: 'එළවළු', onClick: openItemReportModal },
-            { label: 'බර මත', onClick: openWeightReportModal },
-            { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
-            { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
-            { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
-            { label: 'සැපයුම්කරු ලාභ වාර්තාව', onClick: handleProfitReportClick }
-        ].map((btn, idx) => (
-            <button
-                key={idx}
-                type="button"
-                onClick={btn.onClick}
-                style={{
-                    ...navTextBtn,
-                    opacity: isBottomUnlocked ? 1 : 0.4,
-                    pointerEvents: isBottomUnlocked ? 'auto' : 'none',
-                    marginRight: '20px' // gap between buttons
-                }}
-            >
-                {btn.label}
-            </button>
-        ))}
-
-        {/* Feedback Text */}
-        {!isBottomUnlocked && bottomPassword.length > 0 && (
-            <small style={{ color: '#ff6666', marginLeft: '10px' }}>Incorrect password</small>
-        )}
-        {isBottomUnlocked && (
-            <small style={{ color: '#66ff66', marginLeft: '10px' }}>Access granted</small>
-        )}
-    </div>
 </nav>
 
 
