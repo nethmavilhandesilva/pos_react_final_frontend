@@ -1,4 +1,3 @@
-// src/components/Auth/LoginPage.jsx
 import React, { useState } from "react";
 import api from "../../api";  // <-- use your axios instance instead of axios
 
@@ -25,7 +24,7 @@ const LoginPage = () => {
         }
 
         // Redirect to dashboard or homepage
-        window.location.href = "/";
+        window.location.href = "/sms_new_frontend/sales";
       } else {
         setError("Invalid credentials");
       }

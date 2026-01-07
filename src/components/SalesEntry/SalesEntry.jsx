@@ -361,6 +361,38 @@ export default function SalesEntry() {
         }
     };
 
+    // --- NEW LOGIC: AUTO-SET GIVEN AMOUNT TO FINAL PAYABLE ---
+    useEffect(() => {
+        if (displayedSales.length > 0) {
+
+            const totals = displayedSales.reduce((acc, s) => {
+                const weight = parseFloat(s.weight) || 0;
+                const price = parseFloat(s.price_per_kg) || 0;
+                const packs = parseFloat(s.packs) || 0;
+                const pCost = parseFloat(s.CustomerPackCost) || 0;
+                const pLabour = parseFloat(s.CustomerPackLabour) || 0;
+
+                acc.billTotal += (weight * price);
+                acc.totalBagPrice += (packs * pCost);
+                acc.totalLabour += (packs * pLabour);
+                return acc;
+            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+
+            const calculatedFinal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
+
+            // ❗ Update only if database value is NULL or empty
+            setFormData(prev => {
+                if (prev.given_amount === null || prev.given_amount === "") {
+                    return { ...prev, given_amount: calculatedFinal.toFixed(2) };
+                }
+                return prev; // keep existing value
+            });
+
+        } else {
+            setFormData(prev => ({ ...prev, given_amount: "" }));
+        }
+    }, [displayedSales]);
+
     useEffect(() => {
         const w = parseFloat(formData.weight) || 0;
         const p = parseFloat(formData.price_per_kg) || 0;
@@ -388,7 +420,15 @@ export default function SalesEntry() {
     const handleKeyDown = (e, currentFieldName) => {
         if (e.key === "Enter") {
             e.preventDefault();
-            if (currentFieldName === "given_amount" && formData.given_amount) return handleSubmitGivenAmount(e);
+
+            // ⭐ TRIGGER PRINT when Enter is pressed inside given_amount field
+            if (currentFieldName === "given_amount") {
+                handleSubmitGivenAmount(e).then(() => {
+                    handlePrintAndClear();
+                });
+                return;
+            }
+
             if (currentFieldName === "packs") return handleSubmit(e);
 
             let nextFieldName = skipMap[currentFieldName];
@@ -602,26 +642,53 @@ export default function SalesEntry() {
         } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message } }); }
     };
 
-    const handleSubmitGivenAmount = async (e) => {
-        if (e) e.preventDefault();
-        updateState({ errors: {} });
-        const customerCode = formData.customer_code || autoCustomerCode;
-        if (!customerCode) { updateState({ errors: { form: "Please enter or select a customer code first" } }); refs.customer_code_input.current?.focus(); return; }
-        if (!formData.given_amount) { updateState({ errors: { form: "Please enter a given amount" } }); return; }
-        const salesToUpdate = displayedSales.filter(s => s.id);
-        if (salesToUpdate.length === 0) { updateState({ errors: { form: "No sales records found to update. Please add sales records first." } }); return; }
-        try {
-            const givenAmount = parseFloat(formData.given_amount) || 0;
-            const updatePromises = salesToUpdate.map(sale => api.put(`${routes.sales}/${sale.id}/given-amount`, { given_amount: givenAmount }));
-            const results = await Promise.all(updatePromises);
-            const updatedSalesMap = {};
-            results.forEach(response => { if (response.data.sale) updatedSalesMap[response.data.sale.id] = response.data.sale; });
-            updateState({ allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) });
-            setFormData(prev => ({ ...prev, given_amount: "" }));
-            refs.supplier_code.current?.focus();
-        } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message } }); }
-    };
+   const handleSubmitGivenAmount = async (e) => {
+    if (e) e.preventDefault();
+    updateState({ errors: {} });
+    
+    const customerCode = formData.customer_code || autoCustomerCode;
+    if (!customerCode) { 
+        updateState({ errors: { form: "Please enter or select a customer code first" } }); 
+        refs.customer_code_input.current?.focus(); 
+        return null; 
+    }
+    
+    if (!formData.given_amount) { 
+        updateState({ errors: { form: "Please enter a given amount" } }); 
+        return null; 
+    }
 
+    const salesToUpdate = displayedSales.filter(s => s.id);
+    if (salesToUpdate.length === 0) return null;
+
+    try {
+        const givenAmount = parseFloat(formData.given_amount) || 0;
+        const updatePromises = salesToUpdate.map(sale => 
+            api.put(`${routes.sales}/${sale.id}/given-amount`, { given_amount: givenAmount })
+        );
+        
+        const results = await Promise.all(updatePromises);
+        
+        // Extract the updated sale objects from the responses
+        const updatedSalesFromApi = results.map(response => response.data.sale);
+
+        // Update the global state so the UI stays in sync
+        const updatedSalesMap = {};
+        updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
+        
+        updateState({ 
+            allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) 
+        });
+
+        refs.supplier_code.current?.focus();
+        
+        // Return this fresh data to the caller (the print function)
+        return updatedSalesFromApi;
+    } catch (error) { 
+        updateState({ errors: { form: error.response?.data?.message || error.message } }); 
+        return null;
+    }
+};
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (state.isSubmitting) return;
@@ -902,14 +969,12 @@ ${summaryHtmlContent}
         // --- Final HTML Structure ---
         return `<div class="receipt-container" style="width:90%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;">
 <div style="margin-bottom:5px; border-bottom:1px solid #000;">
-    <!-- Title centered -->
     <h3 style="text-align:center; font-size:${fontSizeHeader}; font-weight:bold; margin:0 0 5px 0;">
         NVDS TRADERS
     </h3>
 
   <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
 
-    <!-- Top boxes -->
     <div style="display:flex; justify-content:center; align-items:center; gap:10px;">
         <div style="border:1px solid #000; padding:2px 6px;">
             <strong style="font-size:16px;">H-39</strong>
@@ -922,7 +987,6 @@ ${summaryHtmlContent}
         </div>
     </div>
 
-    <!-- Sentence below (no border, no extra line) -->
     <strong style="font-size:12px; text-align:center; display:block; margin-top:0;">
         එළවළු හා පළතුරු තොග වෙළෙන්දන්
     </strong>
@@ -933,8 +997,6 @@ ${summaryHtmlContent}
 <div style="text-align:left; margin-bottom:5px;">
     <table style="width:70%; font-size:9px; border-collapse:collapse; margin:auto;">
         
-        <!-- You can change this value to control the gap -->
-        <!-- Smaller gap → left & right closer; Larger gap → farther apart -->
         <tr>
             <td style="padding-right:5px;">දුර: ${mobile || ''}</td>
             <td style="text-align:right; padding-left:5px;">${time}</td>
@@ -970,7 +1032,7 @@ ${is4Inch ?
                 `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th>
      <th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th>
      <th style="text-align:center; padding:4px; font-size:1.2em;">
-  <span style="display:inline-block; margin-left:30px;">මිල</span>
+ <span style="display:inline-block; margin-left:30px;">මිල</span>
 </th>
      <th style="text-align:right; padding:4px; font-size:1.2em;">
        <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:80px; text-align:right;">
@@ -1012,57 +1074,137 @@ ${is4Inch ?
 <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
     };
 
-    const handlePrintAndClear = async () => {
-        const salesData = displayedSales.filter(s => s.id);
-        if (!salesData.length) return alert("No sales records to print!");
-        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-        if (hasZeroPrice) { alert("Cannot print! One or more items have a price per kg of 0."); return; }
-        const originalState = { allSales: [...allSales], selectedPrintedCustomer, selectedUnprintedCustomer, formData: { ...formData } };
-        try {
-            const customerCode = salesData[0].customer_code || "N/A";
-            const customerName = salesData[0].customer_name || customerCode;
-            const mobile = salesData[0].mobile || '0702758908';
-            updateState({ isPrinting: true });
-            const printResponse = await api.post(routes.markPrinted, { sales_ids: salesData.map(s => s.id), force_new_bill: true });
-            if (printResponse.data.status !== "success") throw new Error(printResponse.data?.message || "Printing failed");
-            const billNo = printResponse.data.bill_no || "";
-            let globalLoanAmount = 0;
-            try { const loanResponse = await api.post(routes.getLoanAmount, { customer_short_name: customerCode }); globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0; } catch { }
-            const salesIdsToUpdate = salesData.map(s => s.id);
-            const updatedAllSales = allSales.map(s => salesIdsToUpdate.includes(s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s);
-            updateState({ allSales: updatedAllSales, selectedPrintedCustomer: null, selectedUnprintedCustomer: null, currentBillNo: null, loanAmount: 0, editingSaleId: null, searchQueries: { printed: "", unprinted: "" }, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", isManualClear: true, packCost: 0, forceUpdate: Date.now(), isPrinting: false, gridPricePerKg: "", selectedSaleForBreakdown: null });
-            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
-            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount, billSize);
-            const printPromise = printSingleContent(receiptHtml, customerName);
-            setTimeout(() => { if (refs.customer_code_input.current) { refs.customer_code_input.current.focus(); refs.customer_code_input.current.select(); } }, 100);
-            await printPromise;
-            setTimeout(async () => {
-                try {
-                    const response = await api.get(routes.sales);
-                    const freshSales = response.data.data || response.data.sales || response.data || [];
-                    if (JSON.stringify(freshSales) !== JSON.stringify(updatedAllSales)) updateState({ allSales: freshSales, forceUpdate: Date.now() });
-                } catch { }
-            }, 500);
-        } catch (error) {
-            console.error("Printing error:", error);
-            alert("Printing failed: " + (error.message || error.toString()));
-            updateState({ allSales: originalState.allSales, selectedPrintedCustomer: originalState.selectedPrintedCustomer, selectedUnprintedCustomer: originalState.selectedUnprintedCustomer, isPrinting: false });
-            setFormData(originalState.formData);
-            setTimeout(() => { if (refs.customer_code_input.current) refs.customer_code_input.current.focus(); }, 100);
-        }
+   const handlePrintAndClear = async () => {
+    // 1. Trigger the amount save and WAIT for the response
+    const freshData = await handleSubmitGivenAmount();
+    
+    // 2. Use the fresh data (with the new amount) if it exists, otherwise use existing state
+    const salesData = freshData || displayedSales.filter(s => s.id);
+
+    if (!salesData.length) return alert("No sales records to print!");
+    
+    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+    if (hasZeroPrice) { 
+        alert("Cannot print! One or more items have a price per kg of 0."); 
+        return; 
+    }
+
+    const originalState = { 
+        allSales: [...allSales], 
+        selectedPrintedCustomer, 
+        selectedUnprintedCustomer, 
+        formData: { ...formData } 
     };
+
+    try {
+        const customerCode = salesData[0].customer_code || "N/A";
+        const customerName = salesData[0].customer_name || customerCode;
+        const mobile = salesData[0].mobile || '0702758908';
+        
+        updateState({ isPrinting: true });
+
+        // Mark as printed in the DB
+        const printResponse = await api.post(routes.markPrinted, { 
+            sales_ids: salesData.map(s => s.id), 
+            force_new_bill: true 
+        });
+
+        if (printResponse.data.status !== "success") throw new Error("Printing failed");
+
+        const billNo = printResponse.data.bill_no || "";
+        let globalLoanAmount = 0;
+        try { 
+            const loanResponse = await api.post(routes.getLoanAmount, { customer_short_name: customerCode }); 
+            globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0; 
+        } catch { }
+
+        // 3. Build HTML using the 'salesData' we retrieved at the start of this function
+        const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount, billSize);
+        
+        // Reset form and UI
+        updateState({ 
+            allSales: allSales.map(s => salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s), 
+            selectedPrintedCustomer: null, 
+            selectedUnprintedCustomer: null, 
+            isPrinting: false,
+            currentBillNo: null // Added to clear the red Bill No display
+        });
+        
+        setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
+
+        // Execute Print (Wait for the print window to finish)
+        await printSingleContent(receiptHtml, customerName);
+
+        // ⭐ NEW: Focus back to customer code input after printing
+        setTimeout(() => {
+            if (refs.customer_code_input.current) {
+                refs.customer_code_input.current.focus();
+                refs.customer_code_input.current.select(); // Optional: selects text if any remains
+            }
+        }, 200);
+
+    } catch (error) {
+        console.error("Printing error:", error);
+        alert("Printing failed");
+        updateState({ isPrinting: false });
+        
+        // Ensure focus even on failure
+        setTimeout(() => refs.customer_code_input.current?.focus(), 200);
+    }
+};
 
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
-    useEffect(() => {
-        const handleShortcut = (e) => {
-            if (selectedPrintedCustomer && e.key === "F5") { e.preventDefault(); return; }
-            if (e.key === "F1") { e.preventDefault(); handlePrintAndClear().finally(() => { [100, 200, 300, 500, 800].forEach(timeout => setTimeout(() => refs.customer_code_input.current?.focus(), timeout)); }); }
-            else if (e.key === "F5") { e.preventDefault(); handleMarkAllProcessed(); }
-        };
-        window.addEventListener("keydown", handleShortcut);
-        return () => window.removeEventListener("keydown", handleShortcut);
-    }, [displayedSales, newSales, selectedPrintedCustomer, handlePrintAndClear, handleMarkAllProcessed]);
+   useEffect(() => {
+    const handleShortcut = (e) => {
+
+        if (selectedPrintedCustomer && e.key === "F5") {
+            e.preventDefault();
+            return;
+        }
+
+        // ⭐ F1 → focus given_amount
+        if (e.key === "F1") {
+            e.preventDefault();
+            if (refs.given_amount.current) {
+                refs.given_amount.current.focus();
+                refs.given_amount.current.select();
+            }
+        }
+
+        // ⭐ F5 → First submit given amount, then mark processed OR print
+        else if (e.key === "F5") {
+            e.preventDefault();
+
+            // FIRST: submit given amount
+            if (typeof handleSubmitGivenAmount === "function") {
+                handleSubmitGivenAmount();
+            }
+
+            // THEN: perform mark processed
+            if (typeof handleMarkAllProcessed === "function") {
+                handleMarkAllProcessed();
+            }
+
+            // THEN: perform print
+            if (typeof handlePrintAndClear === "function") {
+                handlePrintAndClear();
+            }
+        }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+
+}, [
+    displayedSales,
+    newSales,
+    selectedPrintedCustomer,
+    handlePrintAndClear,
+    handleMarkAllProcessed,
+    handleSubmitGivenAmount // ⭐ MUST BE INCLUDED IN DEPENDENCY ARRAY
+]);
+
 
     const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
 
@@ -1094,7 +1236,7 @@ ${is4Inch ?
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div className="w-full flex justify-between items-center">
                                     <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.35rem' }}>Bill No: {currentBillNo}</div>
-                                    <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "550px", marginTop: "-30px",fontSize: '1.15rem' }}>මුළු විකුණුම්: Rs. {formatDecimal(totalSales)}</div>
+                                    <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "550px", marginTop: "-30px", fontSize: '1.15rem' }}>මුළු විකුණුම්: Rs. {formatDecimal(totalSales)}</div>
                                 </div>
                                 <div className="flex items-end gap-3 w-full">
                                     <div className="flex-1 min-w-0">
