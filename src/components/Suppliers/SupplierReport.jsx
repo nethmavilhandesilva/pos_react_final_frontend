@@ -272,82 +272,75 @@ const SupplierReport = () => {
         </tr>
     `)
             .join('');
-            const formatNumber = (value, maxDecimals = 3) => {
-    if (Number.isInteger(value)) {
-        return value.toString();
-    }
-    return value
-        .toFixed(maxDecimals)
-        .replace(/\.?0+$/, ''); // remove trailing zeros
-};
+        const formatNumber = (value, maxDecimals = 3) => {
+            if (Number.isInteger(value)) {
+                return value.toString();
+            }
+            return value
+                .toFixed(maxDecimals)
+                .replace(/\.?0+$/, ''); // remove trailing zeros
+        };
 
 
         // Detailed Items HTML with bill size support - NOW 6 COLUMNS
-     const detailedItemsHtml = supplierDetails.map(record => {
-    const weight = parseFloat(record.weight) || 0;
-    const packs = parseInt(record.packs) || 0;
-    const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
-    const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
-    const itemName = record.item_name || 'Unknown Item';
-    const customerCode = record.customer_code?.toUpperCase() || '';
+        const detailedItemsHtml = supplierDetails.map(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
+            const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || 'Unknown Item';
+            const customerCode = record.customer_code?.toUpperCase() || '';
 
-    if (is4mm) {
-        return `
+            if (is4mm) {
+                return `
             <tr style="border-bottom:1px solid #eee;">
                 <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
                     <strong>
                         <span style="white-space:nowrap;">
                             ${itemName}
                         </span>
-                        <br>
-                        ${packs}
+                        
                     </strong>
+                </td>
+                 <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+                    <span style="display:inline-block; margin-left:10px;">
+                          ${packs}
+                    </span>
                 </td>
 
                 <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                    <span style="display:inline-block; margin-left:40px;">
+                    <span style="display:inline-block; margin-left:20px;">
                         ${formatNumber(weight, 3)}
                     </span>
                 </td>
 
                 <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                    <span style="display:inline-block; margin-left:90px;">
+                    <span style="display:inline-block; margin-left:25px;">
                         ${formatNumber(SupplierPricePerKg, 2)}
                     </span>
                 </td>
-
-                <td style="
-                    text-align:right;
-                    padding:15px 4px 2px 4px;
-                    border-bottom:1px solid #eee;
-                    vertical-align:top;
-                ">
-                    <span style="
-                        display:inline-block;
-                        width:90px;
-                        text-align:right;
-                        margin-left:60px;
-                        white-space:nowrap;
-                    ">
+                <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
+                    <span style="display:inline-block; margin-left:25px;">
                         ${formatNumber(SupplierTotal, 2)}
                     </span>
                 </td>
+
 
                 <td style="
                     text-align:right;
                     padding:2px 4px;
                     border-bottom:1px solid #eee;
-                    vertical-align:top;
+                   
                     font-size:0.8em;
                 ">
-                    <span style="display:inline-block; margin-left:90px; white-space:nowrap;">
+                    <span style="display:inline-block; margin-left:40px; white-space:nowrap;">
                         ${customerCode}
                     </span>
                 </td>
             </tr>
         `;
-    } else {
-        return `
+            } else {
+                return `
             <tr style="border-bottom:1px solid #eee;">
                 <td style="
                     text-align:left;
@@ -391,7 +384,7 @@ const SupplierReport = () => {
                         display:inline-block;
                         width:90px;
                         text-align:right;
-                        margin-left:75px;
+                        margin-left:50px;
                     ">
                         ${formatNumber(SupplierTotal, 2)}
                     </span>
@@ -403,14 +396,14 @@ const SupplierReport = () => {
                     vertical-align:top;
                     font-size:0.8em;
                 ">
-                    <span style="display:inline-block; margin-left:95px;">
+                    <span style="display:inline-block; margin-left:65px;">
                         ${customerCode}
                     </span>
                 </td>
             </tr>
         `;
-    }
-}).join('');
+            }
+        }).join('');
 
         const fontSizeHeader = is4mm ? '1.3em' : '1.5em';
         const fontSizeTitle = is4mm ? '1.5em' : '1.6em';
@@ -418,35 +411,52 @@ const SupplierReport = () => {
         const fontSizeTotal = is4mm ? '9px' : '10px';
         const fontSizeHeaderRow = is4mm ? '0.9em' : '1em';
         const maxWidth = is4mm ? '320px' : '300px';
+        const mainCustomerCode = supplierDetails[0]?.customer_code?.toUpperCase() || '';
+
 
         return `
         <div class="receipt-container"
      style="width:100%; max-width:${maxWidth}; margin:0 auto; padding:4px;
             font-family:'Courier New', monospace;">
 
-    <!-- HEADER -->
-    <div style="text-align:center; margin-bottom:6px;">
-        <h3 style="font-size:${fontSizeHeader}; margin:0; font-weight:bold;">
-            NVDS
-        </h3>
-    </div>
+   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+
+    <!-- LEFT SIDE -->
+   <div style="display:inline-block;">
+    <h3 style="font-size:15px; margin:0; font-weight:bold;">
+        අයිතිය:
+        <span style="border:1px solid #000; padding:3px 6px; border-radius:4px; margin-left:1px;">
+            ${selectedSupplier}
+        </span>
+    </h3>
+    <h3 style="font-size:15px; margin:4px 0 0 0; font-weight:bold;">
+        NVDS TRADERS
+    </h3>
+</div>
+
+    <!-- RIGHT SIDE → H-39 BOX WITH CUSTOM LEFT SHIFT -->
+    <div style="border:1px solid #000; padding:3px 8px; border-radius:4px; font-size:15px; font-weight:bold; 
+            margin-left:${is4mm ? '40px' : '60px'};">
+    H-39
+</div>
+
+</div>
 
     <!-- SUPPLIER INFO -->
     <table style="width:100%; font-size:8px; border-collapse:collapse; margin-bottom:5px;">
         <tr>
-            <td style="text-align:left;">දිනය : ${date}</td>
-            <td style="text-align:right; font-weight:bold; font-size:${fontSizeTitle};">
-                ${selectedSupplier?.toUpperCase() || ''}
-            </td>
-        </tr>
+    <td style="text-align:left;">
+        බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong>
+    </td>
+    <td style="text-align:right; padding-right:${is4mm ? '20px' : '20px'};">
+        දිනය : ${date}
+    </td>
+</tr>
+
         <tr>
             <td colspan="2" style="text-align:left;">දුර : ${mobile}</td>
         </tr>
-        <tr>
-            <td colspan="2" style="text-align:left;">
-                බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong>
-            </td>
-        </tr>
+        
     </table>
 
     <hr style="border:1px solid #000; margin:4px 0;">
@@ -465,10 +475,16 @@ const SupplierReport = () => {
         <th style="text-align:left; padding:3px 4px;">
             ${itemHeader}<br>මලු
         </th>
+        ${is4mm ? `
+<th style="text-align:left; padding:3px 4px;">
+    මලු
+</th>
+` : ''}
+
        <th style="text-align:center; padding:3px 4px;">
     <span style="
         display:inline-block;
-        ${is4mm === true ? 'margin-left:40px;' : ''}
+        ${is4mm === true ? 'margin-left:17px;' : ''}
         ${!is4mm ? 'margin-left:50px;' : ''}
     ">
        කිලෝ
@@ -479,22 +495,28 @@ const SupplierReport = () => {
     <span style="
         display:inline-block;
         text-align:center;
-        ${is4mm === true ? 'margin-left:90px;' : ''}
+        ${is4mm === true ? 'margin-left:25px;' : ''}
         ${is4mm === false ? 'margin-left:90px;' : ''}
     ">
         මිල
     </span>
 </th>
-
+<th style="padding:3px 4px;">
+${is4mm ? `
+<div style="text-align:right; margin-left:25px;">
+    අගය
+</div>
+` : ''}
+</th>
 
      <th style="padding:3px 4px;">
     <div style="
-        text-align:right;
-        ${is4mm === true ? 'margin-left:110px;' : ''}
-        ${is4mm === false ? 'margin-left:115px;' : ''}
-    ">
-        කේතය <br> අගය
-    </div>
+    text-align:right;
+    margin-left: ${is4mm ? '25px' : '75px'};
+">
+    ${is4mm ? 'කේතය' : 'කේතය<br>අගය'}
+</div>
+
 </th>
 
 
@@ -508,11 +530,11 @@ const SupplierReport = () => {
             <!-- TOTAL ROW -->
             <tr>
                 <td colspan="2"
-                    style="text-align:left; padding:4px; font-weight:bold;">
+                    style="text-align:left;  padding:4px; font-weight:bold;">
                     ${totalPacksSum}
                 </td>
                <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
-    <span style="display:inline-block; margin-left:180px; white-space:nowrap;">
+    <span style="display:inline-block; margin-left:150px; white-space:nowrap;">
         ${formatNumber(totalsupplierSales, 2)}
     </span>
 </td>

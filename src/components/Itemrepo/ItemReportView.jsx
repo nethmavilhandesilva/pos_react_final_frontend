@@ -149,7 +149,7 @@ const ItemReportView = ({ reportData, onClose }) => {
                                 <td className="text-end">{Number(sale.price_per_kg).toFixed(2)}</td>
                                 <td className="text-end">{Number(sale.total).toFixed(2)}</td>
                                 <td>{sale.customer_code}</td>
-                                <td>{sale.code}</td>
+                                <td>{sale.item_code}</td>
                             </tr>
                         ))}
                     </tbody>

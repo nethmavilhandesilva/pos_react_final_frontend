@@ -642,53 +642,53 @@ export default function SalesEntry() {
         } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message } }); }
     };
 
-   const handleSubmitGivenAmount = async (e) => {
-    if (e) e.preventDefault();
-    updateState({ errors: {} });
-    
-    const customerCode = formData.customer_code || autoCustomerCode;
-    if (!customerCode) { 
-        updateState({ errors: { form: "Please enter or select a customer code first" } }); 
-        refs.customer_code_input.current?.focus(); 
-        return null; 
-    }
-    
-    if (!formData.given_amount) { 
-        updateState({ errors: { form: "Please enter a given amount" } }); 
-        return null; 
-    }
+    const handleSubmitGivenAmount = async (e) => {
+        if (e) e.preventDefault();
+        updateState({ errors: {} });
 
-    const salesToUpdate = displayedSales.filter(s => s.id);
-    if (salesToUpdate.length === 0) return null;
+        const customerCode = formData.customer_code || autoCustomerCode;
+        if (!customerCode) {
+            updateState({ errors: { form: "Please enter or select a customer code first" } });
+            refs.customer_code_input.current?.focus();
+            return null;
+        }
 
-    try {
-        const givenAmount = parseFloat(formData.given_amount) || 0;
-        const updatePromises = salesToUpdate.map(sale => 
-            api.put(`${routes.sales}/${sale.id}/given-amount`, { given_amount: givenAmount })
-        );
-        
-        const results = await Promise.all(updatePromises);
-        
-        // Extract the updated sale objects from the responses
-        const updatedSalesFromApi = results.map(response => response.data.sale);
+        if (!formData.given_amount) {
+            updateState({ errors: { form: "Please enter a given amount" } });
+            return null;
+        }
 
-        // Update the global state so the UI stays in sync
-        const updatedSalesMap = {};
-        updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
-        
-        updateState({ 
-            allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) 
-        });
+        const salesToUpdate = displayedSales.filter(s => s.id);
+        if (salesToUpdate.length === 0) return null;
 
-        refs.supplier_code.current?.focus();
-        
-        // Return this fresh data to the caller (the print function)
-        return updatedSalesFromApi;
-    } catch (error) { 
-        updateState({ errors: { form: error.response?.data?.message || error.message } }); 
-        return null;
-    }
-};
+        try {
+            const givenAmount = parseFloat(formData.given_amount) || 0;
+            const updatePromises = salesToUpdate.map(sale =>
+                api.put(`${routes.sales}/${sale.id}/given-amount`, { given_amount: givenAmount })
+            );
+
+            const results = await Promise.all(updatePromises);
+
+            // Extract the updated sale objects from the responses
+            const updatedSalesFromApi = results.map(response => response.data.sale);
+
+            // Update the global state so the UI stays in sync
+            const updatedSalesMap = {};
+            updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
+
+            updateState({
+                allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s)
+            });
+
+            refs.supplier_code.current?.focus();
+
+            // Return this fresh data to the caller (the print function)
+            return updatedSalesFromApi;
+        } catch (error) {
+            updateState({ errors: { form: error.response?.data?.message || error.message } });
+            return null;
+        }
+    };
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (state.isSubmitting) return;
@@ -875,14 +875,14 @@ export default function SalesEntry() {
 
             if (is4Inch) {
                 return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
-                <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} <br> (${packs})</td>
+                <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} <br> ${packs}</td>
                 <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
                 <td style="padding:2px 4px;">
-  <div style="display:inline-block; margin-left:50px;">${formattedPrice}</div>
-</td>
+               <div style="display:inline-block; margin-left:50px;">${formattedPrice}</div>
+               </td>
 
                 <td style="text-align:right; padding:2px 4px;">
-                   <div style="display:flex; flex-direction:column; margin-left:142px; text-align:right; align-items:flex-end;">
+                   <div style="display:flex; flex-direction:column; margin-left:98px; text-align:right; align-items:flex-end;">
                         <div style="font-size:0.9em;">${s.supplier_code || ""}</div>
                         <div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div>
                     </div>
@@ -891,7 +891,7 @@ export default function SalesEntry() {
             </tr>`;
             } else {
                 return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
-               <td style="text-align:left; padding:2px 4px; white-space:nowrap;">${s.item_name || ""} <br> (${packs})</td>
+               <td style="text-align:left; padding:2px 4px; white-space:nowrap;">${s.item_name || ""} <br> ${packs}</td>
                 <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
                 <td style="padding:2px 4px;">
   <div style="display:inline-block; margin-left:20px;">${formattedPrice}</div>
@@ -949,8 +949,8 @@ export default function SalesEntry() {
             const [itemName1, data1] = summaryEntries[i];
             const [itemName2, data2] = summaryEntries[i + 1] || [null, null]; // Second item in the pair
 
-            const item1Text = `${itemName1}: ${formatReceiptValue(data1.totalWeight)} / ${formatReceiptValue(data1.totalPacks)}`;
-            const item2Text = data2 ? `${itemName2}: ${formatReceiptValue(data2.totalWeight)} / ${formatReceiptValue(data2.totalPacks)}` : '';
+            const item1Text = `${itemName1}:${formatReceiptValue(data1.totalWeight)}/${formatReceiptValue(data1.totalPacks)}`;
+            const item2Text = data2 ?`${itemName2}:${formatReceiptValue(data2.totalWeight)}/${formatReceiptValue(data2.totalPacks)}` : '';
 
             summaryHtmlContent += `
         <tr style="font-size:${fontSizeText};">
@@ -988,8 +988,20 @@ ${summaryHtmlContent}
     </div>
 
     <strong style="font-size:12px; text-align:center; display:block; margin-top:0;">
-        එළවළු හා පළතුරු තොග වෙළෙන්දන්
-    </strong>
+    එළවළු හා පළතුරු තොග 
+  <div style="display:flex; align-items:center;">
+  <span style="display:inline-block; text-align:left; margin-left:-18px;">
+    වෙළෙන්දන්
+  </span>
+
+  <span style="background:none; font-weight:normal; color:inherit; padding:0; margin-left:auto;">
+    ${time}
+  </span>
+</div>
+
+
+</strong>
+
 
 </div>
 
@@ -998,8 +1010,11 @@ ${summaryHtmlContent}
     <table style="width:70%; font-size:9px; border-collapse:collapse; margin:auto;">
         
         <tr>
-            <td style="padding-right:5px;">දුර: ${mobile || ''}</td>
-            <td style="text-align:right; padding-left:5px;">${time}</td>
+        <td style="padding-right:5px; white-space:nowrap;">
+  දුර: ${mobile || ''}
+</td>
+
+           
         </tr>
 
         <tr>
@@ -1023,10 +1038,11 @@ ${is4Inch ?
 </th>
 
      <th style="text-align:right; padding:4px; font-size:1.1em;">
-        <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:20px; text-align:right;">
-            <div>අයිතිය</div>
-            <div style="font-size:0.9em; margin-top:2px;">අගය</div>
-        </div>
+       <div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:${is4Inch ? '100px' : '80px'}; text-align:right;">
+    <div>අයිතිය</div>
+    <div style="font-size:0.9em; margin-top:2px;">අගය</div>
+</div>
+
      </th>
      <th style="text-align:right; padding:4px; font-size:1.1em;"></th>` :
                 `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th>
@@ -1074,136 +1090,137 @@ ${is4Inch ?
 <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
     };
 
-   const handlePrintAndClear = async () => {
-    // 1. Trigger the amount save and WAIT for the response
-    const freshData = await handleSubmitGivenAmount();
-    
-    // 2. Use the fresh data (with the new amount) if it exists, otherwise use existing state
-    const salesData = freshData || displayedSales.filter(s => s.id);
+    const handlePrintAndClear = async () => {
+        // 1. Trigger the amount save and WAIT for the response
+        const freshData = await handleSubmitGivenAmount();
 
-    if (!salesData.length) return alert("No sales records to print!");
-    
-    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-    if (hasZeroPrice) { 
-        alert("Cannot print! One or more items have a price per kg of 0."); 
-        return; 
-    }
+        // 2. Use the fresh data (with the new amount) if it exists, otherwise use existing state
+        const salesData = freshData || displayedSales.filter(s => s.id);
 
-    const originalState = { 
-        allSales: [...allSales], 
-        selectedPrintedCustomer, 
-        selectedUnprintedCustomer, 
-        formData: { ...formData } 
-    };
+        if (!salesData.length) return alert("No sales records to print!");
 
-    try {
-        const customerCode = salesData[0].customer_code || "N/A";
-        const customerName = salesData[0].customer_name || customerCode;
-        const mobile = salesData[0].mobile || '0702758908';
-        
-        updateState({ isPrinting: true });
-
-        // Mark as printed in the DB
-        const printResponse = await api.post(routes.markPrinted, { 
-            sales_ids: salesData.map(s => s.id), 
-            force_new_bill: true 
-        });
-
-        if (printResponse.data.status !== "success") throw new Error("Printing failed");
-
-        const billNo = printResponse.data.bill_no || "";
-        let globalLoanAmount = 0;
-        try { 
-            const loanResponse = await api.post(routes.getLoanAmount, { customer_short_name: customerCode }); 
-            globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0; 
-        } catch { }
-
-        // 3. Build HTML using the 'salesData' we retrieved at the start of this function
-        const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount, billSize);
-        
-        // Reset form and UI
-        updateState({ 
-            allSales: allSales.map(s => salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s), 
-            selectedPrintedCustomer: null, 
-            selectedUnprintedCustomer: null, 
-            isPrinting: false,
-            currentBillNo: null // Added to clear the red Bill No display
-        });
-        
-        setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
-
-        // Execute Print (Wait for the print window to finish)
-        await printSingleContent(receiptHtml, customerName);
-
-        // ⭐ NEW: Focus back to customer code input after printing
-        setTimeout(() => {
-            if (refs.customer_code_input.current) {
-                refs.customer_code_input.current.focus();
-                refs.customer_code_input.current.select(); // Optional: selects text if any remains
-            }
-        }, 200);
-
-    } catch (error) {
-        console.error("Printing error:", error);
-        alert("Printing failed");
-        updateState({ isPrinting: false });
-        
-        // Ensure focus even on failure
-        setTimeout(() => refs.customer_code_input.current?.focus(), 200);
-    }
-};
-
-    const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
-
-   useEffect(() => {
-    const handleShortcut = (e) => {
-
-        if (selectedPrintedCustomer && e.key === "F5") {
-            e.preventDefault();
+        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+        if (hasZeroPrice) {
+            alert("Cannot print! One or more items have a price per kg of 0.");
             return;
         }
 
-        // ⭐ F1 → focus given_amount
-        if (e.key === "F1") {
-            e.preventDefault();
-            if (refs.given_amount.current) {
-                refs.given_amount.current.focus();
-                refs.given_amount.current.select();
-            }
-        }
+        const originalState = {
+            allSales: [...allSales],
+            selectedPrintedCustomer,
+            selectedUnprintedCustomer,
+            formData: { ...formData }
+        };
 
-        // ⭐ F5 → First submit given amount, then mark processed OR print
-        else if (e.key === "F5") {
-            e.preventDefault();
+        try {
+            const customerCode = salesData[0].customer_code || "N/A";
+            const customerName = salesData[0].customer_name || customerCode;
+            const mobile = salesData[0].mobile || '0702758908 / 0702758300';
 
-            // FIRST: submit given amount
-            if (typeof handleSubmitGivenAmount === "function") {
-                handleSubmitGivenAmount();
-            }
 
-            // THEN: perform mark processed
-            if (typeof handleMarkAllProcessed === "function") {
-                handleMarkAllProcessed();
-            }
+            updateState({ isPrinting: true });
 
-            // THEN: perform print
-            if (typeof handlePrintAndClear === "function") {
-                handlePrintAndClear();
-            }
+            // Mark as printed in the DB
+            const printResponse = await api.post(routes.markPrinted, {
+                sales_ids: salesData.map(s => s.id),
+                force_new_bill: true
+            });
+
+            if (printResponse.data.status !== "success") throw new Error("Printing failed");
+
+            const billNo = printResponse.data.bill_no || "";
+            let globalLoanAmount = 0;
+            try {
+                const loanResponse = await api.post(routes.getLoanAmount, { customer_short_name: customerCode });
+                globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
+            } catch { }
+
+            // 3. Build HTML using the 'salesData' we retrieved at the start of this function
+            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount, billSize);
+
+            // Reset form and UI
+            updateState({
+                allSales: allSales.map(s => salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s),
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false,
+                currentBillNo: null // Added to clear the red Bill No display
+            });
+
+            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
+
+            // Execute Print (Wait for the print window to finish)
+            await printSingleContent(receiptHtml, customerName);
+
+            // ⭐ NEW: Focus back to customer code input after printing
+            setTimeout(() => {
+                if (refs.customer_code_input.current) {
+                    refs.customer_code_input.current.focus();
+                    refs.customer_code_input.current.select(); // Optional: selects text if any remains
+                }
+            }, 200);
+
+        } catch (error) {
+            console.error("Printing error:", error);
+            alert("Printing failed");
+            updateState({ isPrinting: false });
+
+            // Ensure focus even on failure
+            setTimeout(() => refs.customer_code_input.current?.focus(), 200);
         }
     };
 
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
+    const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
-}, [
-    displayedSales,
-    newSales,
-    selectedPrintedCustomer,
-    handlePrintAndClear,
-    handleMarkAllProcessed,
-    handleSubmitGivenAmount // ⭐ MUST BE INCLUDED IN DEPENDENCY ARRAY
-]);
+    useEffect(() => {
+        const handleShortcut = (e) => {
+
+            if (selectedPrintedCustomer && e.key === "F5") {
+                e.preventDefault();
+                return;
+            }
+
+            // ⭐ F1 → focus given_amount
+            if (e.key === "F1") {
+                e.preventDefault();
+                if (refs.given_amount.current) {
+                    refs.given_amount.current.focus();
+                    refs.given_amount.current.select();
+                }
+            }
+
+            // ⭐ F5 → First submit given amount, then mark processed OR print
+            else if (e.key === "F5") {
+                e.preventDefault();
+
+                // FIRST: submit given amount
+                if (typeof handleSubmitGivenAmount === "function") {
+                    handleSubmitGivenAmount();
+                }
+
+                // THEN: perform mark processed
+                if (typeof handleMarkAllProcessed === "function") {
+                    handleMarkAllProcessed();
+                }
+
+                // THEN: perform print
+                if (typeof handlePrintAndClear === "function") {
+                    handlePrintAndClear();
+                }
+            }
+        };
+
+        window.addEventListener("keydown", handleShortcut);
+        return () => window.removeEventListener("keydown", handleShortcut);
+
+    }, [
+        displayedSales,
+        newSales,
+        selectedPrintedCustomer,
+        handlePrintAndClear,
+        handleMarkAllProcessed,
+        handleSubmitGivenAmount // ⭐ MUST BE INCLUDED IN DEPENDENCY ARRAY
+    ]);
 
 
     const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
