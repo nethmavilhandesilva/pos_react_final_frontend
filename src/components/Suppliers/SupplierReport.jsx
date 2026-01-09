@@ -512,7 +512,7 @@ ${is4mm ? `
      <th style="padding:3px 4px;">
     <div style="
     text-align:right;
-    margin-left: ${is4mm ? '25px' : '75px'};
+    margin-left: ${is4mm ? '25px' : '56px'};
 ">
     ${is4mm ? 'කේතය' : 'කේතය<br>අගය'}
 </div>
@@ -533,14 +533,11 @@ ${is4mm ? `
                     style="text-align:left;  padding:4px; font-weight:bold;">
                     ${totalPacksSum}
                 </td>
-               <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
-    <span style="display:inline-block; margin-left:150px; white-space:nowrap;">
-        ${formatNumber(totalsupplierSales, 2)}
-    </span>
-</td>
-
-
-                
+              <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
+              <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm === true ? '120px' : '150px'};">
+              ${formatNumber(totalsupplierSales, 2)}
+              </span>
+              </td>
             </tr>
         </tbody>
     </table>
@@ -549,18 +546,24 @@ ${is4mm ? `
     <table style="width:100%; font-size:${fontSizeTotal};
                   border-collapse:collapse; margin-top:6px;">
         <tr>
-            <td style="text-align:left; padding:2px 0;">අගය:</td>
-            <td style="text-align:right; padding:2px 0;">
-                <span style="display:inline-block;
-                             border-top:1px solid #000;
-                             border-bottom:2px double #000;
-                             padding:2px 6px;
-                             font-weight:bold;
-                             font-size:${is4mm ? '1em' : '1.1em'};">
-                    ${totalsupplierSales.toFixed(2)}
-                </span>
-            </td>
-        </tr>
+    <td style="text-align:left; padding:2px 0;">අගය:</td>
+    <td style="text-align:right; padding:2px 0;">
+        <span 
+            style="
+                display:inline-block;
+                border-top:1px solid #000;
+                border-bottom:2px double #000;
+                padding:2px 6px;
+                font-weight:bold;
+                font-size:${is4mm ? '1em' : '1.1em'};
+                margin-left:${is4mm ? '20px' : '80px'};
+            "
+        >
+            ${totalsupplierSales.toFixed(2)}
+        </span>
+    </td>
+</tr>
+
     </table>
 
     <!-- ITEM SUMMARY -->
