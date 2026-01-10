@@ -109,8 +109,8 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
                             {type === 'farmer' ? 'Supplier Records' : 'Customer Records'}
                         </p>
                     </div>
-                    <button 
-                        onClick={onClose} 
+                    <button
+                        onClick={onClose}
                         style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', fontWeight: 'bold' }}
                     >
                         ✕
@@ -184,7 +184,7 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
 
                 {/* Footer */}
                 <div style={{ padding: '16px', backgroundColor: '#f3f4f6', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e5e7eb' }}>
-                    <button 
+                    <button
                         onClick={onClose}
                         style={{ padding: '8px 24px', backgroundColor: '#111827', color: 'white', borderRadius: '8px', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}
                     >
@@ -708,11 +708,11 @@ export default function SalesEntry() {
 
         // --- NEW ADMIN MODAL LOGIC ---
         if (currentUser?.role === 'Admin') {
-            updateState({ 
-                isAdminModalOpen: true, 
-                modalType: 'customer', 
-                modalTitle: `Customer: ${customerCode} ${billNo ? `(Bill: ${billNo})` : ''}`, 
-                modalData: salesRecords 
+            updateState({
+                isAdminModalOpen: true,
+                modalType: 'customer',
+                modalTitle: `Customer: ${customerCode} ${billNo ? `(Bill: ${billNo})` : ''}`,
+                modalData: salesRecords
             });
             return;
         }
@@ -748,41 +748,252 @@ export default function SalesEntry() {
             }
         } catch (err) { console.error("Failed to mark sales as processed:", err.message); }
     };
+    const printSingleContent = async (html, customerName) => {
+        return new Promise((resolve) => {
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (!printWindow) { alert("Please allow pop-ups for printing"); resolve(); return; }
+            printWindow.document.open();
+            printWindow.document.write(`<!DOCTYPE html><html><head><title>Print Bill - ${customerName}</title><style>body { margin: 0; padding: 20px; }@media print { body { padding: 0; } }</style></head><body>${html}<script>window.onload = function() { setTimeout(function() { window.print(); setTimeout(function() { window.close(); }, 1000); }, 500); }; window.onafterprint = function() { setTimeout(function() { window.close(); }, 500); };</script></body></html>`);
+            printWindow.document.close();
+            const checkPrintWindow = setInterval(() => { if (printWindow.closed) { clearInterval(checkPrintWindow); resolve(); } }, 500);
+            setTimeout(() => { clearInterval(checkPrintWindow); if (!printWindow.closed) printWindow.close(); resolve(); }, 10000);
+        });
+    };
+
+    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+        const date = new Date().toLocaleDateString();
+        const time = new Date().toLocaleTimeString();
+        let totalAmountSum = 0;
+        const consolidatedSummary = {};
+        salesData.forEach(s => {
+            const itemName = s.item_name || 'Unknown';
+            if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+            totalAmountSum += parseFloat(s.total) || 0;
+        });
+        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+        const is4Inch = billSize === '4inch';
+        const receiptMaxWidth = is4Inch ? '4in' : '240px';
+        const fontSizeHeader = is4Inch ? '1.2em' : '1.8em';
+        const fontSizeTitle = is4Inch ? '1.4em' : '2.0em';
+        const fontSizeText = is4Inch ? '1.0rem' : '1.7rem';
+        const fontSizeItems = is4Inch ? '1.1em' : '1.5em';
+        const fontSizeTotalLarge = is4Inch ? '1.2em' : '1.5em';
+
+        let colGroups, itemHeader;
+        if (is4Inch) {
+            colGroups = `<colgroup><col style="width:30%;"><col style="width:15%;"><col style="width:15%;"><col style="width:25%;"><col style="width:15%;"></colgroup>`;
+            itemHeader = 'වර්ගය <br> (මලු)';
+        } else {
+            colGroups = `<colgroup><col style="width:35%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:15%;"></colgroup>`;
+            itemHeader = 'වර්ගය <br> (මලු)';
+        }
+
+        const itemsHtml = salesData.map(s => {
+            const packs = parseInt(s.packs) || 0;
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const value = (weight * price).toFixed(2);
+            const formattedWeight = formatReceiptValue(weight);
+            const formattedPrice = formatReceiptValue(price);
+            const formattedValue = formatReceiptValue(value);
+
+            if (is4Inch) {
+                return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
+                <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} <br> ${packs}</td>
+                <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
+                <td style="padding:2px 4px;"><div style="display:inline-block; margin-left:50px;">${formattedPrice}</div></td>
+                <td style="text-align:right; padding:2px 4px;"><div style="display:flex; flex-direction:column; margin-left:98px; text-align:right; align-items:flex-end;"><div style="font-size:0.9em;">${s.supplier_code || ""}</div><div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div></div></td>
+                <td style="text-align:right; padding:2px 4px;"></td></tr>`;
+            } else {
+                return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
+                <td style="text-align:left; padding:2px 4px; white-space:nowrap;">${s.item_name || ""} <br> ${packs}</td>
+                <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
+                <td style="padding:2px 4px;"><div style="display:inline-block; margin-left:20px;">${formattedPrice}</div></td>
+                <td style="text-align:right; padding:2px 4px;"><div style="display:flex; flex-direction:column; margin-left:70px; text-align:right; align-items:flex-end;"><div style="font-size:0.9em;">${s.supplier_code || ""}</div><div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div></div></td>
+                <td style="text-align:right; padding:2px 4px;"></td></tr>`;
+            }
+        }).join("");
+
+        const totalPrice = totalAmountSum;
+        const totalSalesExcludingPackDue = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+        const totalPackDueCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+        const remaining = parseFloat(givenAmount) - totalPrice;
+        const totalAmountWithLoan = Math.abs(globalLoanAmount) + totalPrice;
+
+        const formattedTotalSalesExcludingPackDue = formatReceiptValue(totalSalesExcludingPackDue);
+        const formattedTotalPackDueCost = formatReceiptValue(totalPackDueCost);
+        const formattedTotalPrice = formatReceiptValue(totalPrice + totalPackDueCost);
+        const formattedGivenAmount = formatReceiptValue(givenAmount);
+        const formattedRemaining = formatReceiptValue(Math.abs(remaining));
+        const formattedGlobalLoanAmount = formatReceiptValue(Math.abs(globalLoanAmount));
+        const formattedTotalAmountWithLoan = formatReceiptValue(Math.abs(totalAmountWithLoan));
+
+        const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
+        const loanRow = globalLoanAmount !== 0 ? `<tr><td style="font-size:${fontSizeText}; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td><td style="font-weight:bold; text-align:right; font-size:${fontSizeTotalLarge}; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td></tr>` : '';
+
+        const summaryEntries = Object.entries(consolidatedSummary);
+        let summaryHtmlContent = '';
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [itemName1, data1] = summaryEntries[i];
+            const [itemName2, data2] = summaryEntries[i + 1] || [null, null];
+            const item1Text = `${itemName1}:${formatReceiptValue(data1.totalWeight)}/${formatReceiptValue(data1.totalPacks)}`;
+            const item2Text = data2 ? `${itemName2}:${formatReceiptValue(data2.totalWeight)}/${formatReceiptValue(data2.totalPacks)}` : '';
+            summaryHtmlContent += `<tr style="font-size:${fontSizeText};"><td style="width:50%; text-align:left; padding:2px 0; border:1px solid #000; padding:2px 4px; margin-top:1px;">${item1Text}</td><td style="width:50%; text-align:left; padding:2px 4px; border:1px solid #000; margin-top:1px;">${item2Text}</td></tr>`;
+        }
+
+        const itemSummaryHtml = `<div style="margin-top: 10px; text-align: center; font-size: 12px; text-transform: lowercase;">${summaryHtmlContent}</div>`;
+
+        return `<div class="receipt-container" style="width:90%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;">
+<div style="margin-bottom:5px; border-bottom:1px solid #000;">
+    <h3 style="text-align:center; font-size:${fontSizeHeader}; font-weight:bold; margin:0 0 5px 0;">NVDS TRADERS</h3>
+    <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+        <div style="display:flex; justify-content:center; align-items:center; gap:10px;">
+            <div style="border:1px solid #000; padding:2px 6px;"><strong style="font-size:16px;">H-39</strong></div>
+            <div style="border:1px solid #000; padding:2px 6px;"><strong style="font-size:16px;">${customerName.toUpperCase()}</strong></div>
+        </div>
+        <strong style="font-size:12px; text-align:center; display:block; margin-top:0;">එළවළු හා පළතුරු තොග 
+            <div style="display:flex; align-items:center;"><span style="display:inline-block; text-align:left; margin-left:-18px;">වෙළෙන්දන්</span><span style="background:none; font-weight:normal; color:inherit; padding:0; margin-left:auto;">${time}</span></div></strong>
+    </div>
+    <div style="text-align:left; margin-bottom:5px;">
+        <table style="width:70%; font-size:9px; border-collapse:collapse; margin:auto;">
+            <tr><td style="padding-right:5px; white-space:nowrap;">දුර: ${mobile || ''}</td></tr>
+            <tr><td style="padding-right:5px;">බිල් අංකය: <strong>${billNo}</strong></td><td style="text-align:right; padding-left:5px;">දිනය: ${date}</td></tr>
+        </table>
+    </div>
+    <hr style="border:1px solid #000; margin:5px 0;">
+    <table style="width:100%; font-size:${is4Inch ? '10px' : '9px'}; border-collapse:collapse; table-layout:fixed;">${colGroups}<thead><tr style="border-bottom:1px solid #000;">
+    ${is4Inch ? `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.1em;"><span style="display:inline-block; margin-left:50px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.1em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:100px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.1em;"></th>` : `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.2em;"><span style="display:inline-block; margin-left:30px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.2em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:80px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.2em;"></th>`}</tr></thead>
+    <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="3" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><div style="display:flex; flex-direction:column; align-items:flex-end;"><div style="font-size:0.9em;"></div></div></td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><span style="display:inline-block; transform: translateX(-20px);">${formattedTotalSalesExcludingPackDue}</span></td></tr></tbody></table>
+    <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr></tr>
+    <tr><td style="text-align:left; padding:2px 0;">මලු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
+    <tr><td style="text-align:left; padding:2px 0;">එකතුව:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
+    ${itemSummaryHtml}
+    <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
+    };
+    const formatReceiptValue = (value) => {
+        if (value === null || value === undefined || value === '') return '0.00';
+        const num = parseFloat(value);
+        if (isNaN(num)) return '0.00';
+        return num.toFixed(2);
+    };
+
+    // Or if you want to reuse formatDecimal, you can use:
+    // const formatReceiptValue = formatDecimal;
 
     const handlePrintAndClear = async () => {
+        // Submit given amount first
         const freshData = await handleSubmitGivenAmount();
         const salesData = freshData || displayedSales.filter(s => s.id);
-        if (!salesData.length) return alert("No sales records to print!");
+
+        if (!salesData.length) {
+            alert("No sales records to print!");
+            return;
+        }
+
         const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-        if (hasZeroPrice) return alert("Cannot print! One or more items have a price per kg of 0.");
+        if (hasZeroPrice) {
+            alert("Cannot print! One or more items have a price per kg of 0.");
+            return;
+        }
 
         try {
+            updateState({ isPrinting: true });
+
             const customerCode = salesData[0].customer_code || "N/A";
             const customerName = salesData[0].customer_name || customerCode;
             const mobile = salesData[0].mobile || '0702758908 / 0702758300';
-            updateState({ isPrinting: true });
-            const printResponse = await api.post(routes.markPrinted, { sales_ids: salesData.map(s => s.id), force_new_bill: true });
-            if (printResponse.data.status !== "success") throw new Error("Printing failed");
+
+            // 1. FIRST mark as printed and get bill number
+            const printResponse = await api.post(routes.markPrinted, {
+                sales_ids: salesData.map(s => s.id),
+                force_new_bill: true
+            });
+
+            if (printResponse.data.status !== "success") {
+                throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
+            }
+
             const billNo = printResponse.data.bill_no || "";
+
+            if (!billNo) {
+                throw new Error("No bill number received from server");
+            }
+
+            // 2. Get loan amount if needed
             let globalLoanAmount = 0;
             try {
-                const loanResponse = await api.post(routes.getLoanAmount, { customer_short_name: customerCode });
+                const loanResponse = await api.post(routes.getLoanAmount, {
+                    customer_short_name: customerCode
+                });
                 globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
-            } catch { }
-            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, globalLoanAmount, billSize);
-            updateState({ allSales: allSales.map(s => salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s), selectedPrintedCustomer: null, selectedUnprintedCustomer: null, isPrinting: false, currentBillNo: null });
-            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
+            } catch (error) {
+                console.warn("Could not fetch loan amount:", error);
+            }
+
+            // 3. Update local state immediately
+            const updatedAllSales = allSales.map(s =>
+                salesData.some(sd => sd.id === s.id) ? {
+                    ...s,
+                    bill_printed: 'Y',
+                    bill_no: billNo
+                } : s
+            );
+
+            updateState({
+                allSales: updatedAllSales,
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false,
+                currentBillNo: null
+            });
+
+            // 4. Get UPDATED sales data with the new bill number
+            const updatedSalesData = updatedAllSales.filter(s =>
+                salesData.some(sd => sd.id === s.id)
+            );
+
+            // 5. Build receipt with UPDATED data
+            const receiptHtml = buildFullReceiptHTML(
+                updatedSalesData,
+                billNo,
+                customerName,
+                mobile,
+                globalLoanAmount,
+                billSize
+            );
+
+            // 6. Clear form
+            setFormData({
+                ...initialFormData,
+                customer_code: "",
+                customer_name: "",
+                given_amount: ""
+            });
+
+            // 7. Print the receipt
             await printSingleContent(receiptHtml, customerName);
-            setTimeout(() => { if (refs.customer_code_input.current) { refs.customer_code_input.current.focus(); refs.customer_code_input.current.select(); } }, 200);
+
+            // 8. Focus on customer input
+            setTimeout(() => {
+                if (refs.customer_code_input.current) {
+                    refs.customer_code_input.current.focus();
+                    refs.customer_code_input.current.select();
+                }
+            }, 200);
+
         } catch (error) {
             console.error("Printing error:", error);
-            alert("Printing failed");
+            alert("Printing failed: " + (error.message || "Unknown error"));
             updateState({ isPrinting: false });
             setTimeout(() => refs.customer_code_input.current?.focus(), 200);
         }
     };
 
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
+
 
     useEffect(() => {
         const handleShortcut = (e) => {
@@ -807,15 +1018,15 @@ export default function SalesEntry() {
             <div className="sales-layout" style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 {isLoading && (<div className="fixed top-0 left-0 right-0 bg-blue-500 text-white py-1 text-center text-sm z-50">Refreshing data...</div>)}
                 {state.isPrinting && (<div className="fixed top-0 left-0 right-0 bg-yellow-500 text-black py-1 text-center text-sm z-50">Printing in progress... Please wait</div>)}
-                
+
                 {/* --- ADDED ADMIN MODAL --- */}
-                <AdminDataTableModal 
-                    isOpen={isAdminModalOpen} 
-                    onClose={() => updateState({ isAdminModalOpen: false })} 
-                    title={modalTitle} 
-                    sales={modalData} 
-                    type={modalType} 
-                    formatDecimal={formatDecimal} 
+                <AdminDataTableModal
+                    isOpen={isAdminModalOpen}
+                    onClose={() => updateState({ isAdminModalOpen: false })}
+                    title={modalTitle}
+                    sales={modalData}
+                    type={modalType}
+                    formatDecimal={formatDecimal}
                 />
 
                 <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1, display: 'grid', gridTemplateColumns: '200px 1fr 200px', gap: '16px', padding: '10px', marginTop: '-149px' }}>
@@ -837,9 +1048,9 @@ export default function SalesEntry() {
                                         <div className="p-2 overflow-y-auto flex-grow">
                                             <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" onChange={(e) => updateState({ searchQueries: { ...searchQueries, farmerUnprinted: e.target.value.toUpperCase() } })} />
                                             {unprintedFarmers.filter(f => !searchQueries.farmerUnprinted || f.supplier_code.includes(searchQueries.farmerUnprinted)).map(f => (
-                                                <div key={f.supplier_code} 
-                                                     onClick={() => updateState({ isAdminModalOpen: true, modalType: 'farmer', modalTitle: `Farmer: ${f.supplier_code}`, modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed !== 'Y') })}
-                                                     className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer">
+                                                <div key={f.supplier_code}
+                                                    onClick={() => updateState({ isAdminModalOpen: true, modalType: 'farmer', modalTitle: `Farmer: ${f.supplier_code}`, modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed !== 'Y') })}
+                                                    className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer">
                                                     Code: {f.supplier_code}
                                                 </div>
                                             ))}
@@ -853,8 +1064,8 @@ export default function SalesEntry() {
                                             <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" onChange={(e) => updateState({ searchQueries: { ...searchQueries, farmerPrinted: e.target.value.toUpperCase() } })} />
                                             {printedFarmers.filter(f => !searchQueries.farmerPrinted || f.supplier_code.includes(searchQueries.farmerPrinted)).map(f => (
                                                 <div key={f.supplier_code}
-                                                     onClick={() => updateState({ isAdminModalOpen: true, modalType: 'farmer', modalTitle: `Farmer: ${f.supplier_code}`, modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed === 'Y') })}
-                                                     className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer">
+                                                    onClick={() => updateState({ isAdminModalOpen: true, modalType: 'farmer', modalTitle: `Farmer: ${f.supplier_code}`, modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed === 'Y') })}
+                                                    className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer">
                                                     Code: {f.supplier_code}
                                                 </div>
                                             ))}
@@ -895,9 +1106,12 @@ export default function SalesEntry() {
                                             <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
                                                 <Select id="item_code_select" ref={refs.item_code_select} value={formData.item_code ? { value: formData.item_code, label: `${formData.item_name} (${formData.item_code})`, item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due } } : null} onChange={handleItemSelect} options={[...items].filter(item => !state.itemSearchInput || String(item.no).toLowerCase().startsWith(state.itemSearchInput.toLowerCase()) || String(item.type).toLowerCase().includes(state.itemSearchInput.toLowerCase())).sort((a, b) => String(a.no).localeCompare(String(b.no), undefined, { sensitivity: "base" })).map(item => ({ value: item.no, label: `${item.type} (${item.no})`, item }))} onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })} inputValue={state.itemSearchInput} onKeyDown={e => e.key !== "Enter" && handleKeyDown(e, "item_code_select")} placeholder="භාණ්ඩය" className="react-select-container font-bold text-sm w-full" styles={{ control: b => ({ ...b, height: "44px", minHeight: "44px", fontSize: "1.25rem", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }), input: b => ({ ...b, color: "black", fontSize: "1.25rem" }), singleValue: b => ({ ...b, color: "black", fontWeight: "bold", fontSize: "1.25rem" }), placeholder: b => ({ ...b, color: "#6b7280" }), option: (b, s) => ({ ...b, fontWeight: "bold", color: "black", backgroundColor: s.isFocused ? "#e5e7eb" : "white", fontSize: "1rem" }) }} />
                                             </div>
-                                            {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight }, { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item }, { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs }, { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }].map(({ id, placeholder, fieldRef, isReadOnly = false }) => (
-                                                <div key={id} style={{ ...(id === 'weight' && { gridColumnStart: 8, gridColumnEnd: 9, marginLeft: "-70px", width: "100px" }), ...(id === 'price_per_kg_grid_item' && { gridColumnStart: 9, gridColumnEnd: 10, marginLeft: "-30px", width: "60px" }), ...(id === 'packs' && { gridColumnStart: 10, gridColumnEnd: 11 }), ...(id === 'total' && { gridColumnStart: 11, gridColumnEnd: 14, marginLeft: "10px" }) }}>
-                                                    <input id={id} ref={fieldRef} name={id} type="text" value={id === 'price_per_kg_grid_item' ? gridPricePerKg : formData[id]} onChange={(e) => id === 'price_per_kg_grid_item' ? handleInputChange(id, e.target.value) : (/^\d*\.?\d*$/.test(e.target.value) && handleInputChange(id, e.target.value))} onKeyDown={(e) => handleKeyDown(e, id)} placeholder={placeholder} readOnly={isReadOnly} className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center w-full" style={{ backgroundColor: isReadOnly ? '#e2e8f0' : 'white', borderRadius: '0.5rem', textAlign: 'right', fontSize: '1.125rem', height: '40px', boxSizing: 'border-box' }} />
+                                            {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight },
+                                            { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item },
+                                            { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs },
+                                            { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }].map(({ id, placeholder, fieldRef, isReadOnly = false }) => (
+                                                <div key={id} style={{ ...(id === 'weight' && { gridColumnStart: 8, gridColumnEnd: 9, marginLeft: "-70px", width: "100px" }), ...(id === 'price_per_kg_grid_item' && { gridColumnStart: 9, gridColumnEnd: 10, marginLeft: "-30px", width: "105px" }), ...(id === 'packs' && { gridColumnStart: 10, gridColumnEnd: 11 }), ...(id === 'total' && { gridColumnStart: 11, gridColumnEnd: 14, marginLeft: "10px" }) }}>
+                                                    <input id={id} ref={fieldRef} name={id} type="text" value={id === 'price_per_kg_grid_item' ? gridPricePerKg : formData[id]} onChange={(e) => id === 'price_per_kg_grid_item' ? handleInputChange(id, e.target.value) : (/^\d*\.?\d*$/.test(e.target.value) && handleInputChange(id, e.target.value))} onKeyDown={(e) => handleKeyDown(e, id)} placeholder={placeholder} readOnly={isReadOnly} className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center" style={{ backgroundColor: isReadOnly ? '#e2e8f0' : 'white', borderRadius: '0.5rem', textAlign: 'right', fontSize: '1.125rem', height: '40px', boxSizing: 'border-box', width: '100%' }} />
                                                 </div>
                                             ))}
                                         </div>
