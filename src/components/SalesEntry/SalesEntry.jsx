@@ -424,14 +424,27 @@ export default function SalesEntry() {
     const unprintedCustomers = useMemo(() => filterCustomers(unprintedSales, searchQueries.unprinted), [unprintedSales, searchQueries.unprinted]);
 
     const displayedSales = useMemo(() => {
-        let sales = newSales;
-        if (selectedUnprintedCustomer) sales = [...sales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
-        else if (selectedPrintedCustomer && selectedPrintedCustomer.includes('-')) {
-            const [customerCode, billNo] = selectedPrintedCustomer.split('-');
-            sales = [...sales, ...printedSales.filter(s => s.customer_code === customerCode && s.bill_no === billNo)];
-        } else if (selectedPrintedCustomer) sales = [...sales, ...printedSales.filter(s => s.customer_code === selectedPrintedCustomer)];
-        return sales.slice().reverse();
-    }, [newSales, unprintedSales, printedSales, selectedUnprintedCustomer, selectedPrintedCustomer]);
+    let sales = newSales;
+
+    if (selectedUnprintedCustomer) {
+        // Filter by customer code for unprinted records
+        sales = [...sales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
+    } 
+    else if (selectedPrintedCustomer) {
+        if (selectedPrintedCustomer.includes('-')) {
+            // Split the key "CODE-BILLNO" and filter by both fields
+            const [cCode, bNo] = selectedPrintedCustomer.split('-');
+            sales = [...sales, ...printedSales.filter(s => 
+                s.customer_code === cCode && String(s.bill_no) === String(bNo)
+            )];
+        } else {
+            // Fallback for single code selection
+            sales = [...sales, ...printedSales.filter(s => s.customer_code === selectedPrintedCustomer)];
+        }
+    }
+    
+    return sales.slice().reverse();
+}, [newSales, unprintedSales, printedSales, selectedUnprintedCustomer, selectedPrintedCustomer]);
 
     const autoCustomerCode = useMemo(() => displayedSales.length > 0 && !isManualClear ? displayedSales[0].customer_code || "" : "", [displayedSales, isManualClear]);
     const currentBillNo = useMemo(() => {
@@ -1036,7 +1049,7 @@ export default function SalesEntry() {
                                         </div>
                                     </div>
                                     {/* Right Column: Printed Farmers */}
-                                    <div style={{ width: "300px", marginLeft: "540px", marginTop: "-185px" }} className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden">
+                                    <div style={{ width: "300px", marginLeft: "540px", marginTop: "-220px" }} className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden">
                                         <div className="bg-green-800 p-2 text-center font-bold">මුද්‍රණය කළ ගොවීන්</div>
                                         <div className="p-2 overflow-y-auto flex-grow">
                                             <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" onChange={(e) => updateState({ searchQueries: { ...searchQueries, farmerPrinted: e.target.value.toUpperCase() } })} />
