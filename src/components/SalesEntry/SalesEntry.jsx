@@ -833,14 +833,23 @@ export default function SalesEntry() {
 
         const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
         const loanRow = globalLoanAmount !== 0 ? `<tr><td style="font-size:${fontSizeText}; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td><td style="font-weight:bold; text-align:right; font-size:${fontSizeTotalLarge}; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td></tr>` : '';
+        const formatSmartValue = (value) => {
+            if (value === null || value === undefined || value === '') return '0';
+            const num = parseFloat(value);
+            if (isNaN(num)) return '0';
+
+            // If it's a whole number (e.g., 50.00), return '50'
+            // If it has decimals (e.g., 50.50), return '50.50'
+            return Number.isInteger(num) ? num.toString() : num.toFixed(2);
+        };
 
         const summaryEntries = Object.entries(consolidatedSummary);
         let summaryHtmlContent = '';
         for (let i = 0; i < summaryEntries.length; i += 2) {
             const [itemName1, data1] = summaryEntries[i];
             const [itemName2, data2] = summaryEntries[i + 1] || [null, null];
-            const item1Text = `${itemName1}:${formatReceiptValue(data1.totalWeight)}/${formatReceiptValue(data1.totalPacks)}`;
-            const item2Text = data2 ? `${itemName2}:${formatReceiptValue(data2.totalWeight)}/${formatReceiptValue(data2.totalPacks)}` : '';
+            const item1Text = `${itemName1}:${formatSmartValue(data1.totalWeight)}/${formatSmartValue(data1.totalPacks)}`;
+            const item2Text = data2 ? `${itemName2}:${formatSmartValue(data2.totalWeight)}/${formatSmartValue(data2.totalPacks)}` : '';
             summaryHtmlContent += `<tr style="font-size:${fontSizeText};"><td style="width:50%; text-align:left; padding:2px 0; border:1px solid #000; padding:2px 4px; margin-top:1px;">${item1Text}</td><td style="width:50%; text-align:left; padding:2px 4px; border:1px solid #000; margin-top:1px;">${item2Text}</td></tr>`;
         }
 
@@ -880,13 +889,12 @@ export default function SalesEntry() {
         return num.toFixed(2);
     };
 
-    // Or if you want to reuse formatDecimal, you can use:
-    // const formatReceiptValue = formatDecimal;
-
     const handlePrintAndClear = async () => {
-        // Submit given amount first
-        const freshData = await handleSubmitGivenAmount();
-        const salesData = freshData || displayedSales.filter(s => s.id);
+        // 1. Submit given amount to the API first and get the updated records
+        const updatedSalesFromApi = await handleSubmitGivenAmount();
+
+        // Use the data returned from the API if available, otherwise fallback to current display
+        let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
 
         if (!salesData.length) {
             alert("No sales records to print!");
@@ -906,7 +914,7 @@ export default function SalesEntry() {
             const customerName = salesData[0].customer_name || customerCode;
             const mobile = salesData[0].mobile || '0702758908 / 0702758300';
 
-            // 1. FIRST mark as printed and get bill number
+            // 2. Mark as printed in DB and get official bill number
             const printResponse = await api.post(routes.markPrinted, {
                 sales_ids: salesData.map(s => s.id),
                 force_new_bill: true
@@ -918,11 +926,7 @@ export default function SalesEntry() {
 
             const billNo = printResponse.data.bill_no || "";
 
-            if (!billNo) {
-                throw new Error("No bill number received from server");
-            }
-
-            // 2. Get loan amount if needed
+            // 3. Get latest loan amount
             let globalLoanAmount = 0;
             try {
                 const loanResponse = await api.post(routes.getLoanAmount, {
@@ -930,34 +934,13 @@ export default function SalesEntry() {
                 });
                 globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
             } catch (error) {
-                console.warn("Could not fetch loan amount:", error);
+                console.warn("Could not fetch loan amount");
             }
 
-            // 3. Update local state immediately
-            const updatedAllSales = allSales.map(s =>
-                salesData.some(sd => sd.id === s.id) ? {
-                    ...s,
-                    bill_printed: 'Y',
-                    bill_no: billNo
-                } : s
-            );
-
-            updateState({
-                allSales: updatedAllSales,
-                selectedPrintedCustomer: null,
-                selectedUnprintedCustomer: null,
-                isPrinting: false,
-                currentBillNo: null
-            });
-
-            // 4. Get UPDATED sales data with the new bill number
-            const updatedSalesData = updatedAllSales.filter(s =>
-                salesData.some(sd => sd.id === s.id)
-            );
-
-            // 5. Build receipt with UPDATED data
+            // 4. Build receipt HTML 
+            // We pass the salesData which now contains the given_amount from Step 1
             const receiptHtml = buildFullReceiptHTML(
-                updatedSalesData,
+                salesData,
                 billNo,
                 customerName,
                 mobile,
@@ -965,33 +948,28 @@ export default function SalesEntry() {
                 billSize
             );
 
-            // 6. Clear form
-            setFormData({
-                ...initialFormData,
-                customer_code: "",
-                customer_name: "",
-                given_amount: ""
+            // 5. Update UI State
+            updateState({
+                allSales: allSales.map(s =>
+                    salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
+                ),
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false
             });
 
-            // 7. Print the receipt
+            // 6. Clear form and trigger browser print
+            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
             await printSingleContent(receiptHtml, customerName);
 
-            // 8. Focus on customer input
-            setTimeout(() => {
-                if (refs.customer_code_input.current) {
-                    refs.customer_code_input.current.focus();
-                    refs.customer_code_input.current.select();
-                }
-            }, 200);
+            setTimeout(() => refs.customer_code_input.current?.focus(), 200);
 
         } catch (error) {
             console.error("Printing error:", error);
-            alert("Printing failed: " + (error.message || "Unknown error"));
+            alert("Printing failed");
             updateState({ isPrinting: false });
-            setTimeout(() => refs.customer_code_input.current?.focus(), 200);
         }
     };
-
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 
@@ -1133,7 +1111,20 @@ export default function SalesEntry() {
                                     )}
                                     {displayedSales.length > 0 && (<SalesSummaryFooter sales={displayedSales} formatDecimal={formatDecimal} />)}
                                     <div className="flex items-center mt-6 space-x-3 overflow-x-auto whitespace-nowrap py-2">
-                                        <button type="button" onClick={() => handlePrintAndClear()} disabled={state.isPrinting || displayedSales.length === 0} className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`} style={{ backgroundColor: '#059669', color: 'white' }}>{state.isPrinting ? 'Printing...' : 'F1-මුද්‍රණය'}</button>
+                                      <button 
+    type="button" 
+    onClick={() => {
+        if (refs.given_amount.current) {
+            refs.given_amount.current.focus();
+            refs.given_amount.current.select(); // Selects text so user can just start typing
+        }
+    }} 
+    disabled={state.isPrinting || displayedSales.length === 0} 
+    className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`} 
+    style={{ backgroundColor: '#059669', color: 'white' }}
+>
+    {state.isPrinting ? 'Printing...' : 'F1-මුද්‍රණය'}
+</button>
                                         <button type="button" onClick={handleMarkAllProcessed} disabled={selectedPrintedCustomer} className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${selectedPrintedCustomer ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`} style={!selectedPrintedCustomer ? { backgroundColor: '#2563eb', color: 'white' } : { color: 'white' }}>F5-පසුව මුද්‍රණය</button>
                                         <div style={{ marginLeft: '660px', marginTop: '-25px' }}><input id="given_amount" ref={refs.given_amount} name="given_amount" type="number" value={formData.given_amount} onChange={(e) => handleInputChange('given_amount', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: '180px' }} /></div>
                                     </div>
