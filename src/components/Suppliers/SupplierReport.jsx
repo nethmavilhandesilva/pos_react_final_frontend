@@ -530,11 +530,11 @@ ${is4mm ? `
             <!-- TOTAL ROW -->
             <tr>
                 <td colspan="2"
-                    style="text-align:left;  padding:4px; font-weight:bold;">
-                    ${totalPacksSum}
-                </td>
+    style="text-align:left; padding:4px; padding-left:${is4mm ? '90px' : '4px'}; font-weight:bold;">
+    ${totalPacksSum}
+</td>
               <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
-              <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm === true ? '120px' : '150px'};">
+              <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm === true ? '120px' : '160px'};">
               ${formatNumber(totalsupplierSales, 2)}
               </span>
               </td>
@@ -546,6 +546,7 @@ ${is4mm ? `
     <table style="width:100%; font-size:${fontSizeTotal};
                   border-collapse:collapse; margin-top:6px;">
         <tr>
+    <tr>
     <td style="text-align:left; padding:2px 0;">අගය:</td>
     <td style="text-align:right; padding:2px 0;">
         <span 
@@ -556,12 +557,13 @@ ${is4mm ? `
                 padding:2px 6px;
                 font-weight:bold;
                 font-size:${is4mm ? '1em' : '1.1em'};
-                margin-left:${is4mm ? '20px' : '80px'};
+                transform:${is4mm ? 'translateX(-45px)' : 'none'};
             "
         >
             ${totalsupplierSales.toFixed(2)}
         </span>
     </td>
+</tr>
 </tr>
 
     </table>
@@ -771,7 +773,7 @@ ${is4mm ? `
         if (items.length === 0) {
             return (
                 <p style={{ color: '#6c757d', padding: '10px' }}>
-                    {searchTerm ? `No results found for "${searchTerm}"` : 'No suppliers in this category.'}
+                    {searchTerm ? `No results found for "${searchTerm}"` : 'මෙම ප්‍රවර්ගයේ සැපයුම්කරු නොමැත'}
                 </p>
             );
         }
@@ -880,9 +882,9 @@ ${is4mm ? `
 
         const renderEmptyContent = () => (
             <div style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0', minHeight: '400px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <h2 style={{ color: '#343a40', fontSize: '2rem', marginBottom: '20px' }}>Select a Bill to View Details</h2>
+                <h2 style={{ color: '#343a40', fontSize: '2rem', marginBottom: '20px' }}>විස්තර බලන්න බිල්පතක් තෝරන්න</h2>
                 <p style={{ fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto' }}>
-                    Click on any **Supplier Code** or **Bill Number** from the side panels to populate this detail view.
+                   පාර්ශව පැනල්වලින් ඕනෑම සැපයුම්කරු කේතයක් හෝ බිල් නම්බරයක් ක්ලික් කරන්න, මෙම විස්තර දර්ශනය පුරවා ගැනීමට."
                 </p>
             </div>
         );
@@ -947,9 +949,9 @@ ${is4mm ? `
                     <table style={itemSummaryTableStyle}>
                         <thead>
                             <tr>
-                                <th style={itemSummaryThStyle}>Item Name</th>
-                                <th style={itemSummaryThStyle}>Total Weight (kg)</th>
-                                <th style={itemSummaryThStyle}>Total Packs</th>
+                                <th style={itemSummaryThStyle}>අයිතමය නම</th>
+                                <th style={itemSummaryThStyle}>සම්පූර්ණ බර</th>
+                                <th style={itemSummaryThStyle}>මුළු අසුරුම්</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -984,7 +986,7 @@ ${is4mm ? `
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
                     <h2 style={{ fontSize: "1.5rem" }}>
-                        Transaction Details (Bill No: <strong>{selectedBillNo}</strong>)
+                        ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo}</strong>)
                     </h2>
                     <span style={supplierCodeBadgeStyle}>
                         {selectedSupplier || 'NO DATA'}
@@ -995,16 +997,17 @@ ${is4mm ? `
                     <table style={tableStyle}>
                         <thead>
                             <tr>
-                                <th style={thStyle}>Bill No</th>
-                                <th style={thStyle}>Cus</th>
-                                <th style={thStyle}>Item</th>
-                                <th style={thStyle}>Packs</th>
-                                <th style={thStyle}>Weight</th>
-                                <th style={thStyle}>CusPrice/kg</th>
-                                <th style={thStyle}>SupPrice/kg</th>
-                                <th style={thStyle}>Cus Gross Total</th>
-                                <th style={thStyle}>Sup Gross Total</th>
-                                <th style={thStyle}>Comm</th>
+                                <th style={thStyle}>බිල් අං:</th>
+                                <th style={thStyle}>ගනුදෙ</th>
+                                <th style={thStyle}>අයිතමය</th>
+                                <th style={thStyle}>අසුරුම්</th>
+                                <th style={thStyle}>බර</th>
+                                <th style={thStyle}>ගනුදෙ මිල</th>
+                                <th style={thStyle}>සැපයුම් මිල</th>
+                                <th style={thStyle}>ගනුදෙ එකතුව</th>
+                                <th style={thStyle}>සැපයුම් එකතුව</th>
+                                <th style={thStyle}>කොමි</th>
+
 
                             </tr>
                         </thead>
@@ -1102,20 +1105,20 @@ ${is4mm ? `
     return (
         <>
             <nav style={navBarStyle}>
-                <h1 style={navTitleStyle}>Supplier Report</h1>
+                <h1 style={navTitleStyle}>සැපයුම්කරු වාර්තාව</h1>
                 <div style={navControlsStyle}>
                     <button
                         style={billSizeSelectorStyle}
                         onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}
                     >
-                        📏 Bill Size: {billSize}
+                       බිල්පත් ප්‍රමාණය: {billSize}
                     </button>
 
                     <button
                         style={navButtonStyle}
                         onClick={goToSalesEntry}
                     >
-                        Go to Sales Entry
+                        මුල් පිටුව
                     </button>
                 </div>
             </nav>
@@ -1125,10 +1128,10 @@ ${is4mm ? `
                 <div style={sectionsContainerStyle}>
                     <div style={printedContainerStyle}>
                         <div style={printedSectionStyle}>
-                            <h2 style={{ ...printedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px' }}> Printed Bills </h2>
+                            <h2 style={{ ...printedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px' }}> මුද්‍රණය කළ </h2>
                             <input
                                 type="text"
-                                placeholder="🔍 Search Printed..."
+                                placeholder="🔍 මුද්‍රිත සෙවීම..."
                                 value={printedSearchTerm}
                                 onChange={(e) => setPrintedSearchTerm(e.target.value)}
                                 style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}
@@ -1143,10 +1146,10 @@ ${is4mm ? `
 
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
-                            <h2 style={{ ...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px' }}> Unprinted Bills </h2>
+                            <h2 style={{ ...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px', whiteSpace: 'nowrap' }}>මුද්‍රණය නොකළ</h2>
                             <input
                                 type="text"
-                                placeholder="🔍 Search Unprinted..."
+                                placeholder="🔍 මුද්‍රණ නොකළ සෙවීම..."
                                 value={unprintedSearchTerm}
                                 onChange={(e) => setUnprintedSearchTerm(e.target.value)}
                                 style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}

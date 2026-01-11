@@ -13,18 +13,16 @@ const SalesReportView = ({ reportData, onClose }) => {
     useEffect(() => setIsClient(true), []);
 
     useEffect(() => {
-        // Fetch company info
         const fetchCompanyInfo = async () => {
             try {
                 const { data } = await api.get('/settings');
-                setCompanyName(data.companyName || 'Default Company');
-                setSettingDate(data.settingDate || new Date().toLocaleDateString('en-CA'));
+                setCompanyName(data.company || 'Default Company');
+                setSettingDate(data.value || new Date().toLocaleDateString('en-CA'));
             } catch (err) {
                 console.error('Error fetching company info:', err);
             }
         };
 
-        // Fetch sales data if needed
         const fetchSalesData = async () => {
             try {
                 const params = {
@@ -69,12 +67,20 @@ const SalesReportView = ({ reportData, onClose }) => {
         win.document.write(`
             <html>
             <head>
-                <title>Processed Sales Summary</title>
+                <title>සකස් කළ විකුණුම් සාරාංශය</title>
                 <style>
-                    body { font-family: 'notosanssinhala', sans-serif; font-size:11px; line-height:1.3; margin:15px; background:#f8f9fa;}
+                    html, body { 
+                        height: 100%; 
+                        margin: 0; 
+                        padding: 0; 
+                        background: #99ff99; 
+                        font-family: 'notosanssinhala', sans-serif; 
+                        font-size:11px; 
+                        line-height:1.3;
+                    }
                     table { width:100%; border-collapse: collapse; margin-bottom:15px; background:white;}
                     th, td { border:1px solid #000; padding:6px; text-align:center; vertical-align:middle;}
-                    th { background:#f2f2f2; font-weight:bold;}
+                    th { color:black; font-weight:bold; }
                     .text-start { text-align:left; }
                     .customer-section { margin-bottom:30px; border:1px solid #ddd; border-radius:5px; padding:10px; background:white;}
                     .customer-header { background:#004d00; color:white; padding:10px; border-radius:5px; font-weight:bold;}
@@ -138,7 +144,7 @@ const SalesReportView = ({ reportData, onClose }) => {
     const handleQuickPrint = () => window.print();
 
     return (
-        <div ref={printRef} className="container mt-2" style={{ minHeight:'100vh', padding:'15px' }}>
+        <div ref={printRef} style={{ minHeight: '100vh', padding: '15px', backgroundColor: '#99ff99' }}>
             {/* Export Buttons */}
             <div className="d-flex justify-content-between mb-3">
                 <div>
@@ -151,16 +157,16 @@ const SalesReportView = ({ reportData, onClose }) => {
 
             {/* Report Header */}
             <div className="card shadow border-0 rounded-3 mb-3">
-                <div className="report-title-bar p-3" style={{ background:'#004d00', color:'white', borderRadius:'5px' }}>
+                <div className="report-title-bar p-3" style={{ background: '#004d00', color: 'white', borderRadius: '5px' }}>
                     <h2 className="mb-1">{companyName}</h2>
-                    <h4 className="mb-1">Processed Sales Summary</h4>
-                    <span>Report Date: {settingDate}</span>
+                    <h4 className="mb-1">සකස් කළ විකුණුම් සාරාංශය</h4>
+                    <span>වාර්තා දිනය: {settingDate}</span>
                 </div>
             </div>
 
             {/* Filters Summary */}
             {(filters?.start_date || filters?.end_date || filters?.code) && (
-                <div className="mb-3 p-2" style={{ background:'#f8f9fa', borderRadius:'5px' }}>
+                <div className="mb-3 p-2" style={{ background: '#f8f9fa', borderRadius: '5px' }}>
                     {filters.code && <span><strong>Code:</strong> {filters.code}</span>}
                     {(filters.start_date || filters.end_date) && (
                         <span className="ms-3">
@@ -181,7 +187,7 @@ const SalesReportView = ({ reportData, onClose }) => {
 
                     return (
                         <div key={customerCode} className="customer-section p-3 mb-4">
-                            <div className="customer-header mb-3">Customer Code: {customerCode}</div>
+                            <div className="customer-header mb-3">ගනුදෙනුකරු කේතය: {customerCode}</div>
 
                             {Object.entries(bills).map(([billNo, sales]) => {
                                 const isBill = billNo !== 'No Bill';
@@ -193,26 +199,27 @@ const SalesReportView = ({ reportData, onClose }) => {
                                 return (
                                     <div key={billNo} className="bill-section mb-4">
                                         <div className="bill-header d-flex justify-content-between">
-                                            <strong>{isBill ? `Bill No: ${billNo}` : 'No Bill Number'}</strong>
+                                            <strong>{isBill ? `බිල් අංකය: ${billNo}` : 'No Bill Number'}</strong>
                                             {isBill && (
                                                 <div>
-                                                    {firstPrinted && <span className="me-3">First Printed: {new Date(firstPrinted).toLocaleDateString('en-CA')}</span>}
-                                                    {reprinted && <span>Reprinted: {new Date(reprinted).toLocaleDateString('en-CA')}</span>}
+                                                    {firstPrinted && <span className="me-3">පළමු වර මුද්‍රණය : {new Date(firstPrinted).toLocaleDateString('en-CA')}</span>}
+                                                    {reprinted && <span>නැවත මුද්‍රණය : {new Date(reprinted).toLocaleDateString('en-CA')}</span>}
                                                 </div>
                                             )}
                                         </div>
 
                                         <table className="table table-bordered table-striped table-sm mb-3">
                                             <thead>
-                                                <tr>
-                                                    <th>කේතය</th>
-                                                    <th>භාණ්ඩ නාමය</th>
-                                                    <th>බර</th>
-                                                    <th>කිලෝවකට මිල</th>
-                                                    <th>මලු</th>
-                                                    <th>එකතුව</th>
-                                                </tr>
-                                            </thead>
+    <tr>
+        <th style={{ color: 'red' }}>කේතය</th>
+        <th style={{ color: 'red' }}>භාණ්ඩ නාමය</th>
+        <th style={{ color: 'red' }}>බර</th>
+        <th style={{ color: 'red' }}>කිලෝවකට මිල</th>
+        <th style={{ color: 'red' }}>මලු</th>
+        <th style={{ color: 'red' }}>එකතුව</th>
+    </tr>
+</thead>
+
                                             <tbody>
                                                 {sales.map((sale, idx) => (
                                                     <tr key={idx}>
@@ -227,11 +234,11 @@ const SalesReportView = ({ reportData, onClose }) => {
                                             </tbody>
                                             <tfoot>
                                                 <tr className="fw-bold">
-                                                    <td colSpan="5" className="text-end">Total:</td>
+                                                    <td colSpan="5" className="text-end">එකතුව :</td>
                                                     <td>{billTotal.toFixed(2)}</td>
                                                 </tr>
                                                 <tr className="fw-bold">
-                                                    <td colSpan="5" className="text-end">Total with Pack Cost:</td>
+                                                    <td colSpan="5" className="text-end">මලු සමග එකතුව :</td>
                                                     <td>{billTotal2.toFixed(2)}</td>
                                                 </tr>
                                             </tfoot>
@@ -239,13 +246,14 @@ const SalesReportView = ({ reportData, onClose }) => {
                                     </div>
                                 );
                             })}
-                            <div className="text-end fw-bold mt-2" style={{ color:'#004d00' }}>Customer Total: {customerTotal.toFixed(2)}</div>
+                            <div className="text-end fw-bold mt-2" style={{ color: '#004d00' }}>Customer Total: {customerTotal.toFixed(2)}</div>
                         </div>
                     );
                 })
             )}
 
-            {salesData.length > 0 && <div className="grand-total">Grand Total: {grandTotal.toFixed(2)}</div>}
+            {salesData.length > 0 && <div className="grand-total" style={{ fontWeight: 'bold' }}>සම්පූර්ණ එකතුව: {grandTotal.toFixed(2)}</div>
+}
         </div>
     );
 };

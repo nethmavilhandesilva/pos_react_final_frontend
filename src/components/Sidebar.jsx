@@ -53,7 +53,7 @@ const Sidebar = () => {
             textAlign: 'left'
         }}
     >
-        Master Data
+        ප්‍රධාන දත්ත
     </h6>
 
     {/* Dashboard */}
@@ -66,7 +66,7 @@ const Sidebar = () => {
         }}
     >
         <i className="material-icons me-2">warehouse</i>
-        Dashboard
+       මුල් පිටුව
     </Link>
 
     {/* Navigation */}
@@ -80,7 +80,7 @@ const Sidebar = () => {
             }}
         >
             <i className="material-icons me-2">people</i>
-            Customers
+           ගනුදෙනුකරුවන්
         </Link>
 
         <Link
@@ -92,7 +92,7 @@ const Sidebar = () => {
             }}
         >
             <i className="material-icons me-2">inventory_2</i>
-            Items
+           අයිතමය
         </Link>
 
         <Link
@@ -104,7 +104,7 @@ const Sidebar = () => {
             }}
         >
             <i className="material-icons me-2">local_shipping</i>
-            Suppliers
+            සැපයුම්කරුවන්
         </Link>
 
         <Link
@@ -116,7 +116,7 @@ const Sidebar = () => {
             }}
         >
             <i className="material-icons me-2">attach_money</i>
-            Commissions
+            කොමිෂන්
         </Link>
     </nav>
 
@@ -132,7 +132,7 @@ const Sidebar = () => {
             }}
         >
             <i className="material-icons me-2">logout</i>
-            Logout
+           ඉවත් වන්න
         </button>
     </div>
 </div>

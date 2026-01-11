@@ -144,7 +144,7 @@ const FinancialReport = () => {
 
                     {/* Sales Total */}
                     <div className="alert alert-info fw-bold mb-3">
-                        Sales Total: {formatNumber(financialData.salesTotal)}
+                        විකිණුම් මුළු එකතුව: {formatNumber(financialData.salesTotal)}
                     </div>
 
                     {/* Report Table */}
@@ -168,7 +168,7 @@ const FinancialReport = () => {
                             </tbody>
                             <tfoot>
                                 <tr className="fw-bold">
-                                    <td>Total</td>
+                                    <td>මුළු</td>
                                     <td className="text-end">{formatNumber(Math.abs(financialData.totalDr))}</td>
                                     <td className="text-end">{formatNumber(Math.abs(financialData.totalCr))}</td>
                                 </tr>
@@ -188,7 +188,7 @@ const FinancialReport = () => {
                                 </tr>
 
                                 <tr className="fw-bold table-warning">
-                                    <td>💰 Profit</td>
+                                    <td>💰ලාභය</td>
                                     <td colSpan="2" className="text-end">
                                         {showProfit ? (
                                             <span className="text-success">{formatNumber(financialData.totalProfit)}</span>
@@ -214,7 +214,7 @@ const FinancialReport = () => {
                                 </tr>
 
                                 <tr className="fw-bold table-warning">
-                                    <td>Total Damages</td>
+                                    <td>මුළු හානිය</td>
                                     <td colSpan="2" className="text-end text-danger">
                                         {formatNumber(financialData.totalDamages)}
                                     </td>
@@ -241,11 +241,11 @@ const FinancialReport = () => {
                                     <td colSpan="3">
                                         <div className="d-flex flex-wrap gap-3">
                                             <div className="stat-box">
-                                                <div>Total Qty Sold</div>
+                                                <div>මුළු විකිණුම් ප්‍රමාණය</div>
                                                 <div className="fw-bold">{formatNumber(financialData.totalQtySold)}</div>
                                             </div>
                                             <div className="stat-box">
-                                                <div>Total Bills Printed</div>
+                                                <div>මුළු මුද්‍රිත බිල්පත්</div>
                                                 <div className="fw-bold">{financialData.totalBillsPrinted}</div>
                                             </div>
                                         </div>
@@ -257,14 +257,14 @@ const FinancialReport = () => {
                                     <td colSpan="3">
                                         <div className="d-flex flex-wrap gap-3">
                                             <div className="bill-time-box">
-                                                <div>First Bill Printed Time</div>
+                                                <div>පළමු බිල් මුද්‍රණ කාලය</div>
                                                 <div className="fw-bold">{financialData.firstBillTime}</div>
-                                                <small>Bill No: {financialData.firstBillNo}</small>
+                                                <small>බිල් අංකය: {financialData.firstBillNo}</small>
                                             </div>
                                             <div className="bill-time-box">
-                                                <div>Last Bill Printed Time</div>
+                                                <div>අවසන් බිල් මුද්‍රණ කාලය</div>
                                                 <div className="fw-bold">{financialData.lastBillTime}</div>
-                                                <small>Bill No: {financialData.lastBillNo}</small>
+                                                <small>බිල් අංකය: {financialData.lastBillNo}</small>
                                             </div>
                                         </div>
                                     </td>

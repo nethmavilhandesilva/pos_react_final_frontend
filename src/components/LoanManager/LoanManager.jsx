@@ -263,7 +263,7 @@ const LoanManager = () => {
                 `}</style>
 
                 <div className="custom-card">
-                    <h3 className="mb-4">💲 Loan Management Dashboard</h3>
+                    <h3 className="mb-4">ණය කළමනාකරණ පුවරුව</h3>
 
                     <form onSubmit={e => handleSubmit(e, isReturns)} className="p-3 border border-2 border-dark rounded bg-custom-dark">
                         <div className="row gy-2">
@@ -283,7 +283,7 @@ const LoanManager = () => {
 
                             {isSettlingWayVisible && (
                                 <div className="col-md-4">
-                                    <label className="text-form-label d-block"><strong>Settling Way:</strong></label>
+                                    <label className="text-form-label d-block"><strong>ගෙවීමේ ක්‍රමය:</strong></label>
                                     {['cash', 'cheque'].map(way => (
                                         <label key={way} className="me-3">
                                             <input type="radio" name="settling_way" value={way} checked={form.settling_way === way} onChange={handleInputChange} />
@@ -324,7 +324,7 @@ const LoanManager = () => {
 
                             {isCustomerRelated && !isCheque && (
                                 <div className="col-md-3">
-                                    <label className="text-form-label">Bill No</label>
+                                    <label className="text-form-label">බිල් අං</label>
                                     <input type="text" className="form-control form-control-sm" name="bill_no" value={form.bill_no} onChange={handleInputChange} />
                                 </div>
                             )}
@@ -347,18 +347,18 @@ const LoanManager = () => {
                             {isSettlingWayVisible && isCheque && (
                                 <div className="col-md-6 mt-2">
                                     <div className="border rounded p-2 bg-light text-dark">
-                                        <h6 className="text-success fw-bold">Cheque Details</h6>
+                                        <h6 className="text-success fw-bold">චෙක් විස්තර</h6>
                                         <div className="row g-2">
                                             <div className="col-4">
-                                                <label className="text-dark small">Date</label>
+                                                <label className="text-dark small">දිනය</label>
                                                 <input type="date" className="form-control form-control-sm" name="cheque_date" value={form.cheque_date} onChange={handleInputChange} />
                                             </div>
                                             <div className="col-4">
-                                                <label className="text-dark small">No</label>
+                                                <label className="text-dark small">අංකය</label>
                                                 <input type="text" className="form-control form-control-sm" name="cheque_no" value={form.cheque_no} onChange={handleInputChange} />
                                             </div>
                                             <div className="col-4">
-                                                <label className="text-dark small">Bank</label>
+                                                <label className="text-dark small">බැංකුව</label>
                                                 <input type="text" className="form-control form-control-sm" name="bank" value={form.bank} onChange={handleInputChange} />
                                             </div>
                                         </div>
@@ -377,7 +377,7 @@ const LoanManager = () => {
                         </div>
                     </form>
 
-                    <h4 className="mt-4">Today's Loan Records</h4>
+                    <h4 className="mt-4">අදේණු ණය වාර්තා</h4>
                     <div className="table-responsive">
                         <table className="table table-bordered table-sm mt-2 bg-white text-dark">
                             <thead>
@@ -386,8 +386,8 @@ const LoanManager = () => {
                                     <th>මුදල</th>
                                     <th>විලා</th>
                                     <th>වර්ගය</th>
-                                    <th>Bill No</th>
-                                    <th>Actions</th>
+                                    <th>බිල්පත් අං</th>
+                                    <th>ක්‍රියා</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -400,13 +400,13 @@ const LoanManager = () => {
                                             <td>{loan.loan_type}</td>
                                             <td className="text-center">{loan.bill_no || '-'}</td>
                                             <td className="text-center">
-                                                <button className="btn btn-xs btn-warning me-1" onClick={() => handleEdit(loan)}>Edit</button>
-                                                <button className="btn btn-xs btn-danger" onClick={() => handleDelete(loan.id)}>Delete</button>
+                                                <button className="btn btn-xs btn-warning me-1" onClick={() => handleEdit(loan)}>සංස්කරණය</button>
+                                                <button className="btn btn-xs btn-danger" onClick={() => handleDelete(loan.id)}>මකන්න</button>
                                             </td>
                                         </tr>
                                     ))
                                 ) : (
-                                    <tr><td colSpan="6" className="text-center">No loan records found for today.</td></tr>
+                                    <tr><td colSpan="6" className="text-center">`අද සඳහා ණය වාර්තා කිසිවක් සොයාගත නොහැක`</td></tr>
                                 )}
                             </tbody>
                         </table>
