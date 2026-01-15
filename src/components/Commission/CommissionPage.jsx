@@ -118,41 +118,33 @@ const CommissionPage = () => {
             >
                 <Link className="navbar-brand fw-bold d-flex align-items-center mb-4 text-white text-decoration-none" to="/">
                     <i className="material-icons me-2">warehouse</i>
-                    Dashboard
+                    මුල් පිටුව
                 </Link>
 
-                <h6 className="text-uppercase text-light opacity-50 small fw-bold mb-3">Master Data</h6>
+                <h6 className="text-uppercase text-light opacity-50 small fw-bold mb-3">ප්‍රධාන දත්ත</h6>
                 <ul className="list-unstyled flex-grow-1">
                     <li className="mb-2">
                         <Link to="/customers" className="nav-link text-white d-flex align-items-center p-2 rounded text-decoration-none">
-                            <i className="material-icons me-2">people</i> Customers
+                            <i className="material-icons me-2">people</i> ගනුදෙනුකරුවන්
                         </Link>
                     </li>
                     <li className="mb-2">
                         <Link to="/items" className="nav-link text-white d-flex align-items-center p-2 rounded text-decoration-none">
-                            <i className="material-icons me-2">inventory_2</i> Items
+                            <i className="material-icons me-2">inventory_2</i> අයිතමය
                         </Link>
                     </li>
                     <li className="mb-2">
                         <Link to="/suppliers" className="nav-link text-white d-flex align-items-center p-2 rounded text-decoration-none">
-                            <i className="material-icons me-2">local_shipping</i> Suppliers
+                            <i className="material-icons me-2">local_shipping</i> සැපයුම්කරුවන්
                         </Link>
                     </li>
                     <li className="mb-2">
                         <Link to="/commissions" className="nav-link text-white d-flex align-items-center p-2 rounded text-decoration-none" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
-                            <i className="material-icons me-2">attach_money</i> Commissions
+                            <i className="material-icons me-2">attach_money</i> කොමිෂන්
                         </Link>
                     </li>
                     <hr className="bg-light" />
-                    <li className="mb-2">
-                        <button
-                            type="button"
-                            className="btn btn-link text-warning text-decoration-none d-flex align-items-center p-0"
-                            onClick={() => (window.location.href = '/customers-loans/report')}
-                        >
-                            <i className="material-icons me-2">account_balance</i> Loan Report
-                        </button>
-                    </li>
+                   
                 </ul>
 
                 <div className="mt-auto pt-3 border-top border-secondary">
@@ -160,7 +152,7 @@ const CommissionPage = () => {
                         onClick={handleLogout}
                         className="btn btn-outline-light w-100 fw-bold d-flex align-items-center justify-content-center"
                     >
-                        <i className="material-icons me-2">logout</i> Logout
+                        <i className="material-icons me-2">logout</i> ඉවත් වන්න
                     </button>
                 </div>
             </div>
@@ -173,7 +165,7 @@ const CommissionPage = () => {
                     borderRadius: '12px', 
                     boxShadow: '0 4px 12px rgba(0,0,0,0.1)' 
                 }}>
-                    <h1 style={{ color: '#004d00', marginBottom: '20px' }}>💲 Commission Management Dashboard</h1>
+                    <h1 style={{ color: '#004d00', marginBottom: '20px' }}>💲කමිෂන් කළමනාකරණ මූල පුවරුව</h1>
 
                     {status && (
                         <div style={{
@@ -197,7 +189,7 @@ const CommissionPage = () => {
                         marginBottom: '40px',
                         backgroundColor: '#f9f9f9'
                     }}>
-                        <h3 style={{ color: '#004d00' }}>{editingCommission ? '✏️ Edit Commission' : '➕ Set New Commission'}</h3>
+                        <h3 style={{ color: '#004d00' }}>{editingCommission ? '✏️ කමිෂන් සංස්කරණය කරන්න' : '➕ නව කමිෂන් සකසන්න'}</h3>
 
                         {loadingSuppliers ? (
                             <p>Loading suppliers...</p>
@@ -217,18 +209,18 @@ const CommissionPage = () => {
                         <table className="table table-bordered table-hover align-middle">
                             <thead style={{ backgroundColor: '#004d00', color: 'white' }}>
                                 <tr className="text-center">
-                                    <th>ID</th>
-                                    <th>Item / Supplier</th>
-                                    <th>Start Price</th>
-                                    <th>End Price</th>
-                                    <th>Amount</th>
-                                    <th>Actions</th>
+                                    <th>අංකය</th>
+                                    <th>භාණ්ඩය/සැපයුම්කරු</th>
+                                    <th>ආරම්භක මිල</th>
+                                    <th>අවසාන මිල</th>
+                                    <th>මුදල</th>
+                                    <th>ක්‍රියාමාර්ග</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {commissions.length === 0 ? (
                                     <tr>
-                                        <td colSpan="6" className="text-center py-4">No commissions yet. Create one above!</td>
+                                        <td colSpan="6" className="text-center py-4">කමිෂන් තවමත් නොමැත.ඉහළින් නව එකක් සාදන්න!</td>
                                     </tr>
                                 ) : (
                                     commissions.map(commission => (
@@ -255,11 +247,11 @@ const CommissionPage = () => {
                                                 <button 
                                                     className="btn btn-primary btn-sm me-2" 
                                                     onClick={() => handleEditClick(commission)}
-                                                >✏️ Edit</button>
+                                                >✏️ සංස්කරණය</button>
                                                 <button 
                                                     className="btn btn-danger btn-sm" 
                                                     onClick={() => handleDelete(commission.id, commission.item_name || commission.supplier_name)}
-                                                >🗑️ Delete</button>
+                                                >🗑️මකා දැමීම</button>
                                             </td>
                                         </tr>
                                     ))

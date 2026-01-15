@@ -182,7 +182,7 @@ const LoanManager = () => {
             const payload = isEditMode ? { ...formData, _method: 'PUT' } : formData;
             const response = await api({ url, method: 'POST', data: payload });
 
-            alert(response.data.message);
+            
             handleCancelEdit();
             fetchData();
             fetchCustomers();
@@ -222,7 +222,6 @@ const LoanManager = () => {
         if (!window.confirm('Are you sure you want to delete this record?')) return;
         try {
             await api.delete(`/customers-loans/${id}`);
-            alert('Record deleted successfully!');
             fetchData();
             fetchCustomers();
         } catch (error) {

@@ -534,7 +534,7 @@ ${is4mm ? `
     ${totalPacksSum}
 </td>
               <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
-              <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm === true ? '120px' : '160px'};">
+              <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm === true ? '120px' : '140px'};">
               ${formatNumber(totalsupplierSales, 2)}
               </span>
               </td>

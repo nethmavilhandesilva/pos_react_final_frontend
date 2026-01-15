@@ -12,7 +12,8 @@ const routes = {
     sales: "/sales",
     customers: "/customers",
     items: "/items",
-    suppliers: "/suppliers"
+    suppliers: "/suppliers",
+    getCustomerGivenAmount: "/sales/customer/given-amount"
 };
 
 // --- Sub-Components ---
@@ -27,7 +28,6 @@ const BreakdownDisplay = ({ sale, formatDecimal }) => {
 
     return (
         <div className="mt-4 p-3 bg-white rounded-lg border-2 border-blue-500 shadow-sm" style={{ width: '450px', margin: '10px auto' }}>
-            <h3 className="text-xs font-bold text-black mb-2 text-center uppercase border-b pb-1">Weight & Packs Breakdown</h3>
             <div style={{ maxHeight: '150px' }}>
                 <table className="w-full text-xs text-black" style={{ marginTop: "-6px" }}>
                     <thead>
@@ -106,7 +106,7 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
                     <div>
                         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold' }}>{title}</h2>
                         <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase' }}>
-                            {type === 'farmer' ? 'Supplier Records' : 'Customer Records'}
+                            {type === 'farmer' ? 'සැපයුම්කරු සටහන්' : 'පාරිභෝගිකයින්ගේ සටහන්'}
                         </p>
                     </div>
                     <button
@@ -122,22 +122,22 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
                     <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', fontSize: '14px', borderRadius: '8px', overflow: 'hidden' }}>
                         <thead>
                             <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left', borderBottom: '2px solid #e2e8f0' }}>
-                                <th style={{ padding: '12px' }}>Bill No</th>
-                                <th style={{ padding: '12px' }}>Item Code</th>
-                                <th style={{ padding: '12px' }}>Item Name</th>
+                                <th style={{ padding: '12px' }}>බිල් අං</th>
+                                <th style={{ padding: '12px' }}>අයිතම කේතය</th>
+                                <th style={{ padding: '12px' }}>අයිතම නාමය</th>
                                 {type === 'farmer' ? (
                                     <>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>Sup Weight</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>Price/Kg</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>Total</th>
-                                        <th style={{ padding: '12px', textAlign: 'right', backgroundColor: '#fefce8' }}>Profit</th>
+                                        <th style={{ padding: '12px', textAlign: 'right' }}>බර</th>
+                                        <th style={{ padding: '12px', textAlign: 'right' }}>මිල</th>
+                                        <th style={{ padding: '12px', textAlign: 'right' }}>එකතුව</th>
+                                        <th style={{ padding: '12px', textAlign: 'right', backgroundColor: '#fefce8' }}>ලාභය</th>
                                     </>
                                 ) : (
                                     <>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>Weight</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>Price/Kg</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>Total</th>
-                                        <th style={{ padding: '12px', textAlign: 'center' }}>Packs</th>
+                                        <th style={{ padding: '12px', textAlign: 'right' }}>බර</th>
+                                        <th style={{ padding: '12px', textAlign: 'right' }}>මිල</th>
+                                        <th style={{ padding: '12px', textAlign: 'right' }}>එකතුව</th>
+                                        <th style={{ padding: '12px', textAlign: 'center' }}>මලු</th>
                                     </>
                                 )}
                             </tr>
@@ -188,7 +188,7 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
                         onClick={onClose}
                         style={{ padding: '8px 24px', backgroundColor: '#111827', color: 'white', borderRadius: '8px', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}
                     >
-                        Done
+                        සම්පූර්ණයි
                     </button>
                 </div>
             </div>
@@ -281,7 +281,19 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
     );
 });
 
-const ItemSummary = ({ sales, formatDecimal }) => {
+const ItemSummary = ({ sales }) => {
+
+    const formatWeight = (value) => {
+        if (!value) return "0";
+        const num = parseFloat(value);
+        return num % 1 === 0 ? num.toString() : num.toFixed(1);
+    };
+
+    const formatPacks = (value) => {
+        if (!value) return "0";
+        return parseInt(value).toString();
+    };
+
     const summary = useMemo(() => {
         const result = {};
         sales.forEach(sale => {
@@ -295,21 +307,67 @@ const ItemSummary = ({ sales, formatDecimal }) => {
 
     if (Object.keys(summary).length === 0) return null;
 
+    const items = Object.entries(summary);
+
+    const rows = [];
+    for (let i = 0; i < items.length; i += 3) {
+        rows.push(items.slice(i, i + 3));
+    }
+
     return (
-        <div className="mt-4" style={{ width: '450px', margin: '0 auto', boxSizing: 'border-box' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', textAlign: 'left' }}>
-                {Object.entries(summary).map(([itemName, data]) => (
-                    <div key={itemName}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="font-bold text-white" style={{ whiteSpace: 'nowrap' }}>{itemName}</span>
-                            <span className="font-extrabold text-white" style={{ whiteSpace: 'nowrap' }}>{formatDecimal(data.totalWeight)}kg / {data.totalPacks}p</span>
-                        </div>
-                    </div>
-                ))}
+        <div style={{
+            width: '100%',
+            backgroundColor: '#ffffff',
+            color: '#000000',
+            fontFamily: "'Segoe UI', Tahoma",
+            marginTop: '10px'
+        }}>
+            <div style={{
+                textAlign: 'center',
+                marginBottom: '10px'
+            }}>
+                <span style={{ fontSize: '18px', fontWeight: '800' }}>Item Summary</span>
             </div>
+
+            {rows.map((row, rowIndex) => (
+                <div
+                    key={rowIndex}
+                    style={{
+                        display: 'flex',
+                        gap: '10px',
+                        marginBottom: '5px',
+                        backgroundColor: '#ffffff'
+                    }}
+                >
+                    {row.map(([itemName, data]) => (
+                        <div key={itemName} style={{ flex: 1 }}>
+
+                            {/* Compact format */}
+                            <span style={{
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                display: 'block'
+                            }}>
+                                {itemName}: {formatWeight(data.totalWeight)}kg/{formatPacks(data.totalPacks)}p
+                            </span>
+
+                        </div>
+                    ))}
+
+                    {row.length < 3 &&
+                        Array.from({ length: 3 - row.length }).map((_, idx) => (
+                            <div key={idx} style={{ flex: 1 }} />
+                        ))
+                    }
+                </div>
+            ))}
         </div>
     );
 };
+
 
 const SalesSummaryFooter = ({ sales, formatDecimal }) => {
     const totals = useMemo(() => {
@@ -424,27 +482,27 @@ export default function SalesEntry() {
     const unprintedCustomers = useMemo(() => filterCustomers(unprintedSales, searchQueries.unprinted), [unprintedSales, searchQueries.unprinted]);
 
     const displayedSales = useMemo(() => {
-    let sales = newSales;
+        let sales = newSales;
 
-    if (selectedUnprintedCustomer) {
-        // Filter by customer code for unprinted records
-        sales = [...sales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
-    } 
-    else if (selectedPrintedCustomer) {
-        if (selectedPrintedCustomer.includes('-')) {
-            // Split the key "CODE-BILLNO" and filter by both fields
-            const [cCode, bNo] = selectedPrintedCustomer.split('-');
-            sales = [...sales, ...printedSales.filter(s => 
-                s.customer_code === cCode && String(s.bill_no) === String(bNo)
-            )];
-        } else {
-            // Fallback for single code selection
-            sales = [...sales, ...printedSales.filter(s => s.customer_code === selectedPrintedCustomer)];
+        if (selectedUnprintedCustomer) {
+            // Filter by customer code for unprinted records
+            sales = [...sales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
         }
-    }
-    
-    return sales.slice().reverse();
-}, [newSales, unprintedSales, printedSales, selectedUnprintedCustomer, selectedPrintedCustomer]);
+        else if (selectedPrintedCustomer) {
+            if (selectedPrintedCustomer.includes('-')) {
+                // Split the key "CODE-BILLNO" and filter by both fields
+                const [cCode, bNo] = selectedPrintedCustomer.split('-');
+                sales = [...sales, ...printedSales.filter(s =>
+                    s.customer_code === cCode && String(s.bill_no) === String(bNo)
+                )];
+            } else {
+                // Fallback for single code selection
+                sales = [...sales, ...printedSales.filter(s => s.customer_code === selectedPrintedCustomer)];
+            }
+        }
+
+        return sales.slice().reverse();
+    }, [newSales, unprintedSales, printedSales, selectedUnprintedCustomer, selectedPrintedCustomer]);
 
     const autoCustomerCode = useMemo(() => displayedSales.length > 0 && !isManualClear ? displayedSales[0].customer_code || "" : "", [displayedSales, isManualClear]);
     const currentBillNo = useMemo(() => {
@@ -607,14 +665,73 @@ export default function SalesEntry() {
     };
 
     const handleEditClick = (sale) => {
+
+        // If same record clicked again → clear fields EXCEPT customer fields
+        if (state.editingSaleId === sale.id) {
+
+            setFormData((prev) => ({
+                ...prev,
+                customer_code: sale.customer_code || "",
+                customer_name: sale.customer_name || "",
+                supplier_code: "",     // clear this one
+                item_code: "",
+                item_name: "",
+                weight: "",
+                price_per_kg: "",
+                pack_due: "",
+                total: "",
+                packs: ""
+            }));
+
+            updateState({
+                editingSaleId: null,
+                isManualClear: true,
+                priceManuallyChanged: false,
+                gridPricePerKg: "",
+                selectedSaleForBreakdown: null
+            });
+
+            setTimeout(() => {
+                refs.supplier_code?.current?.focus();
+                refs.supplier_code?.current?.select();
+            }, 0);
+
+            return;
+        }
+
+        // === Normal behavior when selecting a new record ===
         let fetchedPackDue = sale.pack_due || "";
         if (sale.item_code) {
             const matchingItem = items.find(i => String(i.no) === String(sale.item_code));
             fetchedPackDue = parseFloat(matchingItem?.pack_due) || sale.pack_due || "";
         }
-        setFormData({ ...sale, item_name: sale.item_name || "", customer_code: sale.customer_code || "", customer_name: sale.customer_name || "", supplier_code: sale.supplier_code || "", item_code: sale.item_code || "", weight: sale.weight || "", price_per_kg: sale.price_per_kg || "", pack_due: fetchedPackDue, total: sale.total || "", packs: sale.packs || "" });
-        updateState({ editingSaleId: sale.id, isManualClear: false, priceManuallyChanged: false, gridPricePerKg: sale.price_per_kg || "", selectedSaleForBreakdown: sale });
-        setTimeout(() => { refs.weight.current?.focus(); refs.weight.current?.select(); }, 0);
+
+        setFormData({
+            ...sale,
+            item_name: sale.item_name || "",
+            customer_code: sale.customer_code || "",
+            customer_name: sale.customer_name || "",
+            supplier_code: sale.supplier_code || "",
+            item_code: sale.item_code || "",
+            weight: sale.weight || "",
+            price_per_kg: sale.price_per_kg || "",
+            pack_due: fetchedPackDue,
+            total: sale.total || "",
+            packs: sale.packs || ""
+        });
+
+        updateState({
+            editingSaleId: sale.id,
+            isManualClear: false,
+            priceManuallyChanged: false,
+            gridPricePerKg: sale.price_per_kg || "",
+            selectedSaleForBreakdown: sale
+        });
+
+        setTimeout(() => {
+            refs.weight.current?.focus();
+            refs.weight.current?.select();
+        }, 0);
     };
 
     const handleTableRowKeyDown = (e, sale) => { if (e.key === "Enter") { e.preventDefault(); handleEditClick(sale); } };
@@ -729,7 +846,6 @@ export default function SalesEntry() {
             });
             return;
         }
-
         const isPrinted = type === 'printed';
         let selectionKey = customerCode;
         if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
@@ -747,7 +863,6 @@ export default function SalesEntry() {
         }
         updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
     };
-
     const handleMarkAllProcessed = async () => {
         const salesToProcess = [...newSales, ...unprintedSales];
         if (salesToProcess.length === 0) return;
@@ -833,12 +948,13 @@ export default function SalesEntry() {
         const totalSalesExcludingPackDue = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
         const totalPackDueCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-        const remaining = parseFloat(givenAmount) - totalPrice;
+
         const totalAmountWithLoan = Math.abs(globalLoanAmount) + totalPrice;
 
         const formattedTotalSalesExcludingPackDue = formatReceiptValue(totalSalesExcludingPackDue);
         const formattedTotalPackDueCost = formatReceiptValue(totalPackDueCost);
         const formattedTotalPrice = formatReceiptValue(totalPrice + totalPackDueCost);
+        const remaining = parseFloat(givenAmount) - formattedTotalPrice;
         const formattedGivenAmount = formatReceiptValue(givenAmount);
         const formattedRemaining = formatReceiptValue(Math.abs(remaining));
         const formattedGlobalLoanAmount = formatReceiptValue(Math.abs(globalLoanAmount));
@@ -991,10 +1107,22 @@ export default function SalesEntry() {
             if (selectedPrintedCustomer && e.key === "F5") { e.preventDefault(); return; }
             if (e.key === "F1") {
                 e.preventDefault();
-                if (refs.given_amount.current) { refs.given_amount.current.focus(); refs.given_amount.current.select(); }
-            } else if (e.key === "F5") {
+
+                if (refs.given_amount.current) {
+
+                    // Scroll to the field smoothly
+                    refs.given_amount.current.scrollIntoView({
+                        behavior: "smooth",
+                        block: "center" // or "nearest", "start"
+                    });
+
+                    // Focus and select text
+                    refs.given_amount.current.focus();
+                    refs.given_amount.current.select();
+                }
+            }
+            else if (e.key === "F5") {
                 e.preventDefault();
-                if (typeof handleSubmitGivenAmount === "function") handleSubmitGivenAmount();
                 if (typeof handleMarkAllProcessed === "function") handleMarkAllProcessed();
             }
         };
@@ -1032,39 +1160,137 @@ export default function SalesEntry() {
                     <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', height: '150.5vh', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
                         {currentUser?.role === 'Admin' ? (
                             <div className="admin-farmer-view h-full flex flex-col gap-4">
-                                <div className="flex flex-row gap-4 flex-grow overflow-hidden" style={{ minHeight: '60vh' }}>
-                                    {/* Left Column: Unprinted Farmers */}
-                                    <div style={{ width: "300px" }} className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden">
-                                        <div className="bg-red-800 p-2 text-center font-bold">මුද්‍රණය නොකළ ගොවීන්</div>
-                                        <div className="p-2 overflow-y-auto flex-grow">
-                                            <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" onChange={(e) => updateState({ searchQueries: { ...searchQueries, farmerUnprinted: e.target.value.toUpperCase() } })} />
-                                            {unprintedFarmers.filter(f => !searchQueries.farmerUnprinted || f.supplier_code.includes(searchQueries.farmerUnprinted)).map(f => (
-                                                <div key={f.supplier_code}
-                                                    onClick={() => updateState({ isAdminModalOpen: true, modalType: 'farmer', modalTitle: `Farmer: ${f.supplier_code}`, modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed !== 'Y') })}
-                                                    className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer">
-                                                    Code: {f.supplier_code}
-                                                </div>
-                                            ))}
-                                            {unprintedFarmers.length === 0 && <p className="text-center text-gray-400 mt-4">No data found</p>}
-                                        </div>
-                                    </div>
-                                    {/* Right Column: Printed Farmers */}
-                                    <div style={{ width: "300px", marginLeft: "540px", marginTop: "-220px" }} className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden">
-                                        <div className="bg-green-800 p-2 text-center font-bold">මුද්‍රණය කළ ගොවීන්</div>
-                                        <div className="p-2 overflow-y-auto flex-grow">
-                                            <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" onChange={(e) => updateState({ searchQueries: { ...searchQueries, farmerPrinted: e.target.value.toUpperCase() } })} />
-                                            {printedFarmers.filter(f => !searchQueries.farmerPrinted || f.supplier_code.includes(searchQueries.farmerPrinted)).map(f => (
-                                                <div key={f.supplier_code}
-                                                    onClick={() => updateState({ isAdminModalOpen: true, modalType: 'farmer', modalTitle: `Farmer: ${f.supplier_code}`, modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed === 'Y') })}
-                                                    className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer">
-                                                    Code: {f.supplier_code}
-                                                </div>
-                                            ))}
-                                            {printedFarmers.length === 0 && <p className="text-center text-gray-400 mt-4">No data found</p>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+  <div
+    className="flex flex-row gap-4 flex-grow overflow-hidden"
+    style={{ minHeight: "60vh", position: "relative" }}
+  >
+    {/* Left Column: Unprinted Farmers */}
+    <div
+      style={{ width: "300px", height: "350px" }}
+      className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
+    >
+      <div className="bg-red-800 p-2 text-center font-bold">
+        මුද්‍රණය නොකළ ගොවීන්
+      </div>
+
+      <div
+        className="p-2 overflow-y-auto flex-grow"
+        style={{ minHeight: "300px" }}
+      >
+        <input
+          type="text"
+          placeholder="සොයන්න..."
+          className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
+          onChange={(e) =>
+            updateState({
+              searchQueries: {
+                ...searchQueries,
+                farmerUnprinted: e.target.value.toUpperCase(),
+              },
+            })
+          }
+        />
+
+        {unprintedFarmers.length > 0 ? (
+          unprintedFarmers
+            .filter(
+              (f) =>
+                !searchQueries.farmerUnprinted ||
+                f.supplier_code.includes(searchQueries.farmerUnprinted)
+            )
+            .map((f) => (
+              <div
+                key={f.supplier_code}
+                onClick={() =>
+                  updateState({
+                    isAdminModalOpen: true,
+                    modalType: "farmer",
+                    modalTitle: `ගොවියා: ${f.supplier_code}`,
+                    modalData: allSales.filter(
+                      (s) =>
+                        s.supplier_code === f.supplier_code &&
+                        s.supplier_bill_printed !== "Y"
+                    ),
+                  })
+                }
+                className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer"
+              >
+                Code: {f.supplier_code}
+              </div>
+            ))
+        ) : (
+          <p className="text-center text-gray-400 mt-4">No data found</p>
+        )}
+      </div>
+    </div>
+
+    {/* Right Column: Printed Farmers */}
+    <div
+      style={{
+        width: "300px",
+        marginLeft: "540px",
+        marginTop: "-348px",
+        height: "350px",
+      }}
+      className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
+    >
+      <div className="bg-green-800 p-2 text-center font-bold">
+        මුද්‍රණය කළ ගොවීන්
+      </div>
+
+      <div
+        className="p-2 overflow-y-auto flex-grow"
+        style={{ minHeight: "300px" }}
+      >
+        <input
+          type="text"
+          placeholder="සොයන්න..."
+          className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
+          onChange={(e) =>
+            updateState({
+              searchQueries: {
+                ...searchQueries,
+                farmerPrinted: e.target.value.toUpperCase(),
+              },
+            })
+          }
+        />
+
+        {printedFarmers.length > 0 ? (
+          printedFarmers
+            .filter(
+              (f) =>
+                !searchQueries.farmerPrinted ||
+                f.supplier_code.includes(searchQueries.farmerPrinted)
+            )
+            .map((f) => (
+              <div
+                key={f.supplier_code}
+                onClick={() =>
+                  updateState({
+                    isAdminModalOpen: true,
+                    modalType: "farmer",
+                    modalTitle: `ගොවියා: ${f.supplier_code}`,
+                    modalData: allSales.filter(
+                      (s) =>
+                        s.supplier_code === f.supplier_code &&
+                        s.supplier_bill_printed === "Y"
+                    ),
+                  })
+                }
+                className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer"
+              >
+                Code: {f.supplier_code}
+              </div>
+            ))
+        ) : (
+          <p className="text-center text-gray-400 mt-4">No data found</p>
+        )}
+      </div>
+    </div>
+  </div>
+</div>
+
                         ) : (
                             <div className="pos-sales-view flex flex-col h-full">
                                 <div className="flex-shrink-0">
@@ -1123,26 +1349,31 @@ export default function SalesEntry() {
                                         </table>
                                     )}
                                     {displayedSales.length > 0 && (<SalesSummaryFooter sales={displayedSales} formatDecimal={formatDecimal} />)}
-                                    <div className="flex items-center mt-6 space-x-3 overflow-x-auto whitespace-nowrap py-2">
-                                      <button 
-    type="button" 
-    onClick={() => {
-        if (refs.given_amount.current) {
-            refs.given_amount.current.focus();
-            refs.given_amount.current.select(); // Selects text so user can just start typing
-        }
-    }} 
-    disabled={state.isPrinting || displayedSales.length === 0} 
-    className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`} 
-    style={{ backgroundColor: '#059669', color: 'white' }}
->
-    {state.isPrinting ? 'Printing...' : 'F1-මුද්‍රණය'}
-</button>
+                                    <div
+                                        className="flex items-center space-x-3 overflow-x-auto whitespace-nowrap"
+                                        style={{ marginTop: "-75px" }}  // adjust value as needed
+                                    >
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (refs.given_amount.current) {
+                                                    refs.given_amount.current.focus();
+                                                    refs.given_amount.current.select(); // Selects text so user can just start typing
+                                                }
+                                            }}
+                                            disabled={state.isPrinting || displayedSales.length === 0}
+                                            className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
+                                            style={{ backgroundColor: '#059669', color: 'white' }}
+                                        >
+                                            {state.isPrinting ? 'Printing...' : 'F1-මුද්‍රණය'}
+                                        </button>
                                         <button type="button" onClick={handleMarkAllProcessed} disabled={selectedPrintedCustomer} className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${selectedPrintedCustomer ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`} style={!selectedPrintedCustomer ? { backgroundColor: '#2563eb', color: 'white' } : { color: 'white' }}>F5-පසුව මුද්‍රණය</button>
                                         <div style={{ marginLeft: '660px', marginTop: '-25px' }}><input id="given_amount" ref={refs.given_amount} name="given_amount" type="number" value={formData.given_amount} onChange={(e) => handleInputChange('given_amount', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: '180px' }} /></div>
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
-                                    <div className="flex items-center justify-between mt-6 mb-4"><div className="text-2xl font-bold" style={{ color: 'red' }}>(විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )</div></div>
+                                    <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
+                                        <div className="text-2xl font-bold" style={{ color: 'red' }}>(විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )</div></div>
                                 </div>
                             </div>
                         )}

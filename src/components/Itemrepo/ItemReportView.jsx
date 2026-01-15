@@ -3,10 +3,12 @@ import * as XLSX from 'xlsx';
 import api from '../../api'; // axios instance
 
 const ItemReportView = ({ reportData, onClose }) => {
+
     const printRef = useRef();
     const [isClient, setIsClient] = useState(false);
     const [companyName, setCompanyName] = useState('???');
     const [reportDate, setReportDate] = useState('N/A');
+
     const { sales, filters } = reportData;
 
     useEffect(() => setIsClient(true), []);
@@ -27,11 +29,12 @@ const ItemReportView = ({ reportData, onClose }) => {
         fetchSettings();
     }, []);
 
+    // ✅ FIX: Convert all values to numbers before adding
     const totals = sales.reduce(
         (acc, sale) => {
-            acc.total_packs += sale.packs;
-            acc.total_weight += sale.weight;
-            acc.total_amount += sale.total;
+            acc.total_packs += Number(sale.packs) || 0;
+            acc.total_weight += Number(sale.weight) || 0;
+            acc.total_amount += Number(sale.total) || 0;
             return acc;
         },
         { total_packs: 0, total_weight: 0, total_amount: 0 }
@@ -57,6 +60,7 @@ const ItemReportView = ({ reportData, onClose }) => {
     const handleExportExcel = () => {
         const excelData = [];
         excelData.push(['බිල් අංකය', 'මලු', 'බර (kg)', 'මිල (Rs/kg)', 'එකතුව (Rs)', 'ගෙණුම්කරු', 'කේතය']);
+
         sales.forEach(sale => {
             excelData.push([
                 sale.bill_no,
@@ -68,15 +72,17 @@ const ItemReportView = ({ reportData, onClose }) => {
                 sale.code
             ]);
         });
+
         excelData.push([
             'මුළු එකතුව:',
             totals.total_packs,
-            Number(totals.total_weight).toFixed(2),
+            totals.total_weight.toFixed(2),
             '',
-            Number(totals.total_amount).toFixed(2),
+            totals.total_amount.toFixed(2),
             '',
             ''
         ]);
+
         const worksheet = XLSX.utils.aoa_to_sheet(excelData);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'Item-wise Report');
@@ -85,7 +91,8 @@ const ItemReportView = ({ reportData, onClose }) => {
 
     return (
         <div ref={printRef} className="card shadow-sm border-0 rounded-3 p-4" style={{ backgroundColor: '#f0f4f8' }}>
-            {/* Header in one line with background */}
+            
+            {/* Header */}
             <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -102,12 +109,13 @@ const ItemReportView = ({ reportData, onClose }) => {
                 <p style={{ fontSize: '0.9rem', margin: 0 }}>{reportDate}</p>
             </div>
 
-            {/* Filters & Meta */}
+            {/* Item Info */}
             {sales.length > 0 && (
                 <div className="meta-info" style={{ marginBottom: '10px', fontSize: '0.95rem' }}>
                     <strong>අයිතමය:</strong> {sales[0].item_name || 'N/A'} (<strong>කේතය:</strong> {sales[0].item_code})
                 </div>
             )}
+
             {(filters.start_date || filters.end_date) && (
                 <div className="filters" style={{ marginBottom: '15px', fontSize: '0.95rem' }}>
                     <strong>දින පරාසය:</strong>
@@ -116,7 +124,7 @@ const ItemReportView = ({ reportData, onClose }) => {
                 </div>
             )}
 
-            {/* Export Buttons */}
+            {/* Buttons */}
             <div className="d-flex justify-content-between mb-3">
                 <div>
                     <button className="btn btn-success btn-sm me-2" onClick={handleExportExcel}>📊 Excel</button>
@@ -140,11 +148,12 @@ const ItemReportView = ({ reportData, onClose }) => {
                             <th>කේතය</th>
                         </tr>
                     </thead>
+
                     <tbody>
                         {sales.map((sale, idx) => (
                             <tr key={idx}>
                                 <td>{sale.bill_no}</td>
-                                <td className="text-end">{sale.packs}</td>
+                                <td className="text-end">{Number(sale.packs)}</td>
                                 <td className="text-end">{Number(sale.weight).toFixed(2)}</td>
                                 <td className="text-end">{Number(sale.price_per_kg).toFixed(2)}</td>
                                 <td className="text-end">{Number(sale.total).toFixed(2)}</td>
@@ -153,13 +162,15 @@ const ItemReportView = ({ reportData, onClose }) => {
                             </tr>
                         ))}
                     </tbody>
+
+                    {/* ✅ FIXED TOTALS SECTION */}
                     <tfoot>
                         <tr className="totals-row" style={{ fontWeight: 'bold', backgroundColor: '#e6ffe6' }}>
                             <td className="text-end">මුළු එකතුව:</td>
                             <td className="text-end">{totals.total_packs}</td>
-                            <td className="text-end">{Number(totals.total_weight).toFixed(2)}</td>
+                            <td className="text-end">{totals.total_weight.toFixed(2)}</td>
                             <td></td>
-                            <td className="text-end">{Number(totals.total_amount).toFixed(2)}</td>
+                            <td className="text-end">{totals.total_amount.toFixed(2)}</td>
                             <td colSpan="2"></td>
                         </tr>
                     </tfoot>
@@ -175,6 +186,7 @@ const ItemReportView = ({ reportData, onClose }) => {
                     th, td { border: 1px solid #000 !important; padding: 5px; }
                 }
             `}</style>
+
         </div>
     );
 };

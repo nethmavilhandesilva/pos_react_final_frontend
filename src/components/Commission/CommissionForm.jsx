@@ -198,7 +198,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
             
             {/* 0. Select By Type */}
             <div style={{ gridColumn: isEditing ? 'span 1' : 'span 1' }}>
-                <label htmlFor="select_by_type">Select By:</label>
+                <label htmlFor="select_by_type">තෝරන්න:</label>
                 <select
                     id="select_by_type"
                     name="select_by_type"
@@ -236,7 +236,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                             ref={formRefs.item_selector} 
                             style={inputStyle}
                         >
-                            <option value="">-- Select an Item --</option>
+                            <option value="">-- අයිතමය තෝරන්න --</option>
                             {itemOptions.map((item) => (
                                 <option key={item.item_code} value={item.item_code}>
                                     {item.item_code} - {item.item_name}
@@ -256,7 +256,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                             ref={formRefs.supplier_selector} 
                             style={inputStyle}
                         >
-                            <option value="">-- Select a Supplier --</option>
+                            <option value="">-- සැපයුම්කරුවෙක් තෝරන්න --</option>
                             {supplierOptions.map((supplier) => (
                                 <option key={supplier.code} value={supplier.code}>
                                     {supplier.code} - {supplier.name}
@@ -284,7 +284,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
 
             {/* 2. Starting Price (Grid column adjusts for 'All' selection) */}
             <div style={{ gridColumn: selectByType === 'All' ? 'span 1' : undefined }}>
-                <label htmlFor="starting_price">Start Price:</label>
+                <label htmlFor="starting_price">ආරම්භක මිල:</label>
                 <input
                     type="number"
                     id="starting_price"
@@ -302,7 +302,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
 
             {/* 3. End Price */}
             <div>
-                <label htmlFor="end_price">End Price:</label>
+                <label htmlFor="end_price">අවසාන මිල:</label>
                 <input
                     type="number"
                     id="end_price"
@@ -320,7 +320,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
 
             {/* 4. Commission Amount */}
             <div>
-                <label htmlFor="commission_amount">Amount ($):</label>
+                <label htmlFor="commission_amount">මුදල (Rs):</label>
                 <input
                     type="number"
                     id="commission_amount"
@@ -343,7 +343,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                     ref={formRefs.submit_button}
                     style={{ ...buttonStyle, backgroundColor: isEditing ? '#ffc107' : '#28a745' }}
                 >
-                    {isEditing ? 'Save Changes' : 'Create Commission'}
+                    {isEditing ? 'Save Changes' : 'එකතු කරන්න'}
                 </button>
                 {isEditing && (
                     <button 
@@ -351,7 +351,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                         onClick={onCancelEdit}
                         style={{ ...buttonStyle, backgroundColor: '#6c757d' }}
                     >
-                        Cancel Edit
+                        සංස්කරණය අවලංගු කරන්න
                     </button>
                 )}
             </div>

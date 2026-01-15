@@ -73,7 +73,7 @@ const SupplierList = () => {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#99ff99' }}>
-      
+
       {/* --- VERTICAL SIDEBAR --- */}
       <div
         style={{
@@ -92,41 +92,33 @@ const SupplierList = () => {
       >
         <Link className="navbar-brand fw-bold d-flex align-items-center mb-4 text-white text-decoration-none" to="/sales">
           <i className="material-icons me-2">warehouse</i>
-          Dashboard
+          මුල් පිටුව
         </Link>
 
-        <h6 className="text-uppercase text-light opacity-50 small fw-bold mb-3">Master Data</h6>
+        <h6 className="text-uppercase text-light opacity-50 small fw-bold mb-3">ප්‍රධාන දත්ත</h6>
         <ul className="list-unstyled flex-grow-1">
           <li className="mb-2">
             <Link to="/customers" className="nav-link text-white d-flex align-items-center p-2 rounded">
-              <i className="material-icons me-2">people</i> Customers
+              <i className="material-icons me-2">people</i> ගනුදෙනුකරුවන්
             </Link>
           </li>
           <li className="mb-2">
             <Link to="/items" className="nav-link text-white d-flex align-items-center p-2 rounded">
-              <i className="material-icons me-2">inventory_2</i> Items
+              <i className="material-icons me-2">inventory_2</i> අයිතමය
             </Link>
           </li>
           <li className="mb-2">
             <Link to="/suppliers" className="nav-link text-white d-flex align-items-center p-2 rounded" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
-              <i className="material-icons me-2">local_shipping</i> Suppliers
+              <i className="material-icons me-2">local_shipping</i> සැපයුම්කරුවන්
             </Link>
           </li>
           <li className="mb-2">
             <Link to="/commissions" className="nav-link text-white d-flex align-items-center p-2 rounded">
-              <i className="material-icons me-2">attach_money</i> Commissions
+              <i className="material-icons me-2">attach_money</i> කොමිෂන්
             </Link>
           </li>
           <hr className="bg-light" />
-          <li className="mb-2">
-            <button
-              type="button"
-              className="btn btn-link text-warning text-decoration-none d-flex align-items-center p-0"
-              onClick={() => (window.location.href = '/customers-loans/report')}
-            >
-              <i className="material-icons me-2">account_balance</i> Loan Report
-            </button>
-          </li>
+
         </ul>
 
         <div className="mt-auto pt-3 border-top border-secondary">
@@ -134,7 +126,7 @@ const SupplierList = () => {
             onClick={handleLogout}
             className="btn btn-outline-light w-100 fw-bold d-flex align-items-center justify-content-center"
           >
-            <i className="material-icons me-2">logout</i> Logout
+            <i className="material-icons me-2">logout</i>ඉවත් වන්න
           </button>
         </div>
       </div>
@@ -159,14 +151,13 @@ const SupplierList = () => {
               <Link to="/suppliers/create" className="btn btn-success fw-bold px-4 shadow-sm">
                 + නව සැපයුම්කරු
               </Link>
-
               <input
                 type="text"
                 value={searchTerm}
-                onChange={handleSearch}
+                onChange={(e) => handleSearch(e.target.value.toUpperCase())}
                 className="form-control form-control-sm"
                 placeholder="කේතය, නම හෝ ලිපිනය අනුව සොයන්න"
-                style={{ maxWidth: '300px', border: '1px solid #ced4da' }}
+                style={{ maxWidth: '300px', border: '1px solid #ced4da', textTransform: 'uppercase' }}
               />
             </div>
 
