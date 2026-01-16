@@ -846,22 +846,83 @@ export default function SalesEntry() {
             });
             return;
         }
+
         const isPrinted = type === 'printed';
         let selectionKey = customerCode;
         if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
         const isCurrentlySelected = isPrinted ? selectedPrintedCustomer === selectionKey : selectedUnprintedCustomer === selectionKey;
-        if (isPrinted) updateState({ selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey, selectedUnprintedCustomer: null, currentBillNo: isCurrentlySelected ? null : billNo });
-        else updateState({ selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey, selectedPrintedCustomer: null, currentBillNo: null });
+
+        if (isPrinted) {
+            updateState({
+                selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
+                selectedUnprintedCustomer: null,
+                currentBillNo: isCurrentlySelected ? null : billNo
+            });
+        } else {
+            updateState({
+                selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey,
+                selectedPrintedCustomer: null,
+                currentBillNo: null
+            });
+        }
+
         const customer = customers.find(x => String(x.short_name) === String(customerCode));
+
         if (!isCurrentlySelected) {
-            setFormData({ ...initialFormData, customer_code: customerCode, customer_name: customer?.name || "", given_amount: salesRecords[0]?.given_amount || "" });
-            fetchLoanAmount(customerCode);
-            setTimeout(() => { if (refs.supplier_code.current) refs.supplier_code.current.focus(); }, 50);
+            try {
+                // Fetch given amount from API
+                let fetchedGivenAmount = "";
+                try {
+                    const response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`);
+                    if (response.data && response.data.given_amount !== undefined) {
+                        fetchedGivenAmount = response.data.given_amount;
+                    }
+                } catch (error) {
+                    console.warn("Could not fetch given amount from API, using local data:", error);
+                    // Fallback to local data if API call fails
+                    fetchedGivenAmount = salesRecords[0]?.given_amount || "";
+                }
+
+                setFormData({
+                    ...initialFormData,
+                    customer_code: customerCode,
+                    customer_name: customer?.name || "",
+                    given_amount: fetchedGivenAmount
+                });
+
+                fetchLoanAmount(customerCode);
+                setTimeout(() => {
+                    if (refs.supplier_code.current) refs.supplier_code.current.focus();
+                }, 50);
+
+            } catch (error) {
+                console.error("Error in handleCustomerClick:", error);
+                // Fallback to existing behavior on error
+                setFormData({
+                    ...initialFormData,
+                    customer_code: customerCode,
+                    customer_name: customer?.name || "",
+                    given_amount: salesRecords[0]?.given_amount || ""
+                });
+                fetchLoanAmount(customerCode);
+                setTimeout(() => {
+                    if (refs.supplier_code.current) refs.supplier_code.current.focus();
+                }, 50);
+            }
         } else {
             handleClearForm();
-            setTimeout(() => { if (refs.customer_code_input.current) refs.customer_code_input.current.focus(); }, 50);
+            setTimeout(() => {
+                if (refs.customer_code_input.current) refs.customer_code_input.current.focus();
+            }, 50);
         }
-        updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
+
+        updateState({
+            editingSaleId: null,
+            isManualClear: false,
+            customerSearchInput: "",
+            priceManuallyChanged: false,
+            gridPricePerKg: ""
+        });
     };
     const handleMarkAllProcessed = async () => {
         const salesToProcess = [...newSales, ...unprintedSales];
@@ -949,11 +1010,12 @@ export default function SalesEntry() {
         const totalPackDueCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
 
-        const totalAmountWithLoan = Math.abs(globalLoanAmount) + totalPrice;
+       
 
         const formattedTotalSalesExcludingPackDue = formatReceiptValue(totalSalesExcludingPackDue);
         const formattedTotalPackDueCost = formatReceiptValue(totalPackDueCost);
         const formattedTotalPrice = formatReceiptValue(totalPrice + totalPackDueCost);
+        const totalAmountWithLoan = Math.abs(globalLoanAmount) + parseFloat(formattedTotalPrice);
         const remaining = parseFloat(givenAmount) - formattedTotalPrice;
         const formattedGivenAmount = formatReceiptValue(givenAmount);
         const formattedRemaining = formatReceiptValue(Math.abs(remaining));
@@ -961,7 +1023,12 @@ export default function SalesEntry() {
         const formattedTotalAmountWithLoan = formatReceiptValue(Math.abs(totalAmountWithLoan));
 
         const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
-        const loanRow = globalLoanAmount !== 0 ? `<tr><td style="font-size:${fontSizeText}; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td><td style="font-weight:bold; text-align:right; font-size:${fontSizeTotalLarge}; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td></tr>` : '';
+        const loanRow = globalLoanAmount !== 0 ?
+            `<tr>
+        <td style="font-size:12px; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td>
+        <td style="font-weight:bold; text-align:right; font-size:12px; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td>
+        </tr>`
+            : '';
         const formatSmartValue = (value) => {
             if (value === null || value === undefined || value === '') return '0';
             const num = parseFloat(value);
@@ -985,15 +1052,16 @@ export default function SalesEntry() {
         const itemSummaryHtml = `<div style="margin-top: 10px; text-align: center; font-size: 12px; text-transform: lowercase;">${summaryHtmlContent}</div>`;
 
         return `<div class="receipt-container" style="width:90%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;">
-<div style="margin-bottom:5px; border-bottom:1px solid #000;">
-    <h3 style="text-align:center; font-size:${fontSizeHeader}; font-weight:bold; margin:0 0 5px 0;">NVDS TRADERS</h3>
+     <div style="margin-bottom:5px; border-bottom:1px solid #000;">
+   <h3 style="text-align:center; font-size:15px; font-weight:bold; margin:0 0 5px 0;">මංජු සහ සහෝදරයෝ</h3>
+      <h3 style="text-align:center; font-size:12px; font-weight:bold; margin:0 0 5px 0;">colombage lanka (Pvt) Ltd</h3>
     <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
         <div style="display:flex; justify-content:center; align-items:center; gap:10px;">
             <div style="border:1px solid #000; padding:2px 6px;"><strong style="font-size:16px;">H-39</strong></div>
             <div style="border:1px solid #000; padding:2px 6px;"><strong style="font-size:16px;">${customerName.toUpperCase()}</strong></div>
         </div>
-        <strong style="font-size:12px; text-align:center; display:block; margin-top:0;">එළවළු හා පළතුරු තොග 
-            <div style="display:flex; align-items:center;"><span style="display:inline-block; text-align:left; margin-left:-18px;">වෙළෙන්දන්</span><span style="background:none; font-weight:normal; color:inherit; padding:0; margin-left:auto;">${time}</span></div></strong>
+        <strong style="font-size:12px; text-align:center; display:block; margin-top:0;">එළවළු,පළතුරු තොග වෙළෙන්දෝ
+            <div style="display:flex; align-items:center;"><span style="display:inline-block; text-align:left; margin-left:-10px;">බණ්ඩාරවෙල</span><span style="background:none; font-weight:normal; color:inherit; padding:0; margin-left:auto;">${time}</span></div></strong>
     </div>
     <div style="text-align:left; margin-bottom:5px;">
         <table style="width:70%; font-size:9px; border-collapse:collapse; margin:auto;">
@@ -1041,7 +1109,7 @@ export default function SalesEntry() {
 
             const customerCode = salesData[0].customer_code || "N/A";
             const customerName = salesData[0].customer_name || customerCode;
-            const mobile = salesData[0].mobile || '0702758908 / 0702758300';
+            const mobile = salesData[0].mobile || '0777672838 / 071437115';
 
             // 2. Mark as printed in DB and get official bill number
             const printResponse = await api.post(routes.markPrinted, {
@@ -1065,8 +1133,6 @@ export default function SalesEntry() {
             } catch (error) {
                 console.warn("Could not fetch loan amount");
             }
-
-            // 4. Build receipt HTML 
             // We pass the salesData which now contains the given_amount from Step 1
             const receiptHtml = buildFullReceiptHTML(
                 salesData,
@@ -1160,136 +1226,136 @@ export default function SalesEntry() {
                     <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', height: '150.5vh', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
                         {currentUser?.role === 'Admin' ? (
                             <div className="admin-farmer-view h-full flex flex-col gap-4">
-  <div
-    className="flex flex-row gap-4 flex-grow overflow-hidden"
-    style={{ minHeight: "60vh", position: "relative" }}
-  >
-    {/* Left Column: Unprinted Farmers */}
-    <div
-      style={{ width: "300px", height: "350px" }}
-      className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
-    >
-      <div className="bg-red-800 p-2 text-center font-bold">
-        මුද්‍රණය නොකළ ගොවීන්
-      </div>
+                                <div
+                                    className="flex flex-row gap-4 flex-grow overflow-hidden"
+                                    style={{ minHeight: "60vh", position: "relative" }}
+                                >
+                                    {/* Left Column: Unprinted Farmers */}
+                                    <div
+                                        style={{ width: "300px", height: "350px" }}
+                                        className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
+                                    >
+                                        <div className="bg-red-800 p-2 text-center font-bold">
+                                            මුද්‍රණය නොකළ ගොවීන්
+                                        </div>
 
-      <div
-        className="p-2 overflow-y-auto flex-grow"
-        style={{ minHeight: "300px" }}
-      >
-        <input
-          type="text"
-          placeholder="සොයන්න..."
-          className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
-          onChange={(e) =>
-            updateState({
-              searchQueries: {
-                ...searchQueries,
-                farmerUnprinted: e.target.value.toUpperCase(),
-              },
-            })
-          }
-        />
+                                        <div
+                                            className="p-2 overflow-y-auto flex-grow"
+                                            style={{ minHeight: "300px" }}
+                                        >
+                                            <input
+                                                type="text"
+                                                placeholder="සොයන්න..."
+                                                className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
+                                                onChange={(e) =>
+                                                    updateState({
+                                                        searchQueries: {
+                                                            ...searchQueries,
+                                                            farmerUnprinted: e.target.value.toUpperCase(),
+                                                        },
+                                                    })
+                                                }
+                                            />
 
-        {unprintedFarmers.length > 0 ? (
-          unprintedFarmers
-            .filter(
-              (f) =>
-                !searchQueries.farmerUnprinted ||
-                f.supplier_code.includes(searchQueries.farmerUnprinted)
-            )
-            .map((f) => (
-              <div
-                key={f.supplier_code}
-                onClick={() =>
-                  updateState({
-                    isAdminModalOpen: true,
-                    modalType: "farmer",
-                    modalTitle: `ගොවියා: ${f.supplier_code}`,
-                    modalData: allSales.filter(
-                      (s) =>
-                        s.supplier_code === f.supplier_code &&
-                        s.supplier_bill_printed !== "Y"
-                    ),
-                  })
-                }
-                className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer"
-              >
-                Code: {f.supplier_code}
-              </div>
-            ))
-        ) : (
-          <p className="text-center text-gray-400 mt-4">No data found</p>
-        )}
-      </div>
-    </div>
+                                            {unprintedFarmers.length > 0 ? (
+                                                unprintedFarmers
+                                                    .filter(
+                                                        (f) =>
+                                                            !searchQueries.farmerUnprinted ||
+                                                            f.supplier_code.includes(searchQueries.farmerUnprinted)
+                                                    )
+                                                    .map((f) => (
+                                                        <div
+                                                            key={f.supplier_code}
+                                                            onClick={() =>
+                                                                updateState({
+                                                                    isAdminModalOpen: true,
+                                                                    modalType: "farmer",
+                                                                    modalTitle: `ගොවියා: ${f.supplier_code}`,
+                                                                    modalData: allSales.filter(
+                                                                        (s) =>
+                                                                            s.supplier_code === f.supplier_code &&
+                                                                            s.supplier_bill_printed !== "Y"
+                                                                    ),
+                                                                })
+                                                            }
+                                                            className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer"
+                                                        >
+                                                            Code: {f.supplier_code}
+                                                        </div>
+                                                    ))
+                                            ) : (
+                                                <p className="text-center text-gray-400 mt-4">No data found</p>
+                                            )}
+                                        </div>
+                                    </div>
 
-    {/* Right Column: Printed Farmers */}
-    <div
-      style={{
-        width: "300px",
-        marginLeft: "540px",
-        marginTop: "-348px",
-        height: "350px",
-      }}
-      className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
-    >
-      <div className="bg-green-800 p-2 text-center font-bold">
-        මුද්‍රණය කළ ගොවීන්
-      </div>
+                                    {/* Right Column: Printed Farmers */}
+                                    <div
+                                        style={{
+                                            width: "300px",
+                                            marginLeft: "540px",
+                                            marginTop: "-348px",
+                                            height: "350px",
+                                        }}
+                                        className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
+                                    >
+                                        <div className="bg-green-800 p-2 text-center font-bold">
+                                            මුද්‍රණය කළ ගොවීන්
+                                        </div>
 
-      <div
-        className="p-2 overflow-y-auto flex-grow"
-        style={{ minHeight: "300px" }}
-      >
-        <input
-          type="text"
-          placeholder="සොයන්න..."
-          className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
-          onChange={(e) =>
-            updateState({
-              searchQueries: {
-                ...searchQueries,
-                farmerPrinted: e.target.value.toUpperCase(),
-              },
-            })
-          }
-        />
+                                        <div
+                                            className="p-2 overflow-y-auto flex-grow"
+                                            style={{ minHeight: "300px" }}
+                                        >
+                                            <input
+                                                type="text"
+                                                placeholder="සොයන්න..."
+                                                className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
+                                                onChange={(e) =>
+                                                    updateState({
+                                                        searchQueries: {
+                                                            ...searchQueries,
+                                                            farmerPrinted: e.target.value.toUpperCase(),
+                                                        },
+                                                    })
+                                                }
+                                            />
 
-        {printedFarmers.length > 0 ? (
-          printedFarmers
-            .filter(
-              (f) =>
-                !searchQueries.farmerPrinted ||
-                f.supplier_code.includes(searchQueries.farmerPrinted)
-            )
-            .map((f) => (
-              <div
-                key={f.supplier_code}
-                onClick={() =>
-                  updateState({
-                    isAdminModalOpen: true,
-                    modalType: "farmer",
-                    modalTitle: `ගොවියා: ${f.supplier_code}`,
-                    modalData: allSales.filter(
-                      (s) =>
-                        s.supplier_code === f.supplier_code &&
-                        s.supplier_bill_printed === "Y"
-                    ),
-                  })
-                }
-                className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer"
-              >
-                Code: {f.supplier_code}
-              </div>
-            ))
-        ) : (
-          <p className="text-center text-gray-400 mt-4">No data found</p>
-        )}
-      </div>
-    </div>
-  </div>
-</div>
+                                            {printedFarmers.length > 0 ? (
+                                                printedFarmers
+                                                    .filter(
+                                                        (f) =>
+                                                            !searchQueries.farmerPrinted ||
+                                                            f.supplier_code.includes(searchQueries.farmerPrinted)
+                                                    )
+                                                    .map((f) => (
+                                                        <div
+                                                            key={f.supplier_code}
+                                                            onClick={() =>
+                                                                updateState({
+                                                                    isAdminModalOpen: true,
+                                                                    modalType: "farmer",
+                                                                    modalTitle: `ගොවියා: ${f.supplier_code}`,
+                                                                    modalData: allSales.filter(
+                                                                        (s) =>
+                                                                            s.supplier_code === f.supplier_code &&
+                                                                            s.supplier_bill_printed === "Y"
+                                                                    ),
+                                                                })
+                                                            }
+                                                            className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer"
+                                                        >
+                                                            Code: {f.supplier_code}
+                                                        </div>
+                                                    ))
+                                            ) : (
+                                                <p className="text-center text-gray-400 mt-4">No data found</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
                         ) : (
                             <div className="pos-sales-view flex flex-col h-full">
