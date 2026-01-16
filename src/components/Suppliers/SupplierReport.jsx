@@ -422,7 +422,7 @@ const SupplierReport = () => {
    <!-- TOP Row - NVDS TRADERS centered -->
    <div style="display:flex; justify-content:center; align-items:center; margin-bottom:6px;">
         <h3 style="font-size:15px; margin:0; font-weight:bold; text-align:center;">
-            NVDS TRADERS
+            මංජු සහ සහෝදරයෝ
         </h3>
    </div>
 
