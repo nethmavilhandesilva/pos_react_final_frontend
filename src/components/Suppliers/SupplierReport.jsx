@@ -414,50 +414,70 @@ const SupplierReport = () => {
         const mainCustomerCode = supplierDetails[0]?.customer_code?.toUpperCase() || '';
 
 
-        return `
-        <div class="receipt-container"
+       return `
+      <div class="receipt-container"
      style="width:100%; max-width:${maxWidth}; margin:0 auto; padding:4px;
             font-family:'Courier New', monospace;">
 
+   <!-- TOP Row - NVDS TRADERS centered -->
+   <div style="display:flex; justify-content:center; align-items:center; margin-bottom:6px;">
+        <h3 style="font-size:15px; margin:0; font-weight:bold; text-align:center;">
+            NVDS TRADERS
+        </h3>
+   </div>
+
+   <!-- Bottom Row - Left and Right aligned items -->
    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-
-    <!-- LEFT SIDE -->
-   <div style="display:inline-block;">
-    <h3 style="font-size:15px; margin:0; font-weight:bold;">
-        අයිතිය:
-        <span style="border:1px solid #000; padding:3px 6px; border-radius:4px; margin-left:1px;">
-            ${selectedSupplier}
-        </span>
-    </h3>
-    <h3 style="font-size:15px; margin:4px 0 0 0; font-weight:bold;">
-        NVDS TRADERS
-    </h3>
-</div>
-
-    <!-- RIGHT SIDE → H-39 BOX WITH CUSTOM LEFT SHIFT -->
+       
+        <!-- LEFT SIDE -->
+      <div style="display:flex; justify-content:flex-start; align-items:center; gap:10px;">
+    <!-- RIGHT SIDE NOW ON LEFT -->
     <div style="border:1px solid #000; padding:3px 8px; border-radius:4px; font-size:15px; font-weight:bold; 
-            margin-left:${is4mm ? '40px' : '60px'};">
-    H-39
+                margin-left:${is4mm ? '40px' : '60px'};">
+        H-39
+    </div>
+
+    <!-- MIDDLE WORD -->
+    <div style="font-size:15px; font-weight:bold;">
+        ගොවියා:
+    </div>
+
+    <!-- LEFT SIDE NOW ON RIGHT -->
+    <div style="display:inline-block;">
+        <h3 style="font-size:15px; margin:0; font-weight:bold;">
+            <span style="border:1px solid #000; padding:3px 6px; border-radius:4px; margin-left:1px;">
+                ${selectedSupplier}
+            </span>
+        </h3>
+    </div>
 </div>
 
-</div>
+        
+   </div>
+
+   <!-- NEW SENTENCE ADDED HERE -->
+   <div style="text-align:center; font-size:10px; font-weight:bold; margin:8px 0 6px 0; padding:3px 0;">
+       එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල
+   </div>
 
     <!-- SUPPLIER INFO -->
     <table style="width:100%; font-size:8px; border-collapse:collapse; margin-bottom:5px;">
-        <tr>
-    <td style="text-align:left;">
-        බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong>
-    </td>
-    <td style="text-align:right; padding-right:${is4mm ? '20px' : '20px'};">
-        දිනය : ${date}
-    </td>
-</tr>
+    <tr>
+        <!-- දුර පේළිය මෙතනට -->
+        <td colspan="2" style="text-align:left;">දුර : ${mobile}</td>
+    </tr>
 
-        <tr>
-            <td colspan="2" style="text-align:left;">දුර : ${mobile}</td>
-        </tr>
-        
-    </table>
+    <tr>
+        <!-- බිල් අංකය වම්පස -->
+        <td style="text-align:left;">
+            බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong>
+        </td>
+        <!-- දිනය දකුණුපස -->
+        <td style="text-align:right; padding-right:${is4mm ? '20px' : '20px'};">
+            දිනය : ${date}   
+        </td>
+    </tr>
+</table>
 
     <hr style="border:1px solid #000; margin:4px 0;">
 
@@ -534,7 +554,7 @@ ${is4mm ? `
     ${totalPacksSum}
 </td>
               <td colspan="3" style="text-align:right; padding:4px; font-weight:bold;">
-              <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm === true ? '120px' : '140px'};">
+              <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm === true ? '120px' : '160px'};">
               ${formatNumber(totalsupplierSales, 2)}
               </span>
               </td>
@@ -584,7 +604,6 @@ ${is4mm ? `
         <p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p>
     </div>
 </div>
-
         `;
     }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData, billSize]);
 
