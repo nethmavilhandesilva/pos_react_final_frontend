@@ -414,7 +414,7 @@ const SupplierReport = () => {
         const mainCustomerCode = supplierDetails[0]?.customer_code?.toUpperCase() || '';
 
 
-       return `
+        return `
       <div class="receipt-container"
      style="width:100%; max-width:${maxWidth}; margin:0 auto; padding:2px;
             font-family:'Courier New', monospace;">
@@ -813,7 +813,7 @@ const SupplierReport = () => {
     // --- ALWAYS DISPLAYED DETAILS PANEL ---
     const renderDetailsPanel = () => {
         const panelContainerStyle = {
-            backgroundColor: '#ffffff',
+            backgroundColor: '#1869e4',
             padding: '30px',
             borderRadius: '12px',
             maxWidth: '100%',
@@ -887,7 +887,7 @@ const SupplierReport = () => {
             <div style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0', minHeight: '400px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <h2 style={{ color: '#343a40', fontSize: '2rem', marginBottom: '20px' }}>විස්තර බලන්න බිල්පතක් තෝරන්න</h2>
                 <p style={{ fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto' }}>
-                   පාර්ශව පැනල්වලින් ඕනෑම සැපයුම්කරු කේතයක් හෝ බිල් නම්බරයක් ක්ලික් කරන්න, මෙම විස්තර දර්ශනය පුරවා ගැනීමට."
+                    පාර්ශව පැනල්වලින් ඕනෑම සැපයුම්කරු කේතයක් හෝ බිල් නම්බරයක් ක්ලික් කරන්න, මෙම විස්තර දර්ශනය පුරවා ගැනීමට."
                 </p>
             </div>
         );
@@ -988,9 +988,10 @@ const SupplierReport = () => {
         return (
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
-                    <h2 style={{ fontSize: "1.5rem" }}>
+                    <h2 style={{ fontSize: "1.5rem", color: "black" }}>
                         ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo}</strong>)
                     </h2>
+
                     <span style={supplierCodeBadgeStyle}>
                         {selectedSupplier || 'NO DATA'}
                     </span>
@@ -1114,7 +1115,7 @@ const SupplierReport = () => {
                         style={billSizeSelectorStyle}
                         onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}
                     >
-                       බිල්පත් ප්‍රමාණය: {billSize}
+                        බිල්පත් ප්‍රමාණය: {billSize}
                     </button>
 
                     <button

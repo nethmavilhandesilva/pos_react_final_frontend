@@ -27,6 +27,7 @@ import CommissionPage from './components/Commission/CommissionPage';
 import SupplierProfitReport from './components/Suppliers/SupplierProfitReport';
 import FinancialReport from './components/Reports/FinancialReport';
 import LoanReportManager from './components/LoanManager/LoanReportManager'; // ✅ Add this
+import SupplierReport2 from './components/Reports/supplierfinalreport';
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -252,6 +253,7 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
+                <Route path="/reports/supplier" element={<SupplierReport2 />} />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

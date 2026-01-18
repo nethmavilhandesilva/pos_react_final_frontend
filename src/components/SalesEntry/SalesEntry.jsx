@@ -778,38 +778,93 @@ export default function SalesEntry() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (state.isSubmitting) return;
+
+        // --- NEW VALIDATION LOGIC ---
+        // This checks each required field. If one is empty, it focuses it and stops the save.
+        const requiredFields = [
+            { key: "customer_code", ref: "customer_code_input", label: "Customer Code" },
+            { key: "supplier_code", ref: "supplier_code", label: "Supplier Code" },
+            { key: "item_code", ref: "item_code_select", label: "Item" },
+            { key: "weight", ref: "weight", label: "Weight" },
+            { key: "price_per_kg", ref: "price_per_kg_grid_item", label: "Price" },
+            { key: "packs", ref: "packs", label: "Packs" }
+        ];
+
+        for (const field of requiredFields) {
+            const value = formData[field.key];
+            // Checks for null, undefined, or empty strings
+            if (value === null || value === undefined || value.toString().trim() === "") {
+                updateState({ errors: { form: `කරුණාකර ${field.label} ඇතුළත් කරන්න` } }); // Message in Sinhala style
+
+                const targetRef = refs[field.ref];
+                if (targetRef?.current) {
+                    // Focus the field so the cursor blinks there
+                    if (field.ref.includes("select")) {
+                        targetRef.current.focus();
+                    } else {
+                        targetRef.current.focus();
+                        targetRef.current.select(); // Highlight existing text to make it easier to edit
+                    }
+                }
+                return; // EXIT function here so it doesn't save to database
+            }
+        }
+        // --- END VALIDATION ---
+
         updateState({ errors: {}, isSubmitting: true });
         const shouldUpdateRelatedPrice = state.priceManuallyChanged;
 
         try {
             const customerCode = formData.customer_code || autoCustomerCode;
-            if (!customerCode) { updateState({ errors: { form: "Customer code is required" }, isSubmitting: false }); refs.customer_code_input.current?.focus(); return; }
+
             const isEditing = editingSaleId !== null;
             if (!isEditing && selectedPrintedCustomer) {
-                updateState({ errors: { form: "Cannot add new entries to printed bills. Please edit existing records or select an unprinted customer." }, isSubmitting: false });
+                updateState({
+                    errors: { form: "Cannot add new entries to printed bills. Please edit existing records or select an unprinted customer." },
+                    isSubmitting: false
+                });
                 setTimeout(() => updateState({ errors: {} }), 1000);
                 return;
             }
+
             let billPrintedStatus = undefined, billNoToUse = null;
             if (!isEditing) {
-                if (state.currentBillNo) { billPrintedStatus = 'Y'; billNoToUse = state.currentBillNo; } else {
+                if (state.currentBillNo) {
+                    billPrintedStatus = 'Y';
+                    billNoToUse = state.currentBillNo;
+                } else {
                     if (selectedPrintedCustomer) {
                         billPrintedStatus = 'Y';
-                        if (selectedPrintedCustomer.includes('-')) billNoToUse = selectedPrintedCustomer.split('-')[1];
-                        else billNoToUse = printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no;
-                    } else if (selectedUnprintedCustomer) billPrintedStatus = 'N';
+                        if (selectedPrintedCustomer.includes('-')) {
+                            billNoToUse = selectedPrintedCustomer.split('-')[1];
+                        } else {
+                            billNoToUse = printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no;
+                        }
+                    } else if (selectedUnprintedCustomer) {
+                        billPrintedStatus = 'N';
+                    }
                 }
             }
+
             const customerSales = allSales.filter(s => s.customer_code === customerCode);
             const isFirstRecordForCustomer = customerSales.length === 0 && !isEditing;
 
             const payload = {
-                supplier_code: formData.supplier_code.toUpperCase(), customer_code: customerCode.toUpperCase(),
-                customer_name: formData.customer_name, item_code: formData.item_code, item_name: formData.item_name,
-                weight: parseFloat(formData.weight) || 0, price_per_kg: parseFloat(formData.price_per_kg) || 0,
-                pack_due: parseFloat(formData.pack_due) || 0, total: parseFloat(formData.total) || 0,
-                packs: parseFloat(formData.packs) || 0, given_amount: (isFirstRecordForCustomer || (isEditing && customerSales[0]?.id === editingSaleId)) ? (formData.given_amount ? parseFloat(formData.given_amount) : null) : null,
-                ...(billPrintedStatus && { bill_printed: billPrintedStatus }), ...(billNoToUse && { bill_no: billNoToUse }),
+                supplier_code: formData.supplier_code.toUpperCase(),
+                customer_code: customerCode.toUpperCase(),
+                customer_name: formData.customer_name,
+                item_code: formData.item_code,
+                item_name: formData.item_name,
+                weight: parseFloat(formData.weight) || 0,
+                price_per_kg: parseFloat(formData.price_per_kg) || 0,
+                pack_due: parseFloat(formData.pack_due) || 0,
+                total: parseFloat(formData.total) || 0,
+                packs: parseFloat(formData.packs) || 0,
+                given_amount: (isFirstRecordForCustomer || (isEditing && customerSales[0]?.id === editingSaleId))
+                    ? (formData.given_amount ? parseFloat(formData.given_amount) : null)
+                    : null,
+                ...(billPrintedStatus && { bill_printed: billPrintedStatus }),
+                ...(billNoToUse && { bill_no: billNoToUse }),
                 update_related_price: shouldUpdateRelatedPrice,
             };
 
@@ -822,15 +877,39 @@ export default function SalesEntry() {
             else if (response.data.sale) updatedSales = [response.data.sale];
             else if (response.data.data) updatedSales = [response.data.data];
             else if (response.data.id) updatedSales = [response.data];
+
             if (updatedSales.length === 0) throw new Error("Server response structure is unexpected or empty.");
 
             const updatedIds = updatedSales.map(s => s.id);
             const newAllSales = allSales.filter(s => !updatedIds.includes(s.id)).concat(updatedSales);
 
-            updateState({ allSales: newAllSales, editingSaleId: null, isManualClear: false, isSubmitting: false, packCost: 0, priceManuallyChanged: false, gridPricePerKg: "", selectedSaleForBreakdown: null });
-            setFormData(prevForm => ({ ...initialFormData, customer_code: customerCode, customer_name: prevForm.customer_name }));
+            updateState({
+                allSales: newAllSales,
+                editingSaleId: null,
+                isManualClear: false,
+                isSubmitting: false,
+                packCost: 0,
+                priceManuallyChanged: false,
+                gridPricePerKg: "",
+                selectedSaleForBreakdown: null
+            });
+
+            // Reset form but keep the customer details for the next entry
+            setFormData(prevForm => ({
+                ...initialFormData,
+                customer_code: customerCode,
+                customer_name: prevForm.customer_name
+            }));
+
+            // Move cursor back to supplier code for the next item
             refs.supplier_code.current?.focus();
-        } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message || error.toString() }, isSubmitting: false }); }
+
+        } catch (error) {
+            updateState({
+                errors: { form: error.response?.data?.message || error.message || "An error occurred" },
+                isSubmitting: false
+            });
+        }
     };
 
     const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
@@ -1010,12 +1089,12 @@ export default function SalesEntry() {
         const totalPackDueCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
 
-       
+
 
         const formattedTotalSalesExcludingPackDue = formatReceiptValue(totalSalesExcludingPackDue);
         const formattedTotalPackDueCost = formatReceiptValue(totalPackDueCost);
         const formattedTotalPrice = formatReceiptValue(totalPrice + totalPackDueCost);
-       // Ensure both are converted to numbers before addition
+        // Ensure both are converted to numbers before addition
         const totalAmountWithLoan = Math.abs(globalLoanAmount) + parseFloat(formattedTotalPrice);
         const remaining = parseFloat(givenAmount) - formattedTotalPrice;
         const formattedGivenAmount = formatReceiptValue(givenAmount);
@@ -1233,7 +1312,7 @@ export default function SalesEntry() {
                                 >
                                     {/* Left Column: Unprinted Farmers */}
                                     <div
-                                        style={{ width: "300px", height: "350px" }}
+                                        style={{ width: "300px", height: "850px" }}
                                         className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
                                     >
                                         <div className="bg-red-800 p-2 text-center font-bold">
@@ -1241,21 +1320,27 @@ export default function SalesEntry() {
                                         </div>
 
                                         <div
-                                            className="p-2 overflow-y-auto flex-grow"
-                                            style={{ minHeight: "300px" }}
+                                            className="p-2 flex-grow"
+                                            style={{
+                                                height: "calc(100% - 48px)", // Subtract the header height
+                                                overflowY: "scroll"
+                                            }}
                                         >
                                             <input
                                                 type="text"
                                                 placeholder="සොයන්න..."
                                                 className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
-                                                onChange={(e) =>
+                                                style={{ textTransform: "uppercase" }}   // 🔥 force uppercase visibly
+                                                value={searchQueries.farmerUnprinted || ""} // 🔥 maintain uppercase text
+                                                onChange={(e) => {
+                                                    const upper = e.target.value.toUpperCase();
                                                     updateState({
                                                         searchQueries: {
                                                             ...searchQueries,
-                                                            farmerUnprinted: e.target.value.toUpperCase(),
+                                                            farmerUnprinted: upper,
                                                         },
-                                                    })
-                                                }
+                                                    });
+                                                }}
                                             />
 
                                             {unprintedFarmers.length > 0 ? (
@@ -1296,8 +1381,8 @@ export default function SalesEntry() {
                                         style={{
                                             width: "300px",
                                             marginLeft: "540px",
-                                            marginTop: "-348px",
-                                            height: "350px",
+                                            marginTop: "-848px",
+                                            height: "850px",
                                         }}
                                         className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
                                     >
@@ -1306,13 +1391,14 @@ export default function SalesEntry() {
                                         </div>
 
                                         <div
-                                            className="p-2 overflow-y-auto flex-grow"
-                                            style={{ minHeight: "300px" }}
+                                            className="p-2 flex-grow"
+                                            style={{ height: "790px", overflowY: "auto" }}
                                         >
                                             <input
                                                 type="text"
                                                 placeholder="සොයන්න..."
                                                 className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
+                                                style={{ textTransform: "uppercase" }}
                                                 onChange={(e) =>
                                                     updateState({
                                                         searchQueries: {
@@ -1355,6 +1441,7 @@ export default function SalesEntry() {
                                             )}
                                         </div>
                                     </div>
+
                                 </div>
                             </div>
 
@@ -1388,7 +1475,79 @@ export default function SalesEntry() {
                                                 <input id="supplier_code" ref={refs.supplier_code} name="supplier_code" value={formData.supplier_code} onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "supplier_code")} type="text" placeholder="සැපයුම්කරු" className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full" style={{ width: "150px", backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '44px', fontSize: '1.25rem', padding: '0 1rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
                                             <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
-                                                <Select id="item_code_select" ref={refs.item_code_select} value={formData.item_code ? { value: formData.item_code, label: `${formData.item_name} ${formData.item_code}`, item: { no: formData.item_code, type: formData.item_name, pack_due: formData.pack_due } } : null} onChange={handleItemSelect} options={[...items].filter(item => !state.itemSearchInput || String(item.no).toLowerCase().startsWith(state.itemSearchInput.toLowerCase()) || String(item.type).toLowerCase().includes(state.itemSearchInput.toLowerCase())).sort((a, b) => String(a.no).localeCompare(String(b.no), undefined, { sensitivity: "base" })).map(item => ({ value: item.no, label: `${item.type} ${item.no}`, item }))} onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })} inputValue={state.itemSearchInput} onKeyDown={e => e.key !== "Enter" && handleKeyDown(e, "item_code_select")} placeholder="භාණ්ඩය" className="react-select-container font-bold text-sm w-full" styles={{ control: b => ({ ...b, height: "44px", minHeight: "44px", fontSize: "1.25rem", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }), input: b => ({ ...b, color: "black", fontSize: "1.25rem" }), singleValue: b => ({ ...b, color: "black", fontWeight: "bold", fontSize: "1.25rem" }), placeholder: b => ({ ...b, color: "#6b7280" }), option: (b, s) => ({ ...b, fontWeight: "bold", color: "black", backgroundColor: s.isFocused ? "#e5e7eb" : "white", fontSize: "1rem" }) }} />
+                                                <Select
+                                                    id="item_code_select"
+                                                    ref={refs.item_code_select}
+                                                    value={
+                                                        formData.item_code
+                                                            ? {
+                                                                value: formData.item_code,
+                                                                label: `${formData.item_code} - ${formData.item_name}`,
+                                                                item: {
+                                                                    no: formData.item_code,
+                                                                    type: formData.item_name,
+                                                                    pack_due: formData.pack_due,
+                                                                },
+                                                            }
+                                                            : null
+                                                    }
+                                                    onChange={handleItemSelect}
+                                                    options={[...items]
+                                                        .filter(
+                                                            item =>
+                                                                !state.itemSearchInput ||
+                                                                String(item.no)
+                                                                    .toLowerCase()
+                                                                    .startsWith(state.itemSearchInput.toLowerCase()) ||
+                                                                String(item.type)
+                                                                    .toLowerCase()
+                                                                    .includes(state.itemSearchInput.toLowerCase())
+                                                        )
+                                                        .sort((a, b) =>
+                                                            String(a.no)
+                                                                .toUpperCase() // ensure consistent case
+                                                                .localeCompare(String(b.no).toUpperCase())
+                                                        )
+                                                        .map(item => ({
+                                                            value: item.no,
+                                                            label: `${item.no} - ${item.type}`, // item_no - item_name
+                                                            item,
+                                                        }))}
+                                                    onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })}
+                                                    inputValue={state.itemSearchInput}
+                                                    onKeyDown={e =>
+                                                        e.key !== "Enter" && handleKeyDown(e, "item_code_select")
+                                                    }
+                                                    placeholder="භාණ්ඩය"
+                                                    className="react-select-container font-bold text-sm w-full"
+                                                    styles={{
+                                                        control: b => ({
+                                                            ...b,
+                                                            height: "44px",
+                                                            minHeight: "44px",
+                                                            fontSize: "1.25rem",
+                                                            backgroundColor: "white",
+                                                            borderColor: "#4a5568",
+                                                            borderRadius: "0.5rem",
+                                                        }),
+                                                        valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }),
+                                                        input: b => ({ ...b, color: "black", fontSize: "1.25rem" }),
+                                                        singleValue: b => ({
+                                                            ...b,
+                                                            color: "black",
+                                                            fontWeight: "bold",
+                                                            fontSize: "1.25rem",
+                                                        }),
+                                                        placeholder: b => ({ ...b, color: "#6b7280" }),
+                                                        option: (b, s) => ({
+                                                            ...b,
+                                                            fontWeight: "bold",
+                                                            color: "black",
+                                                            backgroundColor: s.isFocused ? "#e5e7eb" : "white",
+                                                            fontSize: "1rem",
+                                                        }),
+                                                    }}
+                                                />
                                             </div>
                                             {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight },
                                             { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item },
