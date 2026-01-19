@@ -1046,7 +1046,7 @@ export default function SalesEntry() {
         const fontSizeHeader = is4Inch ? '1.2em' : '1.8em';
         const fontSizeTitle = is4Inch ? '1.4em' : '2.0em';
         const fontSizeText = is4Inch ? '1.0rem' : '1.7rem';
-        const fontSizeItems = is4Inch ? '1.1em' : '1.5em';
+        const fontSizeItems = is4Inch ? '1.1em' : '1.7em';
         const fontSizeTotalLarge = is4Inch ? '1.2em' : '1.5em';
 
         let colGroups, itemHeader;
@@ -1055,7 +1055,8 @@ export default function SalesEntry() {
             itemHeader = 'වර්ගය <br> (මලු)';
         } else {
             colGroups = `<colgroup><col style="width:35%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:15%;"></colgroup>`;
-            itemHeader = 'වර්ගය <br> (මලු)';
+            itemHeader = '<span style="font-size:16px; font-weight:bold;">වර්ගය <br> (මලු)</span>';
+
         }
 
         const itemsHtml = salesData.map(s => {
@@ -1076,10 +1077,26 @@ export default function SalesEntry() {
                 <td style="text-align:right; padding:2px 4px;"></td></tr>`;
             } else {
                 return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
-                <td style="text-align:left; padding:2px 4px; white-space:nowrap;">${s.item_name || ""} <br> ${packs}</td>
-                <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
-                <td style="padding:2px 4px;"><div style="display:inline-block; margin-left:20px;">${formattedPrice}</div></td>
-                <td style="text-align:right; padding:2px 4px;"><div style="display:flex; flex-direction:column; margin-left:70px; text-align:right; align-items:flex-end;"><div style="font-size:0.9em;">${s.supplier_code || ""}</div><div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div></div></td>
+               <td style="text-align:left; padding:2px 4px; white-space:normal; word-wrap:break-word; max-width:120px;">
+    ${s.item_name || ""}<br>${packs}
+</td>
+
+                <td style="padding:2px 4px; vertical-align: top;">
+  <div style="display:inline-block; margin-left:-10px; margin-top:5px;">${formattedWeight}</div>
+</td>
+
+
+                <td style="padding:2px 4px; vertical-align: top;">
+  <div style="display:inline-block; margin-left:20px; margin-top:5px;">${formattedPrice}</div>
+</td>
+
+                <td style="text-align:right; padding:2px 4px; vertical-align: top;">
+  <div style="display:flex; flex-direction:column; margin-left:89px; margin-top:3px; text-align:right; align-items:flex-end;">
+    <div style="font-size:0.9em;">${s.supplier_code || ""}</div>
+    <div style="font-size:0.9em; margin-top:2px;">${formattedValue}</div>
+  </div>
+</td>
+
                 <td style="text-align:right; padding:2px 4px;"></td></tr>`;
             }
         }).join("");
@@ -1102,11 +1119,11 @@ export default function SalesEntry() {
         const formattedGlobalLoanAmount = formatReceiptValue(Math.abs(globalLoanAmount));
         const formattedTotalAmountWithLoan = formatReceiptValue(Math.abs(totalAmountWithLoan));
 
-        const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.75rem;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.8rem;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
+        const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.9rem;font-weight:bold;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.9rem;font-weight:bold;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
         const loanRow = globalLoanAmount !== 0 ?
             `<tr>
-        <td style="font-size:12px; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td>
-        <td style="font-weight:bold; text-align:right; font-size:12px; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td>
+        <td style="font-size:17px; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td>
+        <td style="font-weight:bold; text-align:right; font-size:17px; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td>
         </tr>`
             : '';
         const formatSmartValue = (value) => {
@@ -1131,7 +1148,7 @@ export default function SalesEntry() {
 
         const itemSummaryHtml = `<div style="margin-top: 10px; text-align: center; font-size: 12px; text-transform: lowercase;">${summaryHtmlContent}</div>`;
 
-        return `<div class="receipt-container" style="width:90%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;">
+        return `<div class="receipt-container" style="width:90%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;font-size:12px;">
      <div style="margin-bottom:5px; border-bottom:1px solid #000;">
    <h3 style="text-align:center; font-size:15px; font-weight:bold; margin:0 0 5px 0;">මංජු සහ සහෝදරයෝ</h3>
       <h3 style="text-align:center; font-size:12px; font-weight:bold; margin:0 0 5px 0;">colombage lanka (Pvt) Ltd</h3>
@@ -1151,11 +1168,13 @@ export default function SalesEntry() {
     </div>
     <hr style="border:1px solid #000; margin:5px 0;">
     <table style="width:100%; font-size:${is4Inch ? '10px' : '9px'}; border-collapse:collapse; table-layout:fixed;">${colGroups}<thead><tr style="border-bottom:1px solid #000;">
-    ${is4Inch ? `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.1em;"><span style="display:inline-block; margin-left:50px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.1em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:100px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.1em;"></th>` : `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.2em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.2em;"><span style="display:inline-block; margin-left:30px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.2em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:80px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.2em;"></th>`}</tr></thead>
-    <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="3" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><div style="display:flex; flex-direction:column; align-items:flex-end;"><div style="font-size:0.9em;"></div></div></td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><span style="display:inline-block; transform: translateX(-20px);">${formattedTotalSalesExcludingPackDue}</span></td></tr></tbody></table>
+    ${is4Inch ? `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.1em;"><span style="display:inline-block; margin-left:50px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.1em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:100px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.1em;"></th>` : `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.7em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.7em;"><span style="display:inline-block; margin-left:30px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.7em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:83px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.2em;"></th>`}</tr></thead>
+    <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="3" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><div style="display:flex; flex-direction:column; align-items:flex-end;"><div style="font-size:0.9em;"></div></div></td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><span style="display:inline-block; transform: translateX(-48px);">${formattedTotalSalesExcludingPackDue}</span></td></tr></tbody></table>
     <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr></tr>
-    <tr><td style="text-align:left; padding:2px 0;">මලු:</td><td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
-    <tr><td style="text-align:left; padding:2px 0;">එකතුව:</td><td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
+    <tr><td style="text-align:left; padding:2px 0; font-size:14px; font-weight:bold;">මලු:</td>
+<td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
+    <tr><td style="text-align:left; font-size:16px; font-weight:bold; padding:2px 0;">එකතුව:</td>
+ <td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
     ${itemSummaryHtml}
     <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
     };
@@ -1474,81 +1493,85 @@ export default function SalesEntry() {
                                             <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
                                                 <input id="supplier_code" ref={refs.supplier_code} name="supplier_code" value={formData.supplier_code} onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "supplier_code")} type="text" placeholder="සැපයුම්කරු" className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full" style={{ width: "150px", backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '44px', fontSize: '1.25rem', padding: '0 1rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
-                                            <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
-                                                <Select
-                                                    id="item_code_select"
-                                                    ref={refs.item_code_select}
-                                                    value={
-                                                        formData.item_code
-                                                            ? {
-                                                                value: formData.item_code,
-                                                                label: `${formData.item_code} - ${formData.item_name}`,
-                                                                item: {
-                                                                    no: formData.item_code,
-                                                                    type: formData.item_name,
-                                                                    pack_due: formData.pack_due,
-                                                                },
-                                                            }
-                                                            : null
-                                                    }
-                                                    onChange={handleItemSelect}
-                                                    options={[...items]
-                                                        .filter(
-                                                            item =>
-                                                                !state.itemSearchInput ||
-                                                                String(item.no)
-                                                                    .toLowerCase()
-                                                                    .startsWith(state.itemSearchInput.toLowerCase()) ||
-                                                                String(item.type)
-                                                                    .toLowerCase()
-                                                                    .includes(state.itemSearchInput.toLowerCase())
-                                                        )
-                                                        .sort((a, b) =>
-                                                            String(a.no)
-                                                                .toUpperCase() // ensure consistent case
-                                                                .localeCompare(String(b.no).toUpperCase())
-                                                        )
-                                                        .map(item => ({
-                                                            value: item.no,
-                                                            label: `${item.no} - ${item.type}`, // item_no - item_name
-                                                            item,
-                                                        }))}
-                                                    onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })}
-                                                    inputValue={state.itemSearchInput}
-                                                    onKeyDown={e =>
-                                                        e.key !== "Enter" && handleKeyDown(e, "item_code_select")
-                                                    }
-                                                    placeholder="භාණ්ඩය"
-                                                    className="react-select-container font-bold text-sm w-full"
-                                                    styles={{
-                                                        control: b => ({
-                                                            ...b,
-                                                            height: "44px",
-                                                            minHeight: "44px",
-                                                            fontSize: "1.25rem",
-                                                            backgroundColor: "white",
-                                                            borderColor: "#4a5568",
-                                                            borderRadius: "0.5rem",
-                                                        }),
-                                                        valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }),
-                                                        input: b => ({ ...b, color: "black", fontSize: "1.25rem" }),
-                                                        singleValue: b => ({
-                                                            ...b,
-                                                            color: "black",
-                                                            fontWeight: "bold",
-                                                            fontSize: "1.25rem",
-                                                        }),
-                                                        placeholder: b => ({ ...b, color: "#6b7280" }),
-                                                        option: (b, s) => ({
-                                                            ...b,
-                                                            fontWeight: "bold",
-                                                            color: "black",
-                                                            backgroundColor: s.isFocused ? "#e5e7eb" : "white",
-                                                            fontSize: "1rem",
-                                                        }),
-                                                    }}
-                                                />
-                                            </div>
+                                           <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
+  <Select
+    id="item_code_select"
+    ref={refs.item_code_select}
+    value={
+      formData.item_code
+        ? {
+            value: formData.item_code,
+            label: `${formData.item_code} - ${formData.item_name}`,
+            item: {
+              no: formData.item_code,
+              type: formData.item_name,
+              pack_due: formData.pack_due,
+            },
+          }
+        : null
+    }
+    onChange={handleItemSelect}
+    options={[...items]
+      .filter(item => {
+        if (!state.itemSearchInput) return true;
+        const input = state.itemSearchInput.toUpperCase();
+        const itemNo = String(item.no).toUpperCase();
+        // Only show items whose item_no starts with the typed input
+        return itemNo.startsWith(input);
+      })
+      .sort((a, b) => {
+        const isANumeric = !isNaN(a.no);
+        const isBNumeric = !isNaN(b.no);
+
+        // Push numeric item numbers to the end
+        if (isANumeric && !isBNumeric) return 1;
+        if (!isANumeric && isBNumeric) return -1;
+
+        // Otherwise, sort alphabetically by item.no
+        return String(a.no).toUpperCase().localeCompare(String(b.no).toUpperCase());
+      })
+      .map(item => ({
+        value: item.no,
+        label: `${item.no} - ${item.type}`,
+        item,
+      }))}
+    onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })}
+    inputValue={state.itemSearchInput}
+    onKeyDown={e =>
+      e.key !== "Enter" && handleKeyDown(e, "item_code_select")
+    }
+    placeholder="භාණ්ඩය"
+    className="react-select-container font-bold text-sm w-full"
+    styles={{
+      control: b => ({
+        ...b,
+        height: "44px",
+        minHeight: "44px",
+        fontSize: "1.25rem",
+        backgroundColor: "white",
+        borderColor: "#4a5568",
+        borderRadius: "0.5rem",
+      }),
+      valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }),
+      input: b => ({ ...b, color: "black", fontSize: "1.25rem" }),
+      singleValue: b => ({
+        ...b,
+        color: "black",
+        fontWeight: "bold",
+        fontSize: "1.25rem",
+      }),
+      placeholder: b => ({ ...b, color: "#6b7280" }),
+      option: (b, s) => ({
+        ...b,
+        fontWeight: "bold",
+        color: "black",
+        backgroundColor: s.isFocused ? "#e5e7eb" : "white",
+        fontSize: "1rem",
+      }),
+    }}
+  />
+</div>
+
                                             {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight },
                                             { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item },
                                             { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs },
@@ -1579,23 +1602,7 @@ export default function SalesEntry() {
                                         className="flex items-center space-x-3 overflow-x-auto whitespace-nowrap"
                                         style={{ marginTop: "-75px" }}  // adjust value as needed
                                     >
-
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                if (refs.given_amount.current) {
-                                                    refs.given_amount.current.focus();
-                                                    refs.given_amount.current.select(); // Selects text so user can just start typing
-                                                }
-                                            }}
-                                            disabled={state.isPrinting || displayedSales.length === 0}
-                                            className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${state.isPrinting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}
-                                            style={{ backgroundColor: '#059669', color: 'white' }}
-                                        >
-                                            {state.isPrinting ? 'Printing...' : 'F1-මුද්‍රණය'}
-                                        </button>
-                                        <button type="button" onClick={handleMarkAllProcessed} disabled={selectedPrintedCustomer} className={`px-4 py-1 text-sm font-bold rounded-xl shadow transition ${selectedPrintedCustomer ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`} style={!selectedPrintedCustomer ? { backgroundColor: '#2563eb', color: 'white' } : { color: 'white' }}>F5-පසුව මුද්‍රණය</button>
-                                        <div style={{ marginLeft: '660px', marginTop: '-25px' }}><input id="given_amount" ref={refs.given_amount} name="given_amount" type="number" value={formData.given_amount} onChange={(e) => handleInputChange('given_amount', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: '180px' }} /></div>
+                                        <div style={{ marginLeft: '660px', marginTop: '-2px' }}><input id="given_amount" ref={refs.given_amount} name="given_amount" type="number" value={formData.given_amount} onChange={(e) => handleInputChange('given_amount', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: '180px' }} /></div>
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
                                     <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>

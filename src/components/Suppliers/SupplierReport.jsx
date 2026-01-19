@@ -341,7 +341,7 @@ const SupplierReport = () => {
         `;
             } else {
                 return `
-            <tr style="border-bottom:1px solid #eee;">
+           <tr style="border-bottom:1px solid #eee; font-weight:bold; font-size:0.9rem;">
                 <td style="
                     text-align:left;
                     padding:2px 4px;
@@ -384,7 +384,7 @@ const SupplierReport = () => {
                         display:inline-block;
                         width:90px;
                         text-align:right;
-                        margin-left:50px;
+                        margin-left:55px;
                     ">
                         ${formatNumber(SupplierTotal, 2)}
                     </span>
@@ -409,7 +409,7 @@ const SupplierReport = () => {
         const fontSizeTitle = is4mm ? '1.5em' : '1.6em';
         const fontSizeTable = is4mm ? '12px' : '11px';
         const fontSizeTotal = is4mm ? '9px' : '10px';
-        const fontSizeHeaderRow = is4mm ? '0.9em' : '1em';
+        const fontSizeHeaderRow = is4mm ? '0.9em' : '1.3em';
         const maxWidth = is4mm ? '320px' : '300px';
         const mainCustomerCode = supplierDetails[0]?.customer_code?.toUpperCase() || '';
 
@@ -512,7 +512,7 @@ const SupplierReport = () => {
         <th style="padding:2px 3px;">
             <span style="
                 display:inline-block;
-                ${is4mm ? 'margin-left:20px;' : 'margin-left:70px;'}
+                ${is4mm ? 'margin-left:20px;' : 'margin-left:79px;'}
             ">
                 මිල
             </span>
@@ -536,14 +536,14 @@ const SupplierReport = () => {
             ${detailedItemsHtml}
 
             <!-- TOTAL ROW -->
-            <tr>
+            <tr style="font-weight:bold; font-size:0.9rem;">
                 <td colspan="2"
                     style="text-align:left; padding:3px; padding-left:${is4mm ? '85px' : '4px'}; font-weight:bold;">
                     ${totalPacksSum}
                 </td>
 
                 <td colspan="3" style="text-align:right; padding:3px; font-weight:bold;">
-                    <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm ? '120px' : '150px'};">
+                    <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm ? '120px' : '130px'};">
                         ${formatNumber(totalsupplierSales, 2)}
                     </span>
                 </td>
@@ -554,7 +554,7 @@ const SupplierReport = () => {
     <!-- TOTAL SUMMARY -->
     <table style="width:100%; font-size:${fontSizeTotal}; border-collapse:collapse; margin-top:4px;">
         <tr>
-            <td style="text-align:left; padding:1px 0;">අගය:</td>
+           <td style="text-align:left; padding:1px 0; font-size:14px; font-weight:bold;">අගය:</td>
             <td style="text-align:right; padding:1px 0;">
                 <span style="
                     display:inline-block;
@@ -562,7 +562,7 @@ const SupplierReport = () => {
                     border-bottom:2px double #000;
                     padding:2px 4px;
                     font-weight:bold;
-                    font-size:${is4mm ? '1em' : '1.1em'};
+                    font-size:${is4mm ? '1em' : '1.3em'};
                     transform:${is4mm ? 'translateX(-35px)' : 'none'};
                 ">
                     ${totalsupplierSales.toFixed(2)}
@@ -813,7 +813,7 @@ const SupplierReport = () => {
     // --- ALWAYS DISPLAYED DETAILS PANEL ---
     const renderDetailsPanel = () => {
         const panelContainerStyle = {
-            backgroundColor: '#1869e4',
+            backgroundColor: '#091d3d',
             padding: '30px',
             borderRadius: '12px',
             maxWidth: '100%',
@@ -988,7 +988,7 @@ const SupplierReport = () => {
         return (
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
-                    <h2 style={{ fontSize: "1.5rem", color: "black" }}>
+                   <h2 style={{ fontSize: "1.5rem", color: "white" }}>
                         ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo}</strong>)
                     </h2>
 
@@ -1176,10 +1176,10 @@ const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45p
 const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-95px', marginLeft: '0' };
 const centerPanelContainerStyle = { flex: '3', minWidth: '700px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' };
 const baseSectionStyle = { padding: '25px 0 25px 0', borderRadius: '12px', boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 210px)' };
-const printedSectionStyle = { ...baseSectionStyle, backgroundColor: '#E6FFE6', borderLeft: '5px solid #1E88E5', minHeight: '550px' };
-const unprintedSectionStyle = { ...baseSectionStyle, backgroundColor: '#FFEBE6', borderLeft: '5px solid #FF7043', minHeight: '550px' };
-const printedHeaderStyle = { color: '#1E88E5', borderBottom: '2px solid #1E88E530', flexShrink: 0, fontSize: '1.3rem' };
-const unprintedHeaderStyle = { color: '#FF7043', borderBottom: '2px solid #FF704330', flexShrink: 0, fontSize: '1.3rem' };
+const printedSectionStyle = { ...baseSectionStyle, backgroundColor: '#1ec139ff', borderLeft: '5px solid #FFFFFF', minHeight: '550px' };
+const unprintedSectionStyle = { ...baseSectionStyle, backgroundColor: '#1ec139ff', borderLeft: '5px solid #FFFFFF', minHeight: '550px' };
+const printedHeaderStyle = { color: '#07090ae6', borderBottom: '2px solid #1E88E530', flexShrink: 0, fontSize: '1.3rem' };
+const unprintedHeaderStyle = { color: '#07090ae6', borderBottom: '2px solid #FF704330', flexShrink: 0, fontSize: '1.3rem' };
 const listContainerStyle = { display: 'flex', flexDirection: 'column', gap: '0px', marginTop: '5px', overflowY: 'auto', padding: '0 5px 0 5px', flexGrow: 1, height: '900px' };
 const loadingStyle = { textAlign: 'center', padding: '50px', fontSize: '1.5rem', color: '#1E88E5', backgroundColor: '#99ff99' };
 
