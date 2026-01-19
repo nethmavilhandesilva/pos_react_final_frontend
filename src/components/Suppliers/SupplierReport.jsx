@@ -1101,7 +1101,7 @@ const SupplierReport = () => {
         padding: '90px 50px 50px 50px',
         fontFamily: 'Roboto, Arial, sans-serif',
         boxSizing: 'border-box',
-        backgroundColor: '#99ff99',
+        backgroundColor: '#1ec139ff',
     };
 
     if (isLoading) return <div style={loadingStyle}>Loading Supplier Report...</div>;
@@ -1169,11 +1169,11 @@ const SupplierReport = () => {
 
 // --- STYLES ---
 
-const headerContainerStyle = { padding: '40px 0 30px 0', borderBottom: '1px solid #E0E0E0', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', backgroundColor: '#99ff99' };
+const headerContainerStyle = { padding: '40px 0 30px 0', borderBottom: '1px solid #E0E0E0', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', backgroundColor: '#1ec139ff' };
 const searchBarStyle = { width: '100%', fontSize: '1rem', borderRadius: '6px', border: '1px solid #E0E0E0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', boxSizing: 'border-box', backgroundColor: 'white' };
 const sectionsContainerStyle = { display: 'flex', justifyContent: 'space-between', gap: '20px' };
-const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45px', marginTop: '-95px' };
-const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-95px', marginLeft: '0' };
+const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45px', marginTop: '-95px',border: '2px solid black' };
+const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-95px', marginLeft: '0',border: '2px solid black' };
 const centerPanelContainerStyle = { flex: '3', minWidth: '700px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' };
 const baseSectionStyle = { padding: '25px 0 25px 0', borderRadius: '12px', boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 210px)' };
 const printedSectionStyle = { ...baseSectionStyle, backgroundColor: '#1ec139ff', borderLeft: '5px solid #FFFFFF', minHeight: '550px' };
@@ -1181,6 +1181,6 @@ const unprintedSectionStyle = { ...baseSectionStyle, backgroundColor: '#1ec139ff
 const printedHeaderStyle = { color: '#07090ae6', borderBottom: '2px solid #1E88E530', flexShrink: 0, fontSize: '1.3rem' };
 const unprintedHeaderStyle = { color: '#07090ae6', borderBottom: '2px solid #FF704330', flexShrink: 0, fontSize: '1.3rem' };
 const listContainerStyle = { display: 'flex', flexDirection: 'column', gap: '0px', marginTop: '5px', overflowY: 'auto', padding: '0 5px 0 5px', flexGrow: 1, height: '900px' };
-const loadingStyle = { textAlign: 'center', padding: '50px', fontSize: '1.5rem', color: '#1E88E5', backgroundColor: '#99ff99' };
+const loadingStyle = { textAlign: 'center', padding: '50px', fontSize: '1.5rem', color: '#1E88E5', backgroundColor: '#1ec139ff' };
 
 export default SupplierReport;

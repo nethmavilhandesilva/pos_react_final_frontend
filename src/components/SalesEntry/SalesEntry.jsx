@@ -1469,7 +1469,7 @@ export default function SalesEntry() {
                                 <div className="flex-shrink-0">
                                     <form onSubmit={handleSubmit} className="space-y-4">
                                         <div className="w-full flex justify-between items-center">
-                                            <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.35rem' }}>Bill No: {currentBillNo}</div>
+                                            <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.35rem' }}>බිල් අං: {currentBillNo}</div>
                                             <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "550px", marginTop: "-30px", fontSize: '1.15rem' }}>මුළු විකුණුම්: Rs. {formatDecimal(totalSalesValue)}</div>
                                         </div>
                                         <div className="flex items-end gap-3 w-full">

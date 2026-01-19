@@ -33,11 +33,11 @@ const SupplierReport = () => {
                 marginLeft: '260px', // Matches sidebar width
                 padding: '30px', 
                 width: '100%', 
-                backgroundColor: '#f8f9fa', 
+                backgroundColor: '#1ec139ff', 
                 minHeight: '100vh' 
             }}>
                 <div className="d-flex justify-content-between align-items-center mb-4">
-                    <h2 className="fw-bold text-dark">සැපයුම්කරු අනුව වාර්තාව (Supplier-Wise Report)</h2>
+                    <h2 className="fw-bold text-dark">සැපයුම්කරු අනුව වාර්තාව</h2>
                     <button className="btn btn-success shadow-sm" onClick={() => window.print()}>
                         <i className="material-icons align-middle me-1">print</i> වාර්තාව මුද්‍රණය කරන්න
                     </button>
@@ -58,7 +58,7 @@ const SupplierReport = () => {
                                     <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center py-3">
                                         <h5 className="mb-0 fw-bold">
                                             <i className="material-icons align-middle me-2">local_shipping</i>
-                                            සැපයුම්කරු (Supplier): {code}
+                                            සැපයුම්කරු: {code}
                                         </h5>
                                         <span className="badge bg-white text-primary">වාර්තා ගණන: {groupedSales[code].length}</span>
                                     </div>

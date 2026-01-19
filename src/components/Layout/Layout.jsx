@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../../api';
 import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
@@ -13,6 +13,7 @@ import DayProcessModal from '../Modals/DayProcessModal';
 
 const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const location = useLocation();
+    const navigate = useNavigate(); // Added useNavigate hook
 
     // === Modal States ===
     const [isItemReportModalOpen, setIsItemReportModalOpen] = useState(false);
@@ -88,6 +89,11 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         window.location.href = '/supplier-profit';
     };
 
+    // NEW: Handler for Supplier Report button
+    const handleSupplierReportClick = () => {
+        navigate('/reports/supplier');
+    };
+
     const isSalesEntryPage = location.pathname === '/sales' || location.pathname === '/sales-entry';
     const navTextBtn = {
         background: "none",
@@ -147,7 +153,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 className="btn btn-outline-success btn-sm mx-1"
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                             >
-
                                 ණය දීම/ගැනීම
                             </Link>
 
@@ -156,7 +161,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 className="btn btn-outline-success btn-sm mx-1"
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                             >
-
                                 සැපයුම්කරු බිල්පත්
                             </Link>
 
@@ -166,7 +170,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 style={{ fontWeight: 'bold', color: '#fff' }}
                                 onClick={openDayProcessModal}
                             >
-
                                 දින අවසාන ක්‍රියාවලිය
                             </button>
                         </div>
@@ -207,51 +210,54 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             </main>
 
             {/* === Bottom Nav with Password Protection === */}
-            <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
-                <div className="container-fluid d-flex justify-content-start align-items-center">
-                    {/* Password Input on the Left */}
-                    <input
-                        type="password"
-                        placeholder="Enter password"
-                        value={bottomPassword}
-                        onChange={handleBottomPasswordChange}
-                        className="form-control form-control-sm me-3"
-                        style={{
-                            width: '100px',
-                            backgroundColor: '#003300',
-                            color: '#fff',
-                            border: '1px solid #66bb6a'
-                        }}
-                    />
+         <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
+    <div className="container-fluid d-flex justify-content-start align-items-center">
+        {/* Password Input on the Left */}
+        <input
+            type="password"
+            placeholder="Enter password"
+            value={bottomPassword}
+            onChange={handleBottomPasswordChange}
+            className="form-control form-control-sm me-3"
+            style={{
+                width: '100px',
+                backgroundColor: '#003300',
+                color: '#fff',
+                border: '1px solid #66bb6a'
+            }}
+        />
 
-                    {/* Bottom Buttons */}
-                    {[
-                        { label: 'එළවළු', onClick: openItemReportModal },
-                        { label: 'බර මත', onClick: openWeightReportModal },
-                        { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
-                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
-                        { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
-                        { label: 'සැපයුම්කරු ලාභ වාර්තාව', onClick: handleProfitReportClick }
-                    ].map((btn, idx) => (
-                        <button
-                            key={idx}
-                            type="button"
-                            onClick={btn.onClick}
-                            style={{
-                                ...navTextBtn,
-                                fontSize: '16px',        // 🔹 increase font size (try 17px / 18px if needed)
-                                fontWeight: '700',       // 🔹 bold text
-                                letterSpacing: '0.5px',  // 🔹 nicer Sinhala spacing
-                                opacity: isBottomUnlocked ? 1 : 0.4,
-                                pointerEvents: isBottomUnlocked ? 'auto' : 'none',
-                                marginRight: '20px'      // gap between buttons
-                            }}
-                        >
-                            {btn.label}
-                        </button>
-                    ))}
-                </div>
-            </nav>
+        {/* Bottom Buttons */}
+        {[
+            { label: 'එළවළු', onClick: openItemReportModal },
+            { label: 'බර මත', onClick: openWeightReportModal },
+            { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
+            { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
+            { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
+            { label: 'සැපයුම්කරු ලාභ ', onClick: handleProfitReportClick },
+            // NEW: Added Supplier Report button
+            { label: 'සැපයුම්කර වාර්තාව', onClick: handleSupplierReportClick }
+        ].map((btn, idx) => (
+            <button
+                key={idx}
+                type="button"
+                onClick={btn.onClick}
+                style={{
+                    ...navTextBtn,
+                    fontSize: '16px',
+                    fontWeight: '700',
+                    letterSpacing: '0.5px',
+                    opacity: isBottomUnlocked ? 1 : 0.4,
+                    pointerEvents: isBottomUnlocked ? 'auto' : 'none',
+                    marginRight: '20px',  // Reduced from 20px to 10px
+                    marginLeft: idx === 0 ? '0' : '0'  // Ensure first button has no left margin
+                }}
+            >
+                {btn.label}
+            </button>
+        ))}
+    </div>
+</nav>
             {/* Modals */}
             <ItemReportModal isOpen={isItemReportModalOpen} onClose={closeItemReportModal} onGenerateReport={() => { }} loading={false} />
             <WeightReportModal isOpen={isWeightReportModalOpen} onClose={closeWeightReportModal} />
