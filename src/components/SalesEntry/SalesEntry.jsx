@@ -388,21 +388,24 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
 
     return (
         <div className="flex flex-row flex-nowrap items-center justify-between w-full p-2 mt-2 rounded-xl border-2 border-blue-500 bg-gray-900 text-white font-bold shadow-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-3 border-r border-gray-700 flex-1 justify-center">
+            <div className="flex items-center gap-4 px-3 border-r border-gray-700 flex-1 justify-center">
                 <span className="text-gray-400 uppercase text-[10px] whitespace-nowrap">එකතුව:</span>
-                <span className="text-white text-sm whitespace-nowrap">Rs.{formatDecimal(totals.billTotal)}</span>
+               <span className="text-white text-sm whitespace-nowrap" style={{ marginLeft: '6px' }}>
+    {formatDecimal(totals.billTotal)}
+</span>
+
             </div>
             <div className="flex items-center gap-2 px-3 border-r border-gray-700 flex-1 justify-center" style={{ marginLeft: '20px', transform: 'translateY(-24px)' }}>
                 <span className="text-gray-400 uppercase text-[10px] whitespace-nowrap" style={{ marginLeft: '140px' }}>බෑග් මිල:</span>
-                <span className="text-white text-sm whitespace-nowrap" style={{ marginLeft: '5px' }}>Rs.{formatDecimal(totals.totalBagPrice)}</span>
+                <span className="text-white text-sm whitespace-nowrap" style={{ marginLeft: '6px' }}>{formatDecimal(totals.totalBagPrice)}</span>
             </div>
             <div className="flex flex-row items-center whitespace-nowrap px-4 border-r border-gray-700 h-full ml-auto" style={{ transform: 'translateY(-48px)' }}>
                 <span className="text-gray-400 uppercase text-[10px] mr-2" style={{ marginLeft: '310px' }}>කාම්කරු:</span>
-                <span className="font-bold text-sm" style={{ marginLeft: '5px' }}>Rs.{formatDecimal(totals.totalLabour)}</span>
+                <span className="font-bold text-sm" style={{ marginLeft: '6px' }}>{formatDecimal(totals.totalLabour)}</span>
             </div>
             <div className="flex flex-row items-center whitespace-nowrap px-4 border-r border-gray-700 h-full ml-auto" style={{ transform: 'translateY(-72px)' }}>
                 <span className="text-gray-400 uppercase text-[10px] mr-2" style={{ marginLeft: '480px' }}>ගෙවිය:</span>
-                <span className="font-bold text-sm text-yellow-400" style={{ marginLeft: '5px' }}>Rs.{formatDecimal(finalPayable)}</span>
+                <span className="font-bold text-sm text-yellow-400" style={{ marginLeft: '6px' }}>{formatDecimal(finalPayable)}</span>
             </div>
         </div>
     );
@@ -511,7 +514,13 @@ export default function SalesEntry() {
         return "";
     }, [selectedPrintedCustomer, printedSales]);
 
-    const formatDecimal = (val) => (Number.isFinite(parseFloat(val)) ? parseFloat(val).toFixed(2) : "0.00");
+    const formatDecimal = (value) => {
+    return new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(Number(value || 0));
+};
+
 
     const fetchLoanAmount = async (customerCode) => {
         if (!customerCode) return updateState({ loanAmount: 0 });
@@ -1612,7 +1621,11 @@ export default function SalesEntry() {
                                         className="flex items-center space-x-3 overflow-x-auto whitespace-nowrap"
                                         style={{ marginTop: "-75px" }}  // adjust value as needed
                                     >
-                                        <div style={{ marginLeft: '660px', marginTop: '-2px' }}><input id="given_amount" ref={refs.given_amount} name="given_amount" type="number" value={formData.given_amount} onChange={(e) => handleInputChange('given_amount', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: '180px' }} /></div>
+                                      <div style={{ marginLeft: '660px', marginTop: '-2px' }}>
+ <input id="given_amount" ref={refs.given_amount} name="given_amount" type="text" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
+
+</div>
+
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
                                     <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
