@@ -1,6 +1,4 @@
 // src/components/SupplierDetailsPanel.jsx
-// This component is based on SupplierDetailsModal but adjusted for inline embedding.
-
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import api from '../../api';
 

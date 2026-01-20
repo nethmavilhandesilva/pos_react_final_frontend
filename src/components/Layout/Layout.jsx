@@ -249,7 +249,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                     letterSpacing: '0.5px',
                     opacity: isBottomUnlocked ? 1 : 0.4,
                     pointerEvents: isBottomUnlocked ? 'auto' : 'none',
-                    marginRight: '20px',  // Reduced from 20px to 10px
+                    marginRight: '35px',  // Reduced from 20px to 10px
                     marginLeft: idx === 0 ? '0' : '0'  // Ensure first button has no left margin
                 }}
             >

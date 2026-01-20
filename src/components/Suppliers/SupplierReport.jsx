@@ -209,387 +209,152 @@ const SupplierReport = () => {
         };
     }, [supplierDetails]);
 
-    // --- BILL CONTENT GENERATION (UPDATED WITH PROPER ALIGNMENT AND SEPARATE MALU COLUMN) ---
-    const getBillContent = useCallback((currentBillNo) => {
-        const date = new Date().toLocaleDateString('si-LK');
-        const time = new Date().toLocaleTimeString('si-LK');
-        const mobile = '071XXXXXXX';
-        const totalPackDueCost = totalSupplierPackCost;
-        const finaltotal = totalsupplierSales + totalPackDueCost;
+    // --- SUPPLIER BILL CONTENT GENERATION (PERFECTLY ALIGNED) ---
+const getBillContent = useCallback((currentBillNo) => {
+    const date = new Date().toLocaleDateString('si-LK');
+    const time = new Date().toLocaleTimeString('si-LK');
+    const mobile = '0777672838 / 071437115';
+    
+    // Unified Width & Font sizing (matching the previous successful bill)
+    const is4Inch = billSize === '4inch';
+    const receiptMaxWidth = is4Inch ? '4in' : '350px'; 
+    
+    const fontSizeBody = '19px'; 
+    const fontSizeHeader = '19px';
+    const fontSizeTotal = '20px';
 
-        const is4mm = billSize === '4mm';
+    // Standardized 4-column structure
+    const colGroups = `
+        <colgroup>
+            <col style="width:32%;"> 
+            <col style="width:21%;">
+            <col style="width:21%;">
+            <col style="width:26%;">
+        </colgroup>`;
 
-        // Define column widths based on bill size - NOW 6 COLUMNS
-        let colGroups, itemHeader, columnCount;
-        if (is4mm) {
-            colGroups = `
-                <colgroup>
-                    <col style="width:25%;">
-                    <col style="width:10%;">
-                    <col style="width:15%;">
-                    <col style="width:15%;">
-                    <col style="width:15%;">
-                    <col style="width:20%;">
-                </colgroup>
-            `;
-            itemHeader = 'වර්ගය';
-            columnCount = 6;
-        } else {
-            colGroups = `
-                <colgroup>
-                    <col style="width:20%;">
-                    <col style="width:10%;">
-                    <col style="width:15%;">
-                    <col style="width:15%;">
-                    <col style="width:15%;">
-                    <col style="width:25%;">
-                </colgroup>
-            `;
-            itemHeader = 'වර්ගය';
-            columnCount = 6;
-        }
+    const formatNumber = (value, maxDecimals = 3) => {
+        if (Number.isInteger(value)) return value.toString();
+        return value.toFixed(maxDecimals).replace(/\.?0+$/, '');
+    };
 
-        const itemSummaryKeys = Object.keys(itemSummaryData);
-
-        const itemSummaryHtml = itemSummaryKeys
-            .reduce((rows, itemName, index) => {
-                if (index % 2 === 0) rows.push([]);
-                rows[rows.length - 1].push(itemName);
-                return rows;
-            }, [])
-            .map(itemGroup => `
-        <tr style="font-size:10px;">
-            <td style="width:50%; padding:2px; text-align:left; white-space:nowrap;">
-                ${itemGroup[0]
-                    ? `${itemGroup[0]} (${itemSummaryData[itemGroup[0]].totalPacks}/${itemSummaryData[itemGroup[0]].totalWeight.toFixed(3)}kg)`
-                    : ''}
-            </td>
-            <td style="width:50%; padding:2px; text-align:right; white-space:nowrap;">
-                ${itemGroup[1]
-                    ? `${itemGroup[1]} (${itemSummaryData[itemGroup[1]].totalPacks}/${itemSummaryData[itemGroup[1]].totalWeight.toFixed(3)}kg)`
-                    : ''}
-            </td>
-        </tr>
-    `)
-            .join('');
-        const formatNumber = (value, maxDecimals = 3) => {
-            if (Number.isInteger(value)) {
-                return value.toString();
-            }
-            return value
-                .toFixed(maxDecimals)
-                .replace(/\.?0+$/, ''); // remove trailing zeros
-        };
-
-
-        // Detailed Items HTML with bill size support - NOW 6 COLUMNS
-        const detailedItemsHtml = supplierDetails.map(record => {
-            const weight = parseFloat(record.weight) || 0;
-            const packs = parseInt(record.packs) || 0;
-            const SupplierPricePerKg = parseFloat(record.SupplierPricePerKg) || 0;
-            const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
-            const itemName = record.item_name || 'Unknown Item';
-            const customerCode = record.customer_code?.toUpperCase() || '';
-
-            if (is4mm) {
-                return `
-            <tr style="border-bottom:1px solid #eee;">
-                <td style="text-align:left; padding:2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                    <strong>
-                        <span style="white-space:nowrap;">
-                            ${itemName}
-                        </span>
-                        
-                    </strong>
-                </td>
-                 <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                    <span style="display:inline-block; margin-left:10px;">
-                          ${packs}
-                    </span>
-                </td>
-
-                <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                    <span style="display:inline-block; margin-left:20px;">
-                        ${formatNumber(weight, 3)}
-                    </span>
-                </td>
-
-                <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                    <span style="display:inline-block; margin-left:25px;">
-                        ${formatNumber(SupplierPricePerKg, 2)}
-                    </span>
-                </td>
-                <td style="text-align:left; padding:15px 4px 2px 4px; border-bottom:1px solid #eee; vertical-align:top;">
-                    <span style="display:inline-block; margin-left:30px;">
-                        ${formatNumber(SupplierTotal, 2)}
-                    </span>
-                </td>
-
-
-                <td style="
-                    text-align:right;
-                    padding:2px 4px;
-                    border-bottom:1px solid #eee;
-                   
-                    font-size:0.8em;
-                ">
-                    <span style="display:inline-block; margin-left:40px; white-space:nowrap;">
-                        ${customerCode}
-                    </span>
-                </td>
-            </tr>
-        `;
-            } else {
-                return `
-           <tr style="border-bottom:1px solid #eee; font-weight:bold; font-size:0.9rem;">
-                <td style="
-                    text-align:left;
-                    padding:2px 4px;
-                    border-bottom:1px solid #eee;
-                    vertical-align:top;
-                    white-space: nowrap;
-                ">
-                    <strong>${itemName}</strong><br>
-                    <span style="white-space: normal;">(${packs})</span>
-                </td>
-
-                <td style="
-                    text-align:center;
-                    padding:15px 4px 2px 4px;
-                    border-bottom:1px solid #eee;
-                    vertical-align:top;
-                ">
-                    <span style="display:inline-block; margin-left:50px;">
-                        ${formatNumber(weight, 3)}
-                    </span>
-                </td>
-
-                <td style="
-                    text-align:left;
-                    padding:15px 4px 2px 4px;
-                    vertical-align:top;
-                ">
-                    <span style="display:inline-block; margin-left:80px;">
-                        ${formatNumber(SupplierPricePerKg, 2)}
-                    </span>
-                </td>
-
-                <td style="
-                    text-align:right;
-                    padding:15px 4px 2px 4px;
-                    border-bottom:1px solid #eee;
-                    vertical-align:top;
-                ">
-                    <span style="
-                        display:inline-block;
-                        width:90px;
-                        text-align:right;
-                        margin-left:55px;
-                    ">
-                        ${formatNumber(SupplierTotal, 2)}
-                    </span>
-                </td>
-
-                <td style="
-                    padding:2px 4px;
-                    border-bottom:1px solid #eee;
-                    vertical-align:top;
-                    font-size:0.8em;
-                ">
-                    <span style="display:inline-block; margin-left:65px;">
-                        ${customerCode}
-                    </span>
-                </td>
-            </tr>
-        `;
-            }
-        }).join('');
-
-        const fontSizeHeader = is4mm ? '1.3em' : '1.5em';
-        const fontSizeTitle = is4mm ? '1.5em' : '1.6em';
-        const fontSizeTable = is4mm ? '12px' : '11px';
-        const fontSizeTotal = is4mm ? '9px' : '10px';
-        const fontSizeHeaderRow = is4mm ? '0.9em' : '1.3em';
-        const maxWidth = is4mm ? '320px' : '300px';
-        const mainCustomerCode = supplierDetails[0]?.customer_code?.toUpperCase() || '';
-
+    const detailedItemsHtml = supplierDetails.map(record => {
+        const weight = parseFloat(record.weight) || 0;
+        const packs = parseInt(record.packs) || 0;
+        const price = parseFloat(record.SupplierPricePerKg) || 0;
+        const total = parseFloat(record.SupplierTotal) || 0;
+        const itemName = record.item_name || '';
+        const customerCode = record.customer_code?.toUpperCase() || '';
 
         return `
-      <div class="receipt-container"
-     style="width:100%; max-width:${maxWidth}; margin:0 auto; padding:2px;
-            font-family:'Courier New', monospace;">
-
-   <!-- TOP Row - NVDS TRADERS centered -->
-   <div style="display:flex; justify-content:center; align-items:center; margin-bottom:2px;">
-        <h3 style="font-size:15px; margin:0; font-weight:bold; text-align:center;">
-            මංජු සහ සහෝදරයෝ
-        </h3>
-   </div>
-
-   <!-- Bottom Row (Farmer Row / H-39 Row) -->
-   <div 
-        style="
-            display:flex; 
-            justify-content:space-between; 
-            align-items:center; 
-            margin-bottom:3px;
-            margin-left:${is4mm ? '35px' : '15px'};
-        "
-   >
-       
-        <!-- LEFT SIDE -->
-      <div style="display:flex; justify-content:flex-start; align-items:center; gap:6px;">
-    
-        <div style="border:1px solid #000; padding:2px 6px; border-radius:4px; font-size:14px; font-weight:bold; 
-                    margin-left:${is4mm ? '30px' : '40px'};">
-            H-39
-        </div>
-
-        <div style="font-size:14px; font-weight:bold;">
-            ගොවියා:
-        </div>
-
-        <div style="display:inline-block;">
-            <h3 style="font-size:14px; margin:0; font-weight:bold;">
-                <span style="border:1px solid #000; padding:2px 4px; border-radius:4px; margin-left:1px;">
-                    ${selectedSupplier}
-                </span>
-            </h3>
-        </div>
-
-      </div>
-
-   </div>
-
-   <!-- NEW SENTENCE -->
-   <div style="text-align:center; font-size:9px; font-weight:bold; margin:4px 0 3px 0; padding:2px 0;">
-       එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල
-   </div>
-
-    <!-- SUPPLIER INFO -->
-  <table style="width:100%; font-size:8px; border-collapse:collapse; margin-bottom:3px;">
-    <tr>
-        <td colspan="2" style="text-align:left;">දුර : ${mobile}</td>
-    </tr>
-
-    <tr>
-        <td style="text-align:left;">
-            දිනය : ${date}
-        </td>
-
-        <td style="text-align:right; padding-right:${is4mm ? '15px' : '15px'};">
-            බිල් අංකය : <strong>${currentBillNo || 'N/A'}</strong>
-        </td>
-    </tr>
-</table>
-
-    <hr style="border:1px solid #000; margin:2px 0;">
-
-    <!-- ITEM TABLE -->
-    <table style="width:100%; font-size:${fontSizeTable};
-                  border-collapse:collapse; table-layout:fixed;">
-        ${colGroups}
-
-       <thead>
-    <tr style="font-size:${fontSizeHeaderRow}; font-weight:bold; border-bottom:2px solid #000;">
-        <th style="text-align:left; padding:2px 3px;">
-            ${itemHeader}<br>මලු
-        </th>
-
-        ${is4mm ? `
-        <th style="text-align:left; padding:2px 3px;">මලු</th>
-        ` : ''}
-
-        <th style="text-align:center; padding:2px 3px;">
-            <span style="
-                display:inline-block;
-                ${is4mm ? 'margin-left:15px;' : 'margin-left:40px;'}
-            ">
-                කිලෝ
-            </span>
-        </th>
-
-        <th style="padding:2px 3px;">
-            <span style="
-                display:inline-block;
-                ${is4mm ? 'margin-left:20px;' : 'margin-left:79px;'}
-            ">
-                මිල
-            </span>
-        </th>
-
-        <th style="padding:2px 3px;">
-        ${is4mm ? `
-        <div style="text-align:right; margin-left:20px;">අගය</div>
-        ` : ''}
-        </th>
-
-        <th style="padding:2px 3px;">
-            <div style="text-align:right; margin-left:${is4mm ? '20px' : '45px'};">
-                ${is4mm ? 'කේතය' : 'කේතය<br>අගය'}
-            </div>
-        </th>
-    </tr>
-</thead>
-
-        <tbody>
-            ${detailedItemsHtml}
-
-            <!-- TOTAL ROW -->
-            <tr style="font-weight:bold; font-size:0.9rem;">
-                <td colspan="2"
-                    style="text-align:left; padding:3px; padding-left:${is4mm ? '85px' : '4px'}; font-weight:bold;">
-                    ${totalPacksSum}
+            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
+                <td style="text-align:left; padding:10px 0; white-space: nowrap;">
+                    ${itemName}<br>(${packs})
                 </td>
+               <td style="text-align:right; padding:10px 2px; position: relative; left: -40px;">
+  ${weight.toFixed(2)}
+</td>
 
-                <td colspan="3" style="text-align:right; padding:3px; font-weight:bold;">
-                    <span style="display:inline-block; white-space:nowrap; margin-left:${is4mm ? '120px' : '130px'};">
-                        ${formatNumber(totalsupplierSales, 2)}
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -25px;">${price.toFixed(2)}</td>
+                <td style="text-align:right; padding:10px 0;">
+                    <div style="font-size:12px; margin-bottom: 2px;">${customerCode}</div>
+                    <div style="font-weight: 900; ">${total.toFixed(2)}</div>
+                </td>
+            </tr>`;
+    }).join("");
+
+    // --- UPDATED ITEM SUMMARY SECTION ---
+const summaryEntries = Object.entries(itemSummaryData);
+let itemSummaryHtml = '';
+
+for (let i = 0; i < summaryEntries.length; i += 2) {
+    const [name1, d1] = summaryEntries[i];
+    const [name2, d2] = summaryEntries[i + 1] || [null, null];
+
+    // Formatting values to 2 decimal places as in your requirement
+    const text1 = `${name1}:${d1.totalWeight.toFixed(2)}/${d1.totalPacks}`;
+    const text2 = d2 ? `${name2}:${d2.totalWeight.toFixed(2)}/${d2.totalPacks}` : '';
+
+    itemSummaryHtml += `
+        <tr>
+            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;  font-size:13px;">${text1}</td>
+            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;  font-size:13px;">${text2}</td>
+        </tr>`;
+}
+
+    return `
+    <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
+        <div style="text-align:center; font-weight:bold;">
+            <div style="font-size:24px;">මංජු සහ සහෝදරයෝ</div>
+            <div style="font-size:15px; margin-bottom:5px;">colombage lanka (Pvt) Ltd</div>
+            
+            <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">H-39</span>
+                <div style="font-size:18px;">ගොවියා: 
+                    <span style="border:2.5px solid #000; padding:5px 10px;">${selectedSupplier}</span>
+                </div>
+            </div>
+
+            <div style="font-size:16px;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
+            <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px; padding:0 5px;">
+                <span>බණ්ඩාරවෙල</span>
+                <span>${time}</span>
+            </div>
+        </div>
+
+        <div style="font-size:14px; margin-top:10px; padding:0 5px;">
+            <div style="font-weight: bold;">දුර: ${mobile}</div>
+            <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                <span>බිල් අංකය: ${currentBillNo}</span>
+                <span>දිනය: ${date}</span>
+            </div>
+        </div>
+
+        <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
+
+        <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+            ${colGroups}
+            <thead>
+                <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
+                    <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">කිලෝ</th>
+                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">මිල</th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${detailedItemsHtml}
+            </tbody>
+            <tfoot>
+                <tr style="border-top:2.5px solid #000; font-weight:bold;">
+                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${totalPacksSum}</td>
+                    <td colspan="3" style="text-align:right; padding-top:12px; font-size:${fontSizeTotal};">${totalsupplierSales.toFixed(2)}</td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <table style="width:100%; margin-top:20px; font-weight:bold; padding:0 5px;">
+            <tr>
+                <td style="font-size:20px;">අගය:</td>
+                <td style="text-align:right;">
+                    <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:24px; padding:5px 12px;">
+                        ${totalsupplierSales.toFixed(2)}
                     </span>
                 </td>
             </tr>
-        </tbody>
-    </table>
-
-    <!-- TOTAL SUMMARY -->
-    <table style="width:100%; font-size:${fontSizeTotal}; border-collapse:collapse; margin-top:4px;">
-        <tr>
-           <td style="text-align:left; padding:1px 0; font-size:14px; font-weight:bold;">අගය:</td>
-            <td style="text-align:right; padding:1px 0;">
-                <span style="
-                    display:inline-block;
-                    border-top:1px solid #000;
-                    border-bottom:2px double #000;
-                    padding:2px 4px;
-                    font-weight:bold;
-                    font-size:${is4mm ? '1em' : '1.3em'};
-                    transform:${is4mm ? 'translateX(-35px)' : 'none'};
-                ">
-                    ${totalsupplierSales.toFixed(2)}
-                </span>
-            </td>
-        </tr>
-    </table>
-
-    <!-- ITEM SUMMARY -->
-    <div style="font-size:8px; margin-top:4px; padding-top:4px; border-top:1px dashed #000;">
-        <table style="width:100%; border-collapse:collapse;">
-            ${itemSummaryHtml}
         </table>
-    </div>
 
-    <hr style="border:1px solid #000; margin:4px 0;">
+        <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
+            <table style="width:100%; border-collapse:collapse;">
+                ${itemSummaryHtml}
+            </table>
+        </div>
 
-    <!-- FOOTER -->
-    <div style="text-align:center; font-size:8px; margin-top:3px;">
-        <p style="margin:1px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
-        <p style="margin:1px 0;">නැවත භාර ගනු නොලැබේ</p>
-    </div>
-</div>
-
-
-        `;
-    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, totalSupplierPackCost, itemSummaryData, billSize]);
+        <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;">
+            <p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+            <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
+        </div>
+    </div>`;
+}, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize]);
 
     // --- Print function ---
     const handlePrint = useCallback(async () => {
@@ -822,7 +587,7 @@ const SupplierReport = () => {
             position: 'relative',
             boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
             fontFamily: 'Roboto, Arial, sans-serif',
-            border: selectedSupplier ? '3px solid #007bff' : '3px dashed #6c757d',
+           
             marginTop: '-90px',
             width: '850px',
             minHeight: '550px',
@@ -885,10 +650,7 @@ const SupplierReport = () => {
 
         const renderEmptyContent = () => (
             <div style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0', minHeight: '400px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <h2 style={{ color: '#343a40', fontSize: '2rem', marginBottom: '20px' }}>විස්තර බලන්න බිල්පතක් තෝරන්න</h2>
-                <p style={{ fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto' }}>
-                    පාර්ශව පැනල්වලින් ඕනෑම සැපයුම්කරු කේතයක් හෝ බිල් නම්බරයක් ක්ලික් කරන්න, මෙම විස්තර දර්ශනය පුරවා ගැනීමට."
-                </p>
+               
             </div>
         );
 

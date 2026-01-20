@@ -1033,6 +1033,7 @@ export default function SalesEntry() {
         const time = new Date().toLocaleTimeString();
         let totalAmountSum = 0;
         const consolidatedSummary = {};
+
         salesData.forEach(s => {
             const itemName = s.item_name || 'Unknown';
             if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
@@ -1040,143 +1041,152 @@ export default function SalesEntry() {
             consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
             totalAmountSum += parseFloat(s.total) || 0;
         });
+
         const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
         const is4Inch = billSize === '4inch';
-        const receiptMaxWidth = is4Inch ? '4in' : '240px';
-        const fontSizeHeader = is4Inch ? '1.2em' : '1.8em';
-        const fontSizeTitle = is4Inch ? '1.4em' : '2.0em';
-        const fontSizeText = is4Inch ? '1.0rem' : '1.7rem';
-        const fontSizeItems = is4Inch ? '1.1em' : '1.7em';
-        const fontSizeTotalLarge = is4Inch ? '1.2em' : '1.5em';
 
-        let colGroups, itemHeader;
-        if (is4Inch) {
-            colGroups = `<colgroup><col style="width:30%;"><col style="width:15%;"><col style="width:15%;"><col style="width:25%;"><col style="width:15%;"></colgroup>`;
-            itemHeader = 'වර්ගය <br> (මලු)';
-        } else {
-            colGroups = `<colgroup><col style="width:35%;"><col style="width:15%;"><col style="width:15%;"><col style="width:20%;"><col style="width:15%;"></colgroup>`;
-            itemHeader = '<span style="font-size:16px; font-weight:bold;">වර්ගය <br> (මලු)</span>';
+        // Increased width to 350px for maximum clarity on 3-inch/80mm printers
+        const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-        }
+        const fontSizeBody = '19px';
+        const fontSizeHeader = '19px';
+        const fontSizeTotal = '20px';
+
+        // Optimized column widths for the new 350px width
+        const colGroups = `
+        <colgroup>
+            <col style="width:32%;"> 
+            <col style="width:21%;">
+            <col style="width:21%;">
+            <col style="width:26%;">
+        </colgroup>`;
 
         const itemsHtml = salesData.map(s => {
             const packs = parseInt(s.packs) || 0;
             const weight = parseFloat(s.weight) || 0;
             const price = parseFloat(s.price_per_kg) || 0;
             const value = (weight * price).toFixed(2);
-            const formattedWeight = formatReceiptValue(weight);
-            const formattedPrice = formatReceiptValue(price);
-            const formattedValue = formatReceiptValue(value);
 
-            if (is4Inch) {
-                return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
-                <td style="text-align:left; padding:2px 4px;">${s.item_name || ""} <br> ${packs}</td>
-                <td style="text-align:center; padding:2px 4px;">${formattedWeight}</td>
-                <td style="padding:2px 4px;"><div style="display:inline-block; margin-left:50px;">${formattedPrice}</div></td>
-                <td style="text-align:right; padding:2px 4px;"><div style="display:flex; flex-direction:column; margin-left:98px; text-align:right; align-items:flex-end;"><div style="font-size:0.9em;">${s.supplier_code || ""}</div><div style="font-size:0.8em; margin-top:2px;">${formattedValue}</div></div></td>
-                <td style="text-align:right; padding:2px 4px;"></td></tr>`;
-            } else {
-                return `<tr style="font-size:${fontSizeItems}; font-weight:bold; color:black;">
-               <td style="text-align:left; padding:2px 4px; white-space:normal; word-wrap:break-word; max-width:120px;">
-    ${s.item_name || ""}<br>${packs}
+            return `
+            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
+                <td style="text-align:left; padding:10px 0; white-space: nowrap;">
+                    ${s.item_name || ""}<br>${packs}
+                </td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -40px;">
+  ${weight.toFixed(2)}
 </td>
 
-                <td style="padding:2px 4px; vertical-align: top;">
-  <div style="display:inline-block; margin-left:-10px; margin-top:5px;">${formattedWeight}</div>
-</td>
-
-
-                <td style="padding:2px 4px; vertical-align: top;">
-  <div style="display:inline-block; margin-left:20px; margin-top:5px;">${formattedPrice}</div>
-</td>
-
-                <td style="text-align:right; padding:2px 4px; vertical-align: top;">
-  <div style="display:flex; flex-direction:column; margin-left:89px; margin-top:3px; text-align:right; align-items:flex-end;">
-    <div style="font-size:0.9em;">${s.supplier_code || ""}</div>
-    <div style="font-size:0.9em; margin-top:2px;">${formattedValue}</div>
-  </div>
-</td>
-
-                <td style="text-align:right; padding:2px 4px;"></td></tr>`;
-            }
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -25px;">${price.toFixed(2)}</td>
+                <td style="text-align:right; padding:10px 0;">
+                    <div style="font-size:12px;">${s.supplier_code || "ASW"}</div>
+                    <div style="font-weight: 900; ">${value}</div>
+                </td>
+            </tr>`;
         }).join("");
 
-        const totalPrice = totalAmountSum;
-        const totalSalesExcludingPackDue = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-        const totalPackDueCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+        const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+        const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+        const finalGrandTotal = totalSales + totalPackCost;
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-
-
-
-        const formattedTotalSalesExcludingPackDue = formatReceiptValue(totalSalesExcludingPackDue);
-        const formattedTotalPackDueCost = formatReceiptValue(totalPackDueCost);
-        const formattedTotalPrice = formatReceiptValue(totalPrice + totalPackDueCost);
-        // Ensure both are converted to numbers before addition
-        const totalAmountWithLoan = Math.abs(globalLoanAmount) + parseFloat(formattedTotalPrice);
-        const remaining = parseFloat(givenAmount) - formattedTotalPrice;
-        const formattedGivenAmount = formatReceiptValue(givenAmount);
-        const formattedRemaining = formatReceiptValue(Math.abs(remaining));
-        const formattedGlobalLoanAmount = formatReceiptValue(Math.abs(globalLoanAmount));
-        const formattedTotalAmountWithLoan = formatReceiptValue(Math.abs(totalAmountWithLoan));
-
-        const givenAmountRow = givenAmount > 0 ? `<tr><td style="width:50%; text-align:left; font-size:${fontSizeText}; padding:4px 0;"><span style="font-size:0.9rem;font-weight:bold;">දුන් මුදල: </span><span style="font-weight:bold; font-size:0.9rem;">${formattedGivenAmount}</span></td><td style="width:50%; text-align:right; padding:4px 0;"><span style="font-size:0.9rem;font-weight:bold;">ඉතිරිය: </span><span style="font-weight:bold; font-size:${fontSizeTotalLarge};">${formattedRemaining}</span></td></tr>` : '';
-        const loanRow = globalLoanAmount !== 0 ?
-            `<tr>
-        <td style="font-size:17px; text-align:left; padding:4px 0;">පෙර ණය: Rs. <span>${formattedGlobalLoanAmount}</span></td>
-        <td style="font-weight:bold; text-align:right; font-size:17px; padding:4px 0;">Rs. ${formattedTotalAmountWithLoan}</td>
-        </tr>`
-            : '';
-        const formatSmartValue = (value) => {
-            if (value === null || value === undefined || value === '') return '0';
-            const num = parseFloat(value);
-            if (isNaN(num)) return '0';
-
-            // If it's a whole number (e.g., 50.00), return '50'
-            // If it has decimals (e.g., 50.50), return '50.50'
-            return Number.isInteger(num) ? num.toString() : num.toFixed(2);
-        };
+        const remaining = givenAmount > 0 ? (givenAmount - finalGrandTotal) : 0;
 
         const summaryEntries = Object.entries(consolidatedSummary);
         let summaryHtmlContent = '';
         for (let i = 0; i < summaryEntries.length; i += 2) {
-            const [itemName1, data1] = summaryEntries[i];
-            const [itemName2, data2] = summaryEntries[i + 1] || [null, null];
-            const item1Text = `${itemName1}:${formatSmartValue(data1.totalWeight)}/${formatSmartValue(data1.totalPacks)}`;
-            const item2Text = data2 ? `${itemName2}:${formatSmartValue(data2.totalWeight)}/${formatSmartValue(data2.totalPacks)}` : '';
-            summaryHtmlContent += `<tr style="font-size:${fontSizeText};"><td style="width:50%; text-align:left; padding:2px 0; border:1px solid #000; padding:2px 4px; margin-top:1px;">${item1Text}</td><td style="width:50%; text-align:left; padding:2px 4px; border:1px solid #000; margin-top:1px;">${item2Text}</td></tr>`;
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
+            const text1 = `${name1}:${d1.totalWeight}/${d1.totalPacks}`;
+            const text2 = d2 ? `${name2}:${d2.totalWeight}/${d2.totalPacks}` : '';
+            summaryHtmlContent += `
+        <tr>
+            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>
+            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>
+        </tr>`;
         }
 
-        const itemSummaryHtml = `<div style="margin-top: 10px; text-align: center; font-size: 12px; text-transform: lowercase;">${summaryHtmlContent}</div>`;
 
-        return `<div class="receipt-container" style="width:90%; max-width:${receiptMaxWidth}; margin:0 auto; padding:5px; font-family: 'Courier New', monospace;font-size:12px;">
-     <div style="margin-bottom:5px; border-bottom:1px solid #000;">
-   <h3 style="text-align:center; font-size:15px; font-weight:bold; margin:0 0 5px 0;">මංජු සහ සහෝදරයෝ</h3>
-      <h3 style="text-align:center; font-size:12px; font-weight:bold; margin:0 0 5px 0;">colombage lanka (Pvt) Ltd</h3>
-    <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-        <div style="display:flex; justify-content:center; align-items:center; gap:10px;">
-            <div style="border:1px solid #000; padding:2px 6px;"><strong style="font-size:16px;">H-39</strong></div>
-            <div style="border:1px solid #000; padding:2px 6px;"><strong style="font-size:16px;">${customerName.toUpperCase()}</strong></div>
+        return `
+    <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
+        <div style="text-align:center; font-weight:bold;">
+            <div style="font-size:24px;">මංජු සහ සහෝදරයෝ</div>
+            <div style="font-size:15px; margin-bottom:5px;">colombage lanka (Pvt) Ltd</div>
+            
+            <div style="display:flex; justify-content:center; gap:15px; margin:12px 0;">
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">H-39</span>
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">${customerName.toUpperCase()}</span>
+            </div>
+            
+            <div style="font-size:16px;">එළවළු,පළතුරු තොග වෙළෙන්දෝ</div>
+            <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px; padding:0 5px;">
+                <span>බණ්ඩාරවෙල</span>
+                <span>${time}</span>
+            </div>
         </div>
-        <strong style="font-size:12px; text-align:center; display:block; margin-top:0;">එළවළු,පළතුරු තොග වෙළෙන්දෝ
-            <div style="display:flex; align-items:center;"><span style="display:inline-block; text-align:left; margin-left:-10px;">බණ්ඩාරවෙල</span><span style="background:none; font-weight:normal; color:inherit; padding:0; margin-left:auto;">${time}</span></div></strong>
-    </div>
-    <div style="text-align:left; margin-bottom:5px;">
-        <table style="width:70%; font-size:9px; border-collapse:collapse; margin:auto;">
-            <tr><td style="padding-right:5px; white-space:nowrap;">දුර: ${mobile || ''}</td></tr>
-            <tr><td style="padding-right:5px;">බිල් අංකය: <strong>${billNo}</strong></td><td style="text-align:right; padding-left:5px;">දිනය: ${date}</td></tr>
+
+        <div style="font-size:14px; margin-top:10px; padding:0 5px;">
+            <div style="font-weight: bold;">දුර: 0777672838 / 071437115</div>
+            <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                <span>බිල් අංකය: ${billNo}</span>
+                <span>දිනය: ${date}</span>
+            </div>
+        </div>
+
+        <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
+
+        <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+            ${colGroups}
+            <thead>
+                <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
+                    <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>(මලු)</th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">කිලෝ</th>
+                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">මිල</th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${itemsHtml}
+            </tbody>
+            <tfoot>
+                <tr style="border-top:2.5px solid #000; font-weight:bold;">
+                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${totalPacksSum}</td>
+                    <td colspan="3" style="text-align:right; padding-top:12px; font-size:${fontSizeTotal};">${totalSales.toFixed(2)}</td>
+                </tr>
+            </tfoot>
         </table>
-    </div>
-    <hr style="border:1px solid #000; margin:5px 0;">
-    <table style="width:100%; font-size:${is4Inch ? '10px' : '9px'}; border-collapse:collapse; table-layout:fixed;">${colGroups}<thead><tr style="border-bottom:1px solid #000;">
-    ${is4Inch ? `<th style="text-align:left; padding:4px; font-size:1.1em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.1em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.1em;"><span style="display:inline-block; margin-left:50px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.1em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:100px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.1em;"></th>` : `<th style="text-align:left; padding:4px; font-size:1.2em;">${itemHeader}</th><th style="text-align:center; padding:4px; font-size:1.7em;">කිලෝ</th><th style="text-align:center; padding:4px; font-size:1.7em;"><span style="display:inline-block; margin-left:30px;">මිල</span></th><th style="text-align:right; padding:4px; font-size:1.7em;"><div style="display:flex; flex-direction:column; align-items:flex-end; margin-left:83px; text-align:right;"><div>අයිතිය</div><div style="font-size:0.9em; margin-top:2px;">අගය</div></div></th><th style="text-align:right; padding:4px; font-size:1.2em;"></th>`}</tr></thead>
-    <tbody>${itemsHtml}<tr style="border-top:1px solid #000;"><td colspan="3" style="text-align:left; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;">${totalPacksSum}</td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><div style="display:flex; flex-direction:column; align-items:flex-end;"><div style="font-size:0.9em;"></div></div></td><td style="text-align:right; padding:6px 4px; font-size:${fontSizeItems}; font-weight:bold;"><span style="display:inline-block; transform: translateX(-48px);">${formattedTotalSalesExcludingPackDue}</span></td></tr></tbody></table>
-    <table style="width:100%; font-size:${is4Inch ? '12px' : '15px'}; border-collapse:collapse; margin-top:10px;"><tr></tr>
-    <tr><td style="text-align:left; padding:2px 0; font-size:14px; font-weight:bold;">මලු:</td>
-<td style="text-align:right; padding:2px 0; font-weight:bold;">${formattedTotalPackDueCost}</td></tr>
-    <tr><td style="text-align:left; font-size:16px; font-weight:bold; padding:2px 0;">එකතුව:</td>
- <td style="text-align:right; padding:2px 0; font-weight:bold;"><span style="display:inline-block; border-top:1px solid #000; border-bottom:3px double #000; padding:4px 8px; min-width:80px; text-align:right; font-size:${fontSizeTotalLarge};">${formattedTotalPrice}</span></td></tr>${givenAmountRow}${loanRow}</table>
-    ${itemSummaryHtml}
-    <div style="text-align:center; margin-top:15px; font-size:10px; border-top:1px dashed #000; padding-top:5px;"><p style="margin:2px 0;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p></div></div>`;
+
+        <table style="width:100%; margin-top:20px; font-weight:bold; font-size:18px; padding:0 5px;">
+            <tr>
+                <td>මලු:</td>
+                <td style="text-align:right;">${totalPackCost.toFixed(2)}</td>
+            </tr>
+            <tr>
+                <td style="font-size:20px; padding-top:8px;">එකතුව:</td>
+                <td style="text-align:right; padding-top:8px;">
+                    <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">
+                        ${finalGrandTotal.toFixed(2)}
+                    </span>
+                </td>
+            </tr>
+            ${givenAmount > 0 ? `
+            <tr>
+                <td style="font-size:18px; padding-top:18px;">දුන් මුදල:</td>
+                <td style="text-align:right; font-size:18px; padding-top:18px;">${parseFloat(givenAmount).toFixed(2)}</td>
+            </tr>
+            <tr>
+                <td style="font-size:22px;">ඉතිරිය:</td>
+                <td style="text-align:right; font-size:26px;">${remaining.toFixed(2)}</td>
+            </tr>` : ''}
+        </table>
+
+        <table style="width:100%; border-collapse:collapse; margin-top:25px; font-size:14px; text-align:center;">
+            ${summaryHtmlContent}
+        </table>
+
+        <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;">
+            <p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+            <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
+        </div>
+    </div>`;
     };
     const formatReceiptValue = (value) => {
         if (value === null || value === undefined || value === '') return '0.00';
@@ -1493,84 +1503,84 @@ export default function SalesEntry() {
                                             <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
                                                 <input id="supplier_code" ref={refs.supplier_code} name="supplier_code" value={formData.supplier_code} onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "supplier_code")} type="text" placeholder="සැපයුම්කරු" className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full" style={{ width: "150px", backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '44px', fontSize: '1.25rem', padding: '0 1rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
-                                           <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
-  <Select
-    id="item_code_select"
-    ref={refs.item_code_select}
-    value={
-      formData.item_code
-        ? {
-            value: formData.item_code,
-            label: `${formData.item_code} - ${formData.item_name}`,
-            item: {
-              no: formData.item_code,
-              type: formData.item_name,
-              pack_due: formData.pack_due,
-            },
-          }
-        : null
-    }
-    onChange={handleItemSelect}
-    options={[...items]
-      .filter(item => {
-        if (!state.itemSearchInput) return true;
-        const input = state.itemSearchInput.toUpperCase();
-        const itemNo = String(item.no).toUpperCase();
-        // Only show items whose item_no starts with the typed input
-        return itemNo.startsWith(input);
-      })
-      .sort((a, b) => {
-        const isANumeric = !isNaN(a.no);
-        const isBNumeric = !isNaN(b.no);
+                                            <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
+                                                <Select
+                                                    id="item_code_select"
+                                                    ref={refs.item_code_select}
+                                                    value={
+                                                        formData.item_code
+                                                            ? {
+                                                                value: formData.item_code,
+                                                                label: `${formData.item_code} - ${formData.item_name}`,
+                                                                item: {
+                                                                    no: formData.item_code,
+                                                                    type: formData.item_name,
+                                                                    pack_due: formData.pack_due,
+                                                                },
+                                                            }
+                                                            : null
+                                                    }
+                                                    onChange={handleItemSelect}
+                                                    options={[...items]
+                                                        .filter(item => {
+                                                            if (!state.itemSearchInput) return true;
+                                                            const input = state.itemSearchInput.toUpperCase();
+                                                            const itemNo = String(item.no).toUpperCase();
+                                                            // Only show items whose item_no starts with the typed input
+                                                            return itemNo.startsWith(input);
+                                                        })
+                                                        .sort((a, b) => {
+                                                            const isANumeric = !isNaN(a.no);
+                                                            const isBNumeric = !isNaN(b.no);
 
-        // Push numeric item numbers to the end
-        if (isANumeric && !isBNumeric) return 1;
-        if (!isANumeric && isBNumeric) return -1;
+                                                            // Push numeric item numbers to the end
+                                                            if (isANumeric && !isBNumeric) return 1;
+                                                            if (!isANumeric && isBNumeric) return -1;
 
-        // Otherwise, sort alphabetically by item.no
-        return String(a.no).toUpperCase().localeCompare(String(b.no).toUpperCase());
-      })
-      .map(item => ({
-        value: item.no,
-        label: `${item.no} - ${item.type}`,
-        item,
-      }))}
-    onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })}
-    inputValue={state.itemSearchInput}
-    onKeyDown={e =>
-      e.key !== "Enter" && handleKeyDown(e, "item_code_select")
-    }
-    placeholder="භාණ්ඩය"
-    className="react-select-container font-bold text-sm w-full"
-    styles={{
-      control: b => ({
-        ...b,
-        height: "44px",
-        minHeight: "44px",
-        fontSize: "1.25rem",
-        backgroundColor: "white",
-        borderColor: "#4a5568",
-        borderRadius: "0.5rem",
-      }),
-      valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }),
-      input: b => ({ ...b, color: "black", fontSize: "1.25rem" }),
-      singleValue: b => ({
-        ...b,
-        color: "black",
-        fontWeight: "bold",
-        fontSize: "1.25rem",
-      }),
-      placeholder: b => ({ ...b, color: "#6b7280" }),
-      option: (b, s) => ({
-        ...b,
-        fontWeight: "bold",
-        color: "black",
-        backgroundColor: s.isFocused ? "#e5e7eb" : "white",
-        fontSize: "1rem",
-      }),
-    }}
-  />
-</div>
+                                                            // Otherwise, sort alphabetically by item.no
+                                                            return String(a.no).toUpperCase().localeCompare(String(b.no).toUpperCase());
+                                                        })
+                                                        .map(item => ({
+                                                            value: item.no,
+                                                            label: `${item.no} - ${item.type}`,
+                                                            item,
+                                                        }))}
+                                                    onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })}
+                                                    inputValue={state.itemSearchInput}
+                                                    onKeyDown={e =>
+                                                        e.key !== "Enter" && handleKeyDown(e, "item_code_select")
+                                                    }
+                                                    placeholder="භාණ්ඩය"
+                                                    className="react-select-container font-bold text-sm w-full"
+                                                    styles={{
+                                                        control: b => ({
+                                                            ...b,
+                                                            height: "44px",
+                                                            minHeight: "44px",
+                                                            fontSize: "1.25rem",
+                                                            backgroundColor: "white",
+                                                            borderColor: "#4a5568",
+                                                            borderRadius: "0.5rem",
+                                                        }),
+                                                        valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }),
+                                                        input: b => ({ ...b, color: "black", fontSize: "1.25rem" }),
+                                                        singleValue: b => ({
+                                                            ...b,
+                                                            color: "black",
+                                                            fontWeight: "bold",
+                                                            fontSize: "1.25rem",
+                                                        }),
+                                                        placeholder: b => ({ ...b, color: "#6b7280" }),
+                                                        option: (b, s) => ({
+                                                            ...b,
+                                                            fontWeight: "bold",
+                                                            color: "black",
+                                                            backgroundColor: s.isFocused ? "#e5e7eb" : "white",
+                                                            fontSize: "1rem",
+                                                        }),
+                                                    }}
+                                                />
+                                            </div>
 
                                             {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight },
                                             { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item },
