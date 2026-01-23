@@ -13,7 +13,7 @@ import DayProcessModal from '../Modals/DayProcessModal';
 
 const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const location = useLocation();
-    const navigate = useNavigate(); // Added useNavigate hook
+    const navigate = useNavigate();
 
     // === Modal States ===
     const [isItemReportModalOpen, setIsItemReportModalOpen] = useState(false);
@@ -28,11 +28,12 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
 
     // === User & Settings State ===
     const [user, setUser] = useState(null);
-    const [settingValue, setSettingValue] = useState(''); // 🚀 NEW: State for the 'value' column
+    const [settingValue, setSettingValue] = useState('');
 
     // === Bottom Password States ===
     const [bottomPassword, setBottomPassword] = useState('');
-    const [isBottomUnlocked, setIsBottomUnlocked] = useState(false);
+    // TEMPORARY CHANGE: Set to true by default to disable password requirement
+    const [isBottomUnlocked, setIsBottomUnlocked] = useState(true);
     const HARD_CODED_PASSWORD = 'nethma123';
 
     useEffect(() => {
@@ -44,7 +45,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             window.location.href = '/login';
         }
 
-        // 🚀 2. Fetch Setting Value from Backend using your api.js
+        // 2. Fetch Setting Value from Backend using your api.js
         const fetchSettings = async () => {
             try {
                 const response = await api.get('/settings');
@@ -89,7 +90,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         window.location.href = '/supplier-profit';
     };
 
-    // NEW: Handler for Supplier Report button
     const handleSupplierReportClick = () => {
         navigate('/reports/supplier');
     };
@@ -107,15 +107,16 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         whiteSpace: "nowrap"
     };
 
-    // === Password input handler for bottom buttons ===
+    // === Password input handler - Modified to not affect unlock state ===
     const handleBottomPasswordChange = (e) => {
         const value = e.target.value;
         setBottomPassword(value);
-        if (value === HARD_CODED_PASSWORD) {
-            setIsBottomUnlocked(true);
-        } else {
-            setIsBottomUnlocked(false);
-        }
+        // TEMPORARY: Comment out the password check to disable unlocking logic
+        // if (value === HARD_CODED_PASSWORD) {
+        //     setIsBottomUnlocked(true);
+        // } else {
+        //     setIsBottomUnlocked(false);
+        // }
     };
 
     return (
@@ -210,54 +211,54 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             </main>
 
             {/* === Bottom Nav with Password Protection === */}
-         <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
-    <div className="container-fluid d-flex justify-content-start align-items-center">
-        {/* Password Input on the Left */}
-        <input
-            type="password"
-            placeholder="Enter password"
-            value={bottomPassword}
-            onChange={handleBottomPasswordChange}
-            className="form-control form-control-sm me-3"
-            style={{
-                width: '100px',
-                backgroundColor: '#003300',
-                color: '#fff',
-                border: '1px solid #66bb6a'
-            }}
-        />
+            <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
+                <div className="container-fluid d-flex justify-content-start align-items-center">
+                    {/* Password Input on the Left - Still visible but not functional */}
+                    <input
+                        type="password"
+                        placeholder="Enter password"
+                        value={bottomPassword}
+                        onChange={handleBottomPasswordChange}
+                        className="form-control form-control-sm me-3"
+                        style={{
+                            width: '100px',
+                            backgroundColor: '#003300',
+                            color: '#fff',
+                            border: '1px solid #66bb6a'
+                        }}
+                    />
 
-        {/* Bottom Buttons */}
-        {[
-            { label: 'එළවළු', onClick: openItemReportModal },
-            { label: 'බර මත', onClick: openWeightReportModal },
-            { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
-            { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
-            { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
-            { label: 'සැපයුම්කරු ලාභ ', onClick: handleProfitReportClick },
-            // NEW: Added Supplier Report button
-            { label: 'සැපයුම්කර වාර්තාව', onClick: handleSupplierReportClick }
-        ].map((btn, idx) => (
-            <button
-                key={idx}
-                type="button"
-                onClick={btn.onClick}
-                style={{
-                    ...navTextBtn,
-                    fontSize: '16px',
-                    fontWeight: '700',
-                    letterSpacing: '0.5px',
-                    opacity: isBottomUnlocked ? 1 : 0.4,
-                    pointerEvents: isBottomUnlocked ? 'auto' : 'none',
-                    marginRight: '35px',  // Reduced from 20px to 10px
-                    marginLeft: idx === 0 ? '0' : '0'  // Ensure first button has no left margin
-                }}
-            >
-                {btn.label}
-            </button>
-        ))}
-    </div>
-</nav>
+                    {/* Bottom Buttons - Always enabled now */}
+                    {[
+                        { label: 'එළවළු', onClick: openItemReportModal },
+                        { label: 'බර මත', onClick: openWeightReportModal },
+                        { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
+                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
+                        { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
+                        { label: 'සැපයුම්කරු ලාභ ', onClick: handleProfitReportClick },
+                        { label: 'සැපයුම්කර වාර්තාව', onClick: handleSupplierReportClick }
+                    ].map((btn, idx) => (
+                        <button
+                            key={idx}
+                            type="button"
+                            onClick={btn.onClick}
+                            style={{
+                                ...navTextBtn,
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                letterSpacing: '0.5px',
+                                opacity: 1, // Always fully visible
+                                pointerEvents: 'auto', // Always clickable
+                                marginRight: '35px',
+                                marginLeft: idx === 0 ? '0' : '0'
+                            }}
+                        >
+                            {btn.label}
+                        </button>
+                    ))}
+                </div>
+            </nav>
+            
             {/* Modals */}
             <ItemReportModal isOpen={isItemReportModalOpen} onClose={closeItemReportModal} onGenerateReport={() => { }} loading={false} />
             <WeightReportModal isOpen={isWeightReportModalOpen} onClose={closeWeightReportModal} />

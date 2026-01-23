@@ -209,22 +209,21 @@ const SupplierReport = () => {
         };
     }, [supplierDetails]);
 
-    // --- SUPPLIER BILL CONTENT GENERATION (PERFECTLY ALIGNED) ---
-const getBillContent = useCallback((currentBillNo) => {
-    const date = new Date().toLocaleDateString('si-LK');
-    const time = new Date().toLocaleTimeString('si-LK');
-    const mobile = '0777672838 / 071437115';
-    
-    // Unified Width & Font sizing (matching the previous successful bill)
-    const is4Inch = billSize === '4inch';
-    const receiptMaxWidth = is4Inch ? '4in' : '350px'; 
-    
-    const fontSizeBody = '19px'; 
-    const fontSizeHeader = '19px';
-    const fontSizeTotal = '20px';
+    const getBillContent = useCallback((currentBillNo) => {
+        const date = new Date().toLocaleDateString('si-LK');
+        const time = new Date().toLocaleTimeString('si-LK');
+        const mobile = '0777672838/071437115';
 
-    // Standardized 4-column structure
-    const colGroups = `
+        // Unified Width & Font sizing (matching the previous successful bill)
+        const is4Inch = billSize === '4inch';
+        const receiptMaxWidth = is4Inch ? '4in' : '350px';
+
+        const fontSizeBody = '25px';
+        const fontSizeHeader = '23px';
+        const fontSizeTotal = '28px';
+
+        // Standardized 4-column structure
+        const colGroups = `
         <colgroup>
             <col style="width:32%;"> 
             <col style="width:21%;">
@@ -232,80 +231,96 @@ const getBillContent = useCallback((currentBillNo) => {
             <col style="width:26%;">
         </colgroup>`;
 
-    const formatNumber = (value, maxDecimals = 3) => {
-        if (Number.isInteger(value)) return value.toString();
-        return value.toFixed(maxDecimals).replace(/\.?0+$/, '');
-    };
+        const formatNumber = (value, maxDecimals = 3) => {
+            if (typeof value !== 'number' && typeof value !== 'string') return '0';
+            const number = parseFloat(value);
+            if (isNaN(number)) return '0';
 
-    const detailedItemsHtml = supplierDetails.map(record => {
-        const weight = parseFloat(record.weight) || 0;
-        const packs = parseInt(record.packs) || 0;
-        const price = parseFloat(record.SupplierPricePerKg) || 0;
-        const total = parseFloat(record.SupplierTotal) || 0;
-        const itemName = record.item_name || '';
-        const customerCode = record.customer_code?.toUpperCase() || '';
+            if (Number.isInteger(number)) {
+                return number.toLocaleString('en-US');
+            } else {
+                const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+                return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
+            }
+        };
 
-        return `
+        const detailedItemsHtml = supplierDetails.map(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const price = parseFloat(record.SupplierPricePerKg) || 0;
+            const total = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || '';
+            const customerCode = record.customer_code?.toUpperCase() || '';
+
+            return `
             <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
                 <td style="text-align:left; padding:10px 0; white-space: nowrap;">
-                    ${itemName}<br>(${packs})
+                    ${itemName}<br>${formatNumber(packs)}
                 </td>
-               <td style="text-align:right; padding:10px 2px; position: relative; left: -40px;">
-  ${weight.toFixed(2)}
+               <td style="text-align:right; padding:10px 2px; position: relative; left: -50px;">
+  ${formatNumber(weight.toFixed(2))}
 </td>
 
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -25px;">${price.toFixed(2)}</td>
-                <td style="text-align:right; padding:10px 0;">
-                    <div style="font-size:12px; margin-bottom: 2px;">${customerCode}</div>
-                    <div style="font-weight: 900; ">${total.toFixed(2)}</div>
-                </td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -25px;">${formatNumber(price.toFixed(2))}</td>
+                <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+    
+    <div style="font-size:25px; white-space:nowrap;">
+        ${customerCode}
+    </div>
+
+    <div style="
+        font-weight:900;
+        white-space:nowrap;
+    ">
+        ${formatNumber(total.toFixed(2))}
+    </div>
+
+</td>
             </tr>`;
-    }).join("");
+        }).join("");
 
-    // --- UPDATED ITEM SUMMARY SECTION ---
-const summaryEntries = Object.entries(itemSummaryData);
-let itemSummaryHtml = '';
+        // --- UPDATED ITEM SUMMARY SECTION ---
+        const summaryEntries = Object.entries(itemSummaryData);
+        let itemSummaryHtml = '';
 
-for (let i = 0; i < summaryEntries.length; i += 2) {
-    const [name1, d1] = summaryEntries[i];
-    const [name2, d2] = summaryEntries[i + 1] || [null, null];
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
 
-    // Formatting values to 2 decimal places as in your requirement
-    const text1 = `${name1}:${d1.totalWeight.toFixed(2)}/${d1.totalPacks}`;
-    const text2 = d2 ? `${name2}:${d2.totalWeight.toFixed(2)}/${d2.totalPacks}` : '';
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
 
-    itemSummaryHtml += `
+            itemSummaryHtml += `
         <tr>
-            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;  font-size:13px;">${text1}</td>
-            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;  font-size:13px;">${text2}</td>
+            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td>
+            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td>
         </tr>`;
-}
+        }
 
-    return `
+        return `
     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
             <div style="font-size:24px;">මංජු සහ සහෝදරයෝ</div>
-            <div style="font-size:15px; margin-bottom:5px;">colombage lanka (Pvt) Ltd</div>
             
             <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">H-39</span>
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">N66</span>
                 <div style="font-size:18px;">ගොවියා: 
-                    <span style="border:2.5px solid #000; padding:5px 10px;">${selectedSupplier}</span>
+                    <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span>
                 </div>
             </div>
 
-            <div style="font-size:16px;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
-            <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px; padding:0 5px;">
-                <span>බණ්ඩාරවෙල</span>
-                <span>${time}</span>
-            </div>
+          <div style="font-size:16px; white-space: nowrap;">
+එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල
+</div>
+
         </div>
 
-        <div style="font-size:14px; margin-top:10px; padding:0 5px;">
-            <div style="font-weight: bold;">දුර: ${mobile}</div>
+        <div style="font-size:19px; margin-top:10px; padding:0 5px;">
+            <div style="font-weight: bold;">දුර:${mobile}</div>
             <div style="display:flex; justify-content:space-between; margin-top:3px;">
-                <span>බිල් අංකය: ${currentBillNo}</span>
-                <span>දිනය: ${date}</span>
+                <span>බිල් අංකය:${currentBillNo}</span>
+                <span>දිනය:${date}</span>
             </div>
         </div>
 
@@ -316,8 +331,8 @@ for (let i = 0; i < summaryEntries.length; i += 2) {
             <thead>
                 <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
                     <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">කිලෝ</th>
-                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">මිල</th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -30px; top: 24px;"> කිලෝ </th>
+                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px; top: 24px;">මිල</th>
                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
                 </tr>
             </thead>
@@ -326,25 +341,29 @@ for (let i = 0; i < summaryEntries.length; i += 2) {
             </tbody>
             <tfoot>
                 <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${totalPacksSum}</td>
-                    <td colspan="3" style="text-align:right; padding-top:12px; font-size:${fontSizeTotal};">${totalsupplierSales.toFixed(2)}</td>
+                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
+                  <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};">
+    <div style="text-align:right; float:right; white-space:nowrap;">
+        ${formatNumber(totalsupplierSales.toFixed(2))}
+    </div>
+</td>
                 </tr>
             </tfoot>
         </table>
 
-        <table style="width:100%; margin-top:20px; font-weight:bold; padding:0 5px;">
+        <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
             <tr>
-                <td style="font-size:20px;">අගය:</td>
+                <td style="font-size:20px;">මෙම බිලට ගෙවන්න:</td>
                 <td style="text-align:right;">
-                    <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:24px; padding:5px 12px;">
-                        ${totalsupplierSales.toFixed(2)}
+                    <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">
+                        ${formatNumber(totalsupplierSales.toFixed(2))}
                     </span>
                 </td>
             </tr>
         </table>
 
         <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
-            <table style="width:100%; border-collapse:collapse;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">
                 ${itemSummaryHtml}
             </table>
         </div>
@@ -354,7 +373,7 @@ for (let i = 0; i < summaryEntries.length; i += 2) {
             <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
         </div>
     </div>`;
-}, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize]);
+    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize]);
 
     // --- Print function ---
     const handlePrint = useCallback(async () => {
@@ -587,7 +606,7 @@ for (let i = 0; i < summaryEntries.length; i += 2) {
             position: 'relative',
             boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
             fontFamily: 'Roboto, Arial, sans-serif',
-           
+
             marginTop: '-90px',
             width: '850px',
             minHeight: '550px',
@@ -650,7 +669,7 @@ for (let i = 0; i < summaryEntries.length; i += 2) {
 
         const renderEmptyContent = () => (
             <div style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0', minHeight: '400px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-               
+
             </div>
         );
 
@@ -750,7 +769,7 @@ for (let i = 0; i < summaryEntries.length; i += 2) {
         return (
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
-                   <h2 style={{ fontSize: "1.5rem", color: "white" }}>
+                    <h2 style={{ fontSize: "1.5rem", color: "white" }}>
                         ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo}</strong>)
                     </h2>
 
@@ -934,8 +953,8 @@ for (let i = 0; i < summaryEntries.length; i += 2) {
 const headerContainerStyle = { padding: '40px 0 30px 0', borderBottom: '1px solid #E0E0E0', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', backgroundColor: '#1ec139ff' };
 const searchBarStyle = { width: '100%', fontSize: '1rem', borderRadius: '6px', border: '1px solid #E0E0E0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', boxSizing: 'border-box', backgroundColor: 'white' };
 const sectionsContainerStyle = { display: 'flex', justifyContent: 'space-between', gap: '20px' };
-const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45px', marginTop: '-95px',border: '2px solid black' };
-const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-95px', marginLeft: '0',border: '2px solid black' };
+const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45px', marginTop: '-95px', border: '2px solid black' };
+const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-95px', marginLeft: '0', border: '2px solid black' };
 const centerPanelContainerStyle = { flex: '3', minWidth: '700px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' };
 const baseSectionStyle = { padding: '25px 0 25px 0', borderRadius: '12px', boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 210px)' };
 const printedSectionStyle = { ...baseSectionStyle, backgroundColor: '#1ec139ff', borderLeft: '5px solid #FFFFFF', minHeight: '550px' };

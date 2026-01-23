@@ -27,16 +27,18 @@ const WeightReportModal = ({ isOpen, onClose }) => {
   const handlePasswordChange = (e) => {
     const value = e.target.value;
     setPassword(value);
-    setShowDateRange(value === 'nethma123');
+    // TEMPORARILY DISABLED PASSWORD CHECK: Always show date range
+    setShowDateRange(true);
   };
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     
-    if (!password) {
-      alert("මුරපදය ඇතුලත් කරන්න");
-      return;
-    }
+    // TEMPORARILY DISABLED PASSWORD CHECK: Remove password requirement
+    // if (!password) {
+    //   alert("මුරපදය ඇතුලත් කරන්න");
+    //   return;
+    // }
 
     try {
       setLoading(true);
@@ -98,33 +100,33 @@ const WeightReportModal = ({ isOpen, onClose }) => {
                   />
                 </div>
 
-                {showDateRange && (
-                  <div className="row g-3 mb-4">
-                    <div className="col-md-6">
-                      <label className="form-label fw-bold">ආරම්භ දිනය</label>
-                      <input
-                        type="date"
-                        className="form-control"
-                        value={filters.start_date}
-                        onChange={(e) => setFilters(prev => ({ ...prev, start_date: e.target.value }))}
-                      />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label fw-bold">අවසන් දිනය</label>
-                      <input
-                        type="date"
-                        className="form-control"
-                        value={filters.end_date}
-                        onChange={(e) => setFilters(prev => ({ ...prev, end_date: e.target.value }))}
-                      />
-                    </div>
+                {/* TEMPORARILY: Always show date range without password requirement */}
+                <div className="row g-3 mb-4">
+                  <div className="col-md-6">
+                    <label className="form-label fw-bold">ආරම්භ දිනය</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={filters.start_date}
+                      onChange={(e) => setFilters(prev => ({ ...prev, start_date: e.target.value }))}
+                    />
                   </div>
-                )}
+                  <div className="col-md-6">
+                    <label className="form-label fw-bold">අවසන් දිනය</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={filters.end_date}
+                      onChange={(e) => setFilters(prev => ({ ...prev, end_date: e.target.value }))}
+                    />
+                  </div>
+                </div>
 
                 <button 
                   type="submit" 
                   className="btn btn-primary btn-lg w-100 shadow-sm"
-                  disabled={loading || !password}
+                  disabled={loading}
+                  // TEMPORARILY REMOVED: || !password
                 >
                   {loading ? (
                     <><span className="spinner-border spinner-border-sm me-2"></span>Loading...</>

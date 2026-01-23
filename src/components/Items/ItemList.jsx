@@ -13,10 +13,16 @@ const ItemList = () => {
         loadItems();
     }, []);
 
+    // 🔹 LOAD + SORT ITEMS A → Z BY item.no
     const loadItems = async () => {
         try {
             const response = await api.get('/items');
-            setItems(response.data);
+
+            const sortedItems = response.data.sort((a, b) =>
+                a.no.localeCompare(b.no)
+            );
+
+            setItems(sortedItems);
         } catch (error) {
             console.error('Error loading items:', error);
             setMessage('Error loading items');
@@ -31,8 +37,9 @@ const ItemList = () => {
         window.location.href = '/login';
     };
 
+    // 🔹 SEARCH + FORCE CAPITAL + SORT
     const handleSearch = async (e) => {
-        const value = e.target.value;
+        const value = e.target.value.toUpperCase(); // FORCE CAPS
         setSearchTerm(value);
 
         if (value.trim() === '') {
@@ -42,7 +49,12 @@ const ItemList = () => {
 
         try {
             const response = await api.get(`/items/search/${value}`);
-            setItems(response.data);
+
+            const sortedItems = response.data.sort((a, b) =>
+                a.no.localeCompare(b.no)
+            );
+
+            setItems(sortedItems);
         } catch (error) {
             console.error('Error searching items:', error);
         }
@@ -68,7 +80,7 @@ const ItemList = () => {
     return (
         <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#99ff99' }}>
             
-            {/* --- VERTICAL SIDEBAR --- */}
+            {/* ---------- SIDEBAR ---------- */}
             <div
                 style={{
                     width: '260px',
@@ -111,7 +123,6 @@ const ItemList = () => {
                             <i className="material-icons me-2">attach_money</i> කොමිෂන්
                         </Link>
                     </li>
-                    <hr className="bg-light" />
                 </ul>
 
                 <div className="mt-auto pt-3 border-top border-secondary">
@@ -124,7 +135,7 @@ const ItemList = () => {
                 </div>
             </div>
 
-            {/* --- MAIN CONTENT AREA --- */}
+            {/* ---------- MAIN CONTENT ---------- */}
             <div style={{ marginLeft: '260px', flexGrow: 1, padding: '30px', width: 'calc(100vw - 260px)' }}>
                 <div
                     style={{
@@ -141,13 +152,17 @@ const ItemList = () => {
                             + නව භාණ්ඩයක් එකතු කරන්න
                         </Link>
 
+                        {/* 🔹 SEARCH INPUT (AUTO CAPS) */}
                         <input
                             type="text"
                             value={searchTerm}
                             onChange={handleSearch}
                             className="form-control form-control-sm"
                             placeholder="අංකය හෝ වර්ගය අනුව සොයන්න"
-                            style={{ maxWidth: '300px' }}
+                            style={{
+                                maxWidth: '300px',
+                                textTransform: 'uppercase'
+                            }}
                         />
                     </div>
 
@@ -176,7 +191,7 @@ const ItemList = () => {
                                 ) : (
                                     items.map((item) => (
                                         <tr key={item.id} style={{ textAlign: 'center' }}>
-                                            <td style={{ textTransform: 'uppercase' }} className="fw-bold">{item.no}</td>
+                                            <td className="fw-bold">{item.no}</td>
                                             <td>{item.type}</td>
                                             <td>Rs. {Number(item.pack_cost).toFixed(2)}</td>
                                             <td>Rs. {Number(item.pack_due).toFixed(2)}</td>
@@ -196,16 +211,6 @@ const ItemList = () => {
                     </div>
                 </div>
             </div>
-
-            <style jsx="true">{`
-                .table thead th {
-                    background-color: #e6f0ff !important;
-                    color: #003366 !important;
-                }
-                .table-hover tbody tr:hover {
-                    background-color: #f1f5ff !important;
-                }
-            `}</style>
         </div>
     );
 };

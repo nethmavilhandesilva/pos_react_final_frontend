@@ -64,7 +64,7 @@ const LoginPage = () => {
           </button>
         </form>
         <p className="text-center mt-3">
-          Don’t have an account? <a href="/register">Register</a>
+          Don’t have an account? <a href="/sms_new_frontend/register">Register</a>
         </p>
       </div>
     </div>

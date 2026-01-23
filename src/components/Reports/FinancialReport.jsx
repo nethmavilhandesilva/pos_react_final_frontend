@@ -15,6 +15,7 @@ const FinancialReport = () => {
         totalDr: 0,
         totalCr: 0,
         salesTotal: 0,
+        supplierTotalCost: 0,
         totalProfit: 0,
         totalDamages: 0,
         totalOldLoans: 0,
@@ -62,6 +63,7 @@ const FinancialReport = () => {
                     totalDr: data.totalDr || 0,
                     totalCr: data.totalCr || 0,
                     salesTotal: data.salesTotal || 0,
+                    supplierTotalCost: data.supplierTotalCost || 0,
                     totalProfit: data.totalProfit || 0,
                     totalDamages: data.totalDamages || 0,
                     totalOldLoans: data.totalOldLoans || 0,
@@ -101,6 +103,11 @@ const FinancialReport = () => {
 
     const calculateBalance = () => financialData.totalDr + financialData.totalCr;
 
+    // Calculate the actual difference (Dr - Cr)
+    const calculateNetAmount = () => {
+        return financialData.totalDr - Math.abs(financialData.totalCr);
+    };
+
     if (loading) return (
         <Layout>
             <div className="container mt-4 text-center">
@@ -119,6 +126,8 @@ const FinancialReport = () => {
             </div>
         </Layout>
     );
+
+    const netAmount = calculateNetAmount();
 
     return (
         <Layout>
@@ -142,9 +151,18 @@ const FinancialReport = () => {
                         </div>
                     </div>
 
-                    {/* Sales Total */}
-                    <div className="alert alert-info fw-bold mb-3">
-                        විකිණුම් මුළු එකතුව: {formatNumber(financialData.salesTotal)}
+                    {/* Sales Total and Supplier Cost Summary */}
+                    <div className="row mb-3">
+                        <div className="col-md-6">
+                            <div className="alert alert-info fw-bold">
+                                විකිණුම් මුළු එකතුව: {formatNumber(financialData.salesTotal)}
+                            </div>
+                        </div>
+                        <div className="col-md-6">
+                            <div className="alert alert-warning fw-bold">
+                                සැපයුම්කරු පිරිවැය: {formatNumber(financialData.supplierTotalCost)}
+                            </div>
+                        </div>
                     </div>
 
                     {/* Report Table */}
@@ -173,15 +191,19 @@ const FinancialReport = () => {
                                     <td className="text-end">{formatNumber(Math.abs(financialData.totalCr))}</td>
                                 </tr>
 
+                                {/* UPDATED: Show the calculated difference (Dr - Cr) */}
                                 <tr className="fw-bold table-warning">
                                     <td>ඇතැති මුදල්</td>
                                     <td colSpan="2" className="text-end">
                                         {(() => {
-                                            const diff = calculateBalance();
-                                            return diff < 0 ? (
-                                                <span className="text-danger">{formatNumber(diff)}</span>
+                                            // Calculate net amount: Dr - Cr
+                                            const netAmount = financialData.totalDr - Math.abs(financialData.totalCr);
+                                            const calculationString = `${formatNumber(Math.abs(financialData.totalDr))} - ${formatNumber(Math.abs(financialData.totalCr))} = ${formatNumber(netAmount)}`;
+                                            
+                                            return netAmount < 0 ? (
+                                                <span className="text-danger">{calculationString}</span>
                                             ) : (
-                                                <span className="text-success">{formatNumber(diff)}</span>
+                                                <span className="text-success">{calculationString}</span>
                                             );
                                         })()}
                                     </td>
@@ -217,6 +239,14 @@ const FinancialReport = () => {
                                     <td>මුළු හානිය</td>
                                     <td colSpan="2" className="text-end text-danger">
                                         {formatNumber(financialData.totalDamages)}
+                                    </td>
+                                </tr>
+
+                                {/* Supplier Cost Display */}
+                                <tr className="fw-bold table-warning">
+                                    <td>සැපයුම්කරු පිරිවැය</td>
+                                    <td colSpan="2" className="text-end">
+                                        <span className="text-info">{formatNumber(financialData.supplierTotalCost)}</span>
                                     </td>
                                 </tr>
 

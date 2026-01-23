@@ -12,7 +12,6 @@ const WeightReportView = ({ reportData, onClose }) => {
 
     useEffect(() => {
         setIsClient(true);
-        // Set a default date string for the report footer/header
         setCurrentDate(new Date().toLocaleDateString());
     }, []);
 
@@ -30,27 +29,29 @@ const WeightReportView = ({ reportData, onClose }) => {
         fetchSettings();
     }, []);
 
-    // Calculate totals with Number safety
+    // ================= TOTAL CALCULATIONS =================
     const totals = sales.reduce(
         (acc, sale) => {
             const packs = Number(sale.packs) || 0;
             const weight = Number(sale.weight) || 0;
-            const pack_due = Number(sale.pack_due) || 0;
+            const pack_cost = Number(sale.pack_cost) || 0; // UPDATED
             const item_total = Number(sale.total) || 0;
 
-            const pack_due_cost = packs * pack_due;
-            const net_total = item_total - pack_due_cost;
+            const pack_total_cost = packs * pack_cost;
+            // Assuming Net Total adds the pack cost to the item total
+            const net_total = item_total + pack_total_cost; 
 
             acc.total_packs += packs;
             acc.total_weight += weight;
-            acc.total_pack_due_cost += pack_due_cost;
+            acc.total_pack_cost += pack_total_cost;
             acc.total_net_total += net_total;
 
             return acc;
         },
-        { total_packs: 0, total_weight: 0, total_pack_due_cost: 0, total_net_total: 0 }
+        { total_packs: 0, total_weight: 0, total_pack_cost: 0, total_net_total: 0 }
     );
 
+    // ================= PRINT =================
     const handlePrint = () => {
         if (!isClient) return;
         const printWindow = window.open('', '_blank');
@@ -80,14 +81,22 @@ const WeightReportView = ({ reportData, onClose }) => {
         };
     };
 
+    // ================= EXCEL EXPORT =================
     const handleExcel = () => {
         const data = [['අයිතම', 'බර', 'මලු', 'මලු ගාස්තුව', 'එකතුව']];
         sales.forEach(s => {
             const packs = Number(s.packs) || 0;
-            const pack_due = Number(s.pack_due) || 0;
+            const pack_cost = Number(s.pack_cost) || 0; // UPDATED
             const total = Number(s.total) || 0;
-            const pack_due_cost = packs * pack_due;
-            data.push([s.item_name, Number(s.weight), packs, pack_due_cost, (total - pack_due_cost)]);
+            const pack_total_cost = packs * pack_cost;
+            
+            data.push([
+                s.item_name, 
+                Number(s.weight), 
+                packs, 
+                pack_total_cost, 
+                (total + pack_total_cost)
+            ]);
         });
         const ws = XLSX.utils.aoa_to_sheet(data);
         const wb = XLSX.utils.book_new();
@@ -133,17 +142,17 @@ const WeightReportView = ({ reportData, onClose }) => {
                             {sales.map((s, i) => {
                                 const weight = Number(s.weight) || 0;
                                 const packs = Number(s.packs) || 0;
-                                const pack_due = Number(s.pack_due) || 0;
+                                const pack_cost = Number(s.pack_cost) || 0; // UPDATED
                                 const total = Number(s.total) || 0;
-                                const pack_due_cost = packs * pack_due;
-                                const net = total - pack_due_cost;
+                                const pack_total_cost = packs * pack_cost;
+                                const net = total + pack_total_cost;
 
                                 return (
                                     <tr key={i}>
                                         <td>{s.item_name}</td>
                                         <td className="text-end">{weight.toFixed(2)}</td>
                                         <td className="text-end">{packs}</td>
-                                        <td className="text-end">{pack_due_cost.toFixed(2)}</td>
+                                        <td className="text-end">{pack_total_cost.toFixed(2)}</td>
                                         <td className="text-end">{net.toFixed(2)}</td>
                                     </tr>
                                 );
@@ -154,13 +163,13 @@ const WeightReportView = ({ reportData, onClose }) => {
                                 <td>මුළු එකතුව (Total)</td>
                                 <td className="text-end">{Number(totals.total_weight).toFixed(2)}</td>
                                 <td className="text-end">{totals.total_packs}</td>
-                                <td className="text-end">{Number(totals.total_pack_due_cost).toFixed(2)}</td>
+                                <td className="text-end">{Number(totals.total_pack_cost).toFixed(2)}</td>
                                 <td className="text-end">{Number(totals.total_net_total).toFixed(2)}</td>
                             </tr>
                             <tr className="table-dark text-white">
                                 <td colSpan="4" className="text-end">අවසන් මුළු එකතුව (Grand Total)</td>
                                 <td className="text-end">
-                                    {(Number(totals.total_net_total) + Number(totals.total_pack_due_cost)).toFixed(2)}
+                                    {Number(totals.total_net_total).toFixed(2)}
                                 </td>
                             </tr>
                         </tfoot>

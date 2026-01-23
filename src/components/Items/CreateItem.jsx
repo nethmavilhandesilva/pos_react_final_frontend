@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import api from '../../api';          // ✅ use api.js
+import api from '../../api';
 import { useNavigate, Link } from 'react-router-dom';
 
 const CreateItem = () => {
@@ -7,7 +7,8 @@ const CreateItem = () => {
         no: '',
         type: '',
         pack_cost: '',
-        pack_due: ''
+        pack_due: '',
+        bag_real_price: '' // Added new field
     });
     const [errors, setErrors] = useState({});
     const [loading, setLoading] = useState(false);
@@ -27,9 +28,7 @@ const CreateItem = () => {
         setLoading(true);
 
         try {
-            // ✅ API request using api.js
             await api.post('/items', formData);
-
             navigate('/items');
         } catch (error) {
             if (error.response && error.response.status === 422) {
@@ -113,44 +112,36 @@ const CreateItem = () => {
                                 {errors.pack_due && <div className="invalid-feedback">{errors.pack_due[0]}</div>}
                             </div>
 
-                            <div className="d-flex justify-content-center mt-4">
-                                <button 
-                                    type="submit"
-                                    disabled={loading}
-                                    className="btn btn-success me-2"
-                                >
-                                    {loading ? 'Adding...' : (
-                                        <>
-                                            <i className="material-icons align-middle me-1">add_circle_outline</i>
-                                            එක් කරන්න
-                                        </>
-                                    )}
-                                </button>
+                            {/* --- New Field: Bag Real Price --- */}
+                            <div className="mb-3">
+                                <label htmlFor="bag_real_price" className="form-label">සත්‍ය බර (</label>
+                                <input 
+                                    type="number"
+                                    id="bag_real_price"
+                                    name="bag_real_price"
+                                    step="0.01"
+                                    value={formData.bag_real_price}
+                                    onChange={handleChange}
+                                    className={`form-control ${errors.bag_real_price ? 'is-invalid' : ''}`}
+                                    required
+                                />
+                                {errors.bag_real_price && <div className="invalid-feedback">{errors.bag_real_price[0]}</div>}
+                            </div>
 
-                                <Link to="/items" className="btn btn-secondary">
-                                    <i className="material-icons align-middle me-1">cancel</i>
-                                    අවලංගු කරන්න
-                                </Link>
+                            <div className="d-flex justify-content-center mt-4">
+                                <button type="submit" disabled={loading} className="btn btn-success me-2">
+                                    {loading ? 'Adding...' : 'එක් කරන්න'}
+                                </button>
+                                <Link to="/items" className="btn btn-secondary">අවලංගු කරන්න</Link>
                             </div>
                         </form>
                     </div>
                 </div>
             </div>
-
             <style jsx>{`
-                .custom-card {
-                    background-color: #006400 !important;
-                    border-radius: 12px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-                    padding: 24px;
-                }
-                body {
-                    background-color: #99ff99;
-                }
-                .form-label {
-                    font-weight: 700;
-                    color: #000000;
-                }
+                .custom-card { background-color: #006400 !important; border-radius: 12px; padding: 24px; }
+                body { background-color: #99ff99; }
+                .form-label { font-weight: 700; color: #000000; }
             `}</style>
         </div>
     );

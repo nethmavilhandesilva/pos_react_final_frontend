@@ -413,8 +413,6 @@ const LoanManager = () => {
 
                     <div className="d-flex flex-wrap gap-2 mt-3">
                         <a href="/sms_new_frontend/loan-report" className="btn btn-sm btn-dark">ණය වාර්තාව</a>
-                        <a href="/returns/report" className="btn btn-sm btn-dark">නැවත ලබා දීම් වාර්තාව</a>
-                        <a href="/reports/cheque-payments" className="btn btn-sm btn-dark">චෙක් වාර්තාව</a>
                     </div>
                 </div>
             </div>

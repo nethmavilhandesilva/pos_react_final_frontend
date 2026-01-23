@@ -390,9 +390,9 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
         <div className="flex flex-row flex-nowrap items-center justify-between w-full p-2 mt-2 rounded-xl border-2 border-blue-500 bg-gray-900 text-white font-bold shadow-lg overflow-hidden">
             <div className="flex items-center gap-4 px-3 border-r border-gray-700 flex-1 justify-center">
                 <span className="text-gray-400 uppercase text-[10px] whitespace-nowrap">එකතුව:</span>
-               <span className="text-white text-sm whitespace-nowrap" style={{ marginLeft: '6px' }}>
-    {formatDecimal(totals.billTotal)}
-</span>
+                <span className="text-white text-sm whitespace-nowrap" style={{ marginLeft: '6px' }}>
+                    {formatDecimal(totals.billTotal)}
+                </span>
 
             </div>
             <div className="flex items-center gap-2 px-3 border-r border-gray-700 flex-1 justify-center" style={{ marginLeft: '20px', transform: 'translateY(-24px)' }}>
@@ -515,11 +515,11 @@ export default function SalesEntry() {
     }, [selectedPrintedCustomer, printedSales]);
 
     const formatDecimal = (value) => {
-    return new Intl.NumberFormat('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    }).format(Number(value || 0));
-};
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(Number(value || 0));
+    };
 
 
     const fetchLoanAmount = async (customerCode) => {
@@ -795,7 +795,6 @@ export default function SalesEntry() {
             { key: "supplier_code", ref: "supplier_code", label: "Supplier Code" },
             { key: "item_code", ref: "item_code_select", label: "Item" },
             { key: "weight", ref: "weight", label: "Weight" },
-            { key: "price_per_kg", ref: "price_per_kg_grid_item", label: "Price" },
             { key: "packs", ref: "packs", label: "Packs" }
         ];
 
@@ -1037,7 +1036,23 @@ export default function SalesEntry() {
         });
     };
 
-    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+        const formatNumber = (num) => {
+            if (typeof num !== 'number' && typeof num !== 'string') return '0';
+            const number = parseFloat(num);
+            if (isNaN(number)) return '0';
+            
+            // Check if it's a whole number or has decimals
+            if (Number.isInteger(number)) {
+                return number.toLocaleString('en-US');
+            } else {
+                // For decimal numbers, format the whole part with commas
+                const parts = number.toFixed(2).split('.');
+                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+                return `${wholePart}.${parts[1]}`;
+            }
+        };
+
         const date = new Date().toLocaleDateString();
         const time = new Date().toLocaleTimeString();
         let totalAmountSum = 0;
@@ -1057,9 +1072,9 @@ export default function SalesEntry() {
         // Increased width to 350px for maximum clarity on 3-inch/80mm printers
         const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-        const fontSizeBody = '19px';
-        const fontSizeHeader = '19px';
-        const fontSizeTotal = '20px';
+        const fontSizeBody = '25px';
+        const fontSizeHeader = '23px';
+        const fontSizeTotal = '28px';
 
         // Optimized column widths for the new 350px width
         const colGroups = `
@@ -1079,17 +1094,28 @@ export default function SalesEntry() {
             return `
             <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
                 <td style="text-align:left; padding:10px 0; white-space: nowrap;">
-                    ${s.item_name || ""}<br>${packs}
+                    ${s.item_name || ""}<br>${formatNumber(packs)}
                 </td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -40px;">
-  ${weight.toFixed(2)}
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -50px;">
+                   ${formatNumber(weight.toFixed(2))}
+                </td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -25px;">${formatNumber(price.toFixed(2))}</td>
+              <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+    
+    <div style="font-size:25px; white-space:nowrap;">
+        ${s.supplier_code || "ASW"}
+    </div>
+
+    <div style="
+        font-weight:900;
+        white-space:nowrap;
+    ">
+        ${formatNumber(value)}
+    </div>
+
 </td>
 
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -25px;">${price.toFixed(2)}</td>
-                <td style="text-align:right; padding:10px 0;">
-                    <div style="font-size:12px;">${s.supplier_code || "ASW"}</div>
-                    <div style="font-weight: 900; ">${value}</div>
-                </td>
+
             </tr>`;
         }).join("");
 
@@ -1097,15 +1123,16 @@ export default function SalesEntry() {
         const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
         const finalGrandTotal = totalSales + totalPackCost;
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-        const remaining = givenAmount > 0 ? (givenAmount - finalGrandTotal) : 0;
+        // This keeps the calculation the same but ensures the displayed 'remaining' is always positive
+        const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
 
         const summaryEntries = Object.entries(consolidatedSummary);
         let summaryHtmlContent = '';
         for (let i = 0; i < summaryEntries.length; i += 2) {
             const [name1, d1] = summaryEntries[i];
             const [name2, d2] = summaryEntries[i + 1] || [null, null];
-            const text1 = `${name1}:${d1.totalWeight}/${d1.totalPacks}`;
-            const text2 = d2 ? `${name2}:${d2.totalWeight}/${d2.totalPacks}` : '';
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
             summaryHtmlContent += `
         <tr>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>
@@ -1118,10 +1145,10 @@ export default function SalesEntry() {
     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
             <div style="font-size:24px;">මංජු සහ සහෝදරයෝ</div>
-            <div style="font-size:15px; margin-bottom:5px;">colombage lanka (Pvt) Ltd</div>
+            <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
             
             <div style="display:flex; justify-content:center; gap:15px; margin:12px 0;">
-                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">H-39</span>
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">N66</span>
                 <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">${customerName.toUpperCase()}</span>
             </div>
             
@@ -1132,11 +1159,11 @@ export default function SalesEntry() {
             </div>
         </div>
 
-        <div style="font-size:14px; margin-top:10px; padding:0 5px;">
+        <div style="font-size:19px; margin-top:10px; padding:0 5px;">
             <div style="font-weight: bold;">දුර: 0777672838 / 071437115</div>
             <div style="display:flex; justify-content:space-between; margin-top:3px;">
-                <span>බිල් අංකය: ${billNo}</span>
-                <span>දිනය: ${date}</span>
+                <span>බිල් අංකය:${billNo}</span>
+                <span>දිනය:${date}</span>
             </div>
         </div>
 
@@ -1146,9 +1173,9 @@ export default function SalesEntry() {
             ${colGroups}
             <thead>
                 <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                    <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>(මලු)</th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">කිලෝ</th>
-                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;">මිල</th>
+                    <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -30px; top: 24px;"> කිලෝ </th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;top: 24px;">මිල</th>
                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>
                 </tr>
             </thead>
@@ -1157,33 +1184,41 @@ export default function SalesEntry() {
             </tbody>
             <tfoot>
                 <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${totalPacksSum}</td>
-                    <td colspan="3" style="text-align:right; padding-top:12px; font-size:${fontSizeTotal};">${totalSales.toFixed(2)}</td>
+                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
+                  <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};">
+    <div style="text-align:right; float:right; white-space:nowrap;">
+        ${formatNumber(totalSales.toFixed(2))}
+    </div>
+</td>
+
                 </tr>
             </tfoot>
         </table>
 
-        <table style="width:100%; margin-top:20px; font-weight:bold; font-size:18px; padding:0 5px;">
+        <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
             <tr>
                 <td>මලු:</td>
-                <td style="text-align:right;">${totalPackCost.toFixed(2)}</td>
+               <td style="text-align:right; font-weight:bold;">
+    ${formatNumber(totalPackCost.toFixed(2))}
+</td>
+
             </tr>
             <tr>
                 <td style="font-size:20px; padding-top:8px;">එකතුව:</td>
                 <td style="text-align:right; padding-top:8px;">
                     <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">
-                        ${finalGrandTotal.toFixed(2)}
+                        ${formatNumber(finalGrandTotal.toFixed(2))}
                     </span>
                 </td>
             </tr>
             ${givenAmount > 0 ? `
             <tr>
                 <td style="font-size:18px; padding-top:18px;">දුන් මුදල:</td>
-                <td style="text-align:right; font-size:18px; padding-top:18px;">${parseFloat(givenAmount).toFixed(2)}</td>
+                <td style="text-align:right; font-size:18px; padding-top:18px;">${formatNumber(parseFloat(givenAmount).toFixed(2))}</td>
             </tr>
             <tr>
                 <td style="font-size:22px;">ඉතිරිය:</td>
-                <td style="text-align:right; font-size:26px;">${remaining.toFixed(2)}</td>
+                <td style="text-align:right; font-size:26px;">${formatNumber(remaining.toFixed(2))}</td>
             </tr>` : ''}
         </table>
 
@@ -1271,16 +1306,60 @@ export default function SalesEntry() {
                 isPrinting: false
             });
 
-            // 6. Clear form and trigger browser print
+            // 6. Clear form
             setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
-            await printSingleContent(receiptHtml, customerName);
 
-            setTimeout(() => refs.customer_code_input.current?.focus(), 200);
+            // 7. Create and open print window, then reload the main page
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (!printWindow) {
+                alert("Please allow pop-ups for printing");
+                window.location.reload(); // Reload even if popup blocked
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(`<!DOCTYPE html>
+        <html>
+        <head>
+            <title>Print Bill - ${customerName}</title>
+            <style>
+                body { margin: 0; padding: 20px; }
+                @media print { body { padding: 0; } }
+            </style>
+        </head>
+        <body>
+            ${receiptHtml}
+            <script>
+                // When the print window loads, trigger print and reload parent
+                window.onload = function() { 
+                    // Immediately reload the parent window (main page)
+                    if (window.opener && !window.opener.closed) {
+                        window.opener.location.reload();
+                    }
+                    
+                    // Short delay to ensure parent reload starts, then show print dialog
+                    setTimeout(function() { 
+                        window.print(); 
+                    }, 100);
+                };
+                
+                // If user closes print window without printing
+                window.onbeforeunload = function() {
+                    // Ensure parent is reloaded even if print is cancelled
+                    if (window.opener && !window.opener.closed && !window.opener.location.href.includes('reload')) {
+                        window.opener.location.reload();
+                    }
+                };
+            </script>
+        </body>
+        </html>`);
+            printWindow.document.close();
 
         } catch (error) {
             console.error("Printing error:", error);
             alert("Printing failed");
             updateState({ isPrinting: false });
+            window.location.reload(); // Reload even on error
         }
     };
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
@@ -1621,10 +1700,10 @@ export default function SalesEntry() {
                                         className="flex items-center space-x-3 overflow-x-auto whitespace-nowrap"
                                         style={{ marginTop: "-75px" }}  // adjust value as needed
                                     >
-                                      <div style={{ marginLeft: '660px', marginTop: '-2px' }}>
- <input id="given_amount" ref={refs.given_amount} name="given_amount" type="text" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
+                                        <div style={{ marginLeft: '660px', marginTop: '-2px' }}>
+                                            <input id="given_amount" ref={refs.given_amount} name="given_amount" type="text" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
 
-</div>
+                                        </div>
 
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
