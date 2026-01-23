@@ -201,9 +201,9 @@ const FinancialReport = () => {
                                             const calculationString = `${formatNumber(Math.abs(financialData.totalDr))} - ${formatNumber(Math.abs(financialData.totalCr))} = ${formatNumber(netAmount)}`;
                                             
                                             return netAmount < 0 ? (
-                                                <span className="text-danger">{calculationString}</span>
+                                                <span className="text-danger">{netAmount}</span>
                                             ) : (
-                                                <span className="text-success">{calculationString}</span>
+                                                <span className="text-success">{netAmount}</span>
                                             );
                                         })()}
                                     </td>
