@@ -212,13 +212,14 @@ const ReportContent = ({ data }) => {
                                     <td className="bg-transparent border-bottom border-white border-opacity-10 py-3 px-4">{loan.Date}</td>
                                     <td className="bg-transparent border-bottom border-white border-opacity-10">{loan.description}</td>
                                     <td className="bg-transparent border-bottom border-white border-opacity-10 text-end px-3">
-                                        {received > 0 ? received.toLocaleString(undefined, {minimumFractionDigits: 2}) : '-'}
+                                        {received > 0 ? received.toLocaleString(undefined, {minimumFractionDigits: 2}) : ''}
                                     </td>
                                     <td className="bg-transparent border-bottom border-white border-opacity-10 text-end px-3">
-                                        {paid > 0 ? paid.toLocaleString(undefined, {minimumFractionDigits: 2}) : '-'}
+                                        {paid > 0 ? paid.toLocaleString(undefined, {minimumFractionDigits: 2}) : ''}
                                     </td>
                                     <td className="bg-transparent border-bottom border-white border-opacity-10 text-end fw-bold text-warning px-4">
-                                        {runningBalance.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                        {/* Show absolute value (remove minus sign) */}
+                                        {Math.abs(runningBalance).toLocaleString(undefined, {minimumFractionDigits: 2})}
                                     </td>
                                 </tr>
                             );
@@ -229,12 +230,16 @@ const ReportContent = ({ data }) => {
                             <td colSpan="2" className="text-end py-3 px-4">එකතුව (Totals):</td>
                             <td className="text-end px-3">{receivedTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
                             <td className="text-end px-3">{paidTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                            <td className="text-end px-4 text-warning">{(paidTotal - receivedTotal).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                            <td className="text-end px-4 text-warning">
+                                {/* Show absolute value of net balance */}
+                                {Math.abs(paidTotal - receivedTotal).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                            </td>
                         </tr>
                         <tr style={{ borderTop: '2px solid rgba(255,255,255,0.3)' }}>
                             <td colSpan="4" className="text-end py-3 px-4 text-uppercase">Net Balance (ශුද්ධ ශේෂය):</td>
                             <td className="text-end px-4 text-warning" style={{ fontSize: '1.25rem' }}>
-                                {(paidTotal - receivedTotal).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                {/* Show absolute value of net balance */}
+                                {Math.abs(paidTotal - receivedTotal).toLocaleString(undefined, {minimumFractionDigits: 2})}
                             </td>
                         </tr>
                     </tfoot>

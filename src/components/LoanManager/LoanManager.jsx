@@ -1,15 +1,21 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Select from 'react-select';
+import CreatableSelect from 'react-select/creatable'; 
 import api from '../../api';
-import Sidebar from '../Sidebar'; // Ensure the path to your Sidebar file is correct
+import Sidebar from '../Sidebar';
 
-// Utility to convert raw customer data into React-Select format
 const formatCustomerOptions = (customers) => customers.map(c => ({
     value: c.id,
     label: `${c.short_name}`,
     shortName: c.short_name,
     creditLimit: c.credit_limit
 }));
+
+const expenseOptions = [
+    { value: 'petro', label: 'Petrol' },
+    { value: 'diesel', label: 'Diesel' },
+    { value: 'other', label: 'වෙනත් වියදම්' }
+];
 
 const getInitialFormState = () => ({
     loan_id: '',
@@ -50,7 +56,7 @@ const LoanManager = () => {
     const isCheque = form.settling_way === 'cheque';
     const isReturns = form.loan_type === 'returns';
     const isIncomeOrExpense = form.loan_type === 'ingoing' || form.loan_type === 'outgoing';
-    const isDescriptionEditable = isIncomeOrExpense || isEditMode;
+    const isExpense = form.loan_type === 'outgoing';
 
     const fetchCustomers = useCallback(async () => {
         try {
@@ -100,6 +106,14 @@ const LoanManager = () => {
         }));
     };
 
+    // Updated handler to allow typing or selecting
+    const handleDescriptionChange = (selectedOption) => {
+        setForm(prev => ({ 
+            ...prev, 
+            description: selectedOption ? (selectedOption.label || selectedOption.value) : '' 
+        }));
+    };
+
     const handleLoanTypeChange = (e) => {
         const { value } = e.target;
         const resetFields = (value === 'ingoing' || value === 'outgoing' || value === 'returns')
@@ -129,10 +143,12 @@ const LoanManager = () => {
         }
     }, []);
 
+    // Effect for Auto-filling descriptions (triggered only on type change)
     useEffect(() => {
-        const { loan_type, settling_way, customer_id, bank } = form;
-        let newDescription = '';
-        let showTotalLoan = isCustomerRelated;
+        if (isEditMode) return;
+
+        const { loan_type, settling_way, bank } = form;
+        let newDescription = "";
 
         if (loan_type === 'old') {
             newDescription = settling_way === 'cheque' ? `Cheque payment from ${bank || 'bank'}` : "වෙළෙන්දාගේ ලාද පරණ නය";
@@ -142,12 +158,15 @@ const LoanManager = () => {
             newDescription = "වෙනත් ලාභීම/ආදායම්";
         }
 
-        if (!isEditMode && !isIncomeOrExpense) {
+        if (newDescription) {
             setForm(prev => ({ ...prev, description: newDescription }));
         }
+    }, [form.loan_type, form.settling_way, form.bank, isEditMode]);
 
-        fetchLoanTotal(customer_id, showTotalLoan);
-    }, [form.loan_type, form.settling_way, form.customer_id, form.bank, isEditMode, isCustomerRelated, isIncomeOrExpense, fetchLoanTotal]);
+    // Independent effect for fetching totals
+    useEffect(() => {
+        fetchLoanTotal(form.customer_id, isCustomerRelated);
+    }, [form.customer_id, isCustomerRelated, fetchLoanTotal]);
 
     useEffect(() => {
         const { customer_id, amount } = form;
@@ -180,15 +199,12 @@ const LoanManager = () => {
 
         try {
             const payload = isEditMode ? { ...formData, _method: 'PUT' } : formData;
-            const response = await api({ url, method: 'POST', data: payload });
-
-            
+            await api({ url, method: 'POST', data: payload });
             handleCancelEdit();
             fetchData();
             fetchCustomers();
         } catch (error) {
-            const errorMsg = error.response?.data?.message || 'An unexpected error occurred.';
-            alert(errorMsg);
+            alert(error.response?.data?.message || 'An unexpected error occurred.');
         } finally {
             setLoading(false);
         }
@@ -244,10 +260,7 @@ const LoanManager = () => {
 
     return (
         <div style={{ display: 'flex', minHeight: '100vh' }}>
-            {/* --- SIDEBAR --- */}
             <Sidebar />
-
-            {/* --- MAIN CONTENT AREA --- */}
             <div style={{ marginLeft: '260px', flexGrow: 1, padding: '20px', width: 'calc(100vw - 260px)' }}>
                 <style>{`
                     body { background-color: #99ff99 !important; }
@@ -256,9 +269,8 @@ const LoanManager = () => {
                     .table td, .table th { padding: 0.3rem; font-size: 0.875rem; }
                     label { font-weight: 500; margin-bottom: 0.2rem; color: #fff; }
                     .table th { background-color: #006600; color: white; }
-                    h3, h4 { color: #ffffff; }
                     .bg-custom-dark { background-color: #004d00 !important; color: #fff; }
-                    .select__control { min-height: 25px !important; border-color: black !important; box-shadow: none !important; }
+                    .creatable-select__control { min-height: 25px !important; border-color: black !important; box-shadow: none !important; }
                 `}</style>
 
                 <div className="custom-card">
@@ -295,7 +307,6 @@ const LoanManager = () => {
                             {isCustomerRelated && (
                                 <div className="col-md-4">
                                     <label className="text-form-label">ගෙණුම්කරු</label>
-
                                     <Select
                                         options={customerOptions}
                                         onChange={handleSelectChange('customer_id')}
@@ -305,20 +316,11 @@ const LoanManager = () => {
                                         isClearable
                                         classNamePrefix="select"
                                         styles={{
-                                            option: (provided) => ({
-                                                ...provided,
-                                                fontWeight: 'bold',
-                                                color: '#000',
-                                            }),
-                                            singleValue: (provided) => ({
-                                                ...provided,
-                                                fontWeight: 'bold',
-                                                color: '#000',
-                                            }),
+                                            option: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                            singleValue: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
                                         }}
                                     />
                                 </div>
-
                             )}
 
                             {isCustomerRelated && !isCheque && (
@@ -337,7 +339,26 @@ const LoanManager = () => {
                                     </div>
                                     <div className={`col-md-${isIncomeOrExpense ? 8 : 5}`}>
                                         <label className="text-form-label">විස්තරය</label>
-                                        <input type="text" className="form-control form-control-sm" name="description" value={form.description} onChange={handleInputChange} required disabled={!isDescriptionEditable} />
+                                        <CreatableSelect
+                                            options={isExpense ? expenseOptions : []}
+                                            onChange={handleDescriptionChange}
+                                            onCreateOption={(inputValue) => {
+                                                setForm(prev => ({ ...prev, description: inputValue }));
+                                            }}
+                                            value={
+                                                (isExpense && expenseOptions.find(opt => opt.label === form.description)) || 
+                                                (form.description ? { value: form.description, label: form.description } : null)
+                                            }
+                                            placeholder="Type or select..."
+                                            isClearable
+                                            classNamePrefix="creatable-select"
+                                            styles={{
+                                                control: (provided) => ({ ...provided, minHeight: '25px', borderColor: 'black' }),
+                                                option: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                singleValue: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                input: (provided) => ({ ...provided, color: '#000' }),
+                                            }}
+                                        />
                                         {isCustomerRelated && <span className="text-white-50 small fw-bold">{totalLoanDisplay}</span>}
                                     </div>
                                 </div>
@@ -368,7 +389,7 @@ const LoanManager = () => {
                             {!isReturns && (
                                 <div className="col-12 mt-3">
                                     <button type="submit" className={`btn btn-sm ${isEditMode ? 'btn-success' : 'btn-light'}`} id="submitButton" disabled={loading || (isCustomerRelated && creditLimitMessage)}>
-                                        {isEditMode ? 'Update Loan' : 'Add Loan'}
+                                        {isEditMode ? 'Update Loan' : 'Add'}
                                     </button>
                                     {isEditMode && <button type="button" className="btn btn-sm btn-secondary ms-2" onClick={handleCancelEdit}>Cancel</button>}
                                 </div>
@@ -405,14 +426,13 @@ const LoanManager = () => {
                                         </tr>
                                     ))
                                 ) : (
-                                    <tr><td colSpan="6" className="text-center">`අද සඳහා ණය වාර්තා කිසිවක් සොයාගත නොහැක`</td></tr>
+                                    <tr><td colSpan="6" className="text-center">අද සඳහා ණය වාර්තා කිසිවක් සොයාගත නොහැක</td></tr>
                                 )}
                             </tbody>
                         </table>
-                    </div>
-
-                    <div className="d-flex flex-wrap gap-2 mt-3">
+                        <div className="d-flex flex-wrap gap-2 mt-3">
                         <a href="/sms_new_frontend/loan-report" className="btn btn-sm btn-dark">ණය වාර්තාව</a>
+                    </div>
                     </div>
                 </div>
             </div>

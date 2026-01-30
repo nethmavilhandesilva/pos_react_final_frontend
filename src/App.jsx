@@ -28,6 +28,7 @@ import SupplierProfitReport from './components/Suppliers/SupplierProfitReport';
 import FinancialReport from './components/Reports/FinancialReport';
 import LoanReportManager from './components/LoanManager/LoanReportManager'; // ✅ Add this
 import SupplierReport2 from './components/Reports/supplierfinalreport';
+import PrintedSalesReport from './components/Reports/PrintedSalesReport';
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -254,6 +255,7 @@ export default function App() {
                     }
                 />
                 <Route path="/reports/supplier" element={<SupplierReport2 />} />
+                <Route path="/reports/printed-sales" element={<PrintedSalesReport />} />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

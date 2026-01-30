@@ -56,156 +56,253 @@ const BreakdownDisplay = ({ sale, formatDecimal }) => {
 };
 
 // --- Admin Modal Component (Popup Window) ---
-const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecimal }) => {
-    if (!isOpen) return null;
+// --- Admin Modal Component (Popup Window) ---
+const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecimal, billSize = '3inch' }) => {
+    if (!isOpen || !sales || sales.length === 0) return null;
 
-    // Inline Styles for guaranteed layout
-    const overlayStyle = {
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(8px)', // Blurs the background
-        WebkitBackdropFilter: 'blur(8px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 9999,
-        padding: '20px'
+    const isFarmer = type === 'farmer';
+    const is4Inch = billSize === '4inch';
+
+    // Exact width for thermal preview
+    const receiptMaxWidth = is4Inch ? '4in' : '350px';
+
+    // --- REPLICATED FORMATTING LOGIC ---
+    // Farmer uses maxDecimals = 3, Customer uses fixed 2 decimals
+    const formatNumber = (value) => {
+        if (typeof value !== 'number' && typeof value !== 'string') return '0';
+        const number = parseFloat(value);
+        if (isNaN(number)) return '0';
+
+        if (Number.isInteger(number)) {
+            return number.toLocaleString('en-US');
+        } else {
+            const maxD = isFarmer ? 3 : 2;
+            const parts = number.toFixed(maxD).split('.');
+            // For farmers, we strip trailing zeros as per your getBillContent logic
+            const processedDecimals = isFarmer ? parts[1].replace(/0+$/, '') : parts[1];
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return processedDecimals ? `${wholePart}.${processedDecimals}` : wholePart;
+        }
     };
 
-    const modalStyle = {
-        backgroundColor: '#fff',
-        borderRadius: '16px',
-        width: '100%',
-        maxWidth: '1000px',
-        maxHeight: '85vh',
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-        overflow: 'hidden',
-        border: '1px solid #e2e8f0'
-    };
+    // --- DATA PROCESSING ---
+    const date = isFarmer ? new Date().toLocaleDateString('si-LK') : new Date().toLocaleDateString();
+    const time = isFarmer ? new Date().toLocaleTimeString('si-LK') : new Date().toLocaleTimeString();
+    const mobile = '0777672838/071437115';
+    const displayName = isFarmer ? sales[0].supplier_code : (sales[0].customer_code || "").toUpperCase();
+    const billNo = isFarmer ? (sales[0].supplier_bill_no || 'N/A') : (sales[0].bill_no || 'N/A');
 
-    const headerStyle = {
-        padding: '20px',
-        backgroundColor: '#111827',
-        color: 'white',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-    };
+    // Consolidated Summary Logic
+    const consolidatedSummary = {};
+    sales.forEach(s => {
+        const itemName = s.item_name || 'Unknown';
+        if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+        consolidatedSummary[itemName].totalWeight += parseFloat(isFarmer ? s.SupplierWeight : s.weight) || 0;
+        consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+    });
+
+    const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+
+    // Value Calculation logic differs for Farmer vs Customer
+    const totalSalesSum = sales.reduce((sum, s) => {
+        const w = parseFloat(isFarmer ? s.SupplierWeight : s.weight) || 0;
+        const p = parseFloat(isFarmer ? s.SupplierPricePerKg : s.price_per_kg) || 0;
+        const total = isFarmer ? (parseFloat(s.SupplierTotal) || (w * p)) : (w * p);
+        return sum + total;
+    }, 0);
+
+    const totalPackCost = isFarmer ? 0 : sales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+    const finalGrandTotal = totalSalesSum + totalPackCost;
+
+    const givenAmount = !isFarmer ? (sales.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0) : 0;
+    const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+
+    // Style Constants
+    const fontSizeBody = '25px';
+    const fontSizeHeader = '23px';
+    const fontSizeTotal = '28px';
 
     return (
-        <div style={overlayStyle} onClick={onClose}>
-            <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-                {/* Header */}
-                <div style={headerStyle}>
-                    <div>
-                        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold' }}>{title}</h2>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: '#9ca3af', textTransform: 'uppercase' }}>
-                            {type === 'farmer' ? 'සැපයුම්කරු සටහන්' : 'පාරිභෝගිකයින්ගේ සටහන්'}
-                        </p>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', fontWeight: 'bold' }}
-                    >
-                        ✕
-                    </button>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={onClose}>
+            <div style={{ backgroundColor: '#fff', borderRadius: '12px', width: '95%', maxWidth: '450px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+
+                <div style={{ padding: '12px', background: '#111827', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 'bold' }}>බිල්පත් පෙරදසුන ({isFarmer ? 'ගොවියා' : 'පාරිභෝගිකයා'})</span>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '20px' }}>✕</button>
                 </div>
 
-                {/* Table Content */}
-                <div style={{ padding: '20px', overflowY: 'auto', backgroundColor: '#f9fafb', flexGrow: 1 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', fontSize: '14px', borderRadius: '8px', overflow: 'hidden' }}>
-                        <thead>
-                            <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left', borderBottom: '2px solid #e2e8f0' }}>
-                                <th style={{ padding: '12px' }}>බිල් අං</th>
-                                <th style={{ padding: '12px' }}>අයිතම කේතය</th>
-                                <th style={{ padding: '12px' }}>අයිතම නාමය</th>
-                                {type === 'farmer' ? (
-                                    <>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>බර</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>මිල</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>එකතුව</th>
-                                        <th style={{ padding: '12px', textAlign: 'right', backgroundColor: '#fefce8' }}>ලාභය</th>
-                                    </>
+                <div style={{ padding: '20px', overflowY: 'auto', backgroundColor: '#e5e7eb', flexGrow: 1 }}>
+                    <div style={{ width: receiptMaxWidth, margin: '0 auto', padding: '10px', backgroundColor: 'white', fontFamily: "'Courier New', monospace", color: '#000', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+
+                        {/* HEADER SECTION */}
+                        <div style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                            <div style={{ fontSize: '24px' }}>මංජු සහ සහෝදරයෝ</div>
+                            {!isFarmer && <div style={{ fontSize: '20px', marginBottom: '5px' }}>colombage lanka (Pvt) Ltd</div>}
+
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', margin: '12px 0' }}>
+                                <span style={{ border: '2.5px solid #000', padding: '5px 12px', fontSize: '22px' }}>N66</span>
+                                {isFarmer ? (
+                                    <div style={{ fontSize: '18px' }}>ගොවියා: <span style={{ border: '2.5px solid #000', padding: '5px 10px', fontSize: '22px' }}>{displayName}</span></div>
                                 ) : (
-                                    <>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>බර</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>මිල</th>
-                                        <th style={{ padding: '12px', textAlign: 'right' }}>එකතුව</th>
-                                        <th style={{ padding: '12px', textAlign: 'center' }}>මලු</th>
-                                    </>
+                                    <span style={{ border: '2.5px solid #000', padding: '5px 12px', fontSize: '22px' }}>{displayName}</span>
                                 )}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sales && sales.length > 0 ? sales.map((s, i) => {
-                                const sw = parseFloat(s.SupplierWeight) || 0;
-                                const sp = parseFloat(s.SupplierPricePerKg) || 0;
-                                const st = parseFloat(s.SupplierTotal) || (sw * sp);
-                                const totalVal = parseFloat(s.total) || 0;
-                                const profit = totalVal - st;
-                                return (
-                                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '12px', fontWeight: 'bold', color: '#2563eb' }}>
-                                            #{type === 'farmer' ? s.supplier_bill_no || 'N/A' : s.bill_no || 'N/A'}
-                                        </td>
-                                        <td style={{ padding: '12px' }}>{s.item_code}</td>
-                                        <td style={{ padding: '12px' }}>{s.item_name}</td>
-                                        {type === 'farmer' ? (
-                                            <>
-                                                <td style={{ padding: '12px', textAlign: 'right' }}>{formatDecimal(sw)} kg</td>
-                                                <td style={{ padding: '12px', textAlign: 'right' }}>{formatDecimal(sp)}</td>
-                                                <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold' }}>{formatDecimal(st)}</td>
-                                                <td style={{ padding: '12px', textAlign: 'right', fontWeight: '900', color: profit < 0 ? '#dc2626' : '#15803d', backgroundColor: '#fffbeb' }}>
-                                                    {formatDecimal(profit)}
-                                                </td>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <td style={{ padding: '12px', textAlign: 'right' }}>{formatDecimal(s.weight)} kg</td>
-                                                <td style={{ padding: '12px', textAlign: 'right' }}>{formatDecimal(s.price_per_kg)}</td>
-                                                <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold' }}>{formatDecimal(totalVal)}</td>
-                                                <td style={{ padding: '12px', textAlign: 'center' }}>{s.packs}</td>
-                                            </>
-                                        )}
-                                    </tr>
-                                );
-                            }) : (
-                                <tr><td colSpan="10" style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>No records found.</td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                            </div>
 
-                {/* Footer */}
-                <div style={{ padding: '16px', backgroundColor: '#f3f4f6', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e5e7eb' }}>
-                    <button
-                        onClick={onClose}
-                        style={{ padding: '8px 24px', backgroundColor: '#111827', color: 'white', borderRadius: '8px', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}
-                    >
-                        සම්පූර්ණයි
-                    </button>
+                            <div style={{ fontSize: '16px' }}>{isFarmer ? 'එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල' : 'එළවළු,පළතුරු තොග වෙළෙන්දෝ'}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '6px', padding: '0 5px' }}>
+                                <span>බණ්ඩාරවෙල</span>
+                                <span>{time}</span>
+                            </div>
+                        </div>
+
+                        <div style={{ fontSize: '19px', marginTop: '10px', padding: '0 5px' }}>
+                            <div style={{ fontWeight: 'bold' }}>දුර: {mobile}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '3px' }}>
+                                <span>බිල් අංකය: {billNo}</span>
+                                <span>දිනය: {date}</span>
+                            </div>
+                        </div>
+
+                        <hr style={{ border: 'none', borderTop: '2.5px solid #000', margin: '10px 0' }} />
+
+                        {/* ITEMS TABLE */}
+                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                            <colgroup>
+                                <col style={{ width: '32%' }} /><col style={{ width: '21%' }} /><col style={{ width: '21%' }} /><col style={{ width: '26%' }} />
+                            </colgroup>
+                            <thead>
+                                <tr style={{ borderBottom: '2.5px solid #000', fontWeight: 'bold' }}>
+                                    <th style={{ textAlign: 'left', paddingBottom: '8px', fontSize: fontSizeHeader }}>වර්ගය<br />මලු</th>
+                                    <th style={{ textAlign: 'right', paddingBottom: '8px', fontSize: fontSizeHeader, position: 'relative', left: '-50px', top: '24px' }}>කිලෝ</th>
+                                    <th style={{ textAlign: 'right', paddingBottom: '8px', fontSize: fontSizeHeader, position: 'relative', left: '-45px', top: '24px' }}>මිල</th>
+                                    <th style={{ textAlign: 'right', paddingBottom: '8px', fontSize: fontSizeHeader }}>{isFarmer ? 'කේතය' : 'අයිතිය'}<br />අගය</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sales.map((s, i) => {
+                                    const w = parseFloat(isFarmer ? s.SupplierWeight : s.weight) || 0;
+                                    const p = parseFloat(isFarmer ? s.SupplierPricePerKg : s.price_per_kg) || 0;
+                                    const itemTotal = isFarmer ? (parseFloat(s.SupplierTotal) || (w * p)) : (w * p);
+                                    const code = isFarmer ? s.customer_code?.toUpperCase() : s.supplier_code;
+
+                                    return (
+                                        <tr key={i} style={{ fontSize: fontSizeBody, fontWeight: 'bold', verticalAlign: 'bottom' }}>
+                                            <td style={{ textAlign: 'left', padding: '10px 0', whiteSpace: 'nowrap' }}>
+                                                {s.item_name}<br />{formatNumber(parseInt(s.packs))}
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '10px 2px', position: 'relative', left: '-70px' }}>
+                                                {formatNumber(w)}
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '10px 2px', position: 'relative', left: '-65px' }}>
+                                                {formatNumber(p)}
+                                            </td>
+                                            <td style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                                <div style={{ fontSize: '25px', whiteSpace: 'nowrap' }}>{code}</div>
+                                                <div style={{ fontWeight: '900', whiteSpace: 'nowrap' }}>{formatNumber(itemTotal)}</div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            <tfoot>
+                                <tr style={{ borderTop: '2.5px solid #000', fontWeight: 'bold' }}>
+                                    <td style={{ paddingTop: '12px', fontSize: fontSizeTotal }}>{formatNumber(totalPacksSum)}</td>
+                                    <td colSpan="3" style={{ paddingTop: '12px', fontSize: fontSizeTotal }}>
+                                        <div style={{ textAlign: 'right', float: 'right', whiteSpace: 'nowrap' }}>{formatNumber(totalSalesSum)}</div>
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        {/* TOTALS SECTION */}
+                        <table style={{ width: '100%', marginTop: '20px', fontWeight: 'bold', fontSize: '22px', padding: '0 5px' }}>
+                            {!isFarmer && (
+                                <tr>
+                                    <td>මලු:</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatNumber(totalPackCost)}</td>
+                                </tr>
+                            )}
+                            <tr>
+                                <td style={{ fontSize: isFarmer ? '15px' : '20px', paddingTop: '8px', whiteSpace: 'nowrap', position: isFarmer ? 'relative' : 'static', left: isFarmer ? '-15px' : '0' }}>
+                                    {isFarmer ? 'මෙම බිලට ගෙවන්න:' : 'එකතුව:'}
+                                </td>
+                                <td style={{ textAlign: 'right', paddingTop: '8px' }}>
+                                    <span style={{ borderBottom: '5px double #000', borderTop: '2px solid #000', fontSize: fontSizeTotal, padding: '5px 10px', paddingLeft: isFarmer ? '25px' : '10px' }}>
+                                        {formatNumber(isFarmer ? totalSalesSum : finalGrandTotal)}
+                                    </span>
+                                </td>
+                            </tr>
+                            {!isFarmer && givenAmount > 0 && (
+                                <>
+                                    <tr>
+                                        <td style={{ fontSize: '18px', paddingTop: '18px' }}>දුන් මුදල:</td>
+                                        <td style={{ textAlign: 'right', fontSize: '20px', paddingTop: '18px', fontWeight: 'bold' }}>{formatNumber(parseFloat(givenAmount))}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style={{ fontSize: '22px' }}>ඉතිරිය:</td>
+                                        <td style={{ textAlign: 'right', fontSize: '26px' }}>{formatNumber(remaining)}</td>
+                                    </tr>
+                                </>
+                            )}
+                        </table>
+
+                        {/* SUMMARY GRID */}
+                        <div style={{ marginTop: '25px', borderTop: '1px dashed #000', paddingTop: '10px' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', textAlign: 'center' }}>
+                                <tbody>
+                                    {Object.entries(consolidatedSummary).reduce((rows, key, index) => {
+                                        if (index % 2 === 0) rows.push([key]);
+                                        else rows[rows.length - 1].push(key);
+                                        return rows;
+                                    }, []).map((row, i) => (
+                                        <tr key={i}>
+                                            {row.map(([name, data]) => (
+                                                <td key={name} style={{ padding: '6px', width: '50%', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '14px' }}>
+                                                    {name}:{formatNumber(data.totalWeight)}/{formatNumber(data.totalPacks)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* FOOTER */}
+                        <div style={{ textAlign: 'center', marginTop: '25px', fontSize: '13px', borderTop: '2.5px solid #000', paddingTop: '10px' }}>
+                            <p style={{ margin: '4px 0', fontWeight: 'bold' }}>භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+                            <p style={{ margin: '4px 0' }}>නැවත භාර ගනු නොලැබේ</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     );
 };
-
-const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange, selectedPrintedCustomer, selectedUnprintedCustomer, handleCustomerClick, formatDecimal, allSales, lastUpdate }) => {
+const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange, selectedPrintedCustomer, selectedUnprintedCustomer, handleCustomerClick, formatDecimal, allSales, lastUpdate, isCashFilterActive, toggleCashFilter }) => {
     const getPrintedCustomerGroups = () => {
         const groups = {};
         allSales.filter(s => s.bill_printed === 'Y' && s.bill_no).forEach(sale => {
+
+            // --- UPDATED FILTER LOGIC ---
+            if (type === "printed") {
+                if (isCashFilterActive) {
+                    // When ticked: show only 'N' (Cash)
+                    if (sale.credit_transaction !== 'N') return;
+                } else {
+                    // When unticked (Default): show only 'Y' (Credit)
+                    if (sale.credit_transaction !== 'Y') return;
+                }
+            }
+
             const groupKey = `${sale.customer_code}-${sale.bill_no}`;
-            if (!groups[groupKey]) groups[groupKey] = { customerCode: sale.customer_code, billNo: sale.bill_no, displayText: sale.customer_code };
+            if (!groups[groupKey]) groups[groupKey] = {
+                customerCode: sale.customer_code,
+                billNo: sale.bill_no,
+                displayText: sale.customer_code
+            };
         });
         return groups;
     };
-
     const getUnprintedCustomers = () => {
         const customerMap = {};
         allSales.filter(s => s.bill_printed === 'N').forEach(sale => {
@@ -244,11 +341,44 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
     return (
         <div key={`${type}-${lastUpdate || ''}`} className="w-full shadow-xl rounded-xl overflow-y-auto border border-black" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh", overflowY: "auto" }}>
             <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
-                <h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>{type === "printed" ? "මුද්‍රණය කළ" : "මුද්‍රණය නොකළ"}</h2>
-                <input type="text" placeholder={`සෙවීම ${type === "printed" ? "බිල්පත් අංකය/කේතය..." : "ගනුදෙනු කේතය..."}`} value={searchQuery} onChange={(e) => onSearchChange(e.target.value.toUpperCase())} className="px-4 py-0.5 border rounded-xl focus:ring-2 focus:ring-blue-300 uppercase" style={{ width: '169px' }} />
+                <div className="flex items-center justify-center gap-2 mb-1">
+                    <h2 className="font-bold text-white whitespace-nowrap" style={{ fontSize: '14px' }}>
+                        {type === "printed" ? "මුද්‍රණය කළ" : "මුද්‍රණය නොකළ"}
+                    </h2>
+
+                    {/* Only show the checkbox for the "printed" column */}
+                    {type === "printed" && (
+                        <div
+                            onClick={() => toggleCashFilter()}
+                            className="cursor-pointer transition-all border border-white rounded"
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                backgroundColor: isCashFilterActive ? '#2563eb' : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                marginLeft: '90px',
+                                marginTop: '-22px',
+                            }}
+                        >
+                            {isCashFilterActive && <span style={{ color: 'white', fontSize: '12px', fontWeight: 'bold' }}>✓</span>}
+                        </div>
+                    )}
+                </div>
+
+                <input
+                    type="text"
+                    placeholder={`සෙවීම ${type === "printed" ? "බිල්පත් අංකය/කේතය..." : "ගනුදෙනු කේතය..."}`}
+                    value={searchQuery}
+                    onChange={(e) => onSearchChange(e.target.value.toUpperCase())}
+                    className="px-4 py-0.5 border rounded-xl focus:ring-2 focus:ring-blue-300 uppercase block mx-auto"
+                    style={{ width: '169px' }}
+                />
             </div>
             <div className="py-1">
-                {displayItems.length === 0 ? (<p className="text-gray-700">No {type === "printed" ? "printed sales" : "unprinted sales"} found.</p>) : (
+                {displayItems.length === 0 ? (<p className="text-gray-700 p-2 text-center text-xs">වාර්තා නොමැත.</p>) : (
                     <ul className="flex flex-col px-1">
                         {displayItems.map((item) => {
                             let customerCode, displayText, totalAmount, billSales;
@@ -433,7 +563,7 @@ export default function SalesEntry() {
         forceUpdate: null, windowFocused: null, isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
         gridPricePerKg: "", selectedSaleForBreakdown: null,
         currentUser: null,
-        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: ""
+        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false,
     });
 
     const setFormData = (updater) => setState(prev => ({ ...prev, formData: typeof updater === 'function' ? updater(prev.formData) : updater }));
@@ -646,6 +776,9 @@ export default function SalesEntry() {
             fetchLoanAmount(trimmedValue);
         }
         if (field === 'supplier_code') setFormData(prev => ({ ...prev, supplier_code: value }));
+        if (field === "given_amount") {
+            updateState({ isGivenAmountManuallyTouched: true });
+        }
     };
 
     const handleItemSelect = (selectedOption) => {
@@ -747,7 +880,7 @@ export default function SalesEntry() {
 
     const handleClearForm = (clearBillNo = false) => {
         setFormData(initialFormData);
-        updateState({ editingSaleId: null, loanAmount: 0, isManualClear: false, packCost: 0, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "", selectedSaleForBreakdown: null, ...(clearBillNo && { currentBillNo: null }) });
+        updateState({ editingSaleId: null, loanAmount: 0, isManualClear: false, packCost: 0, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "", isGivenAmountManuallyTouched: false, selectedSaleForBreakdown: null, ...(clearBillNo && { currentBillNo: null }) });
     };
 
     const handleDeleteRecord = async (saleId) => {
@@ -762,21 +895,36 @@ export default function SalesEntry() {
     const handleSubmitGivenAmount = async (e) => {
         if (e) e.preventDefault();
         updateState({ errors: {} });
+
         const customerCode = formData.customer_code || autoCustomerCode;
-        if (!customerCode) { updateState({ errors: { form: "Please enter or select a customer code first" } }); refs.customer_code_input.current?.focus(); return null; }
-        if (!formData.given_amount) { updateState({ errors: { form: "Please enter a given amount" } }); return null; }
+        if (!customerCode) return null;
+
         const salesToUpdate = displayedSales.filter(s => s.id);
         if (salesToUpdate.length === 0) return null;
 
         try {
             const givenAmount = parseFloat(formData.given_amount) || 0;
-            const updatePromises = salesToUpdate.map(sale => api.put(`${routes.sales}/${sale.id}/given-amount`, { given_amount: givenAmount }));
+
+            // Logic: If NOT touched, it is a credit transaction (Y). If touched, it is N.
+            const creditTransaction = state.isGivenAmountManuallyTouched ? 'N' : 'Y';
+
+            const updatePromises = salesToUpdate.map(sale =>
+                api.put(`${routes.sales}/${sale.id}/given-amount`, {
+                    given_amount: givenAmount,
+                    credit_transaction: creditTransaction // Send the flag to backend
+                })
+            );
+
             const results = await Promise.all(updatePromises);
+
+            // Reset the touch flag for the next bill
+            updateState({ isGivenAmountManuallyTouched: false });
+
             const updatedSalesFromApi = results.map(response => response.data.sale);
             const updatedSalesMap = {};
             updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
             updateState({ allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) });
-            refs.supplier_code.current?.focus();
+
             return updatedSalesFromApi;
         } catch (error) {
             updateState({ errors: { form: error.response?.data?.message || error.message } });
@@ -1036,12 +1184,12 @@ export default function SalesEntry() {
         });
     };
 
- const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
         const formatNumber = (num) => {
             if (typeof num !== 'number' && typeof num !== 'string') return '0';
             const number = parseFloat(num);
             if (isNaN(number)) return '0';
-            
+
             // Check if it's a whole number or has decimals
             if (Number.isInteger(number)) {
                 return number.toLocaleString('en-US');
@@ -1096,10 +1244,10 @@ export default function SalesEntry() {
                 <td style="text-align:left; padding:10px 0; white-space: nowrap;">
                     ${s.item_name || ""}<br>${formatNumber(packs)}
                 </td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -50px;">
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">
                    ${formatNumber(weight.toFixed(2))}
                 </td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -25px;">${formatNumber(price.toFixed(2))}</td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -55px;">${formatNumber(price.toFixed(2))}</td>
               <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
     
     <div style="font-size:25px; white-space:nowrap;">
@@ -1125,6 +1273,14 @@ export default function SalesEntry() {
         const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
         // This keeps the calculation the same but ensures the displayed 'remaining' is always positive
         const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+        const loanRow = globalLoanAmount !== 0 ? `
+        <tr>
+            <td style="font-size:20px; padding-top:8px;">පෙර ණය:</td>
+            <td style="text-align:right; font-size:22px; font-weight:bold; padding-top:8px;">
+                Rs. ${formatNumber(Math.abs(globalLoanAmount).toFixed(2))}
+            </td>
+        </tr>
+    ` : '';
 
         const summaryEntries = Object.entries(consolidatedSummary);
         let summaryHtmlContent = '';
@@ -1144,11 +1300,11 @@ export default function SalesEntry() {
         return `
     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
-            <div style="font-size:24px;">මංජු සහ සහෝදරයෝ</div>
+            <div style="font-size:24px;">xxxx</div>
             <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
             
             <div style="display:flex; justify-content:center; gap:15px; margin:12px 0;">
-                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">N66</span>
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
                 <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">${customerName.toUpperCase()}</span>
             </div>
             
@@ -1174,8 +1330,8 @@ export default function SalesEntry() {
             <thead>
                 <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
                     <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -30px; top: 24px;"> කිලෝ </th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -25px;top: 24px;">මිල</th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
+                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px;top: 24px;">මිල</th>
                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>
                 </tr>
             </thead>
@@ -1187,8 +1343,9 @@ export default function SalesEntry() {
                     <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
                   <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};">
     <div style="text-align:right; float:right; white-space:nowrap;">
-        ${formatNumber(totalSales.toFixed(2))}
-    </div>
+    ${Number(totalSales).toFixed(2)}
+</div>
+
 </td>
 
                 </tr>
@@ -1206,15 +1363,19 @@ export default function SalesEntry() {
             <tr>
                 <td style="font-size:20px; padding-top:8px;">එකතුව:</td>
                 <td style="text-align:right; padding-top:8px;">
-                    <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">
-                        ${formatNumber(finalGrandTotal.toFixed(2))}
-                    </span>
+                <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">
+                ${(Number(finalGrandTotal).toFixed(2))}
+                </span>
                 </td>
             </tr>
+            <!-- ✅ LOAN ROW HERE -->
+${loanRow}
             ${givenAmount > 0 ? `
             <tr>
                 <td style="font-size:18px; padding-top:18px;">දුන් මුදල:</td>
-                <td style="text-align:right; font-size:18px; padding-top:18px;">${formatNumber(parseFloat(givenAmount).toFixed(2))}</td>
+                <td style="text-align:right; font-size:20px; padding-top:18px; font-weight:bold;">
+                ${formatNumber(parseFloat(givenAmount).toFixed(2))}
+                </td>
             </tr>
             <tr>
                 <td style="font-size:22px;">ඉතිරිය:</td>
@@ -1367,6 +1528,11 @@ export default function SalesEntry() {
 
     useEffect(() => {
         const handleShortcut = (e) => {
+            if (e.key === "F10") {
+                e.preventDefault();
+                // This reloads the entire page from the server
+                window.location.reload();
+            }
             if (selectedPrintedCustomer && e.key === "F5") { e.preventDefault(); return; }
             if (e.key === "F1") {
                 e.preventDefault();
@@ -1413,94 +1579,54 @@ export default function SalesEntry() {
 
                 <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1, display: 'grid', gridTemplateColumns: '200px 1fr 200px', gap: '16px', padding: '10px', marginTop: '-149px' }}>
                     <div className="left-sidebar" style={{ backgroundColor: '#1ec139ff', borderRadius: '0.75rem', maxHeight: '80.5vh', overflowY: 'auto' }}>
-                        {hasData ? (<CustomerList customers={printedCustomers} type="printed" searchQuery={searchQueries.printed} onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} formatDecimal={formatDecimal} allSales={allSales} lastUpdate={state.forceUpdate || state.windowFocused} />) : (
+
+                        {hasData ? (
+                            <CustomerList
+                                customers={printedCustomers}
+                                type="printed"
+                                searchQuery={searchQueries.printed}
+                                onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })}
+                                selectedPrintedCustomer={selectedPrintedCustomer}
+                                selectedUnprintedCustomer={selectedUnprintedCustomer}
+                                handleCustomerClick={handleCustomerClick}
+                                formatDecimal={formatDecimal}
+                                allSales={allSales}
+                                lastUpdate={state.forceUpdate || state.windowFocused}
+                                isCashFilterActive={state.isCashFilterActive}
+                                toggleCashFilter={() => updateState({ isCashFilterActive: !state.isCashFilterActive })}
+                            />
+                        ) : (
                             <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
-                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl"><h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>මුද්‍රණය කළ</h2></div><div className="py-4"><p className="text-gray-700">මුද්‍රණය කළ ගනුදෙනු දත්ත නොමැත.</p></div>
+                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
+                                    <h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>
+                                        මුද්‍රණය කළ
+                                    </h2>
+                                </div>
+                                <div className="py-4">
+                                    <p className="text-gray-700">මුද්‍රණය කළ ගනුදෙනු දත්ත නොමැත.</p>
+                                </div>
                             </div>
                         )}
                     </div>
 
+
                     <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', height: '150.5vh', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
                         {currentUser?.role === 'Admin' ? (
-                            <div className="admin-farmer-view h-full flex flex-col gap-4">
+                            <div className="admin-farmer-view h-full flex flex-col">
                                 <div
-                                    className="flex flex-row gap-4 flex-grow overflow-hidden"
-                                    style={{ minHeight: "60vh", position: "relative" }}
+                                    className="flex flex-row overflow-hidden"
+                                    style={{
+                                        minHeight: "60vh",
+                                        width: "100%",
+                                        display: "flex",
+                                        flexDirection: "row",
+                                        justifyContent: "center", // This keeps them together in the middle
+                                        gap: "20px" // This creates the space between them
+                                    }}
                                 >
-                                    {/* Left Column: Unprinted Farmers */}
+                                    {/* --- Left Column: Printed Farmers --- */}
                                     <div
-                                        style={{ width: "300px", height: "850px" }}
-                                        className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
-                                    >
-                                        <div className="bg-red-800 p-2 text-center font-bold">
-                                            මුද්‍රණය නොකළ ගොවීන්
-                                        </div>
-
-                                        <div
-                                            className="p-2 flex-grow"
-                                            style={{
-                                                height: "calc(100% - 48px)", // Subtract the header height
-                                                overflowY: "scroll"
-                                            }}
-                                        >
-                                            <input
-                                                type="text"
-                                                placeholder="සොයන්න..."
-                                                className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
-                                                style={{ textTransform: "uppercase" }}   // 🔥 force uppercase visibly
-                                                value={searchQueries.farmerUnprinted || ""} // 🔥 maintain uppercase text
-                                                onChange={(e) => {
-                                                    const upper = e.target.value.toUpperCase();
-                                                    updateState({
-                                                        searchQueries: {
-                                                            ...searchQueries,
-                                                            farmerUnprinted: upper,
-                                                        },
-                                                    });
-                                                }}
-                                            />
-
-                                            {unprintedFarmers.length > 0 ? (
-                                                unprintedFarmers
-                                                    .filter(
-                                                        (f) =>
-                                                            !searchQueries.farmerUnprinted ||
-                                                            f.supplier_code.includes(searchQueries.farmerUnprinted)
-                                                    )
-                                                    .map((f) => (
-                                                        <div
-                                                            key={f.supplier_code}
-                                                            onClick={() =>
-                                                                updateState({
-                                                                    isAdminModalOpen: true,
-                                                                    modalType: "farmer",
-                                                                    modalTitle: `ගොවියා: ${f.supplier_code}`,
-                                                                    modalData: allSales.filter(
-                                                                        (s) =>
-                                                                            s.supplier_code === f.supplier_code &&
-                                                                            s.supplier_bill_printed !== "Y"
-                                                                    ),
-                                                                })
-                                                            }
-                                                            className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer"
-                                                        >
-                                                            Code: {f.supplier_code}
-                                                        </div>
-                                                    ))
-                                            ) : (
-                                                <p className="text-center text-gray-400 mt-4">No data found</p>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Right Column: Printed Farmers */}
-                                    <div
-                                        style={{
-                                            width: "300px",
-                                            marginLeft: "540px",
-                                            marginTop: "-848px",
-                                            height: "850px",
-                                        }}
+                                        style={{ width: "300px", height: "850px", flexShrink: 0 }}
                                         className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
                                     >
                                         <div className="bg-green-800 p-2 text-center font-bold">
@@ -1509,13 +1635,14 @@ export default function SalesEntry() {
 
                                         <div
                                             className="p-2 flex-grow"
-                                            style={{ height: "790px", overflowY: "auto" }}
+                                            style={{ height: "calc(100% - 48px)", overflowY: "auto" }}
                                         >
                                             <input
                                                 type="text"
                                                 placeholder="සොයන්න..."
                                                 className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
                                                 style={{ textTransform: "uppercase" }}
+                                                value={searchQueries.farmerPrinted || ""}
                                                 onChange={(e) =>
                                                     updateState({
                                                         searchQueries: {
@@ -1528,11 +1655,7 @@ export default function SalesEntry() {
 
                                             {printedFarmers.length > 0 ? (
                                                 printedFarmers
-                                                    .filter(
-                                                        (f) =>
-                                                            !searchQueries.farmerPrinted ||
-                                                            f.supplier_code.includes(searchQueries.farmerPrinted)
-                                                    )
+                                                    .filter((f) => !searchQueries.farmerPrinted || f.supplier_code.includes(searchQueries.farmerPrinted))
                                                     .map((f) => (
                                                         <div
                                                             key={f.supplier_code}
@@ -1541,11 +1664,7 @@ export default function SalesEntry() {
                                                                     isAdminModalOpen: true,
                                                                     modalType: "farmer",
                                                                     modalTitle: `ගොවියා: ${f.supplier_code}`,
-                                                                    modalData: allSales.filter(
-                                                                        (s) =>
-                                                                            s.supplier_code === f.supplier_code &&
-                                                                            s.supplier_bill_printed === "Y"
-                                                                    ),
+                                                                    modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed === "Y"),
                                                                 })
                                                             }
                                                             className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer"
@@ -1559,9 +1678,62 @@ export default function SalesEntry() {
                                         </div>
                                     </div>
 
+                                    {/* --- Right Column: Unprinted Farmers --- */}
+                                    <div
+                                        style={{ width: "300px", height: "850px", flexShrink: 0 }}
+                                        className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
+                                    >
+                                        <div className="bg-red-800 p-2 text-center font-bold">
+                                            මුද්‍රණය නොකළ ගොවීන්
+                                        </div>
+
+                                        <div
+                                            className="p-2 flex-grow"
+                                            style={{ height: "calc(100% - 48px)", overflowY: "scroll" }}
+                                        >
+                                            <input
+                                                type="text"
+                                                placeholder="සොයන්න..."
+                                                className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
+                                                style={{ textTransform: "uppercase" }}
+                                                value={searchQueries.farmerUnprinted || ""}
+                                                onChange={(e) => {
+                                                    const upper = e.target.value.toUpperCase();
+                                                    updateState({
+                                                        searchQueries: {
+                                                            ...searchQueries,
+                                                            farmerUnprinted: upper,
+                                                        },
+                                                    });
+                                                }}
+                                            />
+
+                                            {unprintedFarmers.length > 0 ? (
+                                                unprintedFarmers
+                                                    .filter((f) => !searchQueries.farmerUnprinted || f.supplier_code.includes(searchQueries.farmerUnprinted))
+                                                    .map((f) => (
+                                                        <div
+                                                            key={f.supplier_code}
+                                                            onClick={() =>
+                                                                updateState({
+                                                                    isAdminModalOpen: true,
+                                                                    modalType: "farmer",
+                                                                    modalTitle: `ගොවියා: ${f.supplier_code}`,
+                                                                    modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed !== "Y"),
+                                                                })
+                                                            }
+                                                            className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer"
+                                                        >
+                                                            Code: {f.supplier_code}
+                                                        </div>
+                                                    ))
+                                            ) : (
+                                                <p className="text-center text-gray-400 mt-4">No data found</p>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-
                         ) : (
                             <div className="pos-sales-view flex flex-col h-full">
                                 <div className="flex-shrink-0">

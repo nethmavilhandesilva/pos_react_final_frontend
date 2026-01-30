@@ -189,14 +189,18 @@ const LoanReportView = () => {
                                     {loans.map((loan, index) => (
                                         <tr key={index} className={loan.highlight_color || ''}>
                                             <td className="ps-4 fw-bold">{loan.customer_short_name}</td>
-                                            <td className="text-end pe-4 fw-bold">{Number(loan.total_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                                          <td className="text-end pe-4 fw-bold">
+    {Math.abs(Number(loan.total_amount)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+</td>
                                         </tr>
                                     ))}
                                 </tbody>
                                 <tfoot className="table-secondary">
                                     <tr className="fw-bold fs-5">
                                         <td className="text-end">Grand Total:</td>
-                                        <td className="text-end pe-4">Rs. {Number(grandTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                                       <td className="text-end pe-4">
+                                        Rs. {Math.abs(Number(grandTotal)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                       </td>
                                     </tr>
                                 </tfoot>
                             </table>

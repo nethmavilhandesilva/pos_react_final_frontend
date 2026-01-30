@@ -91,7 +91,7 @@ const EditItem = () => {
 
                 {/* --- New Field: Bag Real Price --- */}
                 <div className="mb-3">
-                    <label className="form-label">මල්ලේ නියම මිල (Bag Real Price)</label>
+                    <label className="form-label">පෙට්ටියක/කූඩයක/කෙසෙල් නැට් බර අඩු කිරීම</label>
                     <input 
                         type="number" 
                         name="bag_real_price" 
