@@ -1,5 +1,3 @@
-/// src/components/Suppliers/SupplierReport.jsx (FIXED LAYOUT)
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from "../../api";
 import { useNavigate } from 'react-router-dom';
@@ -26,6 +24,10 @@ const SupplierReport = () => {
     const [supplierDetails, setSupplierDetails] = useState([]);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
 
+    // 🚀 NEW STATE: For Editing Records
+    const [editingRecord, setEditingRecord] = useState(null);
+    const [newFarmerCode, setNewFarmerCode] = useState('');
+
     // --- Function to fetch the summary data ---
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
@@ -36,16 +38,6 @@ const SupplierReport = () => {
 
             if (response.data) {
                 console.log("✅ Summary data received.");
-                console.log("   - Printed count:", response.data.printed?.length || 0);
-                console.log("   - Unprinted count:", response.data.unprinted?.length || 0);
-
-                if (response.data.printed && response.data.printed.length > 0) {
-                    console.log("   - Example Printed Item:", response.data.printed[0]);
-                }
-                if (response.data.unprinted && response.data.unprinted.length > 0) {
-                    console.log("   - Example Unprinted Item:", response.data.unprinted[0]);
-                }
-
                 setSummary({
                     printed: response.data.printed || [],
                     unprinted: response.data.unprinted || [],
@@ -73,6 +65,35 @@ const SupplierReport = () => {
         navigate('/sales');
     };
 
+    // --- 🚀 NEW: Update Farmer Logic ---
+    const handleUpdateFarmer = async () => {
+        if (!newFarmerCode) return alert("Please enter a new farmer code");
+
+        try {
+            setIsDetailsLoading(true);
+            const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
+                supplier_code: newFarmerCode
+            });
+
+            if (response.status === 200) {
+                setEditingRecord(null);
+                setNewFarmerCode('');
+                // Refresh current view
+                if (isUnprintedBill) {
+                    await handleUnprintedBillClick(selectedSupplier, null);
+                } else {
+                    await handlePrintedBillClick(selectedSupplier, selectedBillNo);
+                }
+                fetchSummary();
+            }
+        } catch (error) {
+            console.error("Update failed:", error);
+            alert("Failed to update farmer. Please check backend route.");
+        } finally {
+            setIsDetailsLoading(false);
+        }
+    };
+
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
@@ -80,7 +101,6 @@ const SupplierReport = () => {
             item.supplier_code.toLowerCase().includes(lowerCaseSearch) ||
             (item.supplier_bill_no && item.supplier_bill_no.toLowerCase().includes(lowerCaseSearch))
         );
-        console.log(`ℹ️ Filtered Printed Items: ${filtered.length} results.`);
         return filtered;
     }, [printedSearchTerm, summary.printed]);
 
@@ -89,7 +109,6 @@ const SupplierReport = () => {
         const filtered = summary.unprinted.filter(item =>
             item.supplier_code.toLowerCase().includes(lowerCaseSearch)
         );
-        console.log(`ℹ️ Filtered Unprinted Items: ${filtered.length} results.`);
         return filtered;
     }, [unprintedSearchTerm, summary.unprinted]);
 
@@ -101,13 +120,11 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
-        console.log(`➡️ Fetching unprinted details for supplier: ${supplierCode}`);
         try {
             const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
             setSupplierDetails(response.data);
-            console.log(`✅ Unprinted details fetched. Records: ${response.data?.length || 0}`);
         } catch (error) {
-            console.error(`❌ Error fetching unprinted details for ${supplierCode}:`, error.message, error.response?.data);
+            console.error(`❌ Error fetching unprinted details:`, error.message);
         } finally {
             setIsDetailsLoading(false);
         }
@@ -121,13 +138,11 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setIsDetailsLoading(true);
 
-        console.log(`➡️ Fetching printed details for bill: ${billNo}`);
         try {
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
-            console.log(`✅ Printed details fetched. Records: ${response.data?.length || 0}`);
         } catch (error) {
-            console.error(`❌ Error fetching printed details for bill ${billNo}:`, error.message, error.response?.data);
+            console.error(`❌ Error fetching printed details:`, error.message);
         } finally {
             setIsDetailsLoading(false);
         }
@@ -150,7 +165,7 @@ const SupplierReport = () => {
 
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
-    // --- CALCULATIONS for details panel (UPDATED TO INCLUDE CUS GROSS TOTAL) ---
+    // --- CALCULATIONS ---
     const {
         totalWeight,
         totalCommission,
@@ -159,15 +174,9 @@ const SupplierReport = () => {
         totalPacksSum,
         totalsupplierSales,
         totalSupplierPackCost,
-        totalCusGross, // 🚀 NEW TOTAL ADDED
+        totalCusGross,
     } = useMemo(() => {
-        let totalWeight = 0;
-        let totalsupplierSales = 0;
-        let totalCommission = 0;
-        let totalPacksSum = 0;
-        let totalSupplierPackCost = 0;
-        let totalCusGross = 0; // 🚀 INITIALIZED
-
+        let totalWeight = 0, totalsupplierSales = 0, totalCommission = 0, totalPacksSum = 0, totalSupplierPackCost = 0, totalCusGross = 0;
         const itemSummary = {};
 
         supplierDetails.forEach(record => {
@@ -176,17 +185,13 @@ const SupplierReport = () => {
             const packs = parseInt(record.packs) || 0;
             const SupplierTotal = parseFloat(record.SupplierTotal) || 0;
             const itemName = record.item_name || 'Unknown Item';
-            const SupplierPackCost = parseFloat(record.SupplierPackCost) || 0;
-
-            // Logic for Cus Gross: Total - CustomerPackLabour
             const rowCusGross = (parseFloat(record?.total) || 0) - (parseFloat(record?.CustomerPackLabour) || 0);
 
             totalWeight += weight;
             totalsupplierSales += SupplierTotal;
             totalCommission += commission;
             totalPacksSum += packs;
-            totalSupplierPackCost += SupplierPackCost;
-            totalCusGross += rowCusGross; // 🚀 ACCUMULATED
+            totalCusGross += rowCusGross;
 
             if (!itemSummary[itemName]) {
                 itemSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
@@ -195,34 +200,21 @@ const SupplierReport = () => {
             itemSummary[itemName].totalPacks += packs;
         });
 
-        const finalAmountPayable = totalsupplierSales;
-
         return {
-            totalWeight,
-            totalCommission,
-            amountPayable: finalAmountPayable,
-            itemSummaryData: itemSummary,
-            totalPacksSum,
-            totalsupplierSales,
-            totalSupplierPackCost,
-            totalCusGross, // 🚀 RETURNED
+            totalWeight, totalCommission, amountPayable: totalsupplierSales, itemSummaryData: itemSummary,
+            totalPacksSum, totalsupplierSales, totalSupplierPackCost, totalCusGross,
         };
     }, [supplierDetails]);
 
     const getBillContent = useCallback((currentBillNo) => {
         const date = new Date().toLocaleDateString('si-LK');
-        const time = new Date().toLocaleTimeString('si-LK');
         const mobile = '0777672838/071437115';
-
-        // Unified Width & Font sizing (matching the previous successful bill)
         const is4Inch = billSize === '4inch';
         const receiptMaxWidth = is4Inch ? '4in' : '350px';
-
         const fontSizeBody = '25px';
         const fontSizeHeader = '23px';
         const fontSizeTotal = '28px';
 
-        // Standardized 4-column structure
         const colGroups = `
         <colgroup>
             <col style="width:32%;"> 
@@ -235,14 +227,10 @@ const SupplierReport = () => {
             if (typeof value !== 'number' && typeof value !== 'string') return '0';
             const number = parseFloat(value);
             if (isNaN(number)) return '0';
-
-            if (Number.isInteger(number)) {
-                return number.toLocaleString('en-US');
-            } else {
-                const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-                return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-            }
+            if (Number.isInteger(number)) return number.toLocaleString('en-US');
+            const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
         };
 
         const detailedItemsHtml = supplierDetails.map(record => {
@@ -255,67 +243,36 @@ const SupplierReport = () => {
 
             return `
             <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
-                <td style="text-align:left; padding:10px 0; white-space: nowrap;">
-                    ${itemName}<br>${formatNumber(packs)}
-                </td>
-               <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">
-  ${formatNumber(weight.toFixed(2))}
-</td>
-
+                <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
                 <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
                 <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
-    
-    <div style="font-size:25px; white-space:nowrap;">
-        ${customerCode}
-    </div>
-
-    <div style="
-        font-weight:900;
-        white-space:nowrap;
-    ">
-        ${formatNumber(total.toFixed(2))}
-    </div>
-
-</td>
+                    <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
+                    <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
+                </td>
             </tr>`;
         }).join("");
 
-        // --- UPDATED ITEM SUMMARY SECTION ---
         const summaryEntries = Object.entries(itemSummaryData);
         let itemSummaryHtml = '';
-
         for (let i = 0; i < summaryEntries.length; i += 2) {
             const [name1, d1] = summaryEntries[i];
             const [name2, d2] = summaryEntries[i + 1] || [null, null];
-
             const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
             const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-
-            itemSummaryHtml += `
-        <tr>
-            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td>
-            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td>
-        </tr>`;
+            itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
         }
 
         return `
     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
             <div style="font-size:24px;">xxxx</div>
-            
             <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
                 <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
-                <div style="font-size:18px;">ගොවියා: 
-                    <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span>
-                </div>
+                <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span></div>
             </div>
-
-          <div style="font-size:16px; white-space: nowrap;">
-එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල
-</div>
-
+          <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
         </div>
-
         <div style="font-size:19px; margin-top:10px; padding:0 5px;">
             <div style="font-weight: bold;">දුර:${mobile}</div>
             <div style="display:flex; justify-content:space-between; margin-top:3px;">
@@ -323,9 +280,7 @@ const SupplierReport = () => {
                 <span>දිනය:${date}</span>
             </div>
         </div>
-
         <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
-
         <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
             ${colGroups}
             <thead>
@@ -336,270 +291,131 @@ const SupplierReport = () => {
                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
                 </tr>
             </thead>
-            <tbody>
-                ${detailedItemsHtml}
-            </tbody>
+            <tbody>${detailedItemsHtml}</tbody>
             <tfoot>
                 <tr style="border-top:2.5px solid #000; font-weight:bold;">
                     <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
-                  <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};">
-    <div style="text-align:right; float:right; white-space:nowrap;">
-        ${(totalsupplierSales.toFixed(2))}
-    </div>
-</td>
+                    <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
                 </tr>
             </tfoot>
         </table>
-
         <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
             <tr>
-              <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">
-    මෙම බිලට ගෙවන්න:
-</td>
-
-                <td style="text-align:right;">
-                  <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px; padding-left:25px;">
-    ${(totalsupplierSales.toFixed(2))}
-</span>
-
-                </td>
+              <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට ගෙවන්න:</td>
+              <td style="text-align:right;"><span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px; padding-left:25px;">${(totalsupplierSales.toFixed(2))}</span></td>
             </tr>
         </table>
-
-        <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
-            <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">
-                ${itemSummaryHtml}
-            </table>
-        </div>
-
-        <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;">
-            <p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
-            <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
-        </div>
+        <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
+        <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;"><p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p></div>
     </div>`;
     }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize]);
 
     // --- Print function ---
     const handlePrint = useCallback(async () => {
-        if (!supplierDetails || supplierDetails.length === 0) {
-            console.log('Cannot print: No details available.');
-            return;
-        }
-
+        if (!supplierDetails || supplierDetails.length === 0) return;
         let finalBillNo = selectedBillNo;
-
         if (isUnprintedBill) {
             setIsDetailsLoading(true);
             try {
                 const billResponse = await api.get('/generate-f-series-bill');
                 finalBillNo = billResponse.data.new_bill_no;
                 setSelectedBillNo(finalBillNo);
-            } catch (err) {
-                console.error('Error generating bill number:', err);
-                setIsDetailsLoading(false);
-                alert('Failed to generate a new bill number. Print cancelled.');
-                return;
-            } finally {
-                setIsDetailsLoading(false);
-            }
+            } catch (err) { alert('Failed to generate a new bill number.'); return; }
+            finally { setIsDetailsLoading(false); }
         } else {
-            const confirmPrint = window.confirm(`This bill (${selectedBillNo}) has already been marked as printed. Do you want to print a copy?`);
-            if (!confirmPrint) {
-                return;
-            }
+            if (!window.confirm(`This bill (${selectedBillNo}) has already been marked as printed. Do you want to print a copy?`)) return;
         }
 
         const content = getBillContent(finalBillNo);
         const printWindow = window.open('', '_blank', 'height=600,width=800');
-
         if (printWindow) {
-            printWindow.document.write('<html><head><title>Bill Print</title>');
-            printWindow.document.write(`<style>
-                body { font-family: 'Courier New', monospace; margin: 0; padding: 0; }
-                .receipt-container { padding: 3px; margin: 0 auto; }
-                @media print { 
-                    body { margin: 0; padding: 0; }
-                    .receipt-container { max-width: ${billSize === '4mm' ? '320px' : '300px'} !important; }
-                }
-                table { table-layout: fixed; width: 100%; }
-                td, th { padding: 2px 3px; }
-            </style>`);
-            printWindow.document.write('</head><body>');
-            printWindow.document.write(content);
-            printWindow.document.write('</body></html>');
+            printWindow.document.write(`<html><head><title>Bill Print</title><style>body { font-family: 'Courier New', monospace; margin: 0; padding: 0; } @media print { .receipt-container { max-width: ${billSize === '4mm' ? '320px' : '300px'} !important; } } table { table-layout: fixed; width: 100%; } td, th { padding: 2px 3px; }</style></head><body>${content}</body></html>`);
             printWindow.document.close();
             printWindow.focus();
-
-            setTimeout(() => {
-                printWindow.print();
-            }, 300);
+            setTimeout(() => { printWindow.print(); }, 300);
 
             if (isUnprintedBill) {
                 const transactionIds = supplierDetails.map(record => record.id).filter(id => id);
                 if (transactionIds.length > 0 && finalBillNo && finalBillNo !== 'N/A') {
-                    try {
-                        const payload = {
-                            bill_no: finalBillNo,
-                            transaction_ids: transactionIds,
-                        };
-                        setTimeout(async () => {
-                            await api.post('/suppliers/mark-as-printed', payload);
-                            resetDetails();
-                        }, 50);
-                    } catch (err) {
-                        console.error('❌ Failed to mark supplier records as printed:', err);
-                        alert(`Warning: Bill generated (${finalBillNo}) but failed to mark records as printed.`);
-                    }
+                    setTimeout(async () => {
+                        await api.post('/suppliers/mark-as-printed', { bill_no: finalBillNo, transaction_ids: transactionIds });
+                        resetDetails();
+                    }, 50);
                 }
             }
-        } else {
-            alert("Please allow pop-ups to print the bill.");
         }
     }, [supplierDetails, selectedBillNo, isUnprintedBill, getBillContent, resetDetails, billSize]);
 
     // --- Keyboard event listener ---
-    // --- Keyboard event listener ---
-useEffect(() => {
-    const handleKeyDown = (event) => {
-        // 🚀 BLOCK F1 KEY
-        if (event.key === 'F1' || event.keyCode === 112) {
-            event.preventDefault();
-            console.log('F1 key blocked on this page.');
-            return false;
-        }
-
-        // EXISTING F4 LOGIC
-        if (event.key === 'F4' || event.keyCode === 115) {
-            event.preventDefault();
-            if (supplierDetails && supplierDetails.length > 0 && !isDetailsLoading) {
+    useEffect(() => {
+        const handleKeyDown = (event) => {
+            if (event.key === 'F1' || event.keyCode === 112) { event.preventDefault(); return false; }
+            if ((event.key === 'F4' || event.keyCode === 115) && supplierDetails.length > 0 && !isDetailsLoading) {
+                event.preventDefault();
                 handlePrint();
             }
-        }
-    };
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [supplierDetails, handlePrint, isDetailsLoading]);
 
-    // Use 'keydown' to catch F1 before the browser help opens
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-        window.removeEventListener('keydown', handleKeyDown);
+    // 🚀 NEW: Edit Modal UI
+    const renderEditModal = () => {
+        if (!editingRecord) return null;
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+                    <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගොවියා වෙනස් කරන්න</h3>
+                    <div style={{ margin: '15px 0', fontSize: '1rem', color: '#333' }}>
+                        <p><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
+                        <p><strong>අයිතමය:</strong> {editingRecord.item_name}</p>
+                        <p><strong>බර:</strong> {editingRecord.weight} kg</p>
+                    </div>
+                    <div style={{ marginTop: '20px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>නව ගොවි කේතය (New Farmer):</label>
+                        <input 
+                            type="text" 
+                            value={newFarmerCode}
+                            onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
+                            style={{ width: '100%', padding: '12px', fontSize: '1.1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                            autoFocus
+                        />
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                        <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
+                        <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                    </div>
+                </div>
+            </div>
+        );
     };
-}, [supplierDetails, handlePrint, isDetailsLoading]);
 
     // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
         const groupedItems = useMemo(() => {
-            console.log(`ℹ️ SupplierCodeList (Type: ${type}): Processing ${items.length} items.`);
-            const result = items.reduce((acc, item) => {
+            return items.reduce((acc, item) => {
                 const { supplier_code, supplier_bill_no } = item;
-
-                if (!supplier_code) {
-                    console.warn(`⚠️ Skipping item due to missing supplier_code:`, item);
-                    return acc;
-                }
-
-                if (!acc[supplier_code]) {
-                    acc[supplier_code] = [];
-                }
-
-                if (type === 'printed') {
-                    if (supplier_bill_no) {
-                        acc[supplier_code].push(supplier_bill_no);
-                    } else {
-                        console.warn(`⚠️ Printed item missing supplier_bill_no:`, item);
-                    }
-                } else if (type === 'unprinted') {
-                    if (!acc[supplier_code].includes(supplier_code)) {
-                        acc[supplier_code].push(supplier_code);
-                    }
-                }
+                if (!supplier_code) return acc;
+                if (!acc[supplier_code]) acc[supplier_code] = [];
+                if (type === 'printed' && supplier_bill_no) acc[supplier_code].push(supplier_bill_no);
+                else if (type === 'unprinted' && !acc[supplier_code].includes(supplier_code)) acc[supplier_code].push(supplier_code);
                 return acc;
             }, {});
-            console.log(`🔍 Grouped ${type} suppliers:`, Object.keys(result).length, 'groups.');
-            return result;
         }, [items, type]);
 
         const supplierCodes = Object.keys(groupedItems);
+        const buttonBaseStyle = { width: '100%', display: 'block', textAlign: 'left', padding: '10px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', border: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1rem', marginBottom: '4px', boxSizing: 'border-box' };
+        const buttonStyle = type === 'printed' ? { ...buttonBaseStyle, backgroundColor: '#1E88E5', color: 'white' } : { ...buttonBaseStyle, backgroundColor: '#FF7043', color: 'white' };
 
-        const buttonBaseStyle = {
-            width: '100%',
-            display: 'block',
-            textAlign: 'left',
-            padding: '10px 15px',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: '600',
-            border: 'none',
-            transition: 'background-color 0.2s, transform 0.1s',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-            fontSize: '1rem',
-            marginBottom: '4px',
-            boxSizing: 'border-box',
-        };
-
-        const printedButtonStyle = {
-            ...buttonBaseStyle,
-            backgroundColor: '#1E88E5',
-            color: 'white',
-        };
-
-        const unprintedButtonStyle = {
-            ...buttonBaseStyle,
-            backgroundColor: '#FF7043',
-            color: 'white',
-        };
-
-        const buttonStyle = type === 'printed' ? printedButtonStyle : unprintedButtonStyle;
-
-        const groupContainerStyle = {
-            marginBottom: '4px',
-            padding: '0px',
-            border: 'none',
-            borderRadius: '0px',
-            backgroundColor: 'transparent',
-            width: '100%',
-            boxSizing: 'border-box',
-        };
-
-        const listContainerStyle = {
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0px',
-            marginTop: '5px',
-            overflowY: 'auto',
-            padding: '0 5px 0 5px',
-            flexGrow: 1,
-            height: '900px',
-        };
-
-        if (items.length === 0) {
-            return (
-                <p style={{ color: '#6c757d', padding: '10px' }}>
-                    {searchTerm ? `No results found for "${searchTerm}"` : 'මෙම ප්‍රවර්ගයේ සැපයුම්කරු නොමැත'}
-                </p>
-            );
-        }
+        if (items.length === 0) return <p style={{ color: '#6c757d', padding: '10px' }}>{searchTerm ? `No results found` : 'මෙම ප්‍රවර්ගයේ සැපයුම්කරු නොමැත'}</p>;
 
         return (
             <div style={listContainerStyle}>
-                {supplierCodes.map(supplierCode => (
-                    <div key={supplierCode} style={groupContainerStyle}>
-                        {groupedItems[supplierCode].map(billIdentifier => (
-                            <button
-                                key={billIdentifier}
-                                onClick={() => type === 'printed'
-                                    ? handlePrintedBillClick(supplierCode, billIdentifier)
-                                    : handleUnprintedBillClick(supplierCode, null)
-                                }
-                                style={buttonStyle}
-                                onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                                onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
-                            >
-                                <span style={{ display: "block", textAlign: "left", fontSize: "15px", fontWeight: "600" }}>
-                                    {type === 'printed'
-                                        ? `${supplierCode}-${billIdentifier}`
-                                        : `${supplierCode}`
-                                    }
-                                </span>
+                {supplierCodes.map(code => (
+                    <div key={code}>
+                        {groupedItems[code].map(id => (
+                            <button key={id} onClick={() => type === 'printed' ? handlePrintedBillClick(code, id) : handleUnprintedBillClick(code, null)} style={buttonStyle}>
+                                <span style={{ display: "block", textAlign: "left", fontSize: "15px", fontWeight: "600" }}>{type === 'printed' ? `${code}-${id}` : `${code}`}</span>
                             </button>
                         ))}
                     </div>
@@ -610,90 +426,15 @@ useEffect(() => {
 
     // --- ALWAYS DISPLAYED DETAILS PANEL ---
     const renderDetailsPanel = () => {
-        const panelContainerStyle = {
-            backgroundColor: '#091d3d',
-            padding: '30px',
-            borderRadius: '12px',
-            maxWidth: '100%',
-            maxHeight: 'calc(100vh - 60px)',
-            overflowY: 'auto',
-            position: 'relative',
-            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
-            fontFamily: 'Roboto, Arial, sans-serif',
-
-            marginTop: '-90px',
-            width: '850px',
-            minHeight: '550px',
-            marginLeft: '0',
-        };
-
-        const headerStyle = {
-            color: '#007bff',
-            borderBottom: '2px solid #e9ecef',
-            paddingBottom: '10px',
-            marginTop: '0',
-            marginBottom: '20px',
-            fontSize: '1.8rem',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-        };
-
-        const supplierCodeBadgeStyle = {
-            backgroundColor: selectedSupplier ? '#28a745' : '#6c757d',
-            color: 'white',
-            padding: '5px 10px',
-            borderRadius: '6px',
-            fontSize: '1rem',
-            fontWeight: 'bold',
-        };
-
-        const tableContainerStyle = {
-            marginTop: '20px',
-            overflowX: 'auto',
-        };
-
-        const tableStyle = {
-            width: '100%',
-            borderCollapse: 'collapse',
-            minWidth: '250px',
-            fontSize: '0.9rem',
-            marginBottom: '30px',
-        };
-
-        const thStyle = {
-            backgroundColor: '#007bff',
-            color: 'white',
-            fontWeight: '600',
-            padding: '6px 8px',
-            textAlign: 'left',
-            position: 'sticky',
-            top: '0',
-            zIndex: 10,
-            fontSize: '0.8rem',
-            whiteSpace: 'nowrap',
-        };
-
-        const tdStyle = {
-            padding: '6px 8px',
-            textAlign: 'left',
-            borderBottom: '1px solid #dee2e6',
-            whiteSpace: 'normal',
-        };
-
-        const renderEmptyContent = () => (
-            <div style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0', minHeight: '400px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-
-            </div>
-        );
+        const panelContainerStyle = { backgroundColor: '#091d3d', padding: '30px', borderRadius: '12px', maxWidth: '100%', maxHeight: 'calc(100vh - 60px)', overflowY: 'auto', position: 'relative', boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)', fontFamily: 'Roboto, Arial, sans-serif', marginTop: '-10px', width: '850px', minHeight: '550px', marginLeft: '0' };
+        const headerStyle = { color: '#007bff', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginTop: '0', marginBottom: '20px', fontSize: '1.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+        const thStyle = { backgroundColor: '#007bff', color: 'white', fontWeight: '600', padding: '6px 8px', textAlign: 'left', position: 'sticky', top: '0', zIndex: 10, fontSize: '0.8rem', whiteSpace: 'nowrap' };
+        const tdStyle = { padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #dee2e6', whiteSpace: 'normal' };
 
         const renderDataRows = () => (
             <tbody>
                 {supplierDetails.map((record, index) => (
-                    <tr
-                        key={record.id || index}
-                        style={getRowStyle(index)}
-                    >
+                    <tr key={record.id || index} style={{ ...getRowStyle(index), cursor: 'pointer' }} onClick={() => setEditingRecord(record)}>
                         <td style={tdStyle}>{record.bill_no || selectedBillNo}</td>
                         <td style={tdStyle}>{record.customer_code}</td>
                         <td style={tdStyle}><strong>{record.item_name}</strong></td>
@@ -701,9 +442,7 @@ useEffect(() => {
                         <td style={tdStyle}>{record.weight}</td>
                         <td style={tdStyle}>{record.price_per_kg}</td>
                         <td style={tdStyle}>{record.SupplierPricePerKg}</td>
-                        <td style={tdStyle}>
-                            {formatDecimal((record?.total || 0) - (record?.CustomerPackLabour || 0))}
-                        </td>
+                        <td style={tdStyle}>{formatDecimal((record?.total || 0) - (record?.CustomerPackLabour || 0))}</td>
                         <td style={tdStyle}>{record.SupplierTotal}</td>
                         <td style={tdStyle}>{record.commission_amount}</td>
                     </tr>
@@ -712,263 +451,96 @@ useEffect(() => {
                     <td style={tdStyle} colSpan="3"><strong>TOTALS</strong></td>
                     <td style={tdStyle}>{totalPacksSum}</td>
                     <td style={tdStyle}>{totalWeight.toFixed(3)}</td>
-                    <td style={tdStyle}>-</td>
-                    <td style={tdStyle}>-</td>
-                    <td style={tdStyle}>{totalCusGross.toFixed(2)}</td> {/* 🚀 ADDED COLUMN TOTAL HERE */}
+                    <td style={tdStyle}>-</td><td style={tdStyle}>-</td>
+                    <td style={tdStyle}>{totalCusGross.toFixed(2)}</td>
                     <td style={tdStyle}>{totalsupplierSales.toFixed(2)}</td>
                     <td style={tdStyle}>-</td>
                 </tr>
             </tbody>
         );
 
-
-        const ItemSummary = ({ summaryData }) => {
-            const itemNames = Object.keys(summaryData);
-            if (itemNames.length === 0) return null;
-
-            const itemSummaryThStyle = {
-                ...thStyle,
-                backgroundColor: '#6c757d',
-                padding: '10px 15px',
-                fontSize: '0.95rem',
-            };
-            const itemSummaryTdStyle = {
-                ...tdStyle,
-                padding: '10px 15px',
-            };
-            const itemSummaryTableStyle = {
-                width: '100%',
-                borderCollapse: 'collapse',
-                marginTop: '0px',
-            };
-
-            return (
-                <div>
-                    <table style={itemSummaryTableStyle}>
-                        <thead>
-                            <tr>
-                                <th style={itemSummaryThStyle}>අයිතමය නම</th>
-                                <th style={itemSummaryThStyle}>සම්පූර්ණ බර</th>
-                                <th style={itemSummaryThStyle}>මුළු අසුරුම්</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {itemNames.map((itemName, index) => (
-                                <tr key={itemName} style={getRowStyle(index)}>
-                                    <td style={itemSummaryTdStyle}>{itemName}</td>
-                                    <td style={itemSummaryTdStyle}>{formatDecimal(summaryData[itemName].totalWeight, 3)}</td>
-                                    <td style={itemSummaryTdStyle}>{summaryData[itemName].totalPacks}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            );
-        };
-
-        const printButtonStyle = {
-            padding: '10px 20px',
-            fontSize: '1.1rem',
-            fontWeight: 'bold',
-            backgroundColor: '#ffc107',
-            color: '#343a40',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            marginTop: '20px',
-            transition: 'background-color 0.2s',
-            opacity: selectedSupplier ? 1 : 0.5,
-        };
-
         return (
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
-                    <h2 style={{ fontSize: "1.5rem", color: "white" }}>
-                        ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo}</strong>)
-                    </h2>
-
-                    <span style={supplierCodeBadgeStyle}>
-                        {selectedSupplier || 'NO DATA'}
-                    </span>
+                    <h2 style={{ fontSize: "1.5rem", color: "white" }}>ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo}</strong>)</h2>
+                    <span style={{ backgroundColor: selectedSupplier ? '#28a745' : '#6c757d', color: 'white', padding: '5px 10px', borderRadius: '6px', fontSize: '1rem', fontWeight: 'bold' }}>{selectedSupplier || 'NO DATA'}</span>
                 </div>
-
-                <div style={tableContainerStyle}>
-                    <table style={tableStyle}>
+                <div style={{ marginTop: '20px', overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '250px', fontSize: '0.9rem', marginBottom: '30px' }}>
                         <thead>
                             <tr>
-                                <th style={thStyle}>බිල් අං:</th>
-                                <th style={thStyle}>ගනුදෙ</th>
-                                <th style={thStyle}>අයිත</th>
-                                <th style={thStyle}>අසුරුම්</th>
-                                <th style={thStyle}>බර</th>
-                                <th style={thStyle}>ගනුදෙ මිල</th>
-                                <th style={thStyle}>සැපයුම් මිල</th>
-                                <th style={thStyle}>ගනුදෙ එක</th>
-                                <th style={thStyle}>සැපයුම් එක</th>
-                                <th style={thStyle}>කොමි</th>
-
-
+                                <th style={thStyle}>බිල් අං:</th><th style={thStyle}>ගනුදෙ</th><th style={thStyle}>අයිත</th><th style={thStyle}>අසුරුම්</th><th style={thStyle}>බර</th><th style={thStyle}>ගනුදෙ මිල</th><th style={thStyle}>සැපයුම් මිල</th><th style={thStyle}>ගනුදෙ එක</th><th style={thStyle}>සැපයුම් එක</th><th style={thStyle}>කොමි</th>
                             </tr>
                         </thead>
-                        {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ padding: 0 }}>{renderEmptyContent()}</td></tr></tbody>}
+                        {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0' }}>Select a bill to view details</td></tr></tbody>}
                     </table>
                 </div>
-
                 {selectedSupplier && Object.keys(itemSummaryData).length > 0 && (
-                    <ItemSummary summaryData={itemSummaryData} />
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0px' }}>
+                        <thead>
+                            <tr><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>අයිතමය නම</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>සම්පූර්ණ බර</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>මුළු අසුරුම්</th></tr>
+                        </thead>
+                        <tbody>
+                            {Object.keys(itemSummaryData).map((name, i) => (
+                                <tr key={name} style={getRowStyle(i)}><td style={tdStyle}>{name}</td><td style={tdStyle}>{formatDecimal(itemSummaryData[name].totalWeight, 3)}</td><td style={tdStyle}>{itemSummaryData[name].totalPacks}</td></tr>
+                            ))}
+                        </tbody>
+                    </table>
                 )}
-
                 <div style={{ textAlign: 'center' }}>
-                    <button
-                        style={printButtonStyle}
-                        onClick={handlePrint}
-                        onMouseOver={e => selectedSupplier && (e.currentTarget.style.backgroundColor = '#e0a800')}
-                        onMouseOut={e => selectedSupplier && (e.currentTarget.style.backgroundColor = '#ffc107')}
-                        disabled={!selectedSupplier || isDetailsLoading || supplierDetails.length === 0}
-                    >
-                        🖨️ {isDetailsLoading
-                            ? 'Processing...'
-                            : (selectedSupplier
-                                ? (isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`)
-                                : 'Select a Bill First')}
+                    <button style={{ padding: '10px 20px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: '#ffc107', color: '#343a40', border: 'none', borderRadius: '6px', cursor: 'pointer', marginTop: '20px', opacity: selectedSupplier ? 1 : 0.5 }} onClick={handlePrint} disabled={!selectedSupplier || isDetailsLoading || supplierDetails.length === 0}>
+                        🖨️ {isDetailsLoading ? 'Processing...' : (selectedSupplier ? (isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`) : 'Select a Bill First')}
                     </button>
                 </div>
             </div>
         );
     };
 
-    const renderCenterContent = () => {
-        return renderDetailsPanel();
-    };
-
-    const navBarStyle = {
-        backgroundColor: '#343a40',
-        padding: '15px 50px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1000,
-        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-    };
-
-    const navTitleStyle = {
-        color: 'white',
-        fontSize: '1.5rem',
-        margin: 0,
-    };
-
-    const navControlsStyle = {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '20px',
-    };
-
-    const billSizeSelectorStyle = {
-        padding: '8px 15px',
-        fontSize: '1rem',
-        fontWeight: 'bold',
-        backgroundColor: '#17a2b8',
-        color: 'white',
-        border: 'none',
-        borderRadius: '5px',
-        cursor: 'pointer',
-        transition: 'background-color 0.2s',
-    };
-
-    const navButtonStyle = {
-        padding: '10px 20px',
-        fontSize: '1rem',
-        fontWeight: 'bold',
-        backgroundColor: '#28a745',
-        color: 'white',
-        border: 'none',
-        borderRadius: '5px',
-        cursor: 'pointer',
-        transition: 'background-color 0.2s',
-    };
-
-    const reportContainerStyle = {
-        minHeight: '100vh',
-        padding: '90px 50px 50px 50px',
-        fontFamily: 'Roboto, Arial, sans-serif',
-        boxSizing: 'border-box',
-        backgroundColor: '#1ec139ff',
-    };
+    const navBarStyle = { backgroundColor: '#343a40', padding: '15px 50px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' };
+    const reportContainerStyle = { minHeight: '100vh', padding: '90px 50px 50px 50px', fontFamily: 'Roboto, Arial, sans-serif', boxSizing: 'border-box', backgroundColor: '#1ec139ff' };
 
     if (isLoading) return <div style={loadingStyle}>Loading Supplier Report...</div>;
 
     return (
         <>
             <nav style={navBarStyle}>
-                <h1 style={navTitleStyle}>සැපයුම්කරු වාර්තාව</h1>
-                <div style={navControlsStyle}>
-                    <button
-                        style={billSizeSelectorStyle}
-                        onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}
-                    >
-                        බිල්පත් ප්‍රමාණය: {billSize}
-                    </button>
-
-                    <button
-                        style={navButtonStyle}
-                        onClick={goToSalesEntry}
-                    >
-                        මුල් පිටුව
-                    </button>
+                <h1 style={{ color: 'white', fontSize: '1.5rem', margin: 0 }}>සැපයුම්කරු වාර්තාව</h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                    <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}>බිල්පත් ප්‍රමාණය: {billSize}</button>
+                    <button style={{ padding: '10px 20px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={goToSalesEntry}>මුල් පිටුව</button>
                 </div>
             </nav>
 
             <div style={reportContainerStyle}>
-                <header style={headerContainerStyle}></header>
                 <div style={sectionsContainerStyle}>
                     <div style={printedContainerStyle}>
                         <div style={printedSectionStyle}>
                             <h2 style={{ ...printedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px' }}> මුද්‍රණය කළ </h2>
-                            <input
-                                type="text"
-                                placeholder="🔍 මුද්‍රිත සෙවීම..."
-                                value={printedSearchTerm}
-                                onChange={(e) => setPrintedSearchTerm(e.target.value)}
-                                style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}
-                            />
+                            <input type="text" placeholder="🔍 මුද්‍රිත සෙවීම..." value={printedSearchTerm} onChange={(e) => setPrintedSearchTerm(e.target.value)} style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }} />
                             <SupplierCodeList items={filteredPrintedItems} type="printed" searchTerm={printedSearchTerm} />
                         </div>
                     </div>
-
-                    <div style={centerPanelContainerStyle}>
-                        {renderCenterContent()}
-                    </div>
-
+                    <div style={centerPanelContainerStyle}>{renderDetailsPanel()}</div>
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
                             <h2 style={{ ...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px', whiteSpace: 'nowrap' }}>මුද්‍රණය නොකළ</h2>
-                            <input
-                                type="text"
-                                placeholder="🔍 මුද්‍රණ නොකළ සෙවීම..."
-                                value={unprintedSearchTerm}
-                                onChange={(e) => setUnprintedSearchTerm(e.target.value)}
-                                style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }}
-                            />
+                            <input type="text" placeholder="🔍 මුද්‍රණ නොකළ සෙවීම..." value={unprintedSearchTerm} onChange={(e) => setUnprintedSearchTerm(e.target.value)} style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }} />
                             <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
                         </div>
                     </div>
                 </div>
             </div>
+            {renderEditModal()}
         </>
     );
 };
 
 // --- STYLES ---
-
 const headerContainerStyle = { padding: '40px 0 30px 0', borderBottom: '1px solid #E0E0E0', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', backgroundColor: '#1ec139ff' };
 const searchBarStyle = { width: '100%', fontSize: '1rem', borderRadius: '6px', border: '1px solid #E0E0E0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', boxSizing: 'border-box', backgroundColor: 'white' };
 const sectionsContainerStyle = { display: 'flex', justifyContent: 'space-between', gap: '20px' };
-const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45px', marginTop: '-95px', border: '2px solid black' };
-const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-95px', marginLeft: '0', border: '2px solid black' };
+const printedContainerStyle = { width: '200px', flexShrink: 0, marginLeft: '-45px', marginTop: '-10px', border: '2px solid black' };
+const unprintedContainerStyle = { width: '180px', flexShrink: 0, marginRight: '-45px', marginTop: '-10px', marginLeft: '0', border: '2px solid black' };
 const centerPanelContainerStyle = { flex: '3', minWidth: '700px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' };
 const baseSectionStyle = { padding: '25px 0 25px 0', borderRadius: '12px', boxShadow: '0 6px 15px rgba(0, 0, 0, 0.08)', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 210px)' };
 const printedSectionStyle = { ...baseSectionStyle, backgroundColor: '#1ec139ff', borderLeft: '5px solid #FFFFFF', minHeight: '550px' };
