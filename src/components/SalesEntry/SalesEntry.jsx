@@ -563,7 +563,7 @@ export default function SalesEntry() {
         forceUpdate: null, windowFocused: null, isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
         gridPricePerKg: "", selectedSaleForBreakdown: null,
         currentUser: null,
-        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false,
+        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false, customerProfilePic: null, supplierProfilePic: null, customerNameDisplay: "", supplierNameDisplay: "",
     });
 
     const setFormData = (updater) => setState(prev => ({ ...prev, formData: typeof updater === 'function' ? updater(prev.formData) : updater }));
@@ -702,6 +702,58 @@ export default function SalesEntry() {
             setFormData(prev => ({ ...prev, given_amount: "" }));
         }
     }, [displayedSales]);
+    //use effect to fetch profile pic
+    useEffect(() => {
+        const code = formData.customer_code || autoCustomerCode;
+        if (code && customers.length > 0) {
+            const customer = customers.find(c =>
+                String(c.short_name).toUpperCase() === String(code).toUpperCase()
+            );
+
+            if (customer) {
+                const baseUrl = "http://localhost:8000";
+                let fileName = customer.profile_pic;
+                const fullPath = fileName
+                    ? (fileName.includes('customers/profiles') ? `${baseUrl}/storage/${fileName}` : `${baseUrl}/storage/customers/profiles/${fileName}`)
+                    : null;
+
+                updateState({
+                    customerProfilePic: fullPath,
+                    customerNameDisplay: customer.name || "" // Fetch Name here
+                });
+            } else {
+                updateState({ customerProfilePic: null, customerNameDisplay: "" });
+            }
+        } else {
+            updateState({ customerProfilePic: null, customerNameDisplay: "" });
+        }
+    }, [formData.customer_code, autoCustomerCode, customers]);
+    // useEffect to fetch Supplier profile pic
+    useEffect(() => {
+        const code = formData.supplier_code;
+        if (code && suppliers.length > 0) {
+            const supplier = suppliers.find(s =>
+                String(s.code).toUpperCase() === String(code).toUpperCase()
+            );
+
+            if (supplier) {
+                const baseUrl = "http://localhost:8000";
+                let fileName = supplier.profile_pic;
+                const fullPath = fileName
+                    ? (fileName.includes('suppliers/profiles') ? `${baseUrl}/storage/${fileName}` : `${baseUrl}/storage/suppliers/profiles/${fileName}`)
+                    : null;
+
+                updateState({
+                    supplierProfilePic: fullPath,
+                    supplierNameDisplay: supplier.name || "" // Fetch Name here
+                });
+            } else {
+                updateState({ supplierProfilePic: null, supplierNameDisplay: "" });
+            }
+        } else {
+            updateState({ supplierProfilePic: null, supplierNameDisplay: "" });
+        }
+    }, [formData.supplier_code, suppliers]);
 
     useEffect(() => {
         const w = parseFloat(formData.weight) || 0;
@@ -893,65 +945,65 @@ export default function SalesEntry() {
     };
 
     const handleSubmitGivenAmount = async (e) => {
-    if (e) e.preventDefault();
-    updateState({ errors: {} });
+        if (e) e.preventDefault();
+        updateState({ errors: {} });
 
-    const customerCode = formData.customer_code || autoCustomerCode;
-    if (!customerCode) return null;
+        const customerCode = formData.customer_code || autoCustomerCode;
+        if (!customerCode) return null;
 
-    const salesToUpdate = displayedSales.filter(s => s.id);
-    if (salesToUpdate.length === 0) return null;
+        const salesToUpdate = displayedSales.filter(s => s.id);
+        if (salesToUpdate.length === 0) return null;
 
-    try {
-        // 1. Get the amount currently typed in the input box
-        const currentInputAmount = parseFloat(formData.given_amount) || 0;
+        try {
+            // 1. Get the amount currently typed in the input box
+            const currentInputAmount = parseFloat(formData.given_amount) || 0;
 
-        // 2. Calculate what the "Auto-Calculated" total should be right now
-        const totals = salesToUpdate.reduce((acc, s) => {
-            const weight = parseFloat(s.weight) || 0;
-            const price = parseFloat(s.price_per_kg) || 0;
-            const packs = parseFloat(s.packs) || 0;
-            const pCost = parseFloat(s.CustomerPackCost) || 0;
-            const pLabour = parseFloat(s.CustomerPackLabour) || 0;
-            acc.billTotal += (weight * price);
-            acc.totalBagPrice += (packs * pCost);
-            acc.totalLabour += (packs * pLabour);
-            return acc;
-        }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+            // 2. Calculate what the "Auto-Calculated" total should be right now
+            const totals = salesToUpdate.reduce((acc, s) => {
+                const weight = parseFloat(s.weight) || 0;
+                const price = parseFloat(s.price_per_kg) || 0;
+                const packs = parseFloat(s.packs) || 0;
+                const pCost = parseFloat(s.CustomerPackCost) || 0;
+                const pLabour = parseFloat(s.CustomerPackLabour) || 0;
+                acc.billTotal += (weight * price);
+                acc.totalBagPrice += (packs * pCost);
+                acc.totalLabour += (packs * pLabour);
+                return acc;
+            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
-        const autoCalculatedGrandTotal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
+            const autoCalculatedGrandTotal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
 
-        // 3. Logic Check: 
-        // If Input matches Auto-Total (within 0.01 margin) -> It's CASH (N)
-        // If Input is DIFFERENT from Auto-Total -> It's CREDIT/MANUAL (Y)
-        const isDifferent = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
-        const creditTransaction = isDifferent ? 'Y' : 'N';
+            // 3. Logic Check: 
+            // If Input matches Auto-Total (within 0.01 margin) -> It's CASH (N)
+            // If Input is DIFFERENT from Auto-Total -> It's CREDIT/MANUAL (Y)
+            const isDifferent = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
+            const creditTransaction = isDifferent ? 'Y' : 'N';
 
-        console.log(`Debug: Input(${currentInputAmount}) vs Auto(${autoCalculatedGrandTotal.toFixed(2)}) -> Credit: ${creditTransaction}`);
+            console.log(`Debug: Input(${currentInputAmount}) vs Auto(${autoCalculatedGrandTotal.toFixed(2)}) -> Credit: ${creditTransaction}`);
 
-        const updatePromises = salesToUpdate.map(sale =>
-            api.put(`${routes.sales}/${sale.id}/given-amount`, {
-                given_amount: currentInputAmount,
-                credit_transaction: creditTransaction 
-            })
-        );
+            const updatePromises = salesToUpdate.map(sale =>
+                api.put(`${routes.sales}/${sale.id}/given-amount`, {
+                    given_amount: currentInputAmount,
+                    credit_transaction: creditTransaction
+                })
+            );
 
-        const results = await Promise.all(updatePromises);
+            const results = await Promise.all(updatePromises);
 
-        // Reset the flag for UI safety
-        updateState({ isGivenAmountManuallyTouched: false });
+            // Reset the flag for UI safety
+            updateState({ isGivenAmountManuallyTouched: false });
 
-        const updatedSalesFromApi = results.map(response => response.data.sale);
-        const updatedSalesMap = {};
-        updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
-        updateState({ allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) });
+            const updatedSalesFromApi = results.map(response => response.data.sale);
+            const updatedSalesMap = {};
+            updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
+            updateState({ allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) });
 
-        return updatedSalesFromApi;
-    } catch (error) {
-        updateState({ errors: { form: error.response?.data?.message || error.message } });
-        return null;
-    }
-};
+            return updatedSalesFromApi;
+        } catch (error) {
+            updateState({ errors: { form: error.response?.data?.message || error.message } });
+            return null;
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -1422,87 +1474,82 @@ ${loanRow}
     };
 
     const handlePrintAndClear = async () => {
-    // 1. IMPORTANT: Capture the touch state immediately in a local variable.
-    // This prevents async lag from changing the value before the API call uses it.
-    const currentlyTouched = state.isGivenAmountManuallyTouched;
+        const currentlyTouched = state.isGivenAmountManuallyTouched;
+        const updatedSalesFromApi = await handleSubmitGivenAmount(null, currentlyTouched);
 
-    // 2. Pass that captured value directly to the submission function
-    // (Note: You must also update handleSubmitGivenAmount to accept this 2nd argument)
-    const updatedSalesFromApi = await handleSubmitGivenAmount(null, currentlyTouched);
+        let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
 
-    let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
-
-    if (!salesData.length) {
-        alert("No sales records to print!");
-        return;
-    }
-
-    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-    if (hasZeroPrice) {
-        alert("Cannot print! One or more items have a price per kg of 0.");
-        return;
-    }
-
-    try {
-        updateState({ isPrinting: true });
-
-        const customerCode = salesData[0].customer_code || "N/A";
-        const customerName = salesData[0].customer_name || customerCode;
-        const mobile = salesData[0].mobile || '0777672838 / 071437115';
-
-        const printResponse = await api.post(routes.markPrinted, {
-            sales_ids: salesData.map(s => s.id),
-            force_new_bill: true
-        });
-
-        if (printResponse.data.status !== "success") {
-            throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
-        }
-
-        const billNo = printResponse.data.bill_no || "";
-
-        let globalLoanAmount = 0;
-        try {
-            const loanResponse = await api.post(routes.getLoanAmount, {
-                customer_short_name: customerCode
-            });
-            globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
-        } catch (error) {
-            console.warn("Could not fetch loan amount");
-        }
-
-        const receiptHtml = buildFullReceiptHTML(
-            salesData,
-            billNo,
-            customerName,
-            mobile,
-            globalLoanAmount,
-            billSize
-        );
-
-        // Update local state before opening the print dialog
-        updateState({
-            allSales: allSales.map(s =>
-                salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
-            ),
-            selectedPrintedCustomer: null,
-            selectedUnprintedCustomer: null,
-            isPrinting: false,
-            isGivenAmountManuallyTouched: false // Reset flag here as well
-        });
-
-        // Clear the form data
-        setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
-
-        const printWindow = window.open('', '_blank', 'width=800,height=600');
-        if (!printWindow) {
-            alert("Please allow pop-ups for printing");
-            window.location.reload(); 
+        if (!salesData.length) {
+            alert("No sales records to print!");
             return;
         }
 
-        printWindow.document.open();
-        printWindow.document.write(`<!DOCTYPE html>
+        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+        if (hasZeroPrice) {
+            alert("Cannot print! One or more items have a price per kg of 0.");
+            return;
+        }
+
+        try {
+            updateState({ isPrinting: true });
+
+            const customerCode = salesData[0].customer_code || "N/A";
+            const customerName = salesData[0].customer_name || customerCode;
+            const mobile = salesData[0].mobile || '0777672838 / 071437115';
+
+            const printResponse = await api.post(routes.markPrinted, {
+                sales_ids: salesData.map(s => s.id),
+                force_new_bill: true
+            });
+
+            if (printResponse.data.status !== "success") {
+                throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
+            }
+
+            const billNo = printResponse.data.bill_no || "";
+
+            let globalLoanAmount = 0;
+            try {
+                const loanResponse = await api.post(routes.getLoanAmount, {
+                    customer_short_name: customerCode
+                });
+                globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
+            } catch (error) {
+                console.warn("Could not fetch loan amount");
+            }
+
+            const receiptHtml = buildFullReceiptHTML(
+                salesData,
+                billNo,
+                customerName,
+                mobile,
+                globalLoanAmount,
+                billSize
+            );
+
+            // Update local state before opening the print dialog
+            updateState({
+                allSales: allSales.map(s =>
+                    salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
+                ),
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false,
+                isGivenAmountManuallyTouched: false // Reset flag here as well
+            });
+
+            // Clear the form data
+            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
+
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (!printWindow) {
+                alert("Please allow pop-ups for printing");
+                window.location.reload();
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(`<!DOCTYPE html>
         <html>
         <head>
             <title>Print Bill - ${customerName}</title>
@@ -1526,15 +1573,15 @@ ${loanRow}
             </script>
         </body>
         </html>`);
-        printWindow.document.close();
+            printWindow.document.close();
 
-    } catch (error) {
-        console.error("Printing error:", error);
-        alert("Printing failed");
-        updateState({ isPrinting: false });
-        window.location.reload(); 
-    }
-};
+        } catch (error) {
+            console.error("Printing error:", error);
+            alert("Printing failed");
+            updateState({ isPrinting: false });
+            window.location.reload();
+        }
+    };
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 
@@ -1625,17 +1672,7 @@ ${loanRow}
                     <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', height: '150.5vh', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
                         {currentUser?.role === 'Admin' ? (
                             <div className="admin-farmer-view h-full flex flex-col">
-                                <div
-                                    className="flex flex-row overflow-hidden"
-                                    style={{
-                                        minHeight: "60vh",
-                                        width: "100%",
-                                        display: "flex",
-                                        flexDirection: "row",
-                                        justifyContent: "center", // This keeps them together in the middle
-                                        gap: "20px" // This creates the space between them
-                                    }}
-                                >
+                               <div className="flex flex-row overflow-hidden" style={{ minHeight:"60vh", width:"100%", display:"flex", flexDirection:"row", justifyContent:"center", gap:"20px" }}>
                                     {/* --- Left Column: Printed Farmers --- */}
                                     <div
                                         style={{ width: "300px", height: "850px", flexShrink: 0 }}
@@ -1649,22 +1686,7 @@ ${loanRow}
                                             className="p-2 flex-grow"
                                             style={{ height: "calc(100% - 48px)", overflowY: "auto" }}
                                         >
-                                            <input
-                                                type="text"
-                                                placeholder="සොයන්න..."
-                                                className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
-                                                style={{ textTransform: "uppercase" }}
-                                                value={searchQueries.farmerPrinted || ""}
-                                                onChange={(e) =>
-                                                    updateState({
-                                                        searchQueries: {
-                                                            ...searchQueries,
-                                                            farmerPrinted: e.target.value.toUpperCase(),
-                                                        },
-                                                    })
-                                                }
-                                            />
-
+                                            <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" style={{ textTransform:"uppercase" }} value={searchQueries.farmerPrinted || ""} onChange={e => updateState({ searchQueries:{ ...searchQueries, farmerPrinted:e.target.value.toUpperCase() } })} />
                                             {printedFarmers.length > 0 ? (
                                                 printedFarmers
                                                     .filter((f) => !searchQueries.farmerPrinted || f.supplier_code.includes(searchQueries.farmerPrinted))
@@ -1892,7 +1914,49 @@ ${loanRow}
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
                                     <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
-                                        <div className="text-2xl font-bold" style={{ color: 'red' }}>(විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )</div></div>
+                                        {/* Red Total Text */}
+                                        <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
+                                            <div className="text-2xl font-bold" style={{ color: 'red' }}>
+                                                (විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )
+                                            </div>
+                                        </div>
+
+                                        {/* Profile Picture Displayed Below the Red Text */}
+
+                                        <div className="flex gap-10 items-center justify-start mt-4 mb-4">
+
+                                            {/* CUSTOMER PHOTO */}
+                                            {state.customerProfilePic && (
+                                                <div className="flex flex-col items-center">
+                                                    <span className="text-xs text-gray-400 mb-1">ගනුදෙනුකරු</span>
+                                                    <div style={{
+                                                        width: '100px', height: '100px', backgroundColor: 'white',
+                                                        border: '5px solid #1ec139', borderRadius: '15px', overflow: 'hidden',
+                                                        boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex',
+                                                        justifyContent: 'center', alignItems: 'center'
+                                                    }}>
+                                                        <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    </div>
+                                                    <span className="mt-2 font-bold text-sm text-white text-center" style={{ maxWidth: '120px' }}>
+                                                        {state.customerNameDisplay}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* SUPPLIER PHOTO - Added here */}
+                                            {state.supplierProfilePic && (
+                                                <div className="flex flex-col items-center" style={{ marginLeft: '690px', marginTop: '-130px' }}>
+                                                    <span className="text-xs text-gray-400 mb-1">සැපයුම්කරු</span>
+                                                    <div style={{ width:'100px', height:'100px', backgroundColor:'white', border:'5px solid #3b82f6', borderRadius:'15px', overflow:'hidden', boxShadow:'0 10px 20px rgba(0,0,0,0.5)', display:'flex', justifyContent:'center', alignItems:'center' }}>
+                                                       <img src={state.supplierProfilePic} alt="Supplier Profile" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={e => { e.target.style.display = 'none'; }} />
+                                                    </div>
+                                                    <span className="mt-2 font-bold text-sm text-white text-center" style={{ maxWidth: '120px' }}>
+                                                        {state.supplierNameDisplay}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}

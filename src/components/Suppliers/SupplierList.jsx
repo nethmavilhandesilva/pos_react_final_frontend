@@ -9,6 +9,9 @@ const SupplierList = () => {
   const [message, setMessage] = useState('');
   const navigate = useNavigate();
 
+  // Base URL for images stored in Laravel storage
+  const STORAGE_URL = "http://localhost:8000/storage/";
+
   useEffect(() => {
     loadSuppliers();
   }, []);
@@ -31,8 +34,7 @@ const SupplierList = () => {
     window.location.href = '/login';
   };
 
-  const handleSearch = async (e) => {
-    const value = e.target.value;
+  const handleSearch = async (value) => {
     setSearchTerm(value);
 
     if (value.trim() === '') {
@@ -59,6 +61,21 @@ const SupplierList = () => {
         setMessage('Error deleting supplier');
       }
     }
+  };
+
+  // Helper to render images in table cells
+  const renderImage = (path, alt) => {
+    if (!path) return <span className="text-muted small" style={{ fontSize: '10px' }}>නැත</span>;
+    return (
+      <a href={`${STORAGE_URL}${path}`} target="_blank" rel="noreferrer">
+        <img 
+          src={`${STORAGE_URL}${path}`} 
+          alt={alt} 
+          className="rounded shadow-sm"
+          style={{ width: "45px", height: "45px", objectFit: "cover", border: "1px solid #dee2e6" }} 
+        />
+      </a>
+    );
   };
 
   if (loading) {
@@ -118,7 +135,6 @@ const SupplierList = () => {
             </Link>
           </li>
           <hr className="bg-light" />
-
         </ul>
 
         <div className="mt-auto pt-3 border-top border-secondary">
@@ -156,7 +172,7 @@ const SupplierList = () => {
                 value={searchTerm}
                 onChange={(e) => handleSearch(e.target.value.toUpperCase())}
                 className="form-control form-control-sm"
-                placeholder="කේතය, නම හෝ ලිපිනය අනුව සොයන්න"
+                placeholder="සොයන්න..."
                 style={{ maxWidth: '300px', border: '1px solid #ced4da', textTransform: 'uppercase' }}
               />
             </div>
@@ -173,32 +189,43 @@ const SupplierList = () => {
               <table className="table table-hover align-middle mb-0 bg-white shadow-sm">
                 <thead style={{ backgroundColor: '#004d00', color: 'white' }}>
                   <tr className="text-center">
-                    <th>සංකේතය (Code)</th>
-                    <th>නම (Name)</th>
-                    <th>ලිපිනය (Address)</th>
-                    <th>මෙහෙයුම් (Actions)</th>
+                    <th>ඡායාරූපය</th>
+                    <th>සංකේතය</th>
+                    <th>නම</th>
+                    <th>ලිපිනය</th>
+                    <th>NIC (F/B)</th>
+                    <th>මෙහෙයුම්</th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {suppliers.length === 0 ? (
                     <tr>
-                      <td colSpan="4" className="text-center text-muted py-3">
+                      <td colSpan="6" className="text-center text-muted py-3">
                         සැපයුම්කරුවන් නොමැත
                       </td>
                     </tr>
                   ) : (
                     suppliers.map((supplier) => (
                       <tr key={supplier.id} className="text-center">
+                        <td>{renderImage(supplier.profile_pic, "Profile")}</td>
                         <td style={{ textTransform: 'uppercase' }} className="fw-bold">{supplier.code}</td>
                         <td>{supplier.name}</td>
-                        <td>{supplier.address}</td>
+                        <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {supplier.address}
+                        </td>
+                        <td>
+                          <div className="d-flex justify-content-center gap-1">
+                            {renderImage(supplier.nic_front, "NIC Front")}
+                            {renderImage(supplier.nic_back, "NIC Back")}
+                          </div>
+                        </td>
                         <td>
                           <Link
                             to={`/suppliers/edit/${supplier.id}`}
                             className="btn btn-warning btn-sm me-1 fw-bold"
                           >
-                            යාවත්කාලීන
+                            සංස්කරණය
                           </Link>
 
                           <button
