@@ -287,10 +287,10 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
             if (type === "printed") {
                 if (isCashFilterActive) {
                     // When ticked: show only 'N' (Cash)
-                    if (sale.credit_transaction !== 'N') return;
+                    if (sale.credit_transaction !== 'Y') return;
                 } else {
                     // When unticked (Default): show only 'Y' (Credit)
-                    if (sale.credit_transaction !== 'Y') return;
+                    if (sale.credit_transaction !== 'N') return;
                 }
             }
 
@@ -893,44 +893,65 @@ export default function SalesEntry() {
     };
 
     const handleSubmitGivenAmount = async (e) => {
-        if (e) e.preventDefault();
-        updateState({ errors: {} });
+    if (e) e.preventDefault();
+    updateState({ errors: {} });
 
-        const customerCode = formData.customer_code || autoCustomerCode;
-        if (!customerCode) return null;
+    const customerCode = formData.customer_code || autoCustomerCode;
+    if (!customerCode) return null;
 
-        const salesToUpdate = displayedSales.filter(s => s.id);
-        if (salesToUpdate.length === 0) return null;
+    const salesToUpdate = displayedSales.filter(s => s.id);
+    if (salesToUpdate.length === 0) return null;
 
-        try {
-            const givenAmount = parseFloat(formData.given_amount) || 0;
+    try {
+        // 1. Get the amount currently typed in the input box
+        const currentInputAmount = parseFloat(formData.given_amount) || 0;
 
-            // Logic: If NOT touched, it is a credit transaction (Y). If touched, it is N.
-            const creditTransaction = state.isGivenAmountManuallyTouched ? 'N' : 'Y';
+        // 2. Calculate what the "Auto-Calculated" total should be right now
+        const totals = salesToUpdate.reduce((acc, s) => {
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const packs = parseFloat(s.packs) || 0;
+            const pCost = parseFloat(s.CustomerPackCost) || 0;
+            const pLabour = parseFloat(s.CustomerPackLabour) || 0;
+            acc.billTotal += (weight * price);
+            acc.totalBagPrice += (packs * pCost);
+            acc.totalLabour += (packs * pLabour);
+            return acc;
+        }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
-            const updatePromises = salesToUpdate.map(sale =>
-                api.put(`${routes.sales}/${sale.id}/given-amount`, {
-                    given_amount: givenAmount,
-                    credit_transaction: creditTransaction // Send the flag to backend
-                })
-            );
+        const autoCalculatedGrandTotal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
 
-            const results = await Promise.all(updatePromises);
+        // 3. Logic Check: 
+        // If Input matches Auto-Total (within 0.01 margin) -> It's CASH (N)
+        // If Input is DIFFERENT from Auto-Total -> It's CREDIT/MANUAL (Y)
+        const isDifferent = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
+        const creditTransaction = isDifferent ? 'Y' : 'N';
 
-            // Reset the touch flag for the next bill
-            updateState({ isGivenAmountManuallyTouched: false });
+        console.log(`Debug: Input(${currentInputAmount}) vs Auto(${autoCalculatedGrandTotal.toFixed(2)}) -> Credit: ${creditTransaction}`);
 
-            const updatedSalesFromApi = results.map(response => response.data.sale);
-            const updatedSalesMap = {};
-            updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
-            updateState({ allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) });
+        const updatePromises = salesToUpdate.map(sale =>
+            api.put(`${routes.sales}/${sale.id}/given-amount`, {
+                given_amount: currentInputAmount,
+                credit_transaction: creditTransaction 
+            })
+        );
 
-            return updatedSalesFromApi;
-        } catch (error) {
-            updateState({ errors: { form: error.response?.data?.message || error.message } });
-            return null;
-        }
-    };
+        const results = await Promise.all(updatePromises);
+
+        // Reset the flag for UI safety
+        updateState({ isGivenAmountManuallyTouched: false });
+
+        const updatedSalesFromApi = results.map(response => response.data.sale);
+        const updatedSalesMap = {};
+        updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
+        updateState({ allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) });
+
+        return updatedSalesFromApi;
+    } catch (error) {
+        updateState({ errors: { form: error.response?.data?.message || error.message } });
+        return null;
+    }
+};
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -1401,85 +1422,87 @@ ${loanRow}
     };
 
     const handlePrintAndClear = async () => {
-        // 1. Submit given amount to the API first and get the updated records
-        const updatedSalesFromApi = await handleSubmitGivenAmount();
+    // 1. IMPORTANT: Capture the touch state immediately in a local variable.
+    // This prevents async lag from changing the value before the API call uses it.
+    const currentlyTouched = state.isGivenAmountManuallyTouched;
 
-        // Use the data returned from the API if available, otherwise fallback to current display
-        let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
+    // 2. Pass that captured value directly to the submission function
+    // (Note: You must also update handleSubmitGivenAmount to accept this 2nd argument)
+    const updatedSalesFromApi = await handleSubmitGivenAmount(null, currentlyTouched);
 
-        if (!salesData.length) {
-            alert("No sales records to print!");
-            return;
+    let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
+
+    if (!salesData.length) {
+        alert("No sales records to print!");
+        return;
+    }
+
+    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+    if (hasZeroPrice) {
+        alert("Cannot print! One or more items have a price per kg of 0.");
+        return;
+    }
+
+    try {
+        updateState({ isPrinting: true });
+
+        const customerCode = salesData[0].customer_code || "N/A";
+        const customerName = salesData[0].customer_name || customerCode;
+        const mobile = salesData[0].mobile || '0777672838 / 071437115';
+
+        const printResponse = await api.post(routes.markPrinted, {
+            sales_ids: salesData.map(s => s.id),
+            force_new_bill: true
+        });
+
+        if (printResponse.data.status !== "success") {
+            throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
         }
 
-        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-        if (hasZeroPrice) {
-            alert("Cannot print! One or more items have a price per kg of 0.");
-            return;
-        }
+        const billNo = printResponse.data.bill_no || "";
 
+        let globalLoanAmount = 0;
         try {
-            updateState({ isPrinting: true });
-
-            const customerCode = salesData[0].customer_code || "N/A";
-            const customerName = salesData[0].customer_name || customerCode;
-            const mobile = salesData[0].mobile || '0777672838 / 071437115';
-
-            // 2. Mark as printed in DB and get official bill number
-            const printResponse = await api.post(routes.markPrinted, {
-                sales_ids: salesData.map(s => s.id),
-                force_new_bill: true
+            const loanResponse = await api.post(routes.getLoanAmount, {
+                customer_short_name: customerCode
             });
+            globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
+        } catch (error) {
+            console.warn("Could not fetch loan amount");
+        }
 
-            if (printResponse.data.status !== "success") {
-                throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
-            }
+        const receiptHtml = buildFullReceiptHTML(
+            salesData,
+            billNo,
+            customerName,
+            mobile,
+            globalLoanAmount,
+            billSize
+        );
 
-            const billNo = printResponse.data.bill_no || "";
+        // Update local state before opening the print dialog
+        updateState({
+            allSales: allSales.map(s =>
+                salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
+            ),
+            selectedPrintedCustomer: null,
+            selectedUnprintedCustomer: null,
+            isPrinting: false,
+            isGivenAmountManuallyTouched: false // Reset flag here as well
+        });
 
-            // 3. Get latest loan amount
-            let globalLoanAmount = 0;
-            try {
-                const loanResponse = await api.post(routes.getLoanAmount, {
-                    customer_short_name: customerCode
-                });
-                globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
-            } catch (error) {
-                console.warn("Could not fetch loan amount");
-            }
-            // We pass the salesData which now contains the given_amount from Step 1
-            const receiptHtml = buildFullReceiptHTML(
-                salesData,
-                billNo,
-                customerName,
-                mobile,
-                globalLoanAmount,
-                billSize
-            );
+        // Clear the form data
+        setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
 
-            // 5. Update UI State
-            updateState({
-                allSales: allSales.map(s =>
-                    salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
-                ),
-                selectedPrintedCustomer: null,
-                selectedUnprintedCustomer: null,
-                isPrinting: false
-            });
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (!printWindow) {
+            alert("Please allow pop-ups for printing");
+            window.location.reload(); 
+            return;
+        }
 
-            // 6. Clear form
-            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
-
-            // 7. Create and open print window, then reload the main page
-            const printWindow = window.open('', '_blank', 'width=800,height=600');
-            if (!printWindow) {
-                alert("Please allow pop-ups for printing");
-                window.location.reload(); // Reload even if popup blocked
-                return;
-            }
-
-            printWindow.document.open();
-            printWindow.document.write(`<!DOCTYPE html>
+        printWindow.document.open();
+        printWindow.document.write(`<!DOCTYPE html>
         <html>
         <head>
             <title>Print Bill - ${customerName}</title>
@@ -1491,38 +1514,27 @@ ${loanRow}
         <body>
             ${receiptHtml}
             <script>
-                // When the print window loads, trigger print and reload parent
                 window.onload = function() { 
-                    // Immediately reload the parent window (main page)
+                    // Trigger parent reload immediately so the background is ready
                     if (window.opener && !window.opener.closed) {
                         window.opener.location.reload();
                     }
-                    
-                    // Short delay to ensure parent reload starts, then show print dialog
                     setTimeout(function() { 
                         window.print(); 
                     }, 100);
                 };
-                
-                // If user closes print window without printing
-                window.onbeforeunload = function() {
-                    // Ensure parent is reloaded even if print is cancelled
-                    if (window.opener && !window.opener.closed && !window.opener.location.href.includes('reload')) {
-                        window.opener.location.reload();
-                    }
-                };
             </script>
         </body>
         </html>`);
-            printWindow.document.close();
+        printWindow.document.close();
 
-        } catch (error) {
-            console.error("Printing error:", error);
-            alert("Printing failed");
-            updateState({ isPrinting: false });
-            window.location.reload(); // Reload even on error
-        }
-    };
+    } catch (error) {
+        console.error("Printing error:", error);
+        alert("Printing failed");
+        updateState({ isPrinting: false });
+        window.location.reload(); 
+    }
+};
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 

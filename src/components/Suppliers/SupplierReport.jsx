@@ -23,10 +23,19 @@ const SupplierReport = () => {
     const [isUnprintedBill, setIsUnprintedBill] = useState(false);
     const [supplierDetails, setSupplierDetails] = useState([]);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+    
+    // 🚀 NEW STATE: To hold the advance amount from the suppliers table
+    const [advanceAmount, setAdvanceAmount] = useState(0);
+
+    // 🚀 NEW STATE: For the Advance Entry Form Logic
+    const [advancePayload, setAdvancePayload] = useState({ code: '', advance_amount: '' });
+    const [advanceLoading, setAdvanceLoading] = useState(false);
+    const [advanceStatus, setAdvanceStatus] = useState({ type: '', text: '' });
 
     // 🚀 NEW STATE: For Editing Records
     const [editingRecord, setEditingRecord] = useState(null);
     const [newFarmerCode, setNewFarmerCode] = useState('');
+    const [newCustomerCode, setNewCustomerCode] = useState('');
 
     // --- Function to fetch the summary data ---
     const fetchSummary = useCallback(async () => {
@@ -65,35 +74,60 @@ const SupplierReport = () => {
         navigate('/sales');
     };
 
-    // --- 🚀 NEW: Update Farmer Logic ---
-    const handleUpdateFarmer = async () => {
-        if (!newFarmerCode) return alert("Please enter a new farmer code");
+    // 🚀 NEW: Handle Advance Entry Form Submission
+    const handleAdvanceSubmit = async (e) => {
+        e.preventDefault();
+        setAdvanceLoading(true);
+        setAdvanceStatus({ type: '', text: '' });
 
         try {
-            setIsDetailsLoading(true);
-            const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
-                supplier_code: newFarmerCode
-            });
-
-            if (response.status === 200) {
-                setEditingRecord(null);
-                setNewFarmerCode('');
-                // Refresh current view
-                if (isUnprintedBill) {
-                    await handleUnprintedBillClick(selectedSupplier, null);
-                } else {
-                    await handlePrintedBillClick(selectedSupplier, selectedBillNo);
-                }
-                fetchSummary();
-            }
+            const response = await api.post('/suppliers/advance', advancePayload);
+            setAdvanceStatus({ type: 'success', text: `සාර්ථකයි! අත්තිකාරම් යාවත්කාලීන විය.` });
+            
+            // Immediately update the display advance amount
+            setAdvanceAmount(parseFloat(response.data.data.advance_amount) || 0);
+            setAdvancePayload({ ...advancePayload, advance_amount: '' });
         } catch (error) {
-            console.error("Update failed:", error);
-            alert("Failed to update farmer. Please check backend route.");
+            console.error("Advance Update Error:", error);
+            setAdvanceStatus({ type: 'error', text: 'යාවත්කාලීන කිරීම අසාර්ථක විය.' });
         } finally {
-            setIsDetailsLoading(false);
+            setAdvanceLoading(false);
         }
     };
 
+    // --- 🚀 NEW: Update Farmer Logic ---
+    const handleUpdateFarmer = async () => {
+    // Both are now technically optional, but we need at least one change or we just send existing values
+    const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
+    const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
+
+    try {
+        setIsDetailsLoading(true);
+        const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
+            supplier_code: finalSupplierCode,
+            customer_code: finalCustomerCode 
+        });
+
+        if (response.status === 200) {
+            setEditingRecord(null);
+            setNewFarmerCode('');
+            setNewCustomerCode('');
+            
+            // Refresh current view
+            if (isUnprintedBill) {
+                await handleUnprintedBillClick(selectedSupplier, null);
+            } else {
+                await handlePrintedBillClick(selectedSupplier, selectedBillNo);
+            }
+            fetchSummary();
+        }
+    } catch (error) {
+        console.error("Update failed:", error);
+        alert("Failed to update records.");
+    } finally {
+        setIsDetailsLoading(false);
+    }
+};
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
@@ -118,11 +152,20 @@ const SupplierReport = () => {
         setSelectedBillNo(billNo);
         setIsUnprintedBill(true);
         setSupplierDetails([]);
+        setAdvanceAmount(0); // Reset advance
+        setAdvancePayload({ code: supplierCode, advance_amount: '' }); // 🚀 AUTO FILL CODE
         setIsDetailsLoading(true);
 
         try {
+            // Fetch unprinted details
             const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
             setSupplierDetails(response.data);
+
+            // 🚀 FETCH ADVANCE AMOUNT: Call backend to get supplier info
+            const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
+            if (supRes.data && supRes.data.advance_amount) {
+                setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
+            }
         } catch (error) {
             console.error(`❌ Error fetching unprinted details:`, error.message);
         } finally {
@@ -136,11 +179,19 @@ const SupplierReport = () => {
         setSelectedBillNo(billNo);
         setIsUnprintedBill(false);
         setSupplierDetails([]);
+        setAdvanceAmount(0); // Reset advance
+        setAdvancePayload({ code: supplierCode, advance_amount: '' }); // 🚀 AUTO FILL CODE
         setIsDetailsLoading(true);
 
         try {
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
+
+            // 🚀 FETCH ADVANCE AMOUNT
+            const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
+            if (supRes.data && supRes.data.advance_amount) {
+                setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
+            }
         } catch (error) {
             console.error(`❌ Error fetching printed details:`, error.message);
         } finally {
@@ -154,6 +205,8 @@ const SupplierReport = () => {
         setSelectedBillNo(null);
         setIsUnprintedBill(false);
         setSupplierDetails([]);
+        setAdvanceAmount(0);
+        setAdvancePayload({ code: '', advance_amount: '' });
         fetchSummary();
     };
 
@@ -263,6 +316,9 @@ const SupplierReport = () => {
             itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
         }
 
+        // 🚀 CALCULATION FOR FINAL NET AMOUNT
+        const netPayable = totalsupplierSales - advanceAmount;
+
         return `
     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
@@ -299,16 +355,35 @@ const SupplierReport = () => {
                 </tr>
             </tfoot>
         </table>
+
         <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
             <tr>
               <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට ගෙවන්න:</td>
               <td style="text-align:right;"><span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px; padding-left:25px;">${(totalsupplierSales.toFixed(2))}</span></td>
             </tr>
+            
+           <tr style="font-size:18px;">
+  <td style="font-size:15px; padding-top:10px;">අත්තිකාරම්</td>
+  <td style="text-align:right; padding-top:10px; color:#000;">
+    - ${advanceAmount.toFixed(2)}
+  </td>
+</tr>
+
+           <tr style="font-weight:900;">
+  <td style="font-size:18px; padding-top:5px;">ඉතිරි ශේෂය:</td>
+  <td style="text-align:right; padding-top:5px;">
+    <span style="color:#000; font-size:${fontSizeTotal};">
+      ${netPayable.toFixed(2)}
+    </span>
+  </td>
+</tr>
+
         </table>
+
         <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
         <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;"><p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p><p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p></div>
     </div>`;
-    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize]);
+    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount]);
 
     // --- Print function ---
     const handlePrint = useCallback(async () => {
@@ -361,34 +436,50 @@ const SupplierReport = () => {
 
     // 🚀 NEW: Edit Modal UI
     const renderEditModal = () => {
-        if (!editingRecord) return null;
-        return (
-            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
-                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-                    <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගොවියා වෙනස් කරන්න</h3>
-                    <div style={{ margin: '15px 0', fontSize: '1rem', color: '#333' }}>
-                        <p><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
-                        <p><strong>අයිතමය:</strong> {editingRecord.item_name}</p>
-                        <p><strong>බර:</strong> {editingRecord.weight} kg</p>
-                    </div>
-                    <div style={{ marginTop: '20px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>නව ගොවි කේතය (New Farmer):</label>
-                        <input 
-                            type="text" 
-                            value={newFarmerCode}
-                            onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
-                            style={{ width: '100%', padding: '12px', fontSize: '1.1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                            autoFocus
-                        />
-                    </div>
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
-                        <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
-                        <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
-                    </div>
+    if (!editingRecord) return null;
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+            <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+                <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
+                
+                <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
+                    <p style={{margin: '2px 0'}}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
+                    <p style={{margin: '2px 0'}}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
+                </div>
+
+                {/* Supplier Code Input */}
+                <div style={{ marginTop: '15px' }}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
+                    <input 
+                        type="text" 
+                        placeholder={editingRecord.supplier_code} // Show current code as placeholder
+                        value={newFarmerCode}
+                        onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
+                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                        autoFocus
+                    />
+                </div>
+
+                {/* Customer Code Input */}
+                <div style={{ marginTop: '15px' }}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
+                    <input 
+                        type="text" 
+                        placeholder={editingRecord.customer_code} // Show current code as placeholder
+                        value={newCustomerCode}
+                        onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
+                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                    />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                    <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
+                    <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
                 </div>
             </div>
-        );
-    };
+        </div>
+    );
+};
 
     // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
@@ -476,16 +567,58 @@ const SupplierReport = () => {
                     </table>
                 </div>
                 {selectedSupplier && Object.keys(itemSummaryData).length > 0 && (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0px' }}>
-                        <thead>
-                            <tr><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>අයිතමය නම</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>සම්පූර්ණ බර</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>මුළු අසුරුම්</th></tr>
-                        </thead>
-                        <tbody>
-                            {Object.keys(itemSummaryData).map((name, i) => (
-                                <tr key={name} style={getRowStyle(i)}><td style={tdStyle}>{name}</td><td style={tdStyle}>{formatDecimal(itemSummaryData[name].totalWeight, 3)}</td><td style={tdStyle}>{itemSummaryData[name].totalPacks}</td></tr>
-                            ))}
-                        </tbody>
-                    </table>
+                    <>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0px' }}>
+                            <thead>
+                                <tr><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>අයිතමය නම</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>සම්පූර්ණ බර</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>මුළු අසුරුම්</th></tr>
+                            </thead>
+                            <tbody>
+                                {Object.keys(itemSummaryData).map((name, i) => (
+                                    <tr key={name} style={getRowStyle(i)}><td style={tdStyle}>{name}</td><td style={tdStyle}>{formatDecimal(itemSummaryData[name].totalWeight, 3)}</td><td style={tdStyle}>{itemSummaryData[name].totalPacks}</td></tr>
+                                ))}
+                            </tbody>
+                        </table>
+
+                        {/* 🚀 INTEGRATED ADVANCE ENTRY FORM */}
+                        <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #ffffff33', borderRadius: '8px', backgroundColor: '#ffffff11' }}>
+                            <h3 style={{ color: '#ffc107', marginTop: 0, fontSize: '1.2rem' }}>අත්තිකාරම් ඇතුලත් කරන්න (Advance Entry)</h3>
+                            <form onSubmit={handleAdvanceSubmit} style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '0.8rem', color: '#eee', display: 'block', marginBottom: '5px' }}>Supplier Code</label>
+                                    <input 
+                                        type="text" 
+                                        value={advancePayload.code} 
+                                        readOnly 
+                                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', backgroundColor: '#eee', color: '#000' }} 
+                                    />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '0.8rem', color: '#eee', display: 'block', marginBottom: '5px' }}>Amount (රු:)</label>
+                                    <input 
+                                        type="number" 
+                                        name="advance_amount"
+                                        value={advancePayload.advance_amount} 
+                                        onChange={(e) => setAdvancePayload({...advancePayload, advance_amount: e.target.value})}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', color: '#000' }}
+                                        placeholder="0.00"
+                                        required
+                                    />
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    disabled={advanceLoading || !selectedSupplier}
+                                    style={{ padding: '10px 20px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', height: '40px' }}
+                                >
+                                    {advanceLoading ? 'Saving...' : 'Update Advance'}
+                                </button>
+                            </form>
+                            {advanceStatus.text && (
+                                <p style={{ color: advanceStatus.type === 'success' ? '#28a745' : '#ff4444', marginTop: '10px', fontWeight: 'bold' }}>
+                                    {advanceStatus.text}
+                                </p>
+                            )}
+                        </div>
+                    </>
                 )}
                 <div style={{ textAlign: 'center' }}>
                     <button style={{ padding: '10px 20px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: '#ffc107', color: '#343a40', border: 'none', borderRadius: '6px', cursor: 'pointer', marginTop: '20px', opacity: selectedSupplier ? 1 : 0.5 }} onClick={handlePrint} disabled={!selectedSupplier || isDetailsLoading || supplierDetails.length === 0}>
