@@ -61,7 +61,7 @@ body {
 
 /* Styling for the large, dark input fields (Bill No, Customer Code, Supplier) */
 .center-form input#bill_no,
-.center-form input#customer_code_input,
+
 .center-form input#supplier_code,
 .center-form .react-select-container .react-select__control {
     /* Dark input background, border, and white text */
@@ -74,6 +74,21 @@ body {
     font-weight: bold;
     padding: 0 1rem;
     border-radius: 0.5rem; 
+}
+.center-form input#customer_code_input {
+    background-color: #0d0d4d; 
+    border: 1px solid #4a5568;
+    color: white;
+    height: 44px; 
+    box-sizing: border-box;
+    font-size: 1.25rem; 
+    font-weight: bold;
+    padding: 0 1rem;
+    border-radius: 0.5rem; 
+    
+    /* --- Added Width Control --- */
+    width: 100px; /* Adjust this value (e.g., 150px, 200px) for your perfect size */
+    flex: none;   /* This ensures the flexbox doesn't force it to grow */
 }
 
 /* NEW: Compact styling for the inline customer row fields */

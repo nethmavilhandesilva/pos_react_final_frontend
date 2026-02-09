@@ -29,6 +29,7 @@ import FinancialReport from './components/Reports/FinancialReport';
 import LoanReportManager from './components/LoanManager/LoanReportManager'; // ✅ Add this
 import SupplierReport2 from './components/Reports/supplierfinalreport';
 import PrintedSalesReport from './components/Reports/PrintedSalesReport';
+import SalesReport from './components/Reports/SalesReport2';
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -36,7 +37,7 @@ const ProtectedRoute = ({ children }) => {
     const user = localStorage.getItem('user');
     // NOTE: It's better practice to check for the token, not 'user' 
     // since the provided API uses the 'token'.
-    const token = localStorage.getItem('token'); 
+    const token = localStorage.getItem('token');
 
     if (!token) {
         return <Navigate to="/login" replace />;
@@ -180,28 +181,28 @@ export default function App() {
                     element={
                         <ProtectedRoute>
                             {/* 🚀 CORRECTION: Use LoanManager for the main loans page */}
-                            <LoanManager /> 
+                            <LoanManager />
                         </ProtectedRoute>
                     }
                 />
                 {/* Loan Report View is often considered protected data */}
-                <Route 
-                    path="/customers-loans/report" 
+                <Route
+                    path="/customers-loans/report"
                     element={
                         <ProtectedRoute>
                             <LoanReportView />
                         </ProtectedRoute>
-                    } 
+                    }
                 />
-                
+
                 {/* ⚠️ CRITICAL CORRECTION: Sales Entry MUST be Protected */}
-                <Route 
-                    path="/sales" 
+                <Route
+                    path="/sales"
                     element={
                         <ProtectedRoute>
                             <SalesEntry />
                         </ProtectedRoute>
-                    } 
+                    }
                 />
 
                 {/* REPORTING & COMMISSIONS */}
@@ -238,7 +239,7 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
-                 <Route
+                <Route
                     path="/financial-report"
                     element={
                         <ProtectedRoute>
@@ -256,6 +257,14 @@ export default function App() {
                 />
                 <Route path="/reports/supplier" element={<SupplierReport2 />} />
                 <Route path="/reports/printed-sales" element={<PrintedSalesReport />} />
+                <Route
+                    path="/reports/newsales"
+                    element={
+                        <ProtectedRoute>
+                            <SalesReport />
+                        </ProtectedRoute>
+                    }
+                />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

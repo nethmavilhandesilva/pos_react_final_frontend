@@ -76,14 +76,11 @@ export const supplierService = {
     
     // Update supplier
     update: (id, data) => {
-        if (data instanceof FormData) {
-            return api.post(`/suppliers/${id}`, data, {
-                headers: {
-                    // Using POST with _method=PUT for FormData with Laravel
-                }
-            });
-        }
-        return api.put(`/suppliers/${id}`, data);
+    if (data instanceof FormData) {
+        data.append('_method', 'PUT'); // ⭐ VERY IMPORTANT
+        return api.post(`/suppliers/${id}`, data);
+    }
+    return api.put(`/suppliers/${id}`, data);
     },
     
     // Delete supplier

@@ -15,16 +15,15 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
     
     const [formData, setFormData] = useState(defaultFormData);
     const [status, setStatus] = useState('');
-    const [password, setPassword] = useState(''); 
     
     const [selectByType, setSelectByType] = useState(initialData ? 
         (initialData.item_code ? 'Items' : initialData.supplier_code ? 'Suppliers' : 'All') : 'Items');
     
     const isEditing = !!initialData;
-    const isUnlocked = password === 'nethma123';
+    // Form is now always unlocked by default
+    const isUnlocked = true; 
 
     const formRefs = {
-        form_password: useRef(null),
         select_by_type: useRef(null), 
         item_selector: useRef(null),
         supplier_selector: useRef(null), 
@@ -87,7 +86,8 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
         if (e.key === 'Enter') {
             e.preventDefault(); 
 
-            let currentInputOrder = ['form_password', 'select_by_type'];
+            // Removed 'form_password' from the focus order
+            let currentInputOrder = ['select_by_type'];
             if (selectByType === 'Items') {
                 currentInputOrder.push('item_selector');
             } else if (selectByType === 'Suppliers') {
@@ -98,7 +98,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
             const currentIndex = currentInputOrder.indexOf(currentFieldName);
 
             if (currentFieldName === 'commission_amount') {
-                if(isUnlocked) formRefs.submit_button.current.click(); 
+                formRefs.submit_button.current.click(); 
             } else {
                 const nextFieldName = currentInputOrder[currentIndex + 1];
                 if (formRefs[nextFieldName]?.current) {
@@ -110,7 +110,6 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
     
     const handleSubmit = async (e) => {
         e.preventDefault(); 
-        if (!isUnlocked) return;
 
         setStatus('Submitting...');
         let payload = {
@@ -138,7 +137,6 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
             const message = `✅ Success!`;
             setStatus(message);
             onSubmissionSuccess(message); 
-            setPassword(''); // Re-lock form after success
         } catch (error) {
             setStatus(`❌ Failed.`);
         }
@@ -146,37 +144,18 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
 
     // Styling
     const inputStyle = { width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' };
-    const lockInputStyle = { 
-        padding: '5px 10px', 
-        border: '1px solid #ccc', 
-        borderRadius: '4px', 
-        marginLeft: '15px',
-        fontSize: '14px',
-        outline: isUnlocked ? '2px solid #28a745' : 'none'
-    };
 
     return (
         <div style={{ marginBottom: '20px', padding: '15px', border: '1px solid #eee', borderRadius: '8px' }}>
             
-            {/* Header with Password Field on the Right */}
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
                 <h3 style={{ color: '#004d00', margin: 0 }}>
                     {isEditing ? '✏️ කමිෂන් සංස්කරණය කරන්න' : '➕ නව කමිෂන් සකසන්න'}
                 </h3>
-                
-                <input
-                    type="password"
-                    ref={formRefs.form_password}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(e, 'form_password')}
-                    placeholder="Enter Password to Unlock..."
-                    style={lockInputStyle}
-                />
-                {isUnlocked && <span style={{ marginLeft: '10px', color: '#28a745', fontWeight: 'bold' }}>🔓 Unlocked</span>}
+                {/* Password input removed from here */}
             </div>
 
-            <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr auto', gap: '10px', opacity: isUnlocked ? 1 : 0.5 }}>
+            <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr auto', gap: '10px' }}>
                 
                 {/* Select By Type */}
                 <div>
@@ -186,7 +165,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                         value={selectByType} 
                         onChange={handleSelectByTypeChange}
                         onKeyDown={(e) => handleKeyDown(e, 'select_by_type')} 
-                        disabled={!isUnlocked || isEditing} 
+                        disabled={isEditing} 
                         ref={formRefs.select_by_type} 
                         style={inputStyle}
                     >
@@ -205,7 +184,7 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                             value={selectByType === 'Items' ? formData.item_code : formData.supplier_code} 
                             onChange={handleChange}
                             onKeyDown={(e) => handleKeyDown(e, selectByType === 'Items' ? 'item_selector' : 'supplier_selector')} 
-                            disabled={!isUnlocked || isEditing} 
+                            disabled={isEditing} 
                             ref={selectByType === 'Items' ? formRefs.item_selector : formRefs.supplier_selector} 
                             style={inputStyle}
                         >
@@ -228,7 +207,6 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                         value={formData.starting_price}
                         onChange={handleChange}
                         onKeyDown={(e) => handleKeyDown(e, 'starting_price')}
-                        disabled={!isUnlocked}
                         ref={formRefs.starting_price}
                         style={inputStyle}
                     />
@@ -242,7 +220,6 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                         value={formData.end_price}
                         onChange={handleChange}
                         onKeyDown={(e) => handleKeyDown(e, 'end_price')}
-                        disabled={!isUnlocked}
                         ref={formRefs.end_price}
                         style={inputStyle}
                     />
@@ -256,7 +233,6 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                         value={formData.commission_amount}
                         onChange={handleChange}
                         onKeyDown={(e) => handleKeyDown(e, 'commission_amount')}
-                        disabled={!isUnlocked}
                         ref={formRefs.commission_amount}
                         style={inputStyle}
                     />
@@ -266,15 +242,14 @@ const CommissionForm = ({ itemOptions, supplierOptions = [], initialData, onSubm
                 <div style={{ alignSelf: 'end', display: 'flex', gap: '5px' }}>
                     <button 
                         type="submit" 
-                        disabled={!isUnlocked}
                         ref={formRefs.submit_button}
                         style={{ 
                             padding: '10px 15px', 
                             color: 'white', 
                             border: 'none', 
                             borderRadius: '4px', 
-                            backgroundColor: !isUnlocked ? '#ccc' : (isEditing ? '#ffc107' : '#28a745'),
-                            cursor: isUnlocked ? 'pointer' : 'not-allowed'
+                            backgroundColor: isEditing ? '#ffc107' : '#28a745',
+                            cursor: 'pointer'
                         }}
                     >
                         {isEditing ? 'Save' : 'එකතු කරන්න'}

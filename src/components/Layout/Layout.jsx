@@ -13,7 +13,7 @@ import DayProcessModal from '../Modals/DayProcessModal';
 
 const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const location = useLocation();
-    const navigate = useNavigate(); // Added useNavigate hook
+    const navigate = useNavigate();
 
     // === Modal States ===
     const [isItemReportModalOpen, setIsItemReportModalOpen] = useState(false);
@@ -28,12 +28,13 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
 
     // === User & Settings State ===
     const [user, setUser] = useState(null);
-    const [settingValue, setSettingValue] = useState(''); // 🚀 NEW: State for the 'value' column
+    const [settingValue, setSettingValue] = useState('');
 
     // === Bottom Password States ===
     const [bottomPassword, setBottomPassword] = useState('');
-    const [isBottomUnlocked, setIsBottomUnlocked] = useState(false);
-    const HARD_CODED_PASSWORD = 'nethma123';
+    const [isBottomUnlocked, setIsBottomUnlocked] = useState(true);
+
+    const HOSTED_SYSTEM_URL = 'https://talentconnect.lk/sms_new_frontend/';
 
     useEffect(() => {
         // 1. Handle User Session
@@ -41,10 +42,11 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         if (storedUser) {
             setUser(JSON.parse(storedUser));
         } else {
-            window.location.href = '/login';
+            // Redirect to hosted system login
+            window.location.href = `${HOSTED_SYSTEM_URL}login`;
         }
 
-        // 🚀 2. Fetch Setting Value from Backend using your api.js
+        // 2. Fetch Setting Value
         const fetchSettings = async () => {
             try {
                 const response = await api.get('/settings');
@@ -62,7 +64,8 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const handleLogout = () => {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
-        window.location.href = 'sms/login';
+        // Redirect to hosted system login
+        window.location.href = `${HOSTED_SYSTEM_URL}login`;
     };
 
     // === Modal Handlers ===
@@ -89,7 +92,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         window.location.href = '/supplier-profit';
     };
 
-    // NEW: Handler for Supplier Report button
     const handleSupplierReportClick = () => {
         navigate('/reports/supplier');
     };
@@ -107,15 +109,8 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         whiteSpace: "nowrap"
     };
 
-    // === Password input handler for bottom buttons ===
     const handleBottomPasswordChange = (e) => {
-        const value = e.target.value;
-        setBottomPassword(value);
-        if (value === HARD_CODED_PASSWORD) {
-            setIsBottomUnlocked(true);
-        } else {
-            setIsBottomUnlocked(false);
-        }
+        setBottomPassword(e.target.value);
     };
 
     return (
@@ -140,6 +135,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                     <li><Link to="/suppliers" className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
                                     <li><Link to="/commissions" className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
                                     <li><Link to="/reports/printed-sales" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා</Link></li>
+                                    <li><Link to="/reports/newsales" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>printed bills</Link></li>
                                     <li><hr className="dropdown-divider" /></li>
                                     <li>
                                         <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = '/customers-loans/report'}>
@@ -149,33 +145,18 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                 </ul>
                             </div>
 
-                            <Link
-                                to="/customers-loans"
-                                className="btn btn-outline-success btn-sm mx-1"
-                                style={{ fontWeight: 'bold', color: '#fff' }}
-                            >
-                                ණය දීම/ගැනීම
-                            </Link>
-
-                            <Link
-                                to="/supplierreport"
-                                className="btn btn-outline-success btn-sm mx-1"
-                                style={{ fontWeight: 'bold', color: '#fff' }}
-                            >
-                                සැපයුම්කරු බිල්පත්
-                            </Link>
-
-                            <button
-                                type="button"
-                                className="btn btn-outline-success btn-sm mx-1"
-                                style={{ fontWeight: 'bold', color: '#fff' }}
-                                onClick={openDayProcessModal}
-                            >
-                                දින අවසාන ක්‍රියාවලිය
-                            </button>
+                            {/* 🛡️ Conditional: Hide for Admin */}
+                            {user?.role !== 'Admin' && (
+                                <>
+                                    <Link to="/customers-loans" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }}>ණය දීම/ගැනීම</Link>
+                                    <Link to="/supplierreport" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }}>සැපයුම්කරු බිල්පත්</Link>
+                                    <button type="button" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }} onClick={openDayProcessModal}>දින අවසාන ක්‍රියාවලිය</button>
+                                </>
+                            )}
                         </div>
 
-                        {isSalesEntryPage && (
+                        {/* 🛡️ Conditional: Hide Bill Size for Admin */}
+                        {isSalesEntryPage && user?.role !== 'Admin' && (
                             <div className="d-flex align-items-center me-3" style={{ marginLeft: '20px' }}>
                                 <label htmlFor="bill-size-select" className="text-white me-2" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>Bill Size:</label>
                                 <select id="bill-size-select" value={billSize} onChange={handleBillSizeChange} className="form-select form-select-sm" style={{ width: '100px', backgroundColor: '#006400', color: 'white', border: '1px solid #4a5568' }}>
@@ -189,17 +170,8 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                     {/* Right Side: Display fetched value in Red and Logout Button */}
                     {user && (
                         <div className="d-flex align-items-center text-white">
-                            <span className="me-3 fw-bold" style={{ color: '#ff4444', fontSize: '1.1rem' }}>
-                                {settingValue}
-                            </span>
-
-                            <button
-                                onClick={handleLogout}
-                                className="btn btn-sm btn-outline-light"
-                                style={{ fontWeight: 'bold' }}
-                            >
-                                Logout
-                            </button>
+                            <span className="me-3 fw-bold" style={{ color: '#ff4444', fontSize: '1.1rem' }}>{settingValue}</span>
+                            <button onClick={handleLogout} className="btn btn-sm btn-outline-light" style={{ fontWeight: 'bold' }}>Logout</button>
                         </div>
                     )}
                 </div>
@@ -210,56 +182,47 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                 {children}
             </main>
 
-            {/* === Bottom Nav with Password Protection === */}
-         <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
-    <div className="container-fluid d-flex justify-content-start align-items-center">
-        {/* Password Input on the Left */}
-        <input
-            type="password"
-            placeholder="Enter password"
-            value={bottomPassword}
-            onChange={handleBottomPasswordChange}
-            className="form-control form-control-sm me-3"
-            style={{
-                width: '100px',
-                backgroundColor: '#003300',
-                color: '#fff',
-                border: '1px solid #66bb6a'
-            }}
-        />
+            {/* Bottom Nav */}
+            <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
+                <div className="container-fluid d-flex justify-content-start align-items-center">
+                    <input
+                        type="password"
+                        placeholder="Enter password"
+                        value={bottomPassword}
+                        onChange={handleBottomPasswordChange}
+                        className="form-control form-control-sm me-3"
+                        style={{ width: '100px', backgroundColor: '#003300', color: '#fff', border: '1px solid #66bb6a' }}
+                    />
 
-        {/* Bottom Buttons */}
-        {[
-            { label: 'එළවළු', onClick: openItemReportModal },
-            { label: 'බර මත', onClick: openWeightReportModal },
-            { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
-            { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/financial-report' },
-            { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
-            { label: 'සැපයුම්කරු ලාභ ', onClick: handleProfitReportClick },
-            // NEW: Added Supplier Report button
-            { label: 'සැපයුම්කර වාර්තාව', onClick: handleSupplierReportClick }
-        ].map((btn, idx) => (
-            <button
-                key={idx}
-                type="button"
-                onClick={btn.onClick}
-                style={{
-                    ...navTextBtn,
-                    fontSize: '16px',
-                    fontWeight: '700',
-                    letterSpacing: '0.5px',
-                    opacity: isBottomUnlocked ? 1 : 0.4,
-                    pointerEvents: isBottomUnlocked ? 'auto' : 'none',
-                    marginRight: '35px',  // Reduced from 20px to 10px
-                    marginLeft: idx === 0 ? '0' : '0'  // Ensure first button has no left margin
-                }}
-            >
-                {btn.label}
-            </button>
-        ))}
-    </div>
-</nav>
-            {/* Modals */}
+                    {[
+                        { label: 'එළවළු', onClick: openItemReportModal },
+                        { label: 'බර මත', onClick: openWeightReportModal },
+                        { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
+                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/sms_new_frontend/financial-report' },
+                        { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
+                        { label: 'සැපයුම් ලාභ ', onClick: handleProfitReportClick },
+                        { label: 'සැපයුම් වාර්තාව', onClick: handleSupplierReportClick }
+                    ].map((btn, idx) => (
+                        <button
+                            key={idx}
+                            type="button"
+                            onClick={btn.onClick}
+                            style={{
+                                ...navTextBtn,
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                letterSpacing: '0.5px',
+                                opacity: 1,
+                                pointerEvents: 'auto',
+                                marginRight: '15px'
+                            }}
+                        >
+                            {btn.label}
+                        </button>
+                    ))}
+                </div>
+            </nav>
+            
             <ItemReportModal isOpen={isItemReportModalOpen} onClose={closeItemReportModal} onGenerateReport={() => { }} loading={false} />
             <WeightReportModal isOpen={isWeightReportModalOpen} onClose={closeWeightReportModal} />
             <GrnSaleReportModal isOpen={isGrnSaleReportModalOpen} onClose={closeGrnSaleReportModal} />

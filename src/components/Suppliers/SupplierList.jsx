@@ -10,7 +10,7 @@ const SupplierList = () => {
   const navigate = useNavigate();
 
   // Base URL for images stored in Laravel storage
-  const STORAGE_URL = "http://localhost:8000/storage/";
+  const STORAGE_URL = "http://127.0.0.1:8000/storage/";
 
   useEffect(() => {
     loadSuppliers();

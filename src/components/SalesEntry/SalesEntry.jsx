@@ -56,7 +56,6 @@ const BreakdownDisplay = ({ sale, formatDecimal }) => {
 };
 
 // --- Admin Modal Component (Popup Window) ---
-// --- Admin Modal Component (Popup Window) ---
 const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecimal, billSize = '3inch' }) => {
     if (!isOpen || !sales || sales.length === 0) return null;
 
@@ -273,6 +272,122 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
                             <p style={{ margin: '4px 0' }}>නැවත භාර ගනු නොලැබේ</p>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+const ImagePreviewModal = ({ isOpen, onClose, data }) => {
+    if (!isOpen || !data) return null;
+
+    const baseUrl = "https://talentconnect.lk/sms_new_backend/application/public/storage/";
+
+    const formatUrl = (path) => {
+        if (!path) return null;
+        return path.startsWith('http') ? path : `${baseUrl}${path}`;
+    };
+
+    return (
+        <div 
+            style={{ 
+                position: 'fixed', 
+                top: 0, 
+                left: 0, 
+                width: '100vw', 
+                height: '100vh', 
+                backgroundColor: 'rgba(0, 0, 0, 0.85)', 
+                backdropFilter: 'blur(10px)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                zIndex: 10000 
+            }} 
+            onClick={onClose}
+        >
+            <div 
+                style={{ 
+                    backgroundColor: '#1f2937', 
+                    borderRadius: '20px', 
+                    width: '95%', 
+                    maxWidth: '1000px', // Increased width to allow images to expand
+                    maxHeight: '95vh', 
+                    padding: '25px', 
+                    position: 'relative',
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+                    border: '1px solid #4b5563',
+                    display: 'flex',
+                    flexDirection: 'column'
+                }} 
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header Area */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #374151', paddingBottom: '15px' }}>
+                    <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'white', margin: 0 }}>
+                        {data.title} - ලේඛන පරීක්ෂාව
+                    </h2>
+                    <button 
+                        onClick={onClose} 
+                        style={{ background: '#374151', border: 'none', color: 'white', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                {/* Larger Images Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '20px', overflowY: 'auto', padding: '5px' }}>
+                    
+                    {/* Profile Picture */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ color: '#60a5fa', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>ප්‍රධාන රූපය</span>
+                        <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #3b82f6', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                            <img src={data.profile} style={{ width: '100%', height: 'auto', display: 'block' }} alt="Profile" />
+                        </div>
+                    </div>
+
+                    {/* NIC Front - Expanded Size */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC ඉදිරිපස</span>
+                        <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                            {data.nic_front ? (
+                                <img src={formatUrl(data.nic_front)} style={{ width: '100%', height: 'auto', maxHeight: '500px', display: 'block', objectFit: 'contain' }} alt="NIC Front" />
+                            ) : (
+                                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>ඡායාරූපයක් නොමැත</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* NIC Back - Expanded Size */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC පසුපස</span>
+                        <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                            {data.nic_back ? (
+                                <img src={formatUrl(data.nic_back)} style={{ width: '100%', height: 'auto', maxHeight: '500px', display: 'block', objectFit: 'contain' }} alt="NIC Back" />
+                            ) : (
+                                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>ඡායාරූපයක් නොමැත</div>
+                            )}
+                        </div>
+                    </div>
+
+                </div>
+
+                {/* Action Area */}
+                <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '15px' }}>
+                    <button 
+                        onClick={onClose}
+                        style={{ 
+                            backgroundColor: '#ef4444', 
+                            color: 'white', 
+                            border: 'none', 
+                            padding: '12px 30px', 
+                            borderRadius: '10px', 
+                            fontWeight: 'bold', 
+                            fontSize: '14px', 
+                            cursor: 'pointer',
+                            transition: 'background 0.2s'
+                        }}
+                    >
+                        වසන්න (Close)
+                    </button>
                 </div>
             </div>
         </div>
@@ -542,7 +657,6 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
 };
 
 // --- Main Export Component ---
-
 const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "" };
 const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
 const skipMap = { customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg: "packs", price_per_kg_grid_item: "packs" };
@@ -563,7 +677,7 @@ export default function SalesEntry() {
         forceUpdate: null, windowFocused: null, isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
         gridPricePerKg: "", selectedSaleForBreakdown: null,
         currentUser: null,
-        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false, customerProfilePic: null, supplierProfilePic: null, customerNameDisplay: "", supplierNameDisplay: "",
+        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false, customerProfilePic: null, supplierProfilePic: null, customerNameDisplay: "", supplierNameDisplay: "", isImageModalOpen: false, selectedImageData: { profile: null, nic_front: null, nic_back: null, title: "" },
     });
 
     const setFormData = (updater) => setState(prev => ({ ...prev, formData: typeof updater === 'function' ? updater(prev.formData) : updater }));
@@ -702,7 +816,7 @@ export default function SalesEntry() {
             setFormData(prev => ({ ...prev, given_amount: "" }));
         }
     }, [displayedSales]);
-    //use effect to fetch profile pic
+     //use effect to fetch profile pic
     useEffect(() => {
         const code = formData.customer_code || autoCustomerCode;
         if (code && customers.length > 0) {
@@ -711,15 +825,28 @@ export default function SalesEntry() {
             );
 
             if (customer) {
-                const baseUrl = "http://localhost:8000";
+                const baseUrl = "https://talentconnect.lk/sms_new_backend/application/public";
                 let fileName = customer.profile_pic;
-                const fullPath = fileName
-                    ? (fileName.includes('customers/profiles') ? `${baseUrl}/storage/${fileName}` : `${baseUrl}/storage/customers/profiles/${fileName}`)
-                    : null;
+                let fullPath = null;
+
+                if (fileName) {
+                    if (fileName.startsWith('http')) {
+                        fullPath = fileName;
+                    } else {
+                        // Check if 'customers/profiles' is already in the string. 
+                        // Remove 'public/' if Laravel added it.
+                        const cleanFileName = fileName.replace('public/', '');
+                        const subPath = cleanFileName.includes('customers/profiles')
+                            ? cleanFileName
+                            : `customers/profiles/${cleanFileName}`;
+
+                        fullPath = `${baseUrl}/storage/${subPath}`;
+                    }
+                }
 
                 updateState({
                     customerProfilePic: fullPath,
-                    customerNameDisplay: customer.name || "" // Fetch Name here
+                    customerNameDisplay: customer.name || ""
                 });
             } else {
                 updateState({ customerProfilePic: null, customerNameDisplay: "" });
@@ -737,15 +864,30 @@ export default function SalesEntry() {
             );
 
             if (supplier) {
-                const baseUrl = "http://localhost:8000";
+                // Root path where the 'storage' symlink is located
+                const baseUrl = "https://talentconnect.lk/sms_new_backend/application/public";
                 let fileName = supplier.profile_pic;
-                const fullPath = fileName
-                    ? (fileName.includes('suppliers/profiles') ? `${baseUrl}/storage/${fileName}` : `${baseUrl}/storage/suppliers/profiles/${fileName}`)
-                    : null;
+
+                let fullPath = null;
+
+                if (fileName) {
+                    if (fileName.startsWith('http')) {
+                        // Use directly if it's already a full URL
+                        fullPath = fileName;
+                    } else {
+                        // Check if 'suppliers/profiles' is already in the filename string from DB
+                        // If not, we manually add it to match your folder structure
+                        const subPath = fileName.includes('suppliers/profiles')
+                            ? fileName.replace('public/', '')
+                            : `suppliers/profiles/${fileName.replace('public/', '')}`;
+
+                        fullPath = `${baseUrl}/storage/${subPath}`;
+                    }
+                }
 
                 updateState({
                     supplierProfilePic: fullPath,
-                    supplierNameDisplay: supplier.name || "" // Fetch Name here
+                    supplierNameDisplay: supplier.name || ""
                 });
             } else {
                 updateState({ supplierProfilePic: null, supplierNameDisplay: "" });
@@ -754,7 +896,6 @@ export default function SalesEntry() {
             updateState({ supplierProfilePic: null, supplierNameDisplay: "" });
         }
     }, [formData.supplier_code, suppliers]);
-
     useEffect(() => {
         const w = parseFloat(formData.weight) || 0;
         const p = parseFloat(formData.price_per_kg) || 0;
@@ -832,7 +973,6 @@ export default function SalesEntry() {
             updateState({ isGivenAmountManuallyTouched: true });
         }
     };
-
     const handleItemSelect = (selectedOption) => {
         if (selectedOption) {
             const { item } = selectedOption;
@@ -856,6 +996,27 @@ export default function SalesEntry() {
         fetchLoanAmount(short);
         updateState({ isManualClear: false });
         setTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100);
+    };
+    //function to display customer image
+    const handleImageClick = (entityType) => {
+        const code = entityType === 'customer' ? (formData.customer_code || autoCustomerCode) : formData.supplier_code;
+        const list = entityType === 'customer' ? customers : suppliers;
+
+        const person = list.find(p =>
+            String(entityType === 'customer' ? p.short_name : p.code).toUpperCase() === String(code).toUpperCase()
+        );
+
+        if (person) {
+            updateState({
+                isImageModalOpen: true,
+                selectedImageData: {
+                    profile: entityType === 'customer' ? state.customerProfilePic : state.supplierProfilePic,
+                    nic_front: person.nic_front,
+                    nic_back: person.nic_back,
+                    title: person.name || code
+                }
+            });
+        }
     };
 
     const handleEditClick = (sale) => {
@@ -1672,7 +1833,7 @@ ${loanRow}
                     <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', height: '150.5vh', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
                         {currentUser?.role === 'Admin' ? (
                             <div className="admin-farmer-view h-full flex flex-col">
-                               <div className="flex flex-row overflow-hidden" style={{ minHeight:"60vh", width:"100%", display:"flex", flexDirection:"row", justifyContent:"center", gap:"20px" }}>
+                                <div className="flex flex-row overflow-hidden" style={{ minHeight: "60vh", width: "100%", display: "flex", flexDirection: "row", justifyContent: "center", gap: "20px" }}>
                                     {/* --- Left Column: Printed Farmers --- */}
                                     <div
                                         style={{ width: "300px", height: "850px", flexShrink: 0 }}
@@ -1686,7 +1847,7 @@ ${loanRow}
                                             className="p-2 flex-grow"
                                             style={{ height: "calc(100% - 48px)", overflowY: "auto" }}
                                         >
-                                            <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" style={{ textTransform:"uppercase" }} value={searchQueries.farmerPrinted || ""} onChange={e => updateState({ searchQueries:{ ...searchQueries, farmerPrinted:e.target.value.toUpperCase() } })} />
+                                            <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" style={{ textTransform: "uppercase" }} value={searchQueries.farmerPrinted || ""} onChange={e => updateState({ searchQueries: { ...searchQueries, farmerPrinted: e.target.value.toUpperCase() } })} />
                                             {printedFarmers.length > 0 ? (
                                                 printedFarmers
                                                     .filter((f) => !searchQueries.farmerPrinted || f.supplier_code.includes(searchQueries.farmerPrinted))
@@ -1774,22 +1935,80 @@ ${loanRow}
                                     <form onSubmit={handleSubmit} className="space-y-4">
                                         <div className="w-full flex justify-between items-center">
                                             <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.35rem' }}>බිල් අං: {currentBillNo}</div>
-                                            <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "550px", marginTop: "-30px", fontSize: '1.15rem' }}>මුළු විකුණුම්: Rs. {formatDecimal(totalSalesValue)}</div>
+                                            <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "300px", marginTop: "-30px", fontSize: '1.15rem' }}>මුළු විකුණුම්: Rs. {formatDecimal(totalSalesValue)}</div>
+                                            <div className="flex gap-10 items-center justify-start mt-4 mb-4 relative" style={{ minHeight: '150px' }}>
+
+                                                {/* CUSTOMER PHOTO */}
+                                                {/* CUSTOMER PHOTO */}
+                                                {state.customerProfilePic && (
+                                                    <div
+                                                        onClick={() => handleImageClick('customer')}
+                                                        className="cursor-pointer hover:scale-105 transition-transform"
+                                                        style={{ position: 'absolute', left: '870px', top: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 10 }}
+                                                    >
+                                                        <span className="text-xs text-gray-400 mb-1">ගනුදෙනුකරු</span>
+                                                        <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #1ec139', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                            <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* SUPPLIER PHOTO */}
+                                                {state.supplierProfilePic && (
+                                                    <div
+                                                        onClick={() => handleImageClick('supplier')}
+                                                        className="cursor-pointer hover:scale-105 transition-transform"
+                                                        style={{ position: 'absolute', left: '980px', top: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+                                                    >
+                                                        <span className="text-xs text-gray-400 mb-1">සැපයුම්කරු </span>
+                                                        <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #3b82f6', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                            <img src={state.supplierProfilePic} alt="Supplier Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <ImagePreviewModal
+                                                    isOpen={state.isImageModalOpen}
+                                                    onClose={() => updateState({ isImageModalOpen: false })}
+                                                    data={state.selectedImageData}
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="flex items-end gap-3 w-full">
+                                        <div
+                                            className="flex items-end gap-3 w-full"
+                                            style={{ marginTop: '-160px' }} // Adjust this number until it looks perfect
+                                        >
                                             <div className="flex-1 min-w-0">
                                                 <input id="customer_code_input" ref={refs.customer_code_input} name="customer_code" value={formData.customer_code || autoCustomerCode} onChange={(e) => handleInputChange("customer_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "customer_code_input")} type="text" placeholder="පාරිභෝගික කේතය" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
-                                            <div style={{ flex: '0 0 250px', minWidth: '250px' }}>
+                                            <div style={{ flex: '0 0 150px', minWidth: '120px' }}>
                                                 <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customers.filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map(c => ({ value: c.short_name, label: `${c.short_name}` }))} onInputChange={(v, { action }) => action === "input-change" && updateState({ customerSearchInput: v.toUpperCase() })} inputValue={customerSearchInput} placeholder="පාරිභෝගිකයා තෝරන්න" isClearable isSearchable styles={{ control: b => ({ ...b, minHeight: "36px", height: "36px", fontSize: "25px", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 6px", height: "36px" }), placeholder: b => ({ ...b, fontSize: "12px", color: "#a0aec0" }), input: b => ({ ...b, fontSize: "12px", color: "black", fontWeight: "bold" }), singleValue: b => ({ ...b, color: "black", fontSize: "12px", fontWeight: "bold" }), option: (b, s) => ({ ...b, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: s.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }) }} />
                                             </div>
                                             <div style={{ flex: '0 0 60px', minWidth: '120px' }}>
                                                 <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text" value={formData.price_per_kg} onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && handleInputChange('price_per_kg', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "price_per_kg")} placeholder="එකවර මිල" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="p-2 rounded-lg text-center border relative" style={{ backgroundColor: "white", flex: "0 0 200px", marginLeft: "05px" }}>
-                                                    <span className="absolute left-2 top-1 text-gray-400 text-xs pointer-events-none">Loan Amount</span>
-                                                    <span className="text-black font-bold text-sm">Rs. {loanAmount < 0 ? formatDecimal(Math.abs(loanAmount)) : formatDecimal(loanAmount)}</span>
+                                                <div
+                                                    className="rounded-lg text-center border relative"
+                                                    style={{
+                                                        backgroundColor: "white",
+                                                        flex: "0 0 200px",
+                                                        marginLeft: "05px",
+                                                        height: "36px", // Set a fixed height to match your input fields
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
+                                                        paddingTop: "10px" // Space for the absolute label
+                                                    }}
+                                                >
+                                                    <span
+                                                        className="absolute left-2 text-gray-400 text-[10px] pointer-events-none"
+                                                        style={{ top: "1px" }} // Pushes the "Loan Amount" label to the very top
+                                                    >
+                                                        Loan Amount
+                                                    </span>
+                                                    <span className="text-black font-bold text-sm">
+                                                        Rs. {loanAmount < 0 ? formatDecimal(Math.abs(loanAmount)) : formatDecimal(loanAmount)}
+                                                    </span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1889,9 +2108,9 @@ ${loanRow}
                                     </form>
                                     {errors.form && <div className="mt-6 p-3 bg-red-100 text-red-700 rounded-xl">{errors.form}</div>}
                                 </div>
-                                <div className="flex-grow overflow-y-auto mt-4">
+                                <div className="flex-grow overflow-y-auto mt-1">
                                     {displayedSales.length === 0 ? (<div className="text-center py-8 text-gray-500 border rounded-lg bg-gray-50">විකුණුම් වාර්තා කිසිවක් හමු නොවීය.</div>) : (
-                                        <table className="min-w-full border-gray-200 rounded-xl text-sm" style={{ backgroundColor: '#000000', color: 'white', borderCollapse: 'collapse', margin: '20px 0', width: '100%' }}>
+                                        <table className="min-w-full border-gray-200 rounded-xl text-sm" style={{ backgroundColor: '#000000', color: 'white', borderCollapse: 'collapse', margin: '0px 0', width: '100%' }}>
                                             <thead><tr style={{ backgroundColor: '#000000' }}>{['Sup code', 'කේතය', 'අයිතමය', 'බර(kg)', 'මිල', 'අගය', 'මලු', 'Actions'].map((header, index) => (<th key={index} className="px-4 py-2 border" style={{ backgroundColor: '#f5fafb', color: '#000000' }}>{header}</th>))}</tr></thead>
                                             <tbody>{displayedSales.map((s, idx) => (
                                                 <tr key={idx} tabIndex={0} className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={() => handleEditClick(s)} onKeyDown={(e) => handleTableRowKeyDown(e, s)}>
@@ -1908,9 +2127,7 @@ ${loanRow}
                                     >
                                         <div style={{ marginLeft: '660px', marginTop: '-2px' }}>
                                             <input id="given_amount" ref={refs.given_amount} name="given_amount" type="text" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
-
                                         </div>
-
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
                                     <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
@@ -1919,42 +2136,6 @@ ${loanRow}
                                             <div className="text-2xl font-bold" style={{ color: 'red' }}>
                                                 (විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )
                                             </div>
-                                        </div>
-
-                                        {/* Profile Picture Displayed Below the Red Text */}
-
-                                        <div className="flex gap-10 items-center justify-start mt-4 mb-4">
-
-                                            {/* CUSTOMER PHOTO */}
-                                            {state.customerProfilePic && (
-                                                <div className="flex flex-col items-center">
-                                                    <span className="text-xs text-gray-400 mb-1">ගනුදෙනුකරු</span>
-                                                    <div style={{
-                                                        width: '100px', height: '100px', backgroundColor: 'white',
-                                                        border: '5px solid #1ec139', borderRadius: '15px', overflow: 'hidden',
-                                                        boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex',
-                                                        justifyContent: 'center', alignItems: 'center'
-                                                    }}>
-                                                        <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                                    </div>
-                                                    <span className="mt-2 font-bold text-sm text-white text-center" style={{ maxWidth: '120px' }}>
-                                                        {state.customerNameDisplay}
-                                                    </span>
-                                                </div>
-                                            )}
-
-                                            {/* SUPPLIER PHOTO - Added here */}
-                                            {state.supplierProfilePic && (
-                                                <div className="flex flex-col items-center" style={{ marginLeft: '690px', marginTop: '-130px' }}>
-                                                    <span className="text-xs text-gray-400 mb-1">සැපයුම්කරු</span>
-                                                    <div style={{ width:'100px', height:'100px', backgroundColor:'white', border:'5px solid #3b82f6', borderRadius:'15px', overflow:'hidden', boxShadow:'0 10px 20px rgba(0,0,0,0.5)', display:'flex', justifyContent:'center', alignItems:'center' }}>
-                                                       <img src={state.supplierProfilePic} alt="Supplier Profile" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={e => { e.target.style.display = 'none'; }} />
-                                                    </div>
-                                                    <span className="mt-2 font-bold text-sm text-white text-center" style={{ maxWidth: '120px' }}>
-                                                        {state.supplierNameDisplay}
-                                                    </span>
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
                                 </div>

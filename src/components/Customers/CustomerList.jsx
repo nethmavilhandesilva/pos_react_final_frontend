@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import CustomerForm from "./CustomerForm";
-import api from "../../api"; // ✅ axios wrapper
+import api from "../../api"; // ✅ Your custom axios wrapper
 
 export default function CustomerList() {
   const [customers, setCustomers] = useState([]);
@@ -52,22 +52,30 @@ export default function CustomerList() {
     }
   };
 
-  const handleFormSubmit = async (data) => {
-    try {
-      if (editingCustomer) {
-        // When using FormData and _method spoofing, we use POST here 
-        // because we updated api.php to Route::post for updates
-        await api.post(`/customers/${editingCustomer.id}`, data);
-      } else {
-        await api.post("/customers", data);
-      }
-      setShowForm(false);
-      fetchCustomers(); // Refresh list to get new image paths
-    } catch (err) {
-      console.error("Failed to save customer:", err);
-      alert("දෝෂයක් ඇත: " + (err.response?.data?.message || "ගොනු පූරණය කිරීමේ ගැටලුවක්"));
+  /**
+   * FIX: Handle Form Submission
+   * For both Create and Update, we use api.post() because the FormData 
+   * includes files. The update logic is handled via Laravel's 
+   * _method: PUT spoofing inside the CustomerForm.
+   */
+ // Inside your CustomerList component, update this function:
+
+const handleFormSubmit = async (data) => {
+  try {
+    if (editingCustomer) {
+      // Use the specific POST update route to handle files easily
+      await api.post(`/customers/update/${editingCustomer.id}`, data);
+    } else {
+      await api.post("/customers", data);
     }
-  };
+    setShowForm(false);
+    fetchCustomers(); 
+    alert("සාර්ථකව සුරැකිණි!");
+  } catch (err) {
+    console.error("Failed to save customer:", err);
+    alert("දෝෂයක් ඇත: " + (err.response?.data?.message || "ගොනු පූරණය කිරීමේ ගැටලුවක්"));
+  }
+};
 
   // Helper function to render table images
   const renderImage = (path, alt) => {
@@ -114,7 +122,16 @@ export default function CustomerList() {
               <i className="material-icons me-2">people</i> ගනුදෙනුකරුවන්
             </Link>
           </li>
-          {/* ... rest of sidebar links ... */}
+          <li className="mb-2">
+            <Link to="/items" className="nav-link text-white d-flex align-items-center p-2 rounded hover-effect">
+              <i className="material-icons me-2">inventory_2</i> අයිතමය
+            </Link>
+          </li>
+          <li className="mb-2">
+            <Link to="/suppliers" className="nav-link text-white d-flex align-items-center p-2 rounded hover-effect">
+              <i className="material-icons me-2">local_shipping</i> සැපයුම්කරුවන්
+            </Link>
+          </li>
         </ul>
 
         <div className="mt-auto pt-3 border-top border-secondary">
