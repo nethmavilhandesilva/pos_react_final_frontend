@@ -288,36 +288,36 @@ const ImagePreviewModal = ({ isOpen, onClose, data }) => {
     };
 
     return (
-        <div 
-            style={{ 
-                position: 'fixed', 
-                top: 0, 
-                left: 0, 
-                width: '100vw', 
-                height: '100vh', 
-                backgroundColor: 'rgba(0, 0, 0, 0.85)', 
-                backdropFilter: 'blur(10px)', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                zIndex: 10000 
-            }} 
+        <div
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100vw',
+                height: '100vh',
+                backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                backdropFilter: 'blur(10px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10000
+            }}
             onClick={onClose}
         >
-            <div 
-                style={{ 
-                    backgroundColor: '#1f2937', 
-                    borderRadius: '20px', 
-                    width: '95%', 
+            <div
+                style={{
+                    backgroundColor: '#1f2937',
+                    borderRadius: '20px',
+                    width: '95%',
                     maxWidth: '1000px', // Increased width to allow images to expand
-                    maxHeight: '95vh', 
-                    padding: '25px', 
+                    maxHeight: '95vh',
+                    padding: '25px',
                     position: 'relative',
                     boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
                     border: '1px solid #4b5563',
                     display: 'flex',
                     flexDirection: 'column'
-                }} 
+                }}
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header Area */}
@@ -325,8 +325,8 @@ const ImagePreviewModal = ({ isOpen, onClose, data }) => {
                     <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'white', margin: 0 }}>
                         {data.title} - ලේඛන පරීක්ෂාව
                     </h2>
-                    <button 
-                        onClick={onClose} 
+                    <button
+                        onClick={onClose}
                         style={{ background: '#374151', border: 'none', color: 'white', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}
                     >
                         ✕
@@ -335,7 +335,7 @@ const ImagePreviewModal = ({ isOpen, onClose, data }) => {
 
                 {/* Larger Images Grid */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '20px', overflowY: 'auto', padding: '5px' }}>
-                    
+
                     {/* Profile Picture */}
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                         <span style={{ color: '#60a5fa', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>ප්‍රධාන රූපය</span>
@@ -372,16 +372,16 @@ const ImagePreviewModal = ({ isOpen, onClose, data }) => {
 
                 {/* Action Area */}
                 <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '15px' }}>
-                    <button 
+                    <button
                         onClick={onClose}
-                        style={{ 
-                            backgroundColor: '#ef4444', 
-                            color: 'white', 
-                            border: 'none', 
-                            padding: '12px 30px', 
-                            borderRadius: '10px', 
-                            fontWeight: 'bold', 
-                            fontSize: '14px', 
+                        style={{
+                            backgroundColor: '#ef4444',
+                            color: 'white',
+                            border: 'none',
+                            padding: '12px 30px',
+                            borderRadius: '10px',
+                            fontWeight: 'bold',
+                            fontSize: '14px',
                             cursor: 'pointer',
                             transition: 'background 0.2s'
                         }}
@@ -657,7 +657,7 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
 };
 
 // --- Main Export Component ---
-const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "" };
+const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "",telephone_no: "", };
 const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
 const skipMap = { customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg: "packs", price_per_kg_grid_item: "packs" };
 
@@ -816,7 +816,7 @@ export default function SalesEntry() {
             setFormData(prev => ({ ...prev, given_amount: "" }));
         }
     }, [displayedSales]);
-     //use effect to fetch profile pic
+    //use effect to fetch profile pic
     useEffect(() => {
         const code = formData.customer_code || autoCustomerCode;
         if (code && customers.length > 0) {
@@ -914,30 +914,116 @@ export default function SalesEntry() {
 
     useEffect(() => { fetchInitialData(); refs.customer_code_input.current?.focus(); }, []);
 
-    const handleKeyDown = (e, currentFieldName) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            if (currentFieldName === "given_amount") {
-                handleSubmitGivenAmount(e).then(() => handlePrintAndClear());
-                return;
-            }
-            if (currentFieldName === "packs") return handleSubmit(e);
-            let nextFieldName = skipMap[currentFieldName];
-            if (!nextFieldName) {
-                const currentIndex = fieldOrder.indexOf(currentFieldName);
-                let nextIndex = currentIndex + 1;
-                while (nextIndex < fieldOrder.length && (fieldOrder[nextIndex] === "customer_code_select" || fieldOrder[nextIndex] === "item_name" || fieldOrder[nextIndex] === "total")) nextIndex++;
-                nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
-            }
-            const nextRef = refs[nextFieldName];
-            if (nextRef?.current) {
-                requestAnimationFrame(() => setTimeout(() => {
-                    if (nextFieldName.includes("select")) nextRef.current.focus();
-                    else { nextRef.current.focus(); nextRef.current.select(); }
-                }, 0));
-            }
+   const handleKeyDown = async (e, currentFieldName) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+
+        // 1. Handle Given Amount (Existing)
+        if (currentFieldName === "given_amount") {
+            handleSubmitGivenAmount(e).then(() => handlePrintAndClear());
+            return;
         }
-    };
+
+        // 2. Handle Item Packs (Existing)
+        if (currentFieldName === "packs") return handleSubmit(e);
+
+        // 3. NEW: Logic for TELEPHONE input (Reverse Lookup)
+        if (currentFieldName === "telephone_no") {
+            const typedPhone = (formData.telephone_no || "").trim();
+            if (typedPhone) {
+                // Search for matching phone in local customers array
+                const match = customers.find(c => String(c.telephone_no) === typedPhone);
+                if (match) {
+                    setFormData(prev => ({
+                        ...prev,
+                        customer_code: match.short_name,
+                        customer_name: match.name
+                    }));
+                    fetchLoanAmount(match.short_name);
+                }
+            }
+            // Move focus to Customer Code field
+            refs.customer_code_input.current?.focus();
+            return;
+        }
+
+        // 4. NEW: Logic for CUSTOMER CODE input (Reverse Lookup + API Create)
+        if (currentFieldName === "customer_code_input") {
+            const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+            const phone = (formData.telephone_no || "").trim();
+
+            if (code) {
+                // First: Try local Reverse Lookup to fill Phone if exists
+                const match = customers.find(c => String(c.short_name).toUpperCase() === code);
+                if (match) {
+                    setFormData(prev => ({
+                        ...prev,
+                        telephone_no: match.telephone_no || phone,
+                        customer_name: match.name
+                    }));
+                    fetchLoanAmount(code);
+                }
+
+                // Second: Call Backend to Check or Create record
+                try {
+                    const response = await api.post('/customers/check-or-create', {
+                        short_name: code,
+                        telephone_no: phone
+                    });
+
+                    // Update local list if a new customer was created in the DB
+                    if (response.data.was_created) {
+                        updateState({
+                            customers: [...customers, response.data.customer]
+                        });
+                    }
+                } catch (err) {
+                    console.error("Error syncing customer with database", err);
+                }
+            }
+
+            // Move focus to supplier code
+            refs.supplier_code.current?.focus();
+            return;
+        }
+
+        // 5. General Navigation Logic (Existing)
+        let nextFieldName = skipMap[currentFieldName];
+
+        if (!nextFieldName) {
+            const currentIndex = fieldOrder.indexOf(currentFieldName);
+            let nextIndex = currentIndex + 1;
+
+            while (
+                nextIndex < fieldOrder.length &&
+                (
+                    fieldOrder[nextIndex] === "customer_code_select" ||
+                    fieldOrder[nextIndex] === "item_name" ||
+                    fieldOrder[nextIndex] === "total"
+                )
+            ) nextIndex++;
+
+            nextFieldName = nextIndex < fieldOrder.length
+                ? fieldOrder[nextIndex]
+                : "customer_code_input";
+        }
+
+        const nextRef = refs[nextFieldName];
+
+        if (nextRef?.current) {
+            requestAnimationFrame(() =>
+                setTimeout(() => {
+                    if (nextFieldName.includes("select")) {
+                        nextRef.current.focus();
+                    } else {
+                        nextRef.current.focus();
+                        nextRef.current.select();
+                    }
+                }, 0)
+            );
+        }
+    }
+};
 
     const salesTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
     const packCostTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
@@ -967,6 +1053,10 @@ export default function SalesEntry() {
             const givenAmount = firstSale?.given_amount || "";
             setFormData(prev => ({ ...prev, customer_name: customer?.name || "", given_amount: givenAmount }));
             fetchLoanAmount(trimmedValue);
+        }
+        // Inside handleInputChange
+        if (field === 'telephone_no') {
+        setFormData(prev => ({ ...prev, telephone_no: value }));
         }
         if (field === 'supplier_code') setFormData(prev => ({ ...prev, supplier_code: value }));
         if (field === "given_amount") {
@@ -1939,7 +2029,6 @@ ${loanRow}
                                             <div className="flex gap-10 items-center justify-start mt-4 mb-4 relative" style={{ minHeight: '150px' }}>
 
                                                 {/* CUSTOMER PHOTO */}
-                                                {/* CUSTOMER PHOTO */}
                                                 {state.customerProfilePic && (
                                                     <div
                                                         onClick={() => handleImageClick('customer')}
@@ -1977,10 +2066,20 @@ ${loanRow}
                                             className="flex items-end gap-3 w-full"
                                             style={{ marginTop: '-160px' }} // Adjust this number until it looks perfect
                                         >
-                                            <div className="flex-1 min-w-0">
-                                                <input id="customer_code_input" ref={refs.customer_code_input} name="customer_code" value={formData.customer_code || autoCustomerCode} onChange={(e) => handleInputChange("customer_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "customer_code_input")} type="text" placeholder="පාරිභෝගික කේතය" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
+                                            {/* STACK TELEPHONE + CUSTOMER CODE VERTICALLY */}
+                                            <div className="flex flex-col gap-2 w-full">
+
+                                                {/* TELEPHONE NUMBER FIELD */}
+                                                <div  className="flex-1 min-w-0" style={{ marginTop: "-60px" }}>
+                                                    <input id="telephone_no" ref={refs.telephone_no} name="telephone_no" value={formData.telephone_no || ""} onChange={(e) => handleInputChange("telephone_no", e.target.value)} onKeyDown={(e) => handleKeyDown(e, "telephone_no")} type="text" placeholder="දුරකථන අංකය" className="px-2 py-1 font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
+                                                </div>
+
+                                                <div className="flex-1 min-w-0">
+                                                    <input id="customer_code_input" ref={refs.customer_code_input} name="customer_code" value={formData.customer_code || autoCustomerCode} onChange={(e) => handleInputChange("customer_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "customer_code_input")} type="text" placeholder="පාරිභෝගික කේතය" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
+                                                </div>
+
                                             </div>
-                                            <div style={{ flex: '0 0 150px', minWidth: '120px' }}>
+                                            <div style={{ flex: '0 0 150px', minWidth: '120px', marginLeft: '-100px' }}>
                                                 <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customers.filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map(c => ({ value: c.short_name, label: `${c.short_name}` }))} onInputChange={(v, { action }) => action === "input-change" && updateState({ customerSearchInput: v.toUpperCase() })} inputValue={customerSearchInput} placeholder="පාරිභෝගිකයා තෝරන්න" isClearable isSearchable styles={{ control: b => ({ ...b, minHeight: "36px", height: "36px", fontSize: "25px", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 6px", height: "36px" }), placeholder: b => ({ ...b, fontSize: "12px", color: "#a0aec0" }), input: b => ({ ...b, fontSize: "12px", color: "black", fontWeight: "bold" }), singleValue: b => ({ ...b, color: "black", fontSize: "12px", fontWeight: "bold" }), option: (b, s) => ({ ...b, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: s.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }) }} />
                                             </div>
                                             <div style={{ flex: '0 0 60px', minWidth: '120px' }}>

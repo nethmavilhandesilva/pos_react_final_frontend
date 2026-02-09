@@ -4,12 +4,12 @@ import api from "../../api"; // ✅ axios wrapper
 
 const SalesReport = () => {
     const [sales, setSales] = useState([]);
-    const [startDate, setStartDate] = useState(''); 
+    const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedBill, setSelectedBill] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    
+
     // Mode State: 'customer' or 'farmer'
     const [reportMode, setReportMode] = useState('customer');
 
@@ -89,7 +89,9 @@ const SalesReport = () => {
         return `
         <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
             <div style="text-align:center; font-weight:bold;">
-                <div style="font-size:24px;">xxxx</div>
+                <div style="font-size:24px;">
+                <span style="font-size: 14px; margin-left: -160px; margin-right: 40px; color: #666;">පරණ බිල්</span>xxxx
+                </div>
                 <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
                 <div style="display:flex; justify-content:center; gap:15px; margin:12px 0;"><span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span><span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">${customerName.toUpperCase()}</span></div>
                 <div style="font-size:16px;">එළවළු,පළතුරු තොග වෙළෙන්දෝ</div>
@@ -145,13 +147,15 @@ const SalesReport = () => {
 
         const totalsupplierSales = supplierDetails.reduce((sum, r) => sum + (parseFloat(r.SupplierTotal) || 0), 0);
         const totalPacksSum = supplierDetails.reduce((sum, r) => sum + (parseInt(r.packs) || 0), 0);
-        const advanceAmount = 0; 
+        const advanceAmount = 0;
         const netPayable = totalsupplierSales - advanceAmount;
 
         return `
         <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
             <div style="text-align:center; font-weight:bold;">
-                <div style="font-size:24px;">xxxx</div>
+                 <div style="font-size:24px;">
+                <span style="font-size: 14px; margin-left: -160px; margin-right: 40px; color: #666;">පරණ බිල්</span>xxxx
+                </div>
                 <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;"><span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span><div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span></div></div>
                 <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
             </div>
@@ -177,12 +181,12 @@ const SalesReport = () => {
 
     const openBill = async (billNo, code) => {
         try {
-            const endpoint = reportMode === 'customer' 
-                ? `/reports/bill-details/${billNo}/${code}` 
+            const endpoint = reportMode === 'customer'
+                ? `/reports/bill-details/${billNo}/${code}`
                 : `/reports/farmer-bill-details/${billNo}/${code}`;
-            
-            const res = await api.get(endpoint, { 
-                params: { start_date: startDate, end_date: endDate } 
+
+            const res = await api.get(endpoint, {
+                params: { start_date: startDate, end_date: endDate }
             });
             setSelectedBill(res.data);
             setIsModalOpen(true);
@@ -213,8 +217,8 @@ const SalesReport = () => {
                     <div style={filterBarStyle}>
                         <div style={inputGroupStyle}>
                             <label>සොයන්න (Search):</label>
-                            <input 
-                                type="text" 
+                            <input
+                                type="text"
                                 placeholder={reportMode === 'customer' ? "Bill No / Code / Name" : "Bill No / Supplier Code"}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -251,8 +255,8 @@ const SalesReport = () => {
                                     <td style={tdCellStyle}>{item.Date}</td>
                                     <td style={tdCellStyle}>{reportMode === 'customer' ? item.bill_no : item.supplier_bill_no}</td>
                                     <td style={tdCellStyle}>
-                                        {reportMode === 'customer' 
-                                            ? `${item.customer_code}` 
+                                        {reportMode === 'customer'
+                                            ? `${item.customer_code}`
                                             : item.supplier_code}
                                     </td>
                                     <td style={{ ...tdCellStyle, textAlign: 'right' }}>{parseFloat(item.total_amount).toFixed(2)}</td>
@@ -269,11 +273,11 @@ const SalesReport = () => {
                     <div style={modalOverlayStyle}>
                         <div style={modalContentStyle}>
                             <div style={modalHeaderStyle}>
-                                <h4 style={{margin:0}}>{reportMode === 'customer' ? 'Customer Bill Preview' : 'Farmer Bill Preview'}</h4>
-                                <button onClick={() => setIsModalOpen(false)} style={{padding:'5px 15px', cursor:'pointer'}}>Close</button>
+                                <h4 style={{ margin: 0 }}>{reportMode === 'customer' ? 'Customer Bill Preview' : 'Farmer Bill Preview'}</h4>
+                                <button onClick={() => setIsModalOpen(false)} style={{ padding: '5px 15px', cursor: 'pointer' }}>Close</button>
                             </div>
-                            <div dangerouslySetInnerHTML={{ 
-                                __html: reportMode === 'customer' 
+                            <div dangerouslySetInnerHTML={{
+                                __html: reportMode === 'customer'
                                     ? buildFullReceiptHTML(selectedBill, selectedBill[0].bill_no, selectedBill[0].customer_code)
                                     : buildFarmerBillHTML(selectedBill, selectedBill[0].supplier_bill_no, selectedBill[0].supplier_code)
                             }} />
