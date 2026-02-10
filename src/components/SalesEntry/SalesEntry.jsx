@@ -657,7 +657,7 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
 };
 
 // --- Main Export Component ---
-const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "",telephone_no: "", };
+const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "", telephone_no: "", };
 const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
 const skipMap = { customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg: "packs", price_per_kg_grid_item: "packs" };
 
@@ -914,116 +914,116 @@ export default function SalesEntry() {
 
     useEffect(() => { fetchInitialData(); refs.customer_code_input.current?.focus(); }, []);
 
-   const handleKeyDown = async (e, currentFieldName) => {
-    if (e.key === "Enter") {
-        e.preventDefault();
+    const handleKeyDown = async (e, currentFieldName) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
 
-        // 1. Handle Given Amount (Existing)
-        if (currentFieldName === "given_amount") {
-            handleSubmitGivenAmount(e).then(() => handlePrintAndClear());
-            return;
-        }
-
-        // 2. Handle Item Packs (Existing)
-        if (currentFieldName === "packs") return handleSubmit(e);
-
-        // 3. NEW: Logic for TELEPHONE input (Reverse Lookup)
-        if (currentFieldName === "telephone_no") {
-            const typedPhone = (formData.telephone_no || "").trim();
-            if (typedPhone) {
-                // Search for matching phone in local customers array
-                const match = customers.find(c => String(c.telephone_no) === typedPhone);
-                if (match) {
-                    setFormData(prev => ({
-                        ...prev,
-                        customer_code: match.short_name,
-                        customer_name: match.name
-                    }));
-                    fetchLoanAmount(match.short_name);
-                }
+            // 1. Handle Given Amount (Existing)
+            if (currentFieldName === "given_amount") {
+                handleSubmitGivenAmount(e).then(() => handlePrintAndClear());
+                return;
             }
-            // Move focus to Customer Code field
-            refs.customer_code_input.current?.focus();
-            return;
-        }
 
-        // 4. NEW: Logic for CUSTOMER CODE input (Reverse Lookup + API Create)
-        if (currentFieldName === "customer_code_input") {
-            const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
-            const phone = (formData.telephone_no || "").trim();
+            // 2. Handle Item Packs (Existing)
+            if (currentFieldName === "packs") return handleSubmit(e);
 
-            if (code) {
-                // First: Try local Reverse Lookup to fill Phone if exists
-                const match = customers.find(c => String(c.short_name).toUpperCase() === code);
-                if (match) {
-                    setFormData(prev => ({
-                        ...prev,
-                        telephone_no: match.telephone_no || phone,
-                        customer_name: match.name
-                    }));
-                    fetchLoanAmount(code);
+            // 3. NEW: Logic for TELEPHONE input (Reverse Lookup)
+            if (currentFieldName === "telephone_no") {
+                const typedPhone = (formData.telephone_no || "").trim();
+                if (typedPhone) {
+                    // Search for matching phone in local customers array
+                    const match = customers.find(c => String(c.telephone_no) === typedPhone);
+                    if (match) {
+                        setFormData(prev => ({
+                            ...prev,
+                            customer_code: match.short_name,
+                            customer_name: match.name
+                        }));
+                        fetchLoanAmount(match.short_name);
+                    }
                 }
+                // Move focus to Customer Code field
+                refs.customer_code_input.current?.focus();
+                return;
+            }
 
-                // Second: Call Backend to Check or Create record
-                try {
-                    const response = await api.post('/customers/check-or-create', {
-                        short_name: code,
-                        telephone_no: phone
-                    });
+            // 4. NEW: Logic for CUSTOMER CODE input (Reverse Lookup + API Create)
+            if (currentFieldName === "customer_code_input") {
+                const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+                const phone = (formData.telephone_no || "").trim();
 
-                    // Update local list if a new customer was created in the DB
-                    if (response.data.was_created) {
-                        updateState({
-                            customers: [...customers, response.data.customer]
+                if (code) {
+                    // First: Try local Reverse Lookup to fill Phone if exists
+                    const match = customers.find(c => String(c.short_name).toUpperCase() === code);
+                    if (match) {
+                        setFormData(prev => ({
+                            ...prev,
+                            telephone_no: match.telephone_no || phone,
+                            customer_name: match.name
+                        }));
+                        fetchLoanAmount(code);
+                    }
+
+                    // Second: Call Backend to Check or Create record
+                    try {
+                        const response = await api.post('/customers/check-or-create', {
+                            short_name: code,
+                            telephone_no: phone
                         });
+
+                        // Update local list if a new customer was created in the DB
+                        if (response.data.was_created) {
+                            updateState({
+                                customers: [...customers, response.data.customer]
+                            });
+                        }
+                    } catch (err) {
+                        console.error("Error syncing customer with database", err);
                     }
-                } catch (err) {
-                    console.error("Error syncing customer with database", err);
                 }
+
+                // Move focus to supplier code
+                refs.supplier_code.current?.focus();
+                return;
             }
 
-            // Move focus to supplier code
-            refs.supplier_code.current?.focus();
-            return;
+            // 5. General Navigation Logic (Existing)
+            let nextFieldName = skipMap[currentFieldName];
+
+            if (!nextFieldName) {
+                const currentIndex = fieldOrder.indexOf(currentFieldName);
+                let nextIndex = currentIndex + 1;
+
+                while (
+                    nextIndex < fieldOrder.length &&
+                    (
+                        fieldOrder[nextIndex] === "customer_code_select" ||
+                        fieldOrder[nextIndex] === "item_name" ||
+                        fieldOrder[nextIndex] === "total"
+                    )
+                ) nextIndex++;
+
+                nextFieldName = nextIndex < fieldOrder.length
+                    ? fieldOrder[nextIndex]
+                    : "customer_code_input";
+            }
+
+            const nextRef = refs[nextFieldName];
+
+            if (nextRef?.current) {
+                requestAnimationFrame(() =>
+                    setTimeout(() => {
+                        if (nextFieldName.includes("select")) {
+                            nextRef.current.focus();
+                        } else {
+                            nextRef.current.focus();
+                            nextRef.current.select();
+                        }
+                    }, 0)
+                );
+            }
         }
-
-        // 5. General Navigation Logic (Existing)
-        let nextFieldName = skipMap[currentFieldName];
-
-        if (!nextFieldName) {
-            const currentIndex = fieldOrder.indexOf(currentFieldName);
-            let nextIndex = currentIndex + 1;
-
-            while (
-                nextIndex < fieldOrder.length &&
-                (
-                    fieldOrder[nextIndex] === "customer_code_select" ||
-                    fieldOrder[nextIndex] === "item_name" ||
-                    fieldOrder[nextIndex] === "total"
-                )
-            ) nextIndex++;
-
-            nextFieldName = nextIndex < fieldOrder.length
-                ? fieldOrder[nextIndex]
-                : "customer_code_input";
-        }
-
-        const nextRef = refs[nextFieldName];
-
-        if (nextRef?.current) {
-            requestAnimationFrame(() =>
-                setTimeout(() => {
-                    if (nextFieldName.includes("select")) {
-                        nextRef.current.focus();
-                    } else {
-                        nextRef.current.focus();
-                        nextRef.current.select();
-                    }
-                }, 0)
-            );
-        }
-    }
-};
+    };
 
     const salesTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
     const packCostTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
@@ -1056,7 +1056,7 @@ export default function SalesEntry() {
         }
         // Inside handleInputChange
         if (field === 'telephone_no') {
-        setFormData(prev => ({ ...prev, telephone_no: value }));
+            setFormData(prev => ({ ...prev, telephone_no: value }));
         }
         if (field === 'supplier_code') setFormData(prev => ({ ...prev, supplier_code: value }));
         if (field === "given_amount") {
@@ -1724,93 +1724,93 @@ ${loanRow}
         return num.toFixed(2);
     };
 
-   const handlePrintAndClear = async () => {
-    const currentlyTouched = state.isGivenAmountManuallyTouched;
-    const updatedSalesFromApi = await handleSubmitGivenAmount(null, currentlyTouched);
+    const handlePrintAndClear = async () => {
+        const currentlyTouched = state.isGivenAmountManuallyTouched;
+        const updatedSalesFromApi = await handleSubmitGivenAmount(null, currentlyTouched);
 
-    let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
+        let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
 
-    if (!salesData.length) {
-        alert("No sales records to print!");
-        return;
-    }
-
-    // --- NEW COMMISSION VALIDATION LOGIC ---
-    for (const s of salesData) {
-        // Checking if commission has not been deducted
-        if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
-            const errorMsg = `Record with Code: ${s.supplier_code} + ${s.item_code}, Weight: ${s.weight}, Packs: ${s.packs} cannot be printed because the commissions have not been deducted. Please check or delete the record.`;
-            
-            alert(errorMsg);
-            return; // Stop execution immediately
-        }
-    }
-    // --- END VALIDATION ---
-
-    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-    if (hasZeroPrice) {
-        alert("Cannot print! One or more items have a price per kg of 0.");
-        return;
-    }
-
-    try {
-        updateState({ isPrinting: true });
-
-        const customerCode = salesData[0].customer_code || "N/A";
-        const customerName = salesData[0].customer_name || customerCode;
-        const mobile = salesData[0].mobile || '0777672838 / 071437115';
-
-        const printResponse = await api.post(routes.markPrinted, {
-            sales_ids: salesData.map(s => s.id),
-            force_new_bill: true
-        });
-
-        if (printResponse.data.status !== "success") {
-            throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
-        }
-
-        const billNo = printResponse.data.bill_no || "";
-
-        let globalLoanAmount = 0;
-        try {
-            const loanResponse = await api.post(routes.getLoanAmount, {
-                customer_short_name: customerCode
-            });
-            globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
-        } catch (error) {
-            console.warn("Could not fetch loan amount");
-        }
-
-        const receiptHtml = buildFullReceiptHTML(
-            salesData,
-            billNo,
-            customerName,
-            mobile,
-            globalLoanAmount,
-            billSize
-        );
-
-        updateState({
-            allSales: allSales.map(s =>
-                salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
-            ),
-            selectedPrintedCustomer: null,
-            selectedUnprintedCustomer: null,
-            isPrinting: false,
-            isGivenAmountManuallyTouched: false
-        });
-
-        setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
-
-        const printWindow = window.open('', '_blank', 'width=800,height=600');
-        if (!printWindow) {
-            alert("Please allow pop-ups for printing");
-            window.location.reload();
+        if (!salesData.length) {
+            alert("No sales records to print!");
             return;
         }
 
-        printWindow.document.open();
-        printWindow.document.write(`<!DOCTYPE html>
+        // --- NEW COMMISSION VALIDATION LOGIC ---
+        for (const s of salesData) {
+            // Checking if commission has not been deducted
+            if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+                const errorMsg = `Record with Code: ${s.supplier_code} + ${s.item_code}, Weight: ${s.weight}, Packs: ${s.packs} cannot be printed because the commissions have not been deducted. Please check or delete the record.`;
+
+                alert(errorMsg);
+                return; // Stop execution immediately
+            }
+        }
+        // --- END VALIDATION ---
+
+        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+        if (hasZeroPrice) {
+            alert("Cannot print! One or more items have a price per kg of 0.");
+            return;
+        }
+
+        try {
+            updateState({ isPrinting: true });
+
+            const customerCode = salesData[0].customer_code || "N/A";
+            const customerName = salesData[0].customer_name || customerCode;
+            const mobile = salesData[0].mobile || '0777672838 / 071437115';
+
+            const printResponse = await api.post(routes.markPrinted, {
+                sales_ids: salesData.map(s => s.id),
+                force_new_bill: true
+            });
+
+            if (printResponse.data.status !== "success") {
+                throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
+            }
+
+            const billNo = printResponse.data.bill_no || "";
+
+            let globalLoanAmount = 0;
+            try {
+                const loanResponse = await api.post(routes.getLoanAmount, {
+                    customer_short_name: customerCode
+                });
+                globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
+            } catch (error) {
+                console.warn("Could not fetch loan amount");
+            }
+
+            const receiptHtml = buildFullReceiptHTML(
+                salesData,
+                billNo,
+                customerName,
+                mobile,
+                globalLoanAmount,
+                billSize
+            );
+
+            updateState({
+                allSales: allSales.map(s =>
+                    salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
+                ),
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false,
+                isGivenAmountManuallyTouched: false
+            });
+
+            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
+
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (!printWindow) {
+                alert("Please allow pop-ups for printing");
+                window.location.reload();
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(`<!DOCTYPE html>
             <html>
             <head>
                 <title>Print Bill - ${customerName}</title>
@@ -1833,17 +1833,17 @@ ${loanRow}
                 </script>
             </body>
             </html>`);
-        printWindow.document.close();
+            printWindow.document.close();
 
-    } catch (error) {
-        console.error("Printing error:", error);
-        // Special handling for the 422 error if it also comes from the server
-        const msg = error.response?.data?.message || "Printing failed";
-        alert(msg);
-        updateState({ isPrinting: false });
-        window.location.reload();
-    }
-};
+        } catch (error) {
+            console.error("Printing error:", error);
+            // Special handling for the 422 error if it also comes from the server
+            const msg = error.response?.data?.message || "Printing failed";
+            alert(msg);
+            updateState({ isPrinting: false });
+            window.location.reload();
+        }
+    };
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 
@@ -2038,39 +2038,25 @@ ${loanRow}
                                             <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.35rem' }}>බිල් අං: {currentBillNo}</div>
                                             <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: "300px", marginTop: "-30px", fontSize: '1.15rem' }}>මුළු විකුණුම්: Rs. {formatDecimal(totalSalesValue)}</div>
                                             <div className="flex gap-10 items-center justify-start mt-4 mb-4 relative" style={{ minHeight: '150px' }}>
-
                                                 {/* CUSTOMER PHOTO */}
                                                 {state.customerProfilePic && (
-                                                    <div
-                                                        onClick={() => handleImageClick('customer')}
-                                                        className="cursor-pointer hover:scale-105 transition-transform"
-                                                        style={{ position: 'absolute', left: '870px', top: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 10 }}
-                                                    >
-                                                        <span className="text-xs text-gray-400 mb-1">ගනුදෙනුකරු</span>
+                                                    <div onClick={() => handleImageClick('customer')} className="cursor-pointer hover:scale-105 transition-transform" style={{ position: 'absolute', left: '790px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', zIndex: 10 }}>
+                                                        <span className="text-xs text-gray-400">ගැ</span>
                                                         <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #1ec139', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                                            <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                           <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                         </div>
                                                     </div>
                                                 )}
-
                                                 {/* SUPPLIER PHOTO */}
                                                 {state.supplierProfilePic && (
-                                                    <div
-                                                        onClick={() => handleImageClick('supplier')}
-                                                        className="cursor-pointer hover:scale-105 transition-transform"
-                                                        style={{ position: 'absolute', left: '980px', top: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}
-                                                    >
-                                                        <span className="text-xs text-gray-400 mb-1">සැපයුම්කරු </span>
+                                                   <div onClick={() => handleImageClick('supplier')} className="cursor-pointer hover:scale-105 transition-transform" style={{ position: 'absolute', left: '940px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                                                        <span className="text-xs text-gray-400">සැ</span>
                                                         <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #3b82f6', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                                             <img src={state.supplierProfilePic} alt="Supplier Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                         </div>
                                                     </div>
                                                 )}
-                                                <ImagePreviewModal
-                                                    isOpen={state.isImageModalOpen}
-                                                    onClose={() => updateState({ isImageModalOpen: false })}
-                                                    data={state.selectedImageData}
-                                                />
+                                                <ImagePreviewModal isOpen={state.isImageModalOpen} onClose={() => updateState({ isImageModalOpen: false })} data={state.selectedImageData} />
                                             </div>
                                         </div>
                                         <div
@@ -2081,7 +2067,7 @@ ${loanRow}
                                             <div className="flex flex-col gap-2 w-full">
 
                                                 {/* TELEPHONE NUMBER FIELD */}
-                                                <div  className="flex-1 min-w-0" style={{ marginTop: "-60px" }}>
+                                                <div className="flex-1 min-w-0" style={{ marginTop: "-60px" }}>
                                                     <input id="telephone_no" ref={refs.telephone_no} name="telephone_no" value={formData.telephone_no || ""} onChange={(e) => handleInputChange("telephone_no", e.target.value)} onKeyDown={(e) => handleKeyDown(e, "telephone_no")} type="text" placeholder="දුරකථන අංකය" className="px-2 py-1 font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                                 </div>
 
@@ -2097,19 +2083,7 @@ ${loanRow}
                                                 <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text" value={formData.price_per_kg} onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && handleInputChange('price_per_kg', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "price_per_kg")} placeholder="එකවර මිල" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div
-                                                    className="rounded-lg text-center border relative"
-                                                    style={{
-                                                        backgroundColor: "white",
-                                                        flex: "0 0 200px",
-                                                        marginLeft: "05px",
-                                                        height: "36px", // Set a fixed height to match your input fields
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        justifyContent: "center",
-                                                        paddingTop: "10px" // Space for the absolute label
-                                                    }}
-                                                >
+                                               <div className="rounded-lg text-center border relative" style={{ backgroundColor: "white", flex: "0 0 200px", marginLeft: "05px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "10px" }}>
                                                     <span
                                                         className="absolute left-2 text-gray-400 text-[10px] pointer-events-none"
                                                         style={{ top: "1px" }} // Pushes the "Loan Amount" label to the very top

@@ -42,15 +42,29 @@ export default function CustomerList() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("මෙම පාරිභෝගිකයා මකන්නද?")) return;
-    try {
-      await api.delete(`/customers/${id}`);
-      setCustomers(customers.filter((c) => c.id !== id));
-    } catch (err) {
-      console.error("Failed to delete customer:", err);
+ const handleDelete = async (id) => {
+  // Ask for confirmation first
+  if (!window.confirm("මෙම පාරිභෝගිකයා මකන්නද?")) return;
+
+  try {
+    // Call backend to delete
+    const res = await api.delete(`/customers/${id}`);
+
+    // Check backend response
+    if (res.status === 200) {
+      // Remove the customer from the list only if deletion succeeded
+      setCustomers((prev) => prev.filter((c) => c.id !== id));
+      alert("පාරිභෝගිකයා සාර්ථකව මකන ලදී!");
+    } else {
+      alert("පාරිභෝගිකයා මකන විට දෝෂයක් සිදුවිය.");
+      console.error("Unexpected response:", res);
     }
-  };
+  } catch (err) {
+    // Handle network or backend errors
+    console.error("Failed to delete customer:", err);
+    alert("දෝෂයක් සිදු විය: " + (err.response?.data?.message || err.message));
+  }
+};
 
   /**
    * FIX: Handle Form Submission

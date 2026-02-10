@@ -10,40 +10,34 @@ const api = axios.create({
     },
 });
 
-// Add request interceptor to include token dynamically
+// Request interceptor
 api.interceptors.request.use(
     (config) => {
-        // Get token from localStorage (or wherever you store it)
         const token = localStorage.getItem('auth_token') || 
-                     localStorage.getItem('token') || 
-                     sessionStorage.getItem('token');
+                      localStorage.getItem('token') || 
+                      sessionStorage.getItem('token');
         
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
         
-        // If the data is FormData, remove Content-Type header
-        // Let the browser set it automatically with boundary
         if (config.data instanceof FormData) {
             delete config.headers['Content-Type'];
         }
         
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
 );
 
-// Add response interceptor for error handling
+// Response interceptor
 api.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response?.status === 401) {
-            // Redirect to login if unauthorized
             localStorage.removeItem('token');
             localStorage.removeItem('auth_token');
-            window.location.href = '/login'; // Adjust this to your login route
+            window.location.href = '/login';
         }
         return Promise.reject(error);
     }
@@ -56,31 +50,21 @@ export const supplierService = {
     // Get single supplier
     get: (id) => api.get(`/suppliers/${id}`),
     
-    // Create new supplier - handles both JSON and FormData
+    // Create new supplier
     create: (data) => {
-        // If it's FormData, send with appropriate headers
         if (data instanceof FormData) {
-            return api.post('/suppliers', data, {
-                headers: {
-                    // Don't set Content-Type - browser will do it automatically
-                }
-            });
+            return api.post('/suppliers', data);
         }
-        // For JSON data
-        return api.post('/suppliers', data, {
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
+        return api.post('/suppliers', data, { headers: { 'Content-Type': 'application/json' } });
     },
     
     // Update supplier
     update: (id, data) => {
-    if (data instanceof FormData) {
-        data.append('_method', 'PUT'); // ⭐ VERY IMPORTANT
-        return api.post(`/suppliers/${id}`, data);
-    }
-    return api.put(`/suppliers/${id}`, data);
+        if (data instanceof FormData) {
+            data.append('_method', 'PUT');
+            return api.post(`/suppliers/${id}`, data);
+        }
+        return api.put(`/suppliers/${id}`, data);
     },
     
     // Delete supplier
@@ -88,4 +72,7 @@ export const supplierService = {
     
     // Search suppliers
     search: (query) => api.get(`/suppliers/search/${query}`),
+
+    // ✅ Check if supplier code exists
+    checkCode: (code) => api.get(`/suppliers/check-code/${code}`), // Should return { exists: true/false }
 };

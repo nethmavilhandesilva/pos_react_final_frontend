@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import 'bootstrap/dist/css/bootstrap.min.css';
+import axios from "axios";
 
 export default function CustomerForm({ customer, onSubmit, onCancel }) {
   const [formData, setFormData] = useState({
@@ -27,6 +28,7 @@ export default function CustomerForm({ customer, onSubmit, onCancel }) {
 
   const STORAGE_URL = "http://127.0.0.1:8000/storage/";
 
+  // ================= Load existing customer data =================
   useEffect(() => {
     if (customer) {
       setFormData({
@@ -49,33 +51,64 @@ export default function CustomerForm({ customer, onSubmit, onCancel }) {
     }
   }, [customer]);
 
-  const handleChange = (e) => {
+  // ================= Handle Input Change =================
+  const handleChange = async (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === "short_name" ? value.toUpperCase() : value
-    }));
+
+    if (name === "short_name") {
+      const upperValue = value.toUpperCase();
+      setFormData(prev => ({ ...prev, short_name: upperValue }));
+
+      // Backend validation for duplicates
+      try {
+        if (upperValue.trim()) {
+          const response = await axios.get(`http://127.0.0.1:8000/api/customers/check-short-name/${upperValue}`);
+          // API should return { exists: true } if duplicate exists
+          const isDuplicate = response.data.exists && upperValue !== (customer?.short_name || "");
+          setErrors(prev => ({
+            ...prev,
+            short_name: isDuplicate ? "මෙම කෙටි නම දැනටමත් පවතිනවා" : null
+          }));
+        }
+      } catch (error) {
+        console.error("Short name validation error:", error);
+      }
+
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
+  // ================= Handle File Change =================
   const handleFileChange = (e) => {
     const { name, files } = e.target;
     if (!files || !files[0]) return;
+
     const file = files[0];
     setFormData(prev => ({ ...prev, [name]: file }));
+
     const newPreview = URL.createObjectURL(file);
     setPreviews(prev => ({ ...prev, [name]: newPreview }));
   };
 
+  // ================= Handle Password =================
   const handlePassword = (e) => {
     const pwd = e.target.value;
     setPassword(pwd);
     setShowCreditLimit(pwd === "nethma123");
   };
 
+  // ================= Handle Form Submit =================
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (!formData.short_name.trim() || !formData.name.trim()) {
       alert("කරුණාකර අවශ්‍ය ක්ෂේත්‍ර පුරවන්න");
+      return;
+    }
+
+    if (errors.short_name) {
+      alert("මෙම කෙටි නම දැනටමත් පවතිනවා. වෙනත් නමක් තෝරන්න.");
       return;
     }
 
@@ -109,14 +142,27 @@ export default function CustomerForm({ customer, onSubmit, onCancel }) {
         </h2>
         <form onSubmit={handleSubmit}>
           <div className="row">
+
+            {/* Short Name */}
             <div className="col-md-6 mb-3">
               <label className="form-label text-white">කෙටි නම *</label>
-              <input type="text" name="short_name" className="form-control" value={formData.short_name} onChange={handleChange}/>
+              <input
+                type="text"
+                name="short_name"
+                className={`form-control ${errors.short_name ? 'is-invalid' : ''}`}
+                value={formData.short_name}
+                onChange={handleChange}
+              />
+              {errors.short_name && <div className="invalid-feedback">{errors.short_name}</div>}
             </div>
+
+            {/* Full Name */}
             <div className="col-md-6 mb-3">
               <label className="form-label text-white">සම්පූර්ණ නම *</label>
               <input type="text" name="name" className="form-control" value={formData.name} onChange={handleChange}/>
             </div>
+
+            {/* File uploads */}
             {["profile_pic","nic_front","nic_back"].map((field) => (
               <div key={field} className="col-md-4 mb-3">
                 <label className="form-label text-white small">{field.replace('_',' ').toUpperCase()}</label>
@@ -124,17 +170,24 @@ export default function CustomerForm({ customer, onSubmit, onCancel }) {
                 {previews[field] && <img src={previews[field]} alt="Preview" className="img-thumbnail mt-2" style={{ height:'60px' }}/>}
               </div>
             ))}
+
+            {/* Password to unlock credit limit */}
             <div className="col-md-6 mb-3">
               <label className="form-label text-white">Password (Unlock Credit Limit)</label>
-              <input type="password" d className="form-control" value={password} onChange={handlePassword}/>
+              <input type="password" className="form-control" value={password} onChange={handlePassword}/>
             </div>
+
+            {/* Credit Limit */}
             {showCreditLimit && (
               <div className="col-md-6 mb-3">
                 <label className="form-label text-white">ණය සීමාව (Rs.)</label>
                 <input type="number" name="credit_limit" className="form-control" value={formData.credit_limit} onChange={handleChange}/>
               </div>
             )}
+
           </div>
+
+          {/* Buttons */}
           <div className="text-center mt-3">
             <button type="submit" className="btn btn-success me-2" disabled={isSubmitting}>
               {isSubmitting ? "සුරකිමින්..." : (customer ? "යාවත්කාලීන කරන්න" : "එක් කරන්න")}
