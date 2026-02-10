@@ -1724,115 +1724,126 @@ ${loanRow}
         return num.toFixed(2);
     };
 
-    const handlePrintAndClear = async () => {
-        const currentlyTouched = state.isGivenAmountManuallyTouched;
-        const updatedSalesFromApi = await handleSubmitGivenAmount(null, currentlyTouched);
+   const handlePrintAndClear = async () => {
+    const currentlyTouched = state.isGivenAmountManuallyTouched;
+    const updatedSalesFromApi = await handleSubmitGivenAmount(null, currentlyTouched);
 
-        let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
+    let salesData = updatedSalesFromApi || displayedSales.filter(s => s.id);
 
-        if (!salesData.length) {
-            alert("No sales records to print!");
-            return;
+    if (!salesData.length) {
+        alert("No sales records to print!");
+        return;
+    }
+
+    // --- NEW COMMISSION VALIDATION LOGIC ---
+    for (const s of salesData) {
+        // Checking if commission has not been deducted
+        if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+            const errorMsg = `Record with Code: ${s.supplier_code} + ${s.item_code}, Weight: ${s.weight}, Packs: ${s.packs} cannot be printed because the commissions have not been deducted. Please check or delete the record.`;
+            
+            alert(errorMsg);
+            return; // Stop execution immediately
+        }
+    }
+    // --- END VALIDATION ---
+
+    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+    if (hasZeroPrice) {
+        alert("Cannot print! One or more items have a price per kg of 0.");
+        return;
+    }
+
+    try {
+        updateState({ isPrinting: true });
+
+        const customerCode = salesData[0].customer_code || "N/A";
+        const customerName = salesData[0].customer_name || customerCode;
+        const mobile = salesData[0].mobile || '0777672838 / 071437115';
+
+        const printResponse = await api.post(routes.markPrinted, {
+            sales_ids: salesData.map(s => s.id),
+            force_new_bill: true
+        });
+
+        if (printResponse.data.status !== "success") {
+            throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
         }
 
-        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-        if (hasZeroPrice) {
-            alert("Cannot print! One or more items have a price per kg of 0.");
-            return;
-        }
+        const billNo = printResponse.data.bill_no || "";
 
+        let globalLoanAmount = 0;
         try {
-            updateState({ isPrinting: true });
-
-            const customerCode = salesData[0].customer_code || "N/A";
-            const customerName = salesData[0].customer_name || customerCode;
-            const mobile = salesData[0].mobile || '0777672838 / 071437115';
-
-            const printResponse = await api.post(routes.markPrinted, {
-                sales_ids: salesData.map(s => s.id),
-                force_new_bill: true
+            const loanResponse = await api.post(routes.getLoanAmount, {
+                customer_short_name: customerCode
             });
-
-            if (printResponse.data.status !== "success") {
-                throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
-            }
-
-            const billNo = printResponse.data.bill_no || "";
-
-            let globalLoanAmount = 0;
-            try {
-                const loanResponse = await api.post(routes.getLoanAmount, {
-                    customer_short_name: customerCode
-                });
-                globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
-            } catch (error) {
-                console.warn("Could not fetch loan amount");
-            }
-
-            const receiptHtml = buildFullReceiptHTML(
-                salesData,
-                billNo,
-                customerName,
-                mobile,
-                globalLoanAmount,
-                billSize
-            );
-
-            // Update local state before opening the print dialog
-            updateState({
-                allSales: allSales.map(s =>
-                    salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
-                ),
-                selectedPrintedCustomer: null,
-                selectedUnprintedCustomer: null,
-                isPrinting: false,
-                isGivenAmountManuallyTouched: false // Reset flag here as well
-            });
-
-            // Clear the form data
-            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
-
-            const printWindow = window.open('', '_blank', 'width=800,height=600');
-            if (!printWindow) {
-                alert("Please allow pop-ups for printing");
-                window.location.reload();
-                return;
-            }
-
-            printWindow.document.open();
-            printWindow.document.write(`<!DOCTYPE html>
-        <html>
-        <head>
-            <title>Print Bill - ${customerName}</title>
-            <style>
-                body { margin: 0; padding: 20px; }
-                @media print { body { padding: 0; } }
-            </style>
-        </head>
-        <body>
-            ${receiptHtml}
-            <script>
-                window.onload = function() { 
-                    // Trigger parent reload immediately so the background is ready
-                    if (window.opener && !window.opener.closed) {
-                        window.opener.location.reload();
-                    }
-                    setTimeout(function() { 
-                        window.print(); 
-                    }, 100);
-                };
-            </script>
-        </body>
-        </html>`);
-            printWindow.document.close();
-
+            globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
         } catch (error) {
-            console.error("Printing error:", error);
-            alert("Printing failed");
-            updateState({ isPrinting: false });
-            window.location.reload();
+            console.warn("Could not fetch loan amount");
         }
-    };
+
+        const receiptHtml = buildFullReceiptHTML(
+            salesData,
+            billNo,
+            customerName,
+            mobile,
+            globalLoanAmount,
+            billSize
+        );
+
+        updateState({
+            allSales: allSales.map(s =>
+                salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
+            ),
+            selectedPrintedCustomer: null,
+            selectedUnprintedCustomer: null,
+            isPrinting: false,
+            isGivenAmountManuallyTouched: false
+        });
+
+        setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
+
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (!printWindow) {
+            alert("Please allow pop-ups for printing");
+            window.location.reload();
+            return;
+        }
+
+        printWindow.document.open();
+        printWindow.document.write(`<!DOCTYPE html>
+            <html>
+            <head>
+                <title>Print Bill - ${customerName}</title>
+                <style>
+                    body { margin: 0; padding: 20px; }
+                    @media print { body { padding: 0; } }
+                </style>
+            </head>
+            <body>
+                ${receiptHtml}
+                <script>
+                    window.onload = function() { 
+                        if (window.opener && !window.opener.closed) {
+                            window.opener.location.reload();
+                        }
+                        setTimeout(function() { 
+                            window.print(); 
+                        }, 100);
+                    };
+                </script>
+            </body>
+            </html>`);
+        printWindow.document.close();
+
+    } catch (error) {
+        console.error("Printing error:", error);
+        // Special handling for the 422 error if it also comes from the server
+        const msg = error.response?.data?.message || "Printing failed";
+        alert(msg);
+        updateState({ isPrinting: false });
+        window.location.reload();
+    }
+};
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 
