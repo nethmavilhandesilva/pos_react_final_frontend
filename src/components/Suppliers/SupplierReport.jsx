@@ -16,6 +16,10 @@ const SupplierReport = () => {
     const [unprintedSearchTerm, setUnprintedSearchTerm] = useState('');
 
     const [currentView, setCurrentView] = useState('summary');
+    const [profilePic, setProfilePic] = useState(null);
+    // Add these with your other state variables
+    const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+    const [supplierDocs, setSupplierDocs] = useState({ title: '', profile: null, nic_front: null, nic_back: null });
 
     // State for Details Panel
     const [selectedSupplier, setSelectedSupplier] = useState(null);
@@ -23,7 +27,7 @@ const SupplierReport = () => {
     const [isUnprintedBill, setIsUnprintedBill] = useState(false);
     const [supplierDetails, setSupplierDetails] = useState([]);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
-    
+
     // 🚀 NEW STATE: To hold the advance amount from the suppliers table
     const [advanceAmount, setAdvanceAmount] = useState(0);
 
@@ -83,7 +87,7 @@ const SupplierReport = () => {
         try {
             const response = await api.post('/suppliers/advance', advancePayload);
             setAdvanceStatus({ type: 'success', text: `සාර්ථකයි! අත්තිකාරම් යාවත්කාලීන විය.` });
-            
+
             // Immediately update the display advance amount
             setAdvanceAmount(parseFloat(response.data.data.advance_amount) || 0);
             setAdvancePayload({ ...advancePayload, advance_amount: '' });
@@ -97,37 +101,37 @@ const SupplierReport = () => {
 
     // --- 🚀 NEW: Update Farmer Logic ---
     const handleUpdateFarmer = async () => {
-    // Both are now technically optional, but we need at least one change or we just send existing values
-    const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
-    const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
+        // Both are now technically optional, but we need at least one change or we just send existing values
+        const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
+        const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
 
-    try {
-        setIsDetailsLoading(true);
-        const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
-            supplier_code: finalSupplierCode,
-            customer_code: finalCustomerCode 
-        });
+        try {
+            setIsDetailsLoading(true);
+            const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
+                supplier_code: finalSupplierCode,
+                customer_code: finalCustomerCode
+            });
 
-        if (response.status === 200) {
-            setEditingRecord(null);
-            setNewFarmerCode('');
-            setNewCustomerCode('');
-            
-            // Refresh current view
-            if (isUnprintedBill) {
-                await handleUnprintedBillClick(selectedSupplier, null);
-            } else {
-                await handlePrintedBillClick(selectedSupplier, selectedBillNo);
+            if (response.status === 200) {
+                setEditingRecord(null);
+                setNewFarmerCode('');
+                setNewCustomerCode('');
+
+                // Refresh current view
+                if (isUnprintedBill) {
+                    await handleUnprintedBillClick(selectedSupplier, null);
+                } else {
+                    await handlePrintedBillClick(selectedSupplier, selectedBillNo);
+                }
+                fetchSummary();
             }
-            fetchSummary();
+        } catch (error) {
+            console.error("Update failed:", error);
+            alert("Failed to update records.");
+        } finally {
+            setIsDetailsLoading(false);
         }
-    } catch (error) {
-        console.error("Update failed:", error);
-        alert("Failed to update records.");
-    } finally {
-        setIsDetailsLoading(false);
-    }
-};
+    };
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
@@ -147,53 +151,71 @@ const SupplierReport = () => {
     }, [unprintedSearchTerm, summary.unprinted]);
 
     // --- Handle Unprinted Bill Click ---
-    const handleUnprintedBillClick = async (supplierCode, billNo) => {
-        setSelectedSupplier(supplierCode);
-        setSelectedBillNo(billNo);
-        setIsUnprintedBill(true);
-        setSupplierDetails([]);
-        setAdvanceAmount(0); // Reset advance
-        setAdvancePayload({ code: supplierCode, advance_amount: '' }); // 🚀 AUTO FILL CODE
-        setIsDetailsLoading(true);
-
-        try {
-            // Fetch unprinted details
-            const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
-            setSupplierDetails(response.data);
-
-            // 🚀 FETCH ADVANCE AMOUNT: Call backend to get supplier info
-            const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
-            if (supRes.data && supRes.data.advance_amount) {
-                setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
-            }
-        } catch (error) {
-            console.error(`❌ Error fetching unprinted details:`, error.message);
-        } finally {
-            setIsDetailsLoading(false);
-        }
-    };
-
-    // --- Handle Printed Bill Click ---
+    // --- Updated: Handle Printed Bill Click ---
     const handlePrintedBillClick = async (supplierCode, billNo) => {
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
         setIsUnprintedBill(false);
         setSupplierDetails([]);
-        setAdvanceAmount(0); // Reset advance
-        setAdvancePayload({ code: supplierCode, advance_amount: '' }); // 🚀 AUTO FILL CODE
+        setAdvanceAmount(0);
+        setProfilePic(null);
+        setAdvancePayload({ code: supplierCode, advance_amount: '' });
         setIsDetailsLoading(true);
 
         try {
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
 
-            // 🚀 FETCH ADVANCE AMOUNT
             const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
-            if (supRes.data && supRes.data.advance_amount) {
+            if (supRes.data) {
                 setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
+                setProfilePic(supRes.data.profile_pic);
+
+                // 🚀 NEW: Set data for the Document Modal
+                setSupplierDocs({
+                    title: supRes.data.name || supplierCode,
+                    profile: supRes.data.profile_pic,
+                    nic_front: supRes.data.nic_front,
+                    nic_back: supRes.data.nic_back
+                });
             }
         } catch (error) {
             console.error(`❌ Error fetching printed details:`, error.message);
+        } finally {
+            setIsDetailsLoading(false);
+        }
+    };
+
+    // --- Updated: Handle Unprinted Bill Click ---
+    const handleUnprintedBillClick = async (supplierCode, billNo) => {
+        setSelectedSupplier(supplierCode);
+        setSelectedBillNo(billNo);
+        setIsUnprintedBill(true);
+        setSupplierDetails([]);
+        setAdvanceAmount(0);
+        setProfilePic(null);
+        setAdvancePayload({ code: supplierCode, advance_amount: '' });
+        setIsDetailsLoading(true);
+
+        try {
+            const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
+            setSupplierDetails(response.data);
+
+            const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
+            if (supRes.data) {
+                setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
+                setProfilePic(supRes.data.profile_pic);
+
+                // 🚀 NEW: Set data for the Document Modal
+                setSupplierDocs({
+                    title: supRes.data.name || supplierCode,
+                    profile: supRes.data.profile_pic,
+                    nic_front: supRes.data.nic_front,
+                    nic_back: supRes.data.nic_back
+                });
+            }
+        } catch (error) {
+            console.error(`❌ Error fetching unprinted details:`, error.message);
         } finally {
             setIsDetailsLoading(false);
         }
@@ -207,6 +229,7 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setAdvanceAmount(0);
         setAdvancePayload({ code: '', advance_amount: '' });
+        setProfilePic(null);
         fetchSummary();
     };
 
@@ -433,53 +456,131 @@ const SupplierReport = () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [supplierDetails, handlePrint, isDetailsLoading]);
+    //new profile pic view modal
+    const renderImageModal = () => {
+        if (!isImageModalOpen) return null;
+
+        // Helper to format URLs correctly
+        const formatUrl = (path) => {
+            if (!path) return null;
+            return path.startsWith('http') ? path : `http://localhost:8000/storage/${path}`;
+        };
+
+        const onClose = () => setIsImageModalOpen(false);
+
+        return (
+            <div
+                style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}
+                onClick={onClose}
+            >
+                <div
+                    style={{ backgroundColor: '#1f2937', borderRadius: '20px', width: '95%', maxWidth: '1000px', maxHeight: '95vh', padding: '25px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)', border: '1px solid #4b5563', display: 'flex', flexDirection: 'column' }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {/* Header Area */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #374151', paddingBottom: '15px' }}>
+                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'white', margin: 0 }}>
+                            {supplierDocs.title} - ලේඛන පරීක්ෂාව
+                        </h2>
+                        <button
+                            onClick={onClose}
+                            style={{ background: '#374151', border: 'none', color: 'white', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}
+                        > ✕ </button>
+                    </div>
+
+                    {/* Larger Images Grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '20px', overflowY: 'auto', padding: '5px' }}>
+                        {/* Profile Picture */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            <span style={{ color: '#60a5fa', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>ප්‍රධාන රූපය</span>
+                            <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #3b82f6', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                                <img src={formatUrl(supplierDocs.profile)} style={{ width: '100%', height: 'auto', display: 'block' }} alt="Profile" />
+                            </div>
+                        </div>
+
+                        {/* NIC Front */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC ඉදිරිපස</span>
+                            <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                                {supplierDocs.nic_front ? (
+                                    <img src={formatUrl(supplierDocs.nic_front)} style={{ width: '100%', height: 'auto', maxHeight: '500px', display: 'block', objectFit: 'contain' }} alt="NIC Front" />
+                                ) : (
+                                    <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>ඡායාරූපයක් නොමැත</div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* NIC Back */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC පසුපස</span>
+                            <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                                {supplierDocs.nic_back ? (
+                                    <img src={formatUrl(supplierDocs.nic_back)} style={{ width: '100%', height: 'auto', maxHeight: '500px', display: 'block', objectFit: 'contain' }} alt="NIC Back" />
+                                ) : (
+                                    <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>ඡායාරූපයක් නොමැත</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Action Area */}
+                    <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '15px' }}>
+                        <button
+                            onClick={onClose}
+                            style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '12px 30px', borderRadius: '10px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}
+                        >Close </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     // 🚀 NEW: Edit Modal UI
     const renderEditModal = () => {
-    if (!editingRecord) return null;
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
-            <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-                <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
-                
-                <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
-                    <p style={{margin: '2px 0'}}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
-                    <p style={{margin: '2px 0'}}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
-                </div>
+        if (!editingRecord) return null;
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+                    <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
 
-                {/* Supplier Code Input */}
-                <div style={{ marginTop: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
-                    <input 
-                        type="text" 
-                        placeholder={editingRecord.supplier_code} // Show current code as placeholder
-                        value={newFarmerCode}
-                        onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
-                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                        autoFocus
-                    />
-                </div>
+                    <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
+                        <p style={{ margin: '2px 0' }}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
+                        <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
+                    </div>
 
-                {/* Customer Code Input */}
-                <div style={{ marginTop: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
-                    <input 
-                        type="text" 
-                        placeholder={editingRecord.customer_code} // Show current code as placeholder
-                        value={newCustomerCode}
-                        onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
-                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                    />
-                </div>
+                    {/* Supplier Code Input */}
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
+                        <input
+                            type="text"
+                            placeholder={editingRecord.supplier_code} // Show current code as placeholder
+                            value={newFarmerCode}
+                            onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
+                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                            autoFocus
+                        />
+                    </div>
 
-                <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
-                    <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
-                    <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                    {/* Customer Code Input */}
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
+                        <input
+                            type="text"
+                            placeholder={editingRecord.customer_code} // Show current code as placeholder
+                            value={newCustomerCode}
+                            onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
+                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                        <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
+                        <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                    </div>
                 </div>
             </div>
-        </div>
-    );
-};
+        );
+    };
 
     // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
@@ -553,8 +654,31 @@ const SupplierReport = () => {
         return (
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
-                    <h2 style={{ fontSize: "1.5rem", color: "white" }}>ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo}</strong>)</h2>
-                    <span style={{ backgroundColor: selectedSupplier ? '#28a745' : '#6c757d', color: 'white', padding: '5px 10px', borderRadius: '6px', fontSize: '1rem', fontWeight: 'bold' }}>{selectedSupplier || 'NO DATA'}</span>
+                    <h2 style={{ fontSize: "1.5rem", color: "white", margin: 0 }}>
+                        ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo || 'N/A'}</strong>)
+                    </h2>
+
+                    {/* 🚀 DISPLAY PROFILE PIC ON THE RIGHT */}
+                    {profilePic && (
+                        <div style={{ marginLeft: '20px' }}>
+                            <img
+                                src={profilePic.startsWith('http') ? profilePic : `http://localhost:8000/storage/${profilePic}`}
+                                alt="Supplier"
+                                /* 🚀 ADD THIS ONCLICK LINE */
+                                onClick={() => setIsImageModalOpen(true)}
+                                style={{
+                                    width: '60px',
+                                    height: '60px',
+                                    borderRadius: '50%',
+                                    border: '2px solid white',
+                                    objectFit: 'cover',
+                                    backgroundColor: '#ccc',
+                                    cursor: 'pointer' // Adds the hand icon so users know it's clickable
+                                }}
+                                onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                        </div>
+                    )}
                 </div>
                 <div style={{ marginTop: '20px', overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '250px', fontSize: '0.9rem', marginBottom: '30px' }}>
@@ -585,27 +709,27 @@ const SupplierReport = () => {
                             <form onSubmit={handleAdvanceSubmit} style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
                                 <div style={{ flex: 1 }}>
                                     <label style={{ fontSize: '0.8rem', color: '#eee', display: 'block', marginBottom: '5px' }}>Supplier Code</label>
-                                    <input 
-                                        type="text" 
-                                        value={advancePayload.code} 
-                                        readOnly 
-                                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', backgroundColor: '#eee', color: '#000' }} 
+                                    <input
+                                        type="text"
+                                        value={advancePayload.code}
+                                        readOnly
+                                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', backgroundColor: '#eee', color: '#000' }}
                                     />
                                 </div>
                                 <div style={{ flex: 1 }}>
                                     <label style={{ fontSize: '0.8rem', color: '#eee', display: 'block', marginBottom: '5px' }}>Amount (රු:)</label>
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         name="advance_amount"
-                                        value={advancePayload.advance_amount} 
-                                        onChange={(e) => setAdvancePayload({...advancePayload, advance_amount: e.target.value})}
+                                        value={advancePayload.advance_amount}
+                                        onChange={(e) => setAdvancePayload({ ...advancePayload, advance_amount: e.target.value })}
                                         style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', color: '#000' }}
                                         placeholder="0.00"
                                         required
                                     />
                                 </div>
-                                <button 
-                                    type="submit" 
+                                <button
+                                    type="submit"
                                     disabled={advanceLoading || !selectedSupplier}
                                     style={{ padding: '10px 20px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', height: '40px' }}
                                 >
@@ -663,6 +787,7 @@ const SupplierReport = () => {
                     </div>
                 </div>
             </div>
+            {renderImageModal()}
             {renderEditModal()}
         </>
     );

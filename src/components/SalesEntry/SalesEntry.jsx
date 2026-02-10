@@ -386,7 +386,7 @@ const ImagePreviewModal = ({ isOpen, onClose, data }) => {
                             transition: 'background 0.2s'
                         }}
                     >
-                        වසන්න (Close)
+                        Close
                     </button>
                 </div>
             </div>

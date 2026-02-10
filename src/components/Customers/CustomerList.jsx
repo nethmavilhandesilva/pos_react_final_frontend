@@ -66,14 +66,6 @@ export default function CustomerList() {
   }
 };
 
-  /**
-   * FIX: Handle Form Submission
-   * For both Create and Update, we use api.post() because the FormData 
-   * includes files. The update logic is handled via Laravel's 
-   * _method: PUT spoofing inside the CustomerForm.
-   */
- // Inside your CustomerList component, update this function:
-
 const handleFormSubmit = async (data) => {
   try {
     if (editingCustomer) {
