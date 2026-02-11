@@ -30,6 +30,7 @@ import LoanReportManager from './components/LoanManager/LoanReportManager'; // �
 import SupplierReport2 from './components/Reports/supplierfinalreport';
 import PrintedSalesReport from './components/Reports/PrintedSalesReport';
 import SalesReport from './components/Reports/SalesReport2';
+import PublicBill from './pages/PublicBill';
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -265,6 +266,7 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
+                <Route path="/view-bill/:token" element={<PublicBill />} />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

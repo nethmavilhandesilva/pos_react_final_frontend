@@ -463,7 +463,7 @@ const SupplierReport = () => {
         // Helper to format URLs correctly
         const formatUrl = (path) => {
             if (!path) return null;
-            return path.startsWith('http') ? path : `http://localhost:8000/storage/${path}`;
+            return path.startsWith('http') ? path : `https://talentconnect.lk/sms_new_backend/application/public/storage/${path}`;
         };
 
         const onClose = () => setIsImageModalOpen(false);
@@ -662,7 +662,7 @@ const SupplierReport = () => {
                     {profilePic && (
                         <div style={{ marginLeft: '20px' }}>
                             <img
-                                src={profilePic.startsWith('http') ? profilePic : `http://localhost:8000/storage/${profilePic}`}
+                                src={profilePic.startsWith('http') ? profilePic : `https://talentconnect.lk/sms_new_backend/application/public/storage/${profilePic}`}
                                 alt="Supplier"
                                 /* 🚀 ADD THIS ONCLICK LINE */
                                 onClick={() => setIsImageModalOpen(true)}

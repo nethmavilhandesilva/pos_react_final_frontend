@@ -5,7 +5,7 @@ import { useNavigate, Link, useParams } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
 
 // ⭐ LOCAL LARAVEL STORAGE LINK
-const STORAGE_URL = "http://127.0.0.1:8000/storage/";
+const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public";
 
 const EditSupplier = () => {
 

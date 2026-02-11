@@ -658,12 +658,12 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
 
 // --- Main Export Component ---
 const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "", telephone_no: "", };
-const fieldOrder = ["customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
-const skipMap = { customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg: "packs", price_per_kg_grid_item: "packs" };
+const fieldOrder = ["telephone_no", "customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
+const skipMap = { telephone_no: "customer_code_input", customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg: "packs", price_per_kg_grid_item: "packs" };
 
 export default function SalesEntry() {
     const refs = {
-        customer_code_input: useRef(null), customer_code_select: useRef(null), given_amount: useRef(null),
+        telephone_no: useRef(null), customer_code_input: useRef(null), customer_code_select: useRef(null), given_amount: useRef(null),
         supplier_code: useRef(null), item_code_select: useRef(null), item_name: useRef(null),
         weight: useRef(null), price_per_kg: useRef(null), packs: useRef(null), total: useRef(null),
         price_per_kg_grid_item: useRef(null),
@@ -914,116 +914,101 @@ export default function SalesEntry() {
 
     useEffect(() => { fetchInitialData(); refs.customer_code_input.current?.focus(); }, []);
 
-    const handleKeyDown = async (e, currentFieldName) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
+   const handleKeyDown = async (e, currentFieldName) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
 
-            // 1. Handle Given Amount (Existing)
-            if (currentFieldName === "given_amount") {
-                handleSubmitGivenAmount(e).then(() => handlePrintAndClear());
-                return;
-            }
-
-            // 2. Handle Item Packs (Existing)
-            if (currentFieldName === "packs") return handleSubmit(e);
-
-            // 3. NEW: Logic for TELEPHONE input (Reverse Lookup)
-            if (currentFieldName === "telephone_no") {
-                const typedPhone = (formData.telephone_no || "").trim();
-                if (typedPhone) {
-                    // Search for matching phone in local customers array
-                    const match = customers.find(c => String(c.telephone_no) === typedPhone);
-                    if (match) {
-                        setFormData(prev => ({
-                            ...prev,
-                            customer_code: match.short_name,
-                            customer_name: match.name
-                        }));
-                        fetchLoanAmount(match.short_name);
-                    }
-                }
-                // Move focus to Customer Code field
-                refs.customer_code_input.current?.focus();
-                return;
-            }
-
-            // 4. NEW: Logic for CUSTOMER CODE input (Reverse Lookup + API Create)
-            if (currentFieldName === "customer_code_input") {
-                const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
-                const phone = (formData.telephone_no || "").trim();
-
-                if (code) {
-                    // First: Try local Reverse Lookup to fill Phone if exists
-                    const match = customers.find(c => String(c.short_name).toUpperCase() === code);
-                    if (match) {
-                        setFormData(prev => ({
-                            ...prev,
-                            telephone_no: match.telephone_no || phone,
-                            customer_name: match.name
-                        }));
-                        fetchLoanAmount(code);
-                    }
-
-                    // Second: Call Backend to Check or Create record
-                    try {
-                        const response = await api.post('/customers/check-or-create', {
-                            short_name: code,
-                            telephone_no: phone
-                        });
-
-                        // Update local list if a new customer was created in the DB
-                        if (response.data.was_created) {
-                            updateState({
-                                customers: [...customers, response.data.customer]
-                            });
-                        }
-                    } catch (err) {
-                        console.error("Error syncing customer with database", err);
-                    }
-                }
-
-                // Move focus to supplier code
-                refs.supplier_code.current?.focus();
-                return;
-            }
-
-            // 5. General Navigation Logic (Existing)
-            let nextFieldName = skipMap[currentFieldName];
-
-            if (!nextFieldName) {
-                const currentIndex = fieldOrder.indexOf(currentFieldName);
-                let nextIndex = currentIndex + 1;
-
-                while (
-                    nextIndex < fieldOrder.length &&
-                    (
-                        fieldOrder[nextIndex] === "customer_code_select" ||
-                        fieldOrder[nextIndex] === "item_name" ||
-                        fieldOrder[nextIndex] === "total"
-                    )
-                ) nextIndex++;
-
-                nextFieldName = nextIndex < fieldOrder.length
-                    ? fieldOrder[nextIndex]
-                    : "customer_code_input";
-            }
-
-            const nextRef = refs[nextFieldName];
-
-            if (nextRef?.current) {
-                requestAnimationFrame(() =>
-                    setTimeout(() => {
-                        if (nextFieldName.includes("select")) {
-                            nextRef.current.focus();
-                        } else {
-                            nextRef.current.focus();
-                            nextRef.current.select();
-                        }
-                    }, 0)
-                );
-            }
+        // 1. Handle Given Amount
+        if (currentFieldName === "given_amount") {
+            handleSubmitGivenAmount(e).then(() => handlePrintAndClear());
+            return;
         }
-    };
+
+        // 2. Handle Item Packs
+        if (currentFieldName === "packs") return handleSubmit(e);
+
+        // 3. Logic for TELEPHONE input (Reverse Lookup)
+        if (currentFieldName === "telephone_no") {
+            const typedPhone = (formData.telephone_no || "").trim();
+            if (typedPhone) {
+                const match = customers.find(c => String(c.telephone_no).trim() === typedPhone);
+                if (match) {
+                    setFormData(prev => ({
+                        ...prev,
+                        customer_code: match.short_name,
+                        customer_name: match.name
+                    }));
+                    fetchLoanAmount(match.short_name);
+                }
+            }
+            refs.customer_code_input.current?.focus();
+            return;
+        }
+
+        // 4. Logic for CUSTOMER CODE input (Automatic Telephone Fetching)
+        if (currentFieldName === "customer_code_input") {
+            const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+            const currentPhone = (formData.telephone_no || "").trim();
+
+            if (code) {
+                // LOCAL LOOKUP: Find in the loaded 'customers' array based on short_name
+                const match = customers.find(c => String(c.short_name).toUpperCase() === code);
+
+                if (match) {
+                    // Update state immediately with found data
+                    setFormData(prev => ({
+                        ...prev,
+                        telephone_no: match.telephone_no || "",
+                        customer_name: match.name || ""
+                    }));
+                    fetchLoanAmount(code);
+                }
+
+                // BACKEND SYNC: Keep database record updated or create if new
+                try {
+                    const response = await api.post('/customers/check-or-create', {
+                        short_name: code,
+                        telephone_no: currentPhone || (match ? match.telephone_no : "")
+                    });
+
+                    if (response.data.customer) {
+                        setFormData(prev => ({
+                            ...prev,
+                            telephone_no: response.data.customer.telephone_no || prev.telephone_no,
+                            customer_name: response.data.customer.name || prev.customer_name
+                        }));
+                    }
+                } catch (err) {
+                    console.error("Customer sync failed", err);
+                }
+            }
+            refs.supplier_code.current?.focus();
+            return;
+        }
+
+        // 5. General Navigation Logic
+        let nextFieldName = skipMap[currentFieldName];
+        if (!nextFieldName) {
+            const currentIndex = fieldOrder.indexOf(currentFieldName);
+            let nextIndex = currentIndex + 1;
+            while (nextIndex < fieldOrder.length && 
+                  ["customer_code_select", "item_name", "total"].includes(fieldOrder[nextIndex])) {
+                nextIndex++;
+            }
+            nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
+        }
+
+        const nextRef = refs[nextFieldName];
+        if (nextRef?.current) {
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    nextRef.current.focus();
+                    if (!nextFieldName.includes("select")) nextRef.current.select();
+                }, 0);
+            });
+        }
+    }
+};
 
     const salesTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
     const packCostTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
@@ -1057,6 +1042,13 @@ export default function SalesEntry() {
         // Inside handleInputChange
         if (field === 'telephone_no') {
             setFormData(prev => ({ ...prev, telephone_no: value }));
+            // Clear customer code if telephone doesn't match any existing customer
+            if (value) {
+                const match = customers.find(c => String(c.telephone_no).trim() === value.trim());
+                if (!match && formData.customer_code) {
+                    setFormData(prev => ({ ...prev, customer_code: "" }));
+                }
+            }
         }
         if (field === 'supplier_code') setFormData(prev => ({ ...prev, supplier_code: value }));
         if (field === "given_amount") {
@@ -1735,18 +1727,16 @@ ${loanRow}
             return;
         }
 
-        // --- NEW COMMISSION VALIDATION LOGIC ---
+        // --- COMMISSION VALIDATION ---
         for (const s of salesData) {
-            // Checking if commission has not been deducted
             if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
                 const errorMsg = `Record with Code: ${s.supplier_code} + ${s.item_code}, Weight: ${s.weight}, Packs: ${s.packs} cannot be printed because the commissions have not been deducted. Please check or delete the record.`;
-
                 alert(errorMsg);
-                return; // Stop execution immediately
+                return;
             }
         }
-        // --- END VALIDATION ---
 
+        // --- ZERO PRICE VALIDATION ---
         const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
         if (hasZeroPrice) {
             alert("Cannot print! One or more items have a price per kg of 0.");
@@ -1757,42 +1747,60 @@ ${loanRow}
             updateState({ isPrinting: true });
 
             const customerCode = salesData[0].customer_code || "N/A";
-            const customerName = salesData[0].customer_name || customerCode;
-            const mobile = salesData[0].mobile || '0777672838 / 071437115';
+            const customerName =
+                state.customerNameDisplay ||
+                salesData[0].customer_name ||
+                customerCode;
 
+            const mobile = salesData[0].mobile || "0777672838 / 071437115";
+
+            // ✅ Fetch loan amount FIRST (needed for backend bill link)
+            let currentLoan = 0;
+            try {
+                const loanRes = await api.post(routes.getLoanAmount, {
+                    customer_short_name: customerCode
+                });
+                currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
+            } catch (e) {
+                console.warn("Loan fetch failed");
+            }
+
+            // ✅ CALL BACKEND (Mark Printed + Create Link + Send SMS)
             const printResponse = await api.post(routes.markPrinted, {
                 sales_ids: salesData.map(s => s.id),
-                force_new_bill: true
+                force_new_bill: true,
+                telephone_no: formData.telephone_no,
+                customer_code: formData.customer_code || autoCustomerCode,
+                customer_name: customerName,
+                sales_data: salesData,
+                loan_amount: currentLoan
             });
 
             if (printResponse.data.status !== "success") {
-                throw new Error("Printing failed: " + (printResponse.data.message || "Unknown error"));
+                throw new Error(
+                    "Printing failed: " +
+                    (printResponse.data.message || "Unknown error")
+                );
             }
 
             const billNo = printResponse.data.bill_no || "";
 
-            let globalLoanAmount = 0;
-            try {
-                const loanResponse = await api.post(routes.getLoanAmount, {
-                    customer_short_name: customerCode
-                });
-                globalLoanAmount = parseFloat(loanResponse.data.total_loan_amount) || 0;
-            } catch (error) {
-                console.warn("Could not fetch loan amount");
-            }
-
+            // ✅ BUILD RECEIPT HTML (THERMAL PRINT)
             const receiptHtml = buildFullReceiptHTML(
                 salesData,
                 billNo,
                 customerName,
                 mobile,
-                globalLoanAmount,
+                currentLoan,
                 billSize
             );
 
+            // ✅ UPDATE LOCAL STATE
             updateState({
                 allSales: allSales.map(s =>
-                    salesData.some(sd => sd.id === s.id) ? { ...s, bill_printed: 'Y', bill_no: billNo } : s
+                    salesData.some(sd => sd.id === s.id)
+                        ? { ...s, bill_printed: "Y", bill_no: billNo }
+                        : s
                 ),
                 selectedPrintedCustomer: null,
                 selectedUnprintedCustomer: null,
@@ -1800,9 +1808,16 @@ ${loanRow}
                 isGivenAmountManuallyTouched: false
             });
 
-            setFormData({ ...initialFormData, customer_code: "", customer_name: "", given_amount: "" });
+            setFormData({
+                ...initialFormData,
+                customer_code: "",
+                customer_name: "",
+                given_amount: ""
+            });
 
-            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            // ✅ PRINT WINDOW
+            const printWindow = window.open("", "_blank", "width=800,height=600");
+
             if (!printWindow) {
                 alert("Please allow pop-ups for printing");
                 window.location.reload();
@@ -1811,33 +1826,32 @@ ${loanRow}
 
             printWindow.document.open();
             printWindow.document.write(`<!DOCTYPE html>
-            <html>
-            <head>
-                <title>Print Bill - ${customerName}</title>
-                <style>
-                    body { margin: 0; padding: 20px; }
-                    @media print { body { padding: 0; } }
-                </style>
-            </head>
-            <body>
-                ${receiptHtml}
-                <script>
-                    window.onload = function() { 
-                        if (window.opener && !window.opener.closed) {
-                            window.opener.location.reload();
-                        }
-                        setTimeout(function() { 
-                            window.print(); 
-                        }, 100);
-                    };
-                </script>
-            </body>
-            </html>`);
+        <html>
+        <head>
+            <title>Print Bill - ${customerName}</title>
+            <style>
+                body { margin: 0; padding: 20px; }
+                @media print { body { padding: 0; } }
+            </style>
+        </head>
+        <body>
+            ${receiptHtml}
+            <script>
+                window.onload = function () {
+                    if (window.opener && !window.opener.closed) {
+                        window.opener.location.reload();
+                    }
+                    setTimeout(function () {
+                        window.print();
+                    }, 100);
+                };
+            </script>
+        </body>
+        </html>`);
             printWindow.document.close();
 
         } catch (error) {
             console.error("Printing error:", error);
-            // Special handling for the 422 error if it also comes from the server
             const msg = error.response?.data?.message || "Printing failed";
             alert(msg);
             updateState({ isPrinting: false });
@@ -2043,13 +2057,13 @@ ${loanRow}
                                                     <div onClick={() => handleImageClick('customer')} className="cursor-pointer hover:scale-105 transition-transform" style={{ position: 'absolute', left: '790px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', zIndex: 10 }}>
                                                         <span className="text-xs text-gray-400">ගැ</span>
                                                         <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #1ec139', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                                           <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                            <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                         </div>
                                                     </div>
                                                 )}
                                                 {/* SUPPLIER PHOTO */}
                                                 {state.supplierProfilePic && (
-                                                   <div onClick={() => handleImageClick('supplier')} className="cursor-pointer hover:scale-105 transition-transform" style={{ position: 'absolute', left: '940px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                                                    <div onClick={() => handleImageClick('supplier')} className="cursor-pointer hover:scale-105 transition-transform" style={{ position: 'absolute', left: '940px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
                                                         <span className="text-xs text-gray-400">සැ</span>
                                                         <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #3b82f6', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                                             <img src={state.supplierProfilePic} alt="Supplier Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -2083,7 +2097,7 @@ ${loanRow}
                                                 <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text" value={formData.price_per_kg} onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && handleInputChange('price_per_kg', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "price_per_kg")} placeholder="එකවර මිල" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                               <div className="rounded-lg text-center border relative" style={{ backgroundColor: "white", flex: "0 0 200px", marginLeft: "05px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "10px" }}>
+                                                <div className="rounded-lg text-center border relative" style={{ backgroundColor: "white", flex: "0 0 200px", marginLeft: "05px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "10px" }}>
                                                     <span
                                                         className="absolute left-2 text-gray-400 text-[10px] pointer-events-none"
                                                         style={{ top: "1px" }} // Pushes the "Loan Amount" label to the very top

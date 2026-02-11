@@ -26,7 +26,7 @@ export default function CustomerForm({ customer, onSubmit, onCancel }) {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const STORAGE_URL = "http://127.0.0.1:8000/storage/";
+  const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public";
 
   // ================= Load existing customer data =================
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function CustomerForm({ customer, onSubmit, onCancel }) {
       // Backend validation for duplicates
       try {
         if (upperValue.trim()) {
-          const response = await axios.get(`http://127.0.0.1:8000/api/customers/check-short-name/${upperValue}`);
+          const response = await axios.get(`https://talentconnect.lk/sms_new_backend/api/customers/check-short-name/${upperValue}`);
           // API should return { exists: true } if duplicate exists
           const isDuplicate = response.data.exists && upperValue !== (customer?.short_name || "");
           setErrors(prev => ({

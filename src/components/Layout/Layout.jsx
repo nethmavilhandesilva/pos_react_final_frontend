@@ -135,7 +135,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                     <li><Link to="/suppliers" className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
                                     <li><Link to="/commissions" className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
                                     <li><Link to="/reports/printed-sales" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා</Link></li>
-                                    <li><Link to="/reports/newsales" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>printed bills</Link></li>
                                     <li><hr className="dropdown-divider" /></li>
                                     <li>
                                         <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = '/customers-loans/report'}>

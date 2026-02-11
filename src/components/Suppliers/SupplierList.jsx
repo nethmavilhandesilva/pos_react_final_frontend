@@ -10,7 +10,7 @@ const SupplierList = () => {
   const navigate = useNavigate();
 
   // Base URL for images stored in Laravel storage
-  const STORAGE_URL = "http://127.0.0.1:8000/storage/";
+  const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public";
 
   useEffect(() => {
     loadSuppliers();
