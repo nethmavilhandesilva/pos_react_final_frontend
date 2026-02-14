@@ -10,7 +10,7 @@ export default function CustomerList() {
   const navigate = useNavigate();
 
   // Base URL for images stored in Laravel storage
-  const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public";
+  const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public/storage/";
 
   // Fetch customers from API
   const fetchCustomers = async () => {
@@ -42,56 +42,47 @@ export default function CustomerList() {
     setShowForm(true);
   };
 
- const handleDelete = async (id) => {
-  // Ask for confirmation first
-  if (!window.confirm("මෙම පාරිභෝගිකයා මකන්නද?")) return;
+  const handleDelete = async (id) => {
+    if (!window.confirm("මෙම පාරිභෝගිකයා මකන්නද?")) return;
 
-  try {
-    // Call backend to delete
-    const res = await api.delete(`/customers/${id}`);
-
-    // Check backend response
-    if (res.status === 200) {
-      // Remove the customer from the list only if deletion succeeded
-      setCustomers((prev) => prev.filter((c) => c.id !== id));
-      alert("පාරිභෝගිකයා සාර්ථකව මකන ලදී!");
-    } else {
-      alert("පාරිභෝගිකයා මකන විට දෝෂයක් සිදුවිය.");
-      console.error("Unexpected response:", res);
+    try {
+      const res = await api.delete(`/customers/${id}`);
+      if (res.status === 200) {
+        setCustomers((prev) => prev.filter((c) => c.id !== id));
+        alert("පාරිභෝගිකයා සාර්ථකව මකන ලදී!");
+      } else {
+        alert("පාරිභෝගිකයා මකන විට දෝෂයක් සිදුවිය.");
+      }
+    } catch (err) {
+      console.error("Failed to delete customer:", err);
+      alert("දෝෂයක් සිදු විය: " + (err.response?.data?.message || err.message));
     }
-  } catch (err) {
-    // Handle network or backend errors
-    console.error("Failed to delete customer:", err);
-    alert("දෝෂයක් සිදු විය: " + (err.response?.data?.message || err.message));
-  }
-};
+  };
 
-const handleFormSubmit = async (data) => {
-  try {
-    if (editingCustomer) {
-      // Use the specific POST update route to handle files easily
-      await api.post(`/customers/update/${editingCustomer.id}`, data);
-    } else {
-      await api.post("/customers", data);
+  const handleFormSubmit = async (data) => {
+    try {
+      if (editingCustomer) {
+        await api.post(`/customers/update/${editingCustomer.id}`, data);
+      } else {
+        await api.post("/customers", data);
+      }
+      setShowForm(false);
+      fetchCustomers();
+      alert("සාර්ථකව සුරැකිණි!");
+    } catch (err) {
+      console.error("Failed to save customer:", err);
+      alert("දෝෂයක් ඇත: " + (err.response?.data?.message || "ගොනු පූරණය කිරීමේ ගැටලුවක්"));
     }
-    setShowForm(false);
-    fetchCustomers(); 
-    alert("සාර්ථකව සුරැකිණි!");
-  } catch (err) {
-    console.error("Failed to save customer:", err);
-    alert("දෝෂයක් ඇත: " + (err.response?.data?.message || "ගොනු පූරණය කිරීමේ ගැටලුවක්"));
-  }
-};
+  };
 
-  // Helper function to render table images
   const renderImage = (path, alt) => {
     if (!path) return <span className="text-muted small">නැත</span>;
     return (
       <a href={`${STORAGE_URL}${path}`} target="_blank" rel="noreferrer">
-        <img 
-          src={`${STORAGE_URL}${path}`} 
-          alt={alt} 
-          style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px", border: "1px solid #ddd" }} 
+        <img
+          src={`${STORAGE_URL}${path}`}
+          alt={alt}
+          style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px", border: "1px solid #ddd" }}
         />
       </a>
     );
@@ -99,8 +90,7 @@ const handleFormSubmit = async (data) => {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", backgroundColor: "#99ff99" }}>
-      
-      {/* --- VERTICAL SIDEBAR --- */}
+      {/* --- SIDEBAR --- */}
       <div
         style={{
           width: "260px",
@@ -117,24 +107,23 @@ const handleFormSubmit = async (data) => {
         }}
       >
         <Link className="navbar-brand fw-bold d-flex align-items-center mb-4 text-white text-decoration-none" to="/sales">
-          <i className="material-icons me-2">warehouse</i>
-          මුල් පිටුව
+          <i className="material-icons me-2">warehouse</i> මුල් පිටුව
         </Link>
 
         <h6 className="text-uppercase text-light opacity-50 small fw-bold mb-3">ප්‍රධාන දත්ත</h6>
         <ul className="list-unstyled flex-grow-1">
           <li className="mb-2">
-            <Link to="/customers" className="nav-link text-white d-flex align-items-center p-2 rounded hover-effect" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
+            <Link to="/customers" className="nav-link text-white d-flex align-items-center p-2 rounded" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
               <i className="material-icons me-2">people</i> ගනුදෙනුකරුවන්
             </Link>
           </li>
           <li className="mb-2">
-            <Link to="/items" className="nav-link text-white d-flex align-items-center p-2 rounded hover-effect">
+            <Link to="/items" className="nav-link text-white d-flex align-items-center p-2 rounded">
               <i className="material-icons me-2">inventory_2</i> අයිතමය
             </Link>
           </li>
           <li className="mb-2">
-            <Link to="/suppliers" className="nav-link text-white d-flex align-items-center p-2 rounded hover-effect">
+            <Link to="/suppliers" className="nav-link text-white d-flex align-items-center p-2 rounded">
               <i className="material-icons me-2">local_shipping</i> සැපයුම්කරුවන්
             </Link>
           </li>
@@ -147,17 +136,10 @@ const handleFormSubmit = async (data) => {
         </div>
       </div>
 
-      {/* --- MAIN CONTENT AREA --- */}
+      {/* --- CONTENT --- */}
       <div style={{ marginLeft: "260px", flexGrow: 1, padding: "30px", width: "calc(100vw - 260px)" }}>
-        {!showForm && (
-          <div
-            style={{
-              backgroundColor: "#006400",
-              borderRadius: "12px",
-              padding: "24px",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            }}
-          >
+        {!showForm ? (
+          <div style={{ backgroundColor: "#006400", borderRadius: "12px", padding: "24px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>
             <h2 className="text-center text-white mb-4">පාරිභෝගික ලැයිස්තුව</h2>
             <div className="text-end mb-3">
               <button className="btn btn-success fw-bold" onClick={handleCreate}>
@@ -172,6 +154,7 @@ const handleFormSubmit = async (data) => {
                     <th>ඡායාරූපය</th>
                     <th>කෙටි නම</th>
                     <th>සම්පූර්ණ නම</th>
+                    <th>දුරකථන අංකය</th> {/* New Column Header */}
                     <th>NIC (F / B)</th>
                     <th>ණය සීමාව (Rs.)</th>
                     <th>මෙහෙයුම්</th>
@@ -180,7 +163,7 @@ const handleFormSubmit = async (data) => {
                 <tbody>
                   {customers.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center">පාරිභෝගිකයන් නොමැත</td>
+                      <td colSpan="7" className="text-center">පාරිභෝගිකයන් නොමැත</td>
                     </tr>
                   ) : (
                     customers.map((c) => (
@@ -188,6 +171,8 @@ const handleFormSubmit = async (data) => {
                         <td>{renderImage(c.profile_pic, "Profile")}</td>
                         <td className="text-uppercase fw-bold">{c.short_name}</td>
                         <td>{c.name}</td>
+                        {/* New Column Data */}
+                        <td className="fw-bold">{c.telephone_no || <span className="text-muted small">නැත</span>}</td>
                         <td>
                           <div className="d-flex justify-content-center gap-1">
                             {renderImage(c.nic_front, "NIC Front")}
@@ -196,12 +181,8 @@ const handleFormSubmit = async (data) => {
                         </td>
                         <td>Rs. {Number(c.credit_limit).toFixed(2)}</td>
                         <td>
-                          <button className="btn btn-warning btn-sm me-1" onClick={() => handleEdit(c)}>
-                            යාවත්කාලීන
-                          </button>
-                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(c.id)}>
-                            මකන්න
-                          </button>
+                          <button className="btn btn-warning btn-sm me-1" onClick={() => handleEdit(c)}>යාවත්කාලීන</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(c.id)}>මකන්න</button>
                         </td>
                       </tr>
                     ))
@@ -210,9 +191,7 @@ const handleFormSubmit = async (data) => {
               </table>
             </div>
           </div>
-        )}
-
-        {showForm && (
+        ) : (
           <div className="card shadow-lg border-0">
             <div className="card-body p-0">
               <CustomerForm

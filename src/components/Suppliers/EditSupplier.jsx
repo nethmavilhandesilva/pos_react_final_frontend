@@ -4,7 +4,7 @@ import { supplierService } from '../../services/supplierService';
 import { useNavigate, Link, useParams } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
 
-// ⭐ LOCAL LARAVEL STORAGE LINK
+// ⭐ UPDATED TO LOCALHOST FOR IMAGES
 const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public";
 
 const EditSupplier = () => {
@@ -12,6 +12,7 @@ const EditSupplier = () => {
     const [formData, setFormData] = useState({
         code: '',
         name: '',
+        dob: '', // Added DOB
         address: '',
         profile_pic: null,
         nic_front: null,
@@ -65,6 +66,7 @@ const EditSupplier = () => {
                 ...prev,
                 code: supplier.code || '',
                 name: supplier.name || '',
+                dob: supplier.dob || '', // Load DOB from backend
                 address: supplier.address || ''
             }));
 
@@ -115,7 +117,6 @@ const EditSupplier = () => {
 
         const file = files[0];
 
-        // ⭐ FACE CHECK ONLY FOR PROFILE PHOTO
         if (name === "profile_pic") {
             const hasFace = await detectFace(file);
 
@@ -145,11 +146,15 @@ const EditSupplier = () => {
         const data = new FormData();
         data.append('code', formData.code);
         data.append('name', formData.name);
+        data.append('dob', formData.dob); // Append DOB to submission
         data.append('address', formData.address);
+        
+        // Laravel specific: If using PUT/PATCH with FormData, you often need to spoof the method
+        data.append('_method', 'PUT');
 
-        if (formData.profile_pic) data.append('profile_pic', formData.profile_pic);
-        if (formData.nic_front) data.append('nic_front', formData.nic_front);
-        if (formData.nic_back) data.append('nic_back', formData.nic_back);
+        if (formData.profile_pic instanceof File) data.append('profile_pic', formData.profile_pic);
+        if (formData.nic_front instanceof File) data.append('nic_front', formData.nic_front);
+        if (formData.nic_back instanceof File) data.append('nic_back', formData.nic_back);
 
         try {
             await supplierService.update(id, data);
@@ -166,7 +171,7 @@ const EditSupplier = () => {
     };
 
     if (supplierLoading) {
-        return <div className="text-center">Loading...</div>;
+        return <div className="text-center mt-5">Loading...</div>;
     }
 
     const previewBoxStyle = {
@@ -212,6 +217,19 @@ const EditSupplier = () => {
                                 <div className="col-md-6 mb-4">
                                     <label className="form-label">නම (Name)</label>
                                     <input type="text" name="name" value={formData.name} onChange={handleChange} className="form-control" required />
+                                </div>
+
+                                {/* ⭐ ADDED DOB INPUT */}
+                                <div className="col-md-12 mb-4">
+                                    <label className="form-label">උපන් දිනය (Date of Birth)</label>
+                                    <input 
+                                        type="date" 
+                                        name="dob" 
+                                        value={formData.dob} 
+                                        onChange={handleChange} 
+                                        className="form-control" 
+                                        required 
+                                    />
                                 </div>
 
                                 <div className="col-12 mb-4">

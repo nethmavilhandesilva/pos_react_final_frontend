@@ -31,6 +31,8 @@ import SupplierReport2 from './components/Reports/supplierfinalreport';
 import PrintedSalesReport from './components/Reports/PrintedSalesReport';
 import SalesReport from './components/Reports/SalesReport2';
 import PublicBill from './pages/PublicBill';
+import SupplierdobReport from './components/Suppliers/SupplierdobReport';
+import ViewSupplierBill from './pages/ViewSupplierBill';
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -267,6 +269,9 @@ export default function App() {
                     }
                 />
                 <Route path="/view-bill/:token" element={<PublicBill />} />
+
+                <Route path="/suppliers/dobreport" element={<SupplierdobReport />} />
+                <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

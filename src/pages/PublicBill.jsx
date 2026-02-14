@@ -10,7 +10,7 @@ const PublicBill = () => {
 
     useEffect(() => {
         // Update this URL to match your Laravel Backend API
-        axios.get(`http://localhost:8000/api/public/bill/${token}`)
+        axios.get(`https://talentconnect.lk/sms_new_backend/api/public/bill/${token}`)
             .then(res => {
                 setBillData(res.data);
                 setLoading(false);

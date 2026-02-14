@@ -9,6 +9,7 @@ const CreateSupplier = () => {
     code: '',
     name: '',
     address: '',
+    dob: '', // Added DOB
     profile_pic: null,
     nic_front: null,
     nic_back: null,
@@ -47,7 +48,7 @@ const CreateSupplier = () => {
   const checkDuplicateCode = async (code) => {
     try {
       const response = await supplierService.checkCode(code);
-      return response.data.exists; // backend should return { exists: true/false }
+      return response.data.exists; 
     } catch (err) {
       console.error(err);
       return false;
@@ -68,7 +69,6 @@ const CreateSupplier = () => {
       } else {
         setErrors(prev => ({ ...prev, code: null }));
       }
-
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -116,6 +116,7 @@ const CreateSupplier = () => {
     data.append('code', formData.code);
     data.append('name', formData.name);
     data.append('address', formData.address);
+    data.append('dob', formData.dob); // Added DOB to FormData
     if (formData.profile_pic) data.append('profile_pic', formData.profile_pic);
     if (formData.nic_front) data.append('nic_front', formData.nic_front);
     if (formData.nic_back) data.append('nic_back', formData.nic_back);
@@ -134,7 +135,6 @@ const CreateSupplier = () => {
     }
   };
 
-  // =================== Preview Styles ===================
   const previewBoxStyle = { width: "120px", height: "120px", border: "1px solid #ccc", borderRadius: "8px", overflow: "hidden", marginTop: "8px" };
   const previewImageStyle = { width: "100%", height: "100%", objectFit: "cover" };
 
@@ -150,7 +150,6 @@ const CreateSupplier = () => {
 
             <form onSubmit={handleSubmit}>
               <div className="row">
-
                 {/* Code */}
                 <div className="col-md-6 mb-4">
                   <label className="form-label fs-5 text-light">කේතය (Code)</label>
@@ -171,13 +170,26 @@ const CreateSupplier = () => {
                   <input type="text" name="name" value={formData.name} onChange={handleChange} className="form-control form-control-lg" required/>
                 </div>
 
+                {/* Date of Birth */}
+                <div className="col-md-12 mb-4">
+                  <label className="form-label fs-5 text-light">උපන් දිනය (Date of Birth)</label>
+                  <input 
+                    type="date" 
+                    name="dob" 
+                    value={formData.dob} 
+                    onChange={handleChange} 
+                    className="form-control form-control-lg" 
+                    required
+                  />
+                </div>
+
                 {/* Address */}
                 <div className="col-12 mb-4">
                   <label className="form-label fs-5 text-light">ලිපිනය (Address)</label>
                   <textarea name="address" value={formData.address} onChange={handleChange} className="form-control form-control-lg" rows="3" required/>
                 </div>
 
-                {/* Profile Pic */}
+                {/* File Uploads */}
                 <div className="col-md-4 mb-4">
                   <label className="form-label text-light">ඡායාරූපය (Photo)</label>
                   <input type="file" name="profile_pic" onChange={handleFileChange} className="form-control" accept="image/*" />
@@ -188,7 +200,6 @@ const CreateSupplier = () => {
                   )}
                 </div>
 
-                {/* NIC Front */}
                 <div className="col-md-4 mb-4">
                   <label className="form-label text-light">NIC (Front)</label>
                   <input type="file" name="nic_front" onChange={handleFileChange} className="form-control" accept="image/*"/>
@@ -199,7 +210,6 @@ const CreateSupplier = () => {
                   )}
                 </div>
 
-                {/* NIC Back */}
                 <div className="col-md-4 mb-4">
                   <label className="form-label text-light">NIC (Back)</label>
                   <input type="file" name="nic_back" onChange={handleFileChange} className="form-control" accept="image/*"/>
@@ -209,7 +219,6 @@ const CreateSupplier = () => {
                     </div>
                   )}
                 </div>
-
               </div>
 
               <div className="text-center mt-5 d-flex justify-content-center gap-3">
@@ -220,7 +229,6 @@ const CreateSupplier = () => {
                   CANCEL
                 </Link>
               </div>
-
             </form>
           </div>
         </div>

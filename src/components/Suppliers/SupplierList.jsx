@@ -9,8 +9,8 @@ const SupplierList = () => {
   const [message, setMessage] = useState('');
   const navigate = useNavigate();
 
-  // Base URL for images stored in Laravel storage
-  const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public";
+  // ⭐ LOCALHOST STORAGE LINK
+  const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public/storage/";
 
   useEffect(() => {
     loadSuppliers();
@@ -192,6 +192,7 @@ const SupplierList = () => {
                     <th>ඡායාරූපය</th>
                     <th>සංකේතය</th>
                     <th>නම</th>
+                    <th>උපන් දිනය</th>
                     <th>ලිපිනය</th>
                     <th>NIC (F/B)</th>
                     <th>මෙහෙයුම්</th>
@@ -201,7 +202,7 @@ const SupplierList = () => {
                 <tbody>
                   {suppliers.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center text-muted py-3">
+                      <td colSpan="7" className="text-center text-muted py-3">
                         සැපයුම්කරුවන් නොමැත
                       </td>
                     </tr>
@@ -211,6 +212,7 @@ const SupplierList = () => {
                         <td>{renderImage(supplier.profile_pic, "Profile")}</td>
                         <td style={{ textTransform: 'uppercase' }} className="fw-bold">{supplier.code}</td>
                         <td>{supplier.name}</td>
+                        <td className="small">{supplier.dob || '---'}</td>
                         <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {supplier.address}
                         </td>
@@ -241,6 +243,18 @@ const SupplierList = () => {
                 </tbody>
               </table>
             </div>
+
+            {/* ⭐ NEW BIRTHDAY REPORT BUTTON BELOW TABLE */}
+            <div className="d-flex justify-content-end mt-4">
+              <Link 
+                to="/suppliers/dobreport" 
+                className="btn btn-primary fw-bold px-4 shadow-sm d-flex align-items-center"
+              >
+                <i className="material-icons me-2">cake</i>
+                උපන් දින වාර්තාව (Birthday Report)
+              </Link>
+            </div>
+
           </div>
         </div>
       </div>

@@ -15,6 +15,10 @@ const SupplierReport = () => {
     const [printedSearchTerm, setPrintedSearchTerm] = useState('');
     const [unprintedSearchTerm, setUnprintedSearchTerm] = useState('');
 
+    //new states  in adding telephone no
+    const [phoneNo, setPhoneNo] = useState('');
+    const [phoneStatus, setPhoneStatus] = useState(''); // For feedback
+
     const [currentView, setCurrentView] = useState('summary');
     const [profilePic, setProfilePic] = useState(null);
     // Add these with your other state variables
@@ -151,7 +155,7 @@ const SupplierReport = () => {
     }, [unprintedSearchTerm, summary.unprinted]);
 
     // --- Handle Unprinted Bill Click ---
-    // --- Updated: Handle Printed Bill Click ---
+    // --- Handle Printed Bill Click ---
     const handlePrintedBillClick = async (supplierCode, billNo) => {
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
@@ -159,6 +163,7 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setAdvanceAmount(0);
         setProfilePic(null);
+        setPhoneNo(''); // Reset before fetch
         setAdvancePayload({ code: supplierCode, advance_amount: '' });
         setIsDetailsLoading(true);
 
@@ -166,12 +171,14 @@ const SupplierReport = () => {
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
 
+            // Fetch supplier profile to get the saved telephone number
             const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
             if (supRes.data) {
                 setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
                 setProfilePic(supRes.data.profile_pic);
+                // 🚀 MATCHING & FETCHING: This gets the phone from the DB record
+                setPhoneNo(supRes.data.telephone_no || '');
 
-                // 🚀 NEW: Set data for the Document Modal
                 setSupplierDocs({
                     title: supRes.data.name || supplierCode,
                     profile: supRes.data.profile_pic,
@@ -194,6 +201,7 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setAdvanceAmount(0);
         setProfilePic(null);
+        setPhoneNo(''); // Reset before fetch
         setAdvancePayload({ code: supplierCode, advance_amount: '' });
         setIsDetailsLoading(true);
 
@@ -201,12 +209,14 @@ const SupplierReport = () => {
             const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
             setSupplierDetails(response.data);
 
+            // Fetch supplier profile to get the saved telephone number
             const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
             if (supRes.data) {
                 setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
                 setProfilePic(supRes.data.profile_pic);
+                // 🚀 MATCHING & FETCHING: This gets the phone from the DB record
+                setPhoneNo(supRes.data.telephone_no || '');
 
-                // 🚀 NEW: Set data for the Document Modal
                 setSupplierDocs({
                     title: supRes.data.name || supplierCode,
                     profile: supRes.data.profile_pic,
@@ -220,7 +230,6 @@ const SupplierReport = () => {
             setIsDetailsLoading(false);
         }
     };
-
     // --- Function to reset details ---
     const resetDetails = () => {
         setSelectedSupplier(null);
@@ -238,6 +247,24 @@ const SupplierReport = () => {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
+    //function to add telephone number
+    const handlePhoneSubmit = async (e) => {
+        if (e.key === 'Enter') {
+            if (!selectedSupplier) return;
+            setPhoneStatus('Updating...');
+            try {
+                await api.post('/suppliers/update-phone', {
+                    code: selectedSupplier,
+                    telephone_no: phoneNo
+                });
+                setPhoneStatus('✅ Saved');
+                setTimeout(() => setPhoneStatus(''), 2000);
+            } catch (error) {
+                console.error("Phone Update Error:", error);
+                setPhoneStatus('❌ Error');
+            }
+        }
+    };
 
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
@@ -411,38 +438,52 @@ const SupplierReport = () => {
     // --- Print function ---
     const handlePrint = useCallback(async () => {
         if (!supplierDetails || supplierDetails.length === 0) return;
+
         let finalBillNo = selectedBillNo;
+
+        // If it's a new bill (Unprinted), we must finalize and send SMS
         if (isUnprintedBill) {
             setIsDetailsLoading(true);
             try {
-                const billResponse = await api.get('/generate-f-series-bill');
-                finalBillNo = billResponse.data.new_bill_no;
+                // 🚀 FIXED: Include supplier_code and advance_amount in the request
+                const response = await api.post('/suppliers/mark-as-printed', {
+                    transaction_ids: supplierDetails.map(r => r.id),
+                    telephone_no: phoneNo,         // The number we fetched from the DB
+                    advance_amount: advanceAmount,  // ⚠️ This was missing
+                    supplier_code: selectedSupplier // ⚠️ This was missing
+                });
+
+                finalBillNo = response.data.new_bill_no;
                 setSelectedBillNo(finalBillNo);
-            } catch (err) { alert('Failed to generate a new bill number.'); return; }
-            finally { setIsDetailsLoading(false); }
-        } else {
-            if (!window.confirm(`This bill (${selectedBillNo}) has already been marked as printed. Do you want to print a copy?`)) return;
-        }
 
-        const content = getBillContent(finalBillNo);
-        const printWindow = window.open('', '_blank', 'height=600,width=800');
-        if (printWindow) {
-            printWindow.document.write(`<html><head><title>Bill Print</title><style>body { font-family: 'Courier New', monospace; margin: 0; padding: 0; } @media print { .receipt-container { max-width: ${billSize === '4mm' ? '320px' : '300px'} !important; } } table { table-layout: fixed; width: 100%; } td, th { padding: 2px 3px; }</style></head><body>${content}</body></html>`);
-            printWindow.document.close();
-            printWindow.focus();
-            setTimeout(() => { printWindow.print(); }, 300);
-
-            if (isUnprintedBill) {
-                const transactionIds = supplierDetails.map(record => record.id).filter(id => id);
-                if (transactionIds.length > 0 && finalBillNo && finalBillNo !== 'N/A') {
-                    setTimeout(async () => {
-                        await api.post('/suppliers/mark-as-printed', { bill_no: finalBillNo, transaction_ids: transactionIds });
-                        resetDetails();
-                    }, 50);
+                // Log for debugging
+                if (phoneNo) {
+                    console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
                 }
+            } catch (err) {
+                console.error('Finalize/SMS Error:', err);
+                alert('Finalize failed. SMS could not be sent.');
+                return;
+            } finally {
+                setIsDetailsLoading(false);
             }
         }
-    }, [supplierDetails, selectedBillNo, isUnprintedBill, getBillContent, resetDetails, billSize]);
+
+        // After backend success, proceed to show the browser print dialog
+        const content = getBillContent(finalBillNo);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(`<html><body>${content}</body></html>`);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+
+            // ✅ Refresh current page after print dialog opens
+            setTimeout(() => {
+                window.location.reload();
+            }, 500); // small delay helps avoid blocking print
+        }
+    }, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
 
     // --- Keyboard event listener ---
     useEffect(() => {
@@ -654,9 +695,50 @@ const SupplierReport = () => {
         return (
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
-                    <h2 style={{ fontSize: "1.5rem", color: "white", margin: 0 }}>
-                        ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo || 'N/A'}</strong>)
-                    </h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                        <h2 style={{ fontSize: "1.5rem", color: "white", margin: 0 }}>
+                            ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo || 'N/A'}</strong>)
+                        </h2>
+
+                        {/* TELEPHONE INPUT - DISABLED FOR PRINTED BILLS */}
+                        {selectedSupplier && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input
+                                    type="text"
+                                    placeholder="දුරකථන අංකය..."
+                                    value={phoneNo}
+                                    onChange={(e) => setPhoneNo(e.target.value)}
+                                    onKeyDown={handlePhoneSubmit}
+
+                                    /* --- ADDED DISABLED LOGIC HERE --- */
+                                    /* It is disabled if it's NOT an unprinted bill */
+                                    disabled={!isUnprintedBill}
+
+                                    style={{
+                                        padding: '10px 15px',
+                                        borderRadius: '8px',
+                                        border: '2px solid #ffc107',
+                                        fontSize: '1rem',
+                                        width: '200px',
+                                        /* Visual feedback: Grey background if disabled, white if active */
+                                        backgroundColor: !isUnprintedBill ? '#e9ecef' : '#ffffff',
+                                        color: '#000000',
+                                        fontWeight: 'bold',
+                                        outline: 'none',
+                                        boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+                                        /* Visual hint for mouse cursor */
+                                        cursor: !isUnprintedBill ? 'not-allowed' : 'text',
+                                        opacity: !isUnprintedBill ? 0.8 : 1
+                                    }}
+                                />
+                                {phoneStatus && (
+                                    <span style={{ fontSize: '0.9rem', color: '#00ff00', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '4px' }}>
+                                        {phoneStatus}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
                     {/* 🚀 DISPLAY PROFILE PIC ON THE RIGHT */}
                     {profilePic && (
@@ -664,7 +746,6 @@ const SupplierReport = () => {
                             <img
                                 src={profilePic.startsWith('http') ? profilePic : `https://talentconnect.lk/sms_new_backend/application/public/storage/${profilePic}`}
                                 alt="Supplier"
-                                /* 🚀 ADD THIS ONCLICK LINE */
                                 onClick={() => setIsImageModalOpen(true)}
                                 style={{
                                     width: '60px',
@@ -673,13 +754,14 @@ const SupplierReport = () => {
                                     border: '2px solid white',
                                     objectFit: 'cover',
                                     backgroundColor: '#ccc',
-                                    cursor: 'pointer' // Adds the hand icon so users know it's clickable
+                                    cursor: 'pointer'
                                 }}
                                 onError={(e) => { e.target.style.display = 'none'; }}
                             />
                         </div>
                     )}
                 </div>
+
                 <div style={{ marginTop: '20px', overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '250px', fontSize: '0.9rem', marginBottom: '30px' }}>
                         <thead>
@@ -690,6 +772,7 @@ const SupplierReport = () => {
                         {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0' }}>Select a bill to view details</td></tr></tbody>}
                     </table>
                 </div>
+
                 {selectedSupplier && Object.keys(itemSummaryData).length > 0 && (
                     <>
                         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0px' }}>
@@ -703,7 +786,6 @@ const SupplierReport = () => {
                             </tbody>
                         </table>
 
-                        {/* 🚀 INTEGRATED ADVANCE ENTRY FORM */}
                         <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #ffffff33', borderRadius: '8px', backgroundColor: '#ffffff11' }}>
                             <h3 style={{ color: '#ffc107', marginTop: 0, fontSize: '1.2rem' }}>අත්තිකාරම් ඇතුලත් කරන්න (Advance Entry)</h3>
                             <form onSubmit={handleAdvanceSubmit} style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
@@ -752,7 +834,6 @@ const SupplierReport = () => {
             </div>
         );
     };
-
     const navBarStyle = { backgroundColor: '#343a40', padding: '15px 50px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' };
     const reportContainerStyle = { minHeight: '100vh', padding: '90px 50px 50px 50px', fontFamily: 'Roboto, Arial, sans-serif', boxSizing: 'border-box', backgroundColor: '#1ec139ff' };
 

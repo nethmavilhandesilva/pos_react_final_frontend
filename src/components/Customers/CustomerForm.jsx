@@ -124,6 +124,7 @@ export default function CustomerForm({ customer, onSubmit, onCancel }) {
     if (formData.profile_pic) data.append("profile_pic", formData.profile_pic);
     if (formData.nic_front) data.append("nic_front", formData.nic_front);
     if (formData.nic_back) data.append("nic_back", formData.nic_back);
+    if (formData.telephone_no) data.append("telephone_no", formData.telephone_no);
 
     try {
       await onSubmit(data);
