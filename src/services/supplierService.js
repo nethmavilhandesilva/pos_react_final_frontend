@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://talentconnect.lk/sms_new_backend/api'; // ✅ Your live Laravel API URL
+const API_BASE_URL = 'https://goviraju.lk/sms_new_backend_50500/api'; // ✅ Your live Laravel API URL
 
 // Create axios instance with base config
 const api = axios.create({

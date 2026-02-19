@@ -106,7 +106,6 @@ const LoanManager = () => {
         }));
     };
 
-    // Updated handler to allow typing or selecting
     const handleDescriptionChange = (selectedOption) => {
         setForm(prev => ({ 
             ...prev, 
@@ -143,7 +142,6 @@ const LoanManager = () => {
         }
     }, []);
 
-    // Effect for Auto-filling descriptions (triggered only on type change)
     useEffect(() => {
         if (isEditMode) return;
 
@@ -163,7 +161,6 @@ const LoanManager = () => {
         }
     }, [form.loan_type, form.settling_way, form.bank, isEditMode]);
 
-    // Independent effect for fetching totals
     useEffect(() => {
         fetchLoanTotal(form.customer_id, isCustomerRelated);
     }, [form.customer_id, isCustomerRelated, fetchLoanTotal]);
@@ -185,9 +182,23 @@ const LoanManager = () => {
         }
     }, [form.customer_id, form.amount, customersRaw, isCustomerRelated]);
 
+    // ⭐ Modified to accept a description to keep
+    const handleCancelEdit = (preservedDescription = '') => {
+        setIsEditMode(false);
+        setForm({
+            ...getInitialFormState(),
+            description: preservedDescription || form.description,
+            loan_type: form.loan_type, // Also keeping loan type for convenience
+            settling_way: form.settling_way
+        });
+    };
+
     const handleSubmit = async (e, isReturn = false) => {
         e.preventDefault();
         setLoading(true);
+
+        // ⭐ Store the description before the reset happens
+        const currentDescription = form.description;
 
         let formData = { ...form };
         let url = isEditMode ? `/customers-loans/${form.loan_id}` : '/customers-loans';
@@ -200,7 +211,10 @@ const LoanManager = () => {
         try {
             const payload = isEditMode ? { ...formData, _method: 'PUT' } : formData;
             await api({ url, method: 'POST', data: payload });
-            handleCancelEdit();
+            
+            // ⭐ Pass the current description back into the reset function
+            handleCancelEdit(currentDescription);
+            
             fetchData();
             fetchCustomers();
         } catch (error) {
@@ -227,11 +241,6 @@ const LoanManager = () => {
             cheque_date: loan.cheque_date || new Date().toISOString().slice(0, 10),
         });
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    const handleCancelEdit = () => {
-        setIsEditMode(false);
-        setForm(getInitialFormState());
     };
 
     const handleDelete = async (id) => {
@@ -391,7 +400,7 @@ const LoanManager = () => {
                                     <button type="submit" className={`btn btn-sm ${isEditMode ? 'btn-success' : 'btn-light'}`} id="submitButton" disabled={loading || (isCustomerRelated && creditLimitMessage)}>
                                         {isEditMode ? 'Update Loan' : 'Add'}
                                     </button>
-                                    {isEditMode && <button type="button" className="btn btn-sm btn-secondary ms-2" onClick={handleCancelEdit}>Cancel</button>}
+                                    {isEditMode && <button type="button" className="btn btn-sm btn-secondary ms-2" onClick={() => handleCancelEdit(form.description)}>Cancel</button>}
                                 </div>
                             )}
                         </div>
@@ -431,8 +440,8 @@ const LoanManager = () => {
                             </tbody>
                         </table>
                         <div className="d-flex flex-wrap gap-2 mt-3">
-                        <a href="/sms_new_frontend/loan-report" className="btn btn-sm btn-dark">ණය වාර්තාව</a>
-                    </div>
+                            <a href="/sms_new_frontend_50500/loan-report" className="btn btn-sm btn-dark">ණය වාර්තාව</a>
+                        </div>
                     </div>
                 </div>
             </div>

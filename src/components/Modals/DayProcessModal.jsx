@@ -47,7 +47,7 @@ const DayProcessModal = ({ isOpen, onClose }) => {
                 onClose();
 
                 // ✅ Redirect immediately to login page
-                window.location.href = "https://talentconnect.lk/sms_new_frontend/login";
+                window.location.href = "https://goviraju.lk/sms_new_frontend_50500/login";
             } else {
                 toast.error(
                     response.data.message || "An unknown error occurred during day process."

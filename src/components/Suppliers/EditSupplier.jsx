@@ -5,7 +5,7 @@ import { useNavigate, Link, useParams } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
 
 // ⭐ UPDATED TO LOCALHOST FOR IMAGES
-const STORAGE_URL = "https://talentconnect.lk/sms_new_backend/application/public";
+const STORAGE_URL = "https://goviraju.lk/sms_new_backend_50500/application/public";
 
 const EditSupplier = () => {
 

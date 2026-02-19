@@ -20,7 +20,7 @@ const SupplierForm = () => {
 
         try {
             // Replace with your actual Laravel API URL
-            const response = await axios.post('https://talentconnect.lk/sms_new_backend/api/suppliers/advance', payload);
+            const response = await axios.post('https://goviraju.lk/sms_new_backend_50500/api/suppliers/advance', payload);
             
             setMessage({ 
                 type: 'success', 

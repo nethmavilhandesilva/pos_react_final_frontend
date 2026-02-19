@@ -280,7 +280,7 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
 const ImagePreviewModal = ({ isOpen, onClose, data }) => {
     if (!isOpen || !data) return null;
 
-    const baseUrl = "https://talentconnect.lk/sms_new_backend/application/public/storage/";
+    const baseUrl = "https://goviraju.lk/sms_new_backend_50500/application/public/storage/";
 
     const formatUrl = (path) => {
         if (!path) return null;
@@ -818,7 +818,7 @@ export default function SalesEntry() {
             );
 
             if (customer) {
-                const baseUrl = "http://localhost:8000/public/storage";
+                const baseUrl = "https://goviraju.lk/sms_new_backend_50500/application/public";
                 let fileName = customer.profile_pic;
                 let fullPath = null;
 
@@ -856,7 +856,7 @@ export default function SalesEntry() {
 
             if (supplier) {
                 // Root path where the 'storage' symlink is located
-                const baseUrl = "https://talentconnect.lk/sms_new_backend/application/public";
+                const baseUrl = "https://goviraju.lk/sms_new_backend_50500/application/public";
                 let fileName = supplier.profile_pic;
 
                 let fullPath = null;
@@ -920,18 +920,6 @@ export default function SalesEntry() {
 
             // 3. Logic for TELEPHONE input (Reverse Lookup)
             if (currentFieldName === "telephone_no") {
-                const typedPhone = (formData.telephone_no || "").trim();
-                if (typedPhone) {
-                    const match = customers.find(c => String(c.telephone_no).trim() === typedPhone);
-                    if (match) {
-                        setFormData(prev => ({
-                            ...prev,
-                            customer_code: match.short_name,
-                            customer_name: match.name
-                        }));
-                        fetchLoanAmount(match.short_name);
-                    }
-                }
                 refs.customer_code_input.current?.focus();
                 return;
             }
@@ -942,20 +930,19 @@ export default function SalesEntry() {
                 const currentPhone = (formData.telephone_no || "").trim();
 
                 if (code) {
-                    // LOCAL LOOKUP: Find in the loaded 'customers' array based on short_name
+                    // LOCAL LOOKUP
                     const match = customers.find(c => String(c.short_name).toUpperCase() === code);
 
                     if (match) {
-                        // Update state immediately with found data
+                        // ✅ Only update customer_name
                         setFormData(prev => ({
                             ...prev,
-                            telephone_no: match.telephone_no || "",
                             customer_name: match.name || ""
                         }));
                         fetchLoanAmount(code);
                     }
 
-                    // BACKEND SYNC: Keep database record updated or create if new
+                    // BACKEND SYNC
                     try {
                         const response = await api.post('/customers/check-or-create', {
                             short_name: code,
@@ -963,9 +950,9 @@ export default function SalesEntry() {
                         });
 
                         if (response.data.customer) {
+                            // ✅ Only update customer_name
                             setFormData(prev => ({
                                 ...prev,
-                                telephone_no: response.data.customer.telephone_no || prev.telephone_no,
                                 customer_name: response.data.customer.name || prev.customer_name
                             }));
                         }
@@ -973,6 +960,7 @@ export default function SalesEntry() {
                         console.error("Customer sync failed", err);
                     }
                 }
+
                 refs.supplier_code.current?.focus();
                 return;
             }
@@ -1038,40 +1026,6 @@ export default function SalesEntry() {
         }
 
         // --- UPDATED TELEPHONE LOGIC (FOR AUTOMATIC SELECTION & IMAGE) ---
-        if (field === 'telephone_no') {
-            const phoneVal = value.trim();
-            setFormData(prev => ({ ...prev, telephone_no: value }));
-
-            if (phoneVal) {
-                // Find the customer that matches this phone number
-                const match = customers.find(c => String(c.telephone_no).trim() === phoneVal);
-
-                if (match) {
-                    const matchedCode = match.short_name;
-
-                    // 1. Update form data with matched code and name
-                    setFormData(prev => ({
-                        ...prev,
-                        customer_code: matchedCode,
-                        customer_name: match.name || ""
-                    }));
-
-                    // 2. Fetch loan amount immediately for this code
-                    fetchLoanAmount(matchedCode);
-
-                    // 3. Set the selection for the right sidebar (Unprinted list)
-                    // This ensures the sidebar highlights the customer automatically
-                    updateState({ selectedUnprintedCustomer: matchedCode, selectedPrintedCustomer: null, isManualClear: false });
-
-                } else {
-                    // If phone number is cleared or doesn't match, clear the customer fields
-                    if (formData.customer_code) {
-                        setFormData(prev => ({ ...prev, customer_code: "", customer_name: "" }));
-                        updateState({ selectedUnprintedCustomer: null, loanAmount: 0 });
-                    }
-                }
-            }
-        }
 
         if (field === 'supplier_code') setFormData(prev => ({ ...prev, supplier_code: value }));
         if (field === "given_amount") {
@@ -1242,15 +1196,15 @@ export default function SalesEntry() {
             }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
             const autoCalculatedGrandTotal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
+
+            // 3. Determine if it's a credit transaction
+            // If currentInputAmount is 0, and autoCalculatedGrandTotal is greater than 0, 
+            // isDifferent will be true, setting creditTransaction to 'Y'.
             const isDifferent = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
 
-            // ✅ Existing condition
+            // ✅ Updated logic: 0 given amount is now treated as Credit ('Y') 
+            // because it is different from the autoCalculatedGrandTotal.
             let creditTransaction = isDifferent ? 'Y' : 'N';
-
-            // ✅ NEW CONDITION: if given_amount is 0, force credit_transaction to 'N'
-            if (currentInputAmount === 0) {
-                creditTransaction = 'N';
-            }
 
             console.log(`Debug: Input(${currentInputAmount}) vs Auto(${autoCalculatedGrandTotal.toFixed(2)}) -> Credit: ${creditTransaction}`);
 
@@ -1281,8 +1235,7 @@ export default function SalesEntry() {
         e.preventDefault();
         if (state.isSubmitting) return;
 
-        // --- NEW VALIDATION LOGIC ---
-        // This checks each required field. If one is empty, it focuses it and stops the save.
+        // --- VALIDATION LOGIC ---
         const requiredFields = [
             { key: "customer_code", ref: "customer_code_input", label: "Customer Code" },
             { key: "supplier_code", ref: "supplier_code", label: "Supplier Code" },
@@ -1293,38 +1246,31 @@ export default function SalesEntry() {
 
         for (const field of requiredFields) {
             const value = formData[field.key];
-            // Checks for null, undefined, or empty strings
             if (value === null || value === undefined || value.toString().trim() === "") {
-                updateState({ errors: { form: `කරුණාකර ${field.label} ඇතුළත් කරන්න` } }); // Message in Sinhala style
-
+                updateState({ errors: { form: `කරුණාකර ${field.label} ඇතුළත් කරන්න` } });
                 const targetRef = refs[field.ref];
                 if (targetRef?.current) {
-                    // Focus the field so the cursor blinks there
-                    if (field.ref.includes("select")) {
-                        targetRef.current.focus();
-                    } else {
-                        targetRef.current.focus();
-                        targetRef.current.select(); // Highlight existing text to make it easier to edit
-                    }
+                    targetRef.current.focus();
+                    if (!field.ref.includes("select")) targetRef.current.select();
                 }
-                return; // EXIT function here so it doesn't save to database
+                return;
             }
         }
-        // --- END VALIDATION ---
 
         updateState({ errors: {}, isSubmitting: true });
         const shouldUpdateRelatedPrice = state.priceManuallyChanged;
 
         try {
             const customerCode = formData.customer_code || autoCustomerCode;
+            // Store current supplier code to re-apply it after reset
+            const currentSupplierCode = formData.supplier_code;
 
             const isEditing = editingSaleId !== null;
             if (!isEditing && selectedPrintedCustomer) {
                 updateState({
-                    errors: { form: "Cannot add new entries to printed bills. Please edit existing records or select an unprinted customer." },
+                    errors: { form: "Cannot add new entries to printed bills..." },
                     isSubmitting: false
                 });
-                setTimeout(() => updateState({ errors: {} }), 1000);
                 return;
             }
 
@@ -1333,25 +1279,16 @@ export default function SalesEntry() {
                 if (state.currentBillNo) {
                     billPrintedStatus = 'Y';
                     billNoToUse = state.currentBillNo;
-                } else {
-                    if (selectedPrintedCustomer) {
-                        billPrintedStatus = 'Y';
-                        if (selectedPrintedCustomer.includes('-')) {
-                            billNoToUse = selectedPrintedCustomer.split('-')[1];
-                        } else {
-                            billNoToUse = printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no;
-                        }
-                    } else if (selectedUnprintedCustomer) {
-                        billPrintedStatus = 'N';
-                    }
+                } else if (selectedPrintedCustomer) {
+                    billPrintedStatus = 'Y';
+                    billNoToUse = selectedPrintedCustomer.includes('-') ? selectedPrintedCustomer.split('-')[1] : printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no;
+                } else if (selectedUnprintedCustomer) {
+                    billPrintedStatus = 'N';
                 }
             }
 
-            const customerSales = allSales.filter(s => s.customer_code === customerCode);
-            const isFirstRecordForCustomer = customerSales.length === 0 && !isEditing;
-
             const payload = {
-                supplier_code: formData.supplier_code.toUpperCase(),
+                supplier_code: currentSupplierCode.toUpperCase(),
                 customer_code: customerCode.toUpperCase(),
                 customer_name: formData.customer_name,
                 item_code: formData.item_code,
@@ -1361,9 +1298,7 @@ export default function SalesEntry() {
                 pack_due: parseFloat(formData.pack_due) || 0,
                 total: parseFloat(formData.total) || 0,
                 packs: parseFloat(formData.packs) || 0,
-                given_amount: (isFirstRecordForCustomer || (isEditing && customerSales[0]?.id === editingSaleId))
-                    ? (formData.given_amount ? parseFloat(formData.given_amount) : null)
-                    : null,
+                given_amount: formData.given_amount ? parseFloat(formData.given_amount) : null,
                 ...(billPrintedStatus && { bill_printed: billPrintedStatus }),
                 ...(billNoToUse && { bill_no: billNoToUse }),
                 update_related_price: shouldUpdateRelatedPrice,
@@ -1373,14 +1308,7 @@ export default function SalesEntry() {
             const method = isEditing ? "put" : "post";
             const response = await api[method](url, payload);
 
-            let updatedSales = [];
-            if (response.data.sales) updatedSales = response.data.sales;
-            else if (response.data.sale) updatedSales = [response.data.sale];
-            else if (response.data.data) updatedSales = [response.data.data];
-            else if (response.data.id) updatedSales = [response.data];
-
-            if (updatedSales.length === 0) throw new Error("Server response structure is unexpected or empty.");
-
+            let updatedSales = response.data.sales || [response.data.sale || response.data.data || response.data];
             const updatedIds = updatedSales.map(s => s.id);
             const newAllSales = allSales.filter(s => !updatedIds.includes(s.id)).concat(updatedSales);
 
@@ -1389,22 +1317,26 @@ export default function SalesEntry() {
                 editingSaleId: null,
                 isManualClear: false,
                 isSubmitting: false,
-                packCost: 0,
                 priceManuallyChanged: false,
                 gridPricePerKg: "",
-                selectedSaleForBreakdown: null
             });
 
-            // Reset form but keep the customer details for the next entry
+            // ✅ THE FIX: Reset form but keep BOTH customer AND supplier code
             setFormData(prevForm => ({
                 ...initialFormData,
                 customer_code: customerCode,
                 customer_name: prevForm.customer_name,
                 telephone_no: prevForm.telephone_no,
+                supplier_code: currentSupplierCode, // Keeps the supplier code
             }));
 
-            // Move cursor back to supplier code for the next item
-            refs.supplier_code.current?.focus();
+            // ✅ THE FIX: Focus and highlight the text so you can either keep it or type over it
+            setTimeout(() => {
+                if (refs.supplier_code.current) {
+                    refs.supplier_code.current.focus();
+                    refs.supplier_code.current.select(); // Automatically selects the text
+                }
+            }, 50);
 
         } catch (error) {
             updateState({
@@ -1413,7 +1345,6 @@ export default function SalesEntry() {
             });
         }
     };
-
     const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
         if (state.isPrinting) return;
 
@@ -2061,6 +1992,7 @@ ${loanRow}
                                                     බිල් අං: {currentBillNo}
                                                 </div>
                                                 <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: '100px', fontSize: '1.15rem' }}>
+
                                                     මුළු විකුණුම්: Rs. {formatDecimal(totalSalesValue)}
                                                 </div>
                                             </div>
@@ -2070,7 +2002,7 @@ ${loanRow}
                                                 {state.customerProfilePic && (
                                                     <div onClick={() => handleImageClick('customer')}
                                                         className="cursor-pointer hover:scale-105 transition-transform"
-                                                        style={{ position: 'absolute', left: '790px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', zIndex: 10 }}>
+                                                        style={{ position: 'absolute', left: '805px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', zIndex: 10 }}>
                                                         <span className="text-xs text-gray-400">ගැ</span>
                                                         <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #1ec139', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                                             <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -2119,11 +2051,8 @@ ${loanRow}
                                                 <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text" value={formData.price_per_kg} onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && handleInputChange('price_per_kg', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "price_per_kg")} placeholder="එකවර මිල" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="rounded-lg text-center border relative" style={{ backgroundColor: "white", flex: "0 0 200px", marginLeft: "05px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "10px" }}>
-                                                    <span
-                                                        className="absolute left-2 text-gray-400 text-[10px] pointer-events-none"
-                                                        style={{ top: "1px" }} // Pushes the "Loan Amount" label to the very top
-                                                    >
+                                                <div className="rounded-lg border relative bg-white flex items-center justify-start pl-2 pt-2.5" style={{ flex: "0 0 100px", marginLeft: "5px", height: "36px" }}>
+                                                    <span className="absolute left-2 top-1 text-gray-400 text-[10px] pointer-events-none">
                                                         Loan Amount
                                                     </span>
                                                     <span className="text-black font-bold text-sm">
@@ -2137,82 +2066,152 @@ ${loanRow}
                                                 <input id="supplier_code" ref={refs.supplier_code} name="supplier_code" value={formData.supplier_code} onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "supplier_code")} type="text" placeholder="සැපයුම්කරු" className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full" style={{ width: "150px", backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '44px', fontSize: '1.25rem', padding: '0 1rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                             </div>
                                             <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
-                                                <Select
-                                                    id="item_code_select"
-                                                    ref={refs.item_code_select}
-                                                    value={
-                                                        formData.item_code
-                                                            ? {
-                                                                value: formData.item_code,
-                                                                label: `${formData.item_code} - ${formData.item_name}`,
-                                                                item: {
-                                                                    no: formData.item_code,
-                                                                    type: formData.item_name,
-                                                                    pack_due: formData.pack_due,
-                                                                },
-                                                            }
-                                                            : null
-                                                    }
-                                                    onChange={handleItemSelect}
-                                                    options={[...items]
+                                                {(() => {
+
+                                                    const currentFilteredOptions = [...items]
                                                         .filter(item => {
                                                             if (!state.itemSearchInput) return true;
                                                             const input = state.itemSearchInput.toUpperCase();
-                                                            const itemNo = String(item.no).toUpperCase();
-                                                            // Only show items whose item_no starts with the typed input
-                                                            return itemNo.startsWith(input);
+                                                            return String(item.no).toUpperCase().startsWith(input);
                                                         })
                                                         .sort((a, b) => {
                                                             const isANumeric = !isNaN(a.no);
                                                             const isBNumeric = !isNaN(b.no);
-
-                                                            // Push numeric item numbers to the end
                                                             if (isANumeric && !isBNumeric) return 1;
                                                             if (!isANumeric && isBNumeric) return -1;
-
-                                                            // Otherwise, sort alphabetically by item.no
                                                             return String(a.no).toUpperCase().localeCompare(String(b.no).toUpperCase());
                                                         })
                                                         .map(item => ({
                                                             value: item.no,
                                                             label: `${item.no} - ${item.type}`,
                                                             item,
-                                                        }))}
-                                                    onInputChange={v => updateState({ itemSearchInput: v.toUpperCase() })}
-                                                    inputValue={state.itemSearchInput}
-                                                    onKeyDown={e =>
-                                                        e.key !== "Enter" && handleKeyDown(e, "item_code_select")
-                                                    }
-                                                    placeholder="භාණ්ඩය"
-                                                    className="react-select-container font-bold text-sm w-full"
-                                                    styles={{
-                                                        control: b => ({
-                                                            ...b,
-                                                            height: "44px",
-                                                            minHeight: "44px",
-                                                            fontSize: "1.25rem",
-                                                            backgroundColor: "white",
-                                                            borderColor: "#4a5568",
-                                                            borderRadius: "0.5rem",
-                                                        }),
-                                                        valueContainer: b => ({ ...b, padding: "0 1rem", height: "44px" }),
-                                                        input: b => ({ ...b, color: "black", fontSize: "1.25rem" }),
-                                                        singleValue: b => ({
-                                                            ...b,
-                                                            color: "black",
-                                                            fontWeight: "bold",
-                                                            fontSize: "1.25rem",
-                                                        }),
-                                                        placeholder: b => ({ ...b, color: "#6b7280" }),
-                                                        option: (b, s) => ({
-                                                            ...b,
-                                                            fontWeight: "bold",
-                                                            color: "black",
-                                                            backgroundColor: s.isFocused ? "#e5e7eb" : "white",
-                                                            fontSize: "1rem",
-                                                        }),
-                                                    }}
-                                                />
+                                                        }));
+
+                                                    return (
+                                                        <Select
+                                                            ref={refs.item_code_select}
+                                                            openMenuOnFocus
+                                                            isSearchable
+                                                            tabSelectsValue={false}   // important for POS
+                                                            closeMenuOnSelect
+                                                            blurInputOnSelect={false}
+                                                            inputValue={state.itemSearchInput}
+                                                            options={currentFilteredOptions}
+                                                            placeholder="භාණ්ඩය"
+
+                                                            value={
+                                                                formData.item_code
+                                                                    ? {
+                                                                        value: formData.item_code,
+                                                                        label: `${formData.item_code} - ${formData.item_name}`,
+                                                                    }
+                                                                    : null
+                                                            }
+
+                                                            onInputChange={(value, meta) => {
+                                                                if (meta.action === "input-change") {
+                                                                    updateState({ itemSearchInput: value.toUpperCase() });
+                                                                }
+                                                            }}
+
+                                                            onChange={(selectedOption) => {
+                                                                if (!selectedOption) return;
+
+                                                                handleItemSelect(selectedOption);
+                                                                updateState({ itemSearchInput: "" });
+
+                                                                setTimeout(() => {
+                                                                    refs.weight.current?.focus();
+                                                                    refs.weight.current?.select();
+                                                                }, 50);
+                                                            }}
+
+                                                            onKeyDown={(e) => {
+
+                                                                // 🔥 "+" shortcut for last sale
+                                                                if (e.key === "Enter" && state.itemSearchInput === "+") {
+                                                                    e.preventDefault();
+                                                                    const lastSale = displayedSales[0];
+
+                                                                    if (lastSale) {
+                                                                        setFormData(prev => ({
+                                                                            ...prev,
+                                                                            item_code: lastSale.item_code,
+                                                                            item_name: lastSale.item_name,
+                                                                            pack_due: lastSale.pack_due,
+                                                                            price_per_kg: lastSale.price_per_kg
+                                                                        }));
+
+                                                                        updateState({
+                                                                            itemSearchInput: "",
+                                                                            gridPricePerKg: lastSale.price_per_kg || ""
+                                                                        });
+
+                                                                        setTimeout(() => {
+                                                                            refs.weight.current?.focus();
+                                                                            refs.weight.current?.select();
+                                                                        }, 50);
+                                                                    }
+                                                                    return;
+                                                                }
+
+                                                                // 🔥 POS ENTER behavior
+                                                                if (e.key === "Enter") {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+
+                                                                    if (currentFilteredOptions.length > 0) {
+                                                                        const firstOption = currentFilteredOptions[0];
+                                                                        handleItemSelect(firstOption);
+                                                                        updateState({ itemSearchInput: "" });
+
+                                                                        setTimeout(() => {
+                                                                            refs.weight.current?.focus();
+                                                                            refs.weight.current?.select();
+                                                                        }, 50);
+                                                                    }
+                                                                }
+                                                            }}
+
+                                                            className="react-select-container font-bold text-sm w-full"
+
+                                                            styles={{
+                                                                control: base => ({
+                                                                    ...base,
+                                                                    height: "44px",
+                                                                    minHeight: "44px",
+                                                                    fontSize: "1.25rem",
+                                                                    backgroundColor: "white",
+                                                                    borderColor: "#4a5568",
+                                                                    borderRadius: "0.5rem",
+                                                                }),
+                                                                valueContainer: base => ({
+                                                                    ...base,
+                                                                    padding: "0 1rem",
+                                                                    height: "44px"
+                                                                }),
+                                                                input: base => ({
+                                                                    ...base,
+                                                                    color: "black",
+                                                                    fontSize: "1.25rem"
+                                                                }),
+                                                                singleValue: base => ({
+                                                                    ...base,
+                                                                    color: "black",
+                                                                    fontWeight: "bold",
+                                                                    fontSize: "1.25rem",
+                                                                }),
+                                                                option: (base, state) => ({
+                                                                    ...base,
+                                                                    fontWeight: "bold",
+                                                                    color: "black",
+                                                                    backgroundColor: state.isFocused ? "#e5e7eb" : "white",
+                                                                    fontSize: "1rem",
+                                                                }),
+                                                            }}
+                                                        />
+                                                    );
+                                                })()}
                                             </div>
 
                                             {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight },

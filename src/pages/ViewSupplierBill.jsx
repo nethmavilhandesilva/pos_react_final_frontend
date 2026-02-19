@@ -16,7 +16,7 @@ const ViewSupplierBill = () => {
     const fontSizeTotal = '28px';
 
     useEffect(() => {
-        api.get(`https://talentconnect.lk/sms_new_backend/api/public/supplier-bill/${token}`).then(res => {
+        api.get(`https://goviraju.lk/sms_new_backend_50500/api/public/supplier-bill/${token}`).then(res => {
             setBill(res.data);
             // 🚀 STEP 1: Set the document title so the browser uses it as the filename
             if (res.data && res.data.bill_no) {
