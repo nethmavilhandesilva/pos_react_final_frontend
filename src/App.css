@@ -1,5 +1,20 @@
 
 
+/* ==================================== */
+/* 1. Global Page Background Fixes      */
+/* ==================================== */
+
+/* Apply background to both html and body to ensure it covers the full viewport */
+html, body {
+    background-color: #99ff99 !important;
+    margin: 0;
+    padding: 0;
+    /* This ensures the background color stretches with the content */
+    min-height: 100vh;
+    /* This keeps the color fixed so it doesn't move when you scroll */
+    background-attachment: fixed; 
+}
+
 .sales-layout {
     /* Using max-width helps center the content on large screens */
     max-width: 1400px; 
@@ -13,10 +28,7 @@
     gap: 16px; 
     padding: 10px;
     /* 🟢 FIX: Remove negative margin or set to a small positive/zero margin */
-     margin-top: -10px !important; 
-}
-body {
-    background-color: #99ff99;
+    margin-top: -10px !important; 
 }
 
 .left-sidebar, .right-sidebar {
@@ -167,7 +179,7 @@ body {
     border-collapse: collapse; 
     /* Use padding to create space around the table */
     margin: 20px 0;
-     margin-top: 90px;
+    margin-top: 90px;
 }
 
 .center-form table thead {
@@ -182,7 +194,7 @@ body {
     padding: 8px 10px;
     border: 1px solid white; /* White border for separators */
     white-space: nowrap;
-      margin-top: 90px;
+    margin-top: 90px;
 }
 
 .center-form table td {
@@ -190,7 +202,7 @@ body {
     background-color: #000000;
     border: 1px solid #4a5568; 
     padding: 6px 10px;
-     margin-top: 90px;
+    margin-top: 90px;
 }
 
 /* NEW: Improved inline row styling for the form fields */
@@ -241,5 +253,4 @@ body {
 .center-form .react-select-container .react-select__value-container {
     height: 32px;
     padding: 0 8px;
-    
 }

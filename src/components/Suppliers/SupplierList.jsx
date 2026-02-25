@@ -193,6 +193,7 @@ const SupplierList = () => {
                     <th>සංකේතය</th>
                     <th>නම</th>
                     <th>උපන් දිනය</th>
+                    <th>Telephone_no</th>
                     <th>ලිපිනය</th>
                     <th>NIC (F/B)</th>
                     <th>මෙහෙයුම්</th>
@@ -213,6 +214,7 @@ const SupplierList = () => {
                         <td style={{ textTransform: 'uppercase' }} className="fw-bold">{supplier.code}</td>
                         <td>{supplier.name}</td>
                         <td className="small">{supplier.dob || '---'}</td>
+                         <td>{supplier.telephone_no}</td>
                         <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {supplier.address}
                         </td>

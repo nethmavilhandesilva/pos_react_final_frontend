@@ -9,7 +9,8 @@ const CreateSupplier = () => {
     code: '',
     name: '',
     address: '',
-    dob: '', // Added DOB
+    dob: '',
+    telephone_no: '',   // ✅ NEW FIELD ADDED
     profile_pic: null,
     nic_front: null,
     nic_back: null,
@@ -40,7 +41,10 @@ const CreateSupplier = () => {
   const detectFace = async (file) => {
     if (!modelsLoaded) return true;
     const img = await faceapi.bufferToImage(file);
-    const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions());
+    const detection = await faceapi.detectSingleFace(
+      img,
+      new faceapi.TinyFaceDetectorOptions()
+    );
     return !!detection;
   };
 
@@ -48,7 +52,7 @@ const CreateSupplier = () => {
   const checkDuplicateCode = async (code) => {
     try {
       const response = await supplierService.checkCode(code);
-      return response.data.exists; 
+      return response.data.exists;
     } catch (err) {
       console.error(err);
       return false;
@@ -65,7 +69,10 @@ const CreateSupplier = () => {
 
       if (upperCode.length > 0) {
         const isDuplicate = await checkDuplicateCode(upperCode);
-        setErrors(prev => ({ ...prev, code: isDuplicate ? 'මෙම කේතය දැනටමත් පවතිනවා' : null }));
+        setErrors(prev => ({
+          ...prev,
+          code: isDuplicate ? 'මෙම කේතය දැනටමත් පවතිනවා' : null
+        }));
       } else {
         setErrors(prev => ({ ...prev, code: null }));
       }
@@ -111,12 +118,14 @@ const CreateSupplier = () => {
 
     setLoading(true);
     setErrors({});
-    
+
     const data = new FormData();
     data.append('code', formData.code);
     data.append('name', formData.name);
     data.append('address', formData.address);
-    data.append('dob', formData.dob); // Added DOB to FormData
+    data.append('dob', formData.dob);
+    data.append('telephone_no', formData.telephone_no); // ✅ APPENDED
+
     if (formData.profile_pic) data.append('profile_pic', formData.profile_pic);
     if (formData.nic_front) data.append('nic_front', formData.nic_front);
     if (formData.nic_back) data.append('nic_back', formData.nic_back);
@@ -135,8 +144,20 @@ const CreateSupplier = () => {
     }
   };
 
-  const previewBoxStyle = { width: "120px", height: "120px", border: "1px solid #ccc", borderRadius: "8px", overflow: "hidden", marginTop: "8px" };
-  const previewImageStyle = { width: "100%", height: "100%", objectFit: "cover" };
+  const previewBoxStyle = {
+    width: "120px",
+    height: "120px",
+    border: "1px solid #ccc",
+    borderRadius: "8px",
+    overflow: "hidden",
+    marginTop: "8px"
+  };
+
+  const previewImageStyle = {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover"
+  };
 
   return (
     <div style={{ backgroundColor: '#99ff99', minHeight: '100vh', width: '100%' }}>
@@ -150,6 +171,7 @@ const CreateSupplier = () => {
 
             <form onSubmit={handleSubmit}>
               <div className="row">
+
                 {/* Code */}
                 <div className="col-md-6 mb-4">
                   <label className="form-label fs-5 text-light">කේතය (Code)</label>
@@ -167,18 +189,38 @@ const CreateSupplier = () => {
                 {/* Name */}
                 <div className="col-md-6 mb-4">
                   <label className="form-label fs-5 text-light">නම (Name)</label>
-                  <input type="text" name="name" value={formData.name} onChange={handleChange} className="form-control form-control-lg" required/>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    className="form-control form-control-lg"
+                    required
+                  />
+                </div>
+
+                {/* Telephone Number ✅ NEW FIELD */}
+                <div className="col-md-6 mb-4">
+                  <label className="form-label fs-5 text-light">දුරකථන අංකය (Telephone No)</label>
+                  <input
+                    type="text"
+                    name="telephone_no"
+                    value={formData.telephone_no}
+                    onChange={handleChange}
+                    className="form-control form-control-lg"
+                    required
+                  />
                 </div>
 
                 {/* Date of Birth */}
-                <div className="col-md-12 mb-4">
+                <div className="col-md-6 mb-4">
                   <label className="form-label fs-5 text-light">උපන් දිනය (Date of Birth)</label>
-                  <input 
-                    type="date" 
-                    name="dob" 
-                    value={formData.dob} 
-                    onChange={handleChange} 
-                    className="form-control form-control-lg" 
+                  <input
+                    type="date"
+                    name="dob"
+                    value={formData.dob}
+                    onChange={handleChange}
+                    className="form-control form-control-lg"
                     required
                   />
                 </div>
@@ -186,7 +228,14 @@ const CreateSupplier = () => {
                 {/* Address */}
                 <div className="col-12 mb-4">
                   <label className="form-label fs-5 text-light">ලිපිනය (Address)</label>
-                  <textarea name="address" value={formData.address} onChange={handleChange} className="form-control form-control-lg" rows="3" required/>
+                  <textarea
+                    name="address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    className="form-control form-control-lg"
+                    rows="3"
+                    required
+                  />
                 </div>
 
                 {/* File Uploads */}
@@ -195,30 +244,31 @@ const CreateSupplier = () => {
                   <input type="file" name="profile_pic" onChange={handleFileChange} className="form-control" accept="image/*" />
                   {previews.profile_pic && (
                     <div style={previewBoxStyle}>
-                      <img src={previews.profile_pic} alt="preview" style={previewImageStyle}/>
+                      <img src={previews.profile_pic} alt="preview" style={previewImageStyle} />
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-4">
                   <label className="form-label text-light">NIC (Front)</label>
-                  <input type="file" name="nic_front" onChange={handleFileChange} className="form-control" accept="image/*"/>
+                  <input type="file" name="nic_front" onChange={handleFileChange} className="form-control" accept="image/*" />
                   {previews.nic_front && (
                     <div style={previewBoxStyle}>
-                      <img src={previews.nic_front} alt="preview" style={previewImageStyle}/>
+                      <img src={previews.nic_front} alt="preview" style={previewImageStyle} />
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-4">
                   <label className="form-label text-light">NIC (Back)</label>
-                  <input type="file" name="nic_back" onChange={handleFileChange} className="form-control" accept="image/*"/>
+                  <input type="file" name="nic_back" onChange={handleFileChange} className="form-control" accept="image/*" />
                   {previews.nic_back && (
                     <div style={previewBoxStyle}>
-                      <img src={previews.nic_back} alt="preview" style={previewImageStyle}/>
+                      <img src={previews.nic_back} alt="preview" style={previewImageStyle} />
                     </div>
                   )}
                 </div>
+
               </div>
 
               <div className="text-center mt-5 d-flex justify-content-center gap-3">
@@ -229,6 +279,7 @@ const CreateSupplier = () => {
                   CANCEL
                 </Link>
               </div>
+
             </form>
           </div>
         </div>

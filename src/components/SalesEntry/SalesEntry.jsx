@@ -3,6 +3,7 @@ import Select from "react-select";
 import Layout from "../Layout/Layout";
 import '../../App.css';
 import api from "../../api";
+import "./ResponsiveSales.css";
 
 const routes = {
     markPrinted: "/sales/mark-printed",
@@ -621,7 +622,7 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
         }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
     }, [sales]);
 
-    const finalPayable = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
+    const finalPayable = totals.billTotal + totals.totalBagPrice ;
 
     return (
         <div className="flex flex-row flex-nowrap items-center justify-between w-full p-2 mt-2 rounded-xl border-2 border-blue-500 bg-gray-900 text-white font-bold shadow-lg overflow-hidden">
@@ -638,7 +639,7 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
             </div>
             <div className="flex flex-row items-center whitespace-nowrap px-4 border-r border-gray-700 h-full ml-auto" style={{ transform: 'translateY(-48px)' }}>
                 <span className="text-gray-400 uppercase text-[10px] mr-2" style={{ marginLeft: '310px' }}>කාම්කරු:</span>
-                <span className="font-bold text-sm" style={{ marginLeft: '6px' }}>{formatDecimal(totals.totalLabour)}</span>
+                <span className="font-bold text-sm" style={{ marginLeft: '6px' }}>0</span>
             </div>
             <div className="flex flex-row items-center whitespace-nowrap px-4 border-r border-gray-700 h-full ml-auto" style={{ transform: 'translateY(-72px)' }}>
                 <span className="text-gray-400 uppercase text-[10px] mr-2" style={{ marginLeft: '480px' }}>ගෙවිය:</span>
@@ -802,7 +803,7 @@ export default function SalesEntry() {
                 acc.totalLabour += (packs * pLabour);
                 return acc;
             }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
-            const calculatedFinal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
+            const calculatedFinal = totals.billTotal + totals.totalBagPrice;
             setFormData(prev => prev.given_amount === null || prev.given_amount === "" ? { ...prev, given_amount: calculatedFinal.toFixed(2) } : prev);
         } else {
             setFormData(prev => ({ ...prev, given_amount: "" }));
@@ -909,11 +910,11 @@ export default function SalesEntry() {
         if (e.key === "Enter") {
             e.preventDefault();
 
-           // 1. Handle Given Amount
+            // 1. Handle Given Amount
             if (currentFieldName === "given_amount") {
                 // We wait for the result. If it fails validation (missing photos), success will be null.
                 const success = await handleSubmitGivenAmount(e);
-                
+
                 // ONLY call print if validation passed and DB was updated
                 if (success) {
                     handlePrintAndClear();
@@ -1174,84 +1175,84 @@ export default function SalesEntry() {
         } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message } }); }
     };
 
-   const handleSubmitGivenAmount = async (e) => {
-    if (e) e.preventDefault();
-    updateState({ errors: {} });
+    const handleSubmitGivenAmount = async (e) => {
+        if (e) e.preventDefault();
+        updateState({ errors: {} });
 
-    const customerCode = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
-    if (!customerCode) return null;
+        const customerCode = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+        if (!customerCode) return null;
 
-    const salesToUpdate = displayedSales.filter(s => s.id);
-    if (salesToUpdate.length === 0) return null;
+        const salesToUpdate = displayedSales.filter(s => s.id);
+        if (salesToUpdate.length === 0) return null;
 
-    try {
-        // 1. Get the entered amount
-        const currentInputAmount = parseFloat(formData.given_amount.toString().replace(/,/g, "")) || 0;
+        try {
+            // 1. Get the entered amount
+            const currentInputAmount = parseFloat(formData.given_amount.toString().replace(/,/g, "")) || 0;
 
-        // 2. DETECT CREDIT STATUS based on your calculated logic
-        // We calculate it here to know if we should block the process before the API call
-        const totals = salesToUpdate.reduce((acc, s) => {
-            const weight = parseFloat(s.weight) || 0;
-            const price = parseFloat(s.price_per_kg) || 0;
-            const packs = parseFloat(s.packs) || 0;
-            const pCost = parseFloat(s.CustomerPackCost) || 0;
-            const pLabour = parseFloat(s.CustomerPackLabour) || 0;
-            acc.billTotal += (weight * price);
-            acc.totalBagPrice += (packs * pCost);
-            acc.totalLabour += (packs * pLabour);
-            return acc;
-        }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+            // 2. DETECT CREDIT STATUS based on your calculated logic
+            // We calculate it here to know if we should block the process before the API call
+            const totals = salesToUpdate.reduce((acc, s) => {
+                const weight = parseFloat(s.weight) || 0;
+                const price = parseFloat(s.price_per_kg) || 0;
+                const packs = parseFloat(s.packs) || 0;
+                const pCost = parseFloat(s.CustomerPackCost) || 0;
+                const pLabour = parseFloat(s.CustomerPackLabour) || 0;
+                acc.billTotal += (weight * price);
+                acc.totalBagPrice += (packs * pCost);
+                acc.totalLabour += (packs * pLabour);
+                return acc;
+            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
-        const autoCalculatedGrandTotal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
-        const isCredit = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
-        const creditTransactionStatus = isCredit ? 'Y' : 'N';
+            const autoCalculatedGrandTotal = totals.billTotal + totals.totalBagPrice;
+            const isCredit = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
+            const creditTransactionStatus = isCredit ? 'Y' : 'N';
 
-        // 3. VALIDATION: Check column status 'Y'
-        if (creditTransactionStatus === 'Y') {
-            const customerRecord = customers.find(c => 
-                String(c.short_name).toUpperCase() === customerCode
+            // 3. VALIDATION: Check column status 'Y'
+            if (creditTransactionStatus === 'Y') {
+                const customerRecord = customers.find(c =>
+                    String(c.short_name).toUpperCase() === customerCode
+                );
+
+                // Check if record exists and has photos
+                const hasRequiredDocs = customerRecord &&
+                    customerRecord.profile_pic &&
+                    customerRecord.nic_front &&
+                    customerRecord.nic_back;
+
+                if (!hasRequiredDocs) {
+                    alert("ණය ගනුදෙනුවක් සිදු කිරීමට පෙර කරුණාකර මෙම පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.");
+
+                    // Perform your clearing function
+                    handleMarkAllProcessed();
+                    return null; // STOP
+                }
+            }
+
+            // 4. PROCEED: Update database with the determined status
+            const updatePromises = salesToUpdate.map(sale =>
+                api.put(`${routes.sales}/${sale.id}/given-amount`, {
+                    given_amount: currentInputAmount,
+                    credit_transaction: creditTransactionStatus
+                })
             );
 
-            // Check if record exists and has photos
-            const hasRequiredDocs = customerRecord && 
-                                    customerRecord.profile_pic && 
-                                    customerRecord.nic_front && 
-                                    customerRecord.nic_back;
+            const results = await Promise.all(updatePromises);
+            updateState({ isGivenAmountManuallyTouched: false });
 
-            if (!hasRequiredDocs) {
-                alert("ණය ගනුදෙනුවක් සිදු කිරීමට පෙර කරුණාකර මෙම පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.");
-                
-                // Perform your clearing function
-                handleMarkAllProcessed();
-                return null; // STOP
-            }
+            const updatedSalesFromApi = results.map(response => response.data.sale);
+            const updatedSalesMap = {};
+            updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
+
+            updateState({
+                allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s)
+            });
+
+            return updatedSalesFromApi;
+        } catch (error) {
+            updateState({ errors: { form: error.response?.data?.message || error.message } });
+            return null;
         }
-
-        // 4. PROCEED: Update database with the determined status
-        const updatePromises = salesToUpdate.map(sale =>
-            api.put(`${routes.sales}/${sale.id}/given-amount`, {
-                given_amount: currentInputAmount,
-                credit_transaction: creditTransactionStatus
-            })
-        );
-
-        const results = await Promise.all(updatePromises);
-        updateState({ isGivenAmountManuallyTouched: false });
-
-        const updatedSalesFromApi = results.map(response => response.data.sale);
-        const updatedSalesMap = {};
-        updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
-        
-        updateState({ 
-            allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s) 
-        });
-
-        return updatedSalesFromApi;
-    } catch (error) {
-        updateState({ errors: { form: error.response?.data?.message || error.message } });
-        return null;
-    }
-};
+    };
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (state.isSubmitting) return;
@@ -1409,14 +1410,14 @@ export default function SalesEntry() {
                 const price = parseFloat(s.price_per_kg) || 0;
                 const packs = parseFloat(s.packs) || 0;
                 const pCost = parseFloat(s.CustomerPackCost) || 0;
-                const pLabour = parseFloat(s.CustomerPackLabour) || 0;
+               
                 acc.billTotal += (weight * price);
                 acc.totalBagPrice += (packs * pCost);
-                acc.totalLabour += (packs * pLabour);
+               
                 return acc;
             }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
-            const calculatedFinal = totals.billTotal + totals.totalBagPrice + totals.totalLabour;
+            const calculatedFinal = totals.billTotal + totals.totalBagPrice;
 
             try {
                 let fetchedGivenAmount = "";
@@ -1703,7 +1704,7 @@ ${loanRow}
         return num.toFixed(2);
     };
 
- const handlePrintAndClear = async () => {
+    const handlePrintAndClear = async () => {
         let salesData = displayedSales.filter(s => s.id);
 
         if (!salesData.length) {
@@ -1731,7 +1732,7 @@ ${loanRow}
             updateState({ isPrinting: true });
 
             const customerCode = salesData[0].customer_code || "N/A";
-            const customerName = state.customerNameDisplay || salesData[0].customer_name || customerCode;
+            const customerName = salesData[0].customer_code || salesData[0].customer_code || customerCode;
             const mobile = salesData[0].mobile || "0777672838 / 071437115";
 
             let currentLoan = 0;
@@ -1873,7 +1874,7 @@ ${loanRow}
                     </div>
 
 
-                    <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', height: '150.5vh', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
+                    <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', minHeight: '100vh', height: 'auto', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
                         {currentUser?.role === 'Admin' ? (
                             <div className="admin-farmer-view h-full flex flex-col">
                                 <div className="flex flex-row overflow-hidden" style={{ minHeight: "60vh", width: "100%", display: "flex", flexDirection: "row", justifyContent: "center", gap: "20px" }}>
@@ -2236,7 +2237,7 @@ ${loanRow}
                                         style={{ marginTop: "-75px" }}  // adjust value as needed
                                     >
                                         <div style={{ marginLeft: '660px', marginTop: '-2px' }}>
-                                            <input id="given_amount" ref={refs.given_amount} name="given_amount" type="text" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
+                                           <input id="given_amount" ref={refs.given_amount} name="given_amount_field" type="tel" inputMode="numeric" autoComplete="new-password" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
                                         </div>
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
