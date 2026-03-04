@@ -3,7 +3,7 @@ import Select from "react-select";
 import Layout from "../Layout/Layout";
 import '../../App.css';
 import api from "../../api";
-import "./ResponsiveSales.css";
+
 
 const routes = {
     markPrinted: "/sales/mark-printed",
@@ -1620,7 +1620,7 @@ export default function SalesEntry() {
         </div>
 
         <div style="font-size:19px; margin-top:10px; padding:0 5px;">
-            <div style="font-weight: bold;">දුර: 0777672838 / 071437115</div>
+            <div style="font-weight: bold;">දුර: 0777672838 / 0714371115</div>
             <div style="display:flex; justify-content:space-between; margin-top:3px;">
                 <span>බිල් අංකය:${billNo}</span>
                 <span>දිනය:${date}</span>

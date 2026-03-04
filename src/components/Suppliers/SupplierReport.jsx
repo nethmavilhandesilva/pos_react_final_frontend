@@ -435,54 +435,88 @@ const SupplierReport = () => {
     }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount]);
 
     // --- Print function ---
-    const handlePrint = useCallback(async () => {
-        if (!supplierDetails || supplierDetails.length === 0) return;
+  
+const handlePrint = useCallback(async () => {
+    if (!supplierDetails || supplierDetails.length === 0) return;
 
-        let finalBillNo = selectedBillNo;
+    let finalBillNo = selectedBillNo;
 
-        // If it's a new bill (Unprinted), we must finalize and send SMS
-        if (isUnprintedBill) {
+    // If it's a new bill (Unprinted), we must finalize and send SMS
+    if (isUnprintedBill) {
+        setIsDetailsLoading(true);
+        try {
+            const response = await api.post('/suppliers/mark-as-printed', {
+                transaction_ids: supplierDetails.map(r => r.id),
+                telephone_no: phoneNo,
+                advance_amount: advanceAmount,
+                supplier_code: selectedSupplier
+            });
+
+            finalBillNo = response.data.new_bill_no;
+            setSelectedBillNo(finalBillNo);
+
+            if (phoneNo) {
+                console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
+            }
+        } catch (err) {
+            console.error('Finalize/SMS Error:', err);
+            alert('Finalize failed. SMS could not be sent.');
+            return;
+        } finally {
+            setIsDetailsLoading(false);
+        }
+    } else {
+        // 🚀 NEW: For printed bills, send SMS without finalizing
+        if (phoneNo) {
             setIsDetailsLoading(true);
             try {
-                // 🚀 FIXED: Include supplier_code and advance_amount in the request
-                const response = await api.post('/suppliers/mark-as-printed', {
+                // Send SMS for reprint using the same backend method
+                // but with a flag to indicate it's a reprint
+                const smsResponse = await api.post('/suppliers/resend-sms', {
+                    bill_no: selectedBillNo,
+                    telephone_no: phoneNo,
+                    supplier_code: selectedSupplier,
                     transaction_ids: supplierDetails.map(r => r.id),
-                    telephone_no: phoneNo,         // The number we fetched from the DB
-                    advance_amount: advanceAmount,  // ⚠️ This was missing
-                    supplier_code: selectedSupplier // ⚠️ This was missing
+                    advance_amount: advanceAmount,
+                    is_reprint: true  // Add flag to indicate reprint
                 });
-
-                finalBillNo = response.data.new_bill_no;
-                setSelectedBillNo(finalBillNo);
-
-                // Log for debugging
-                if (phoneNo) {
-                    console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
-                }
+                
+                console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
+                
+                // Show success message
+                setPhoneStatus('📱 SMS resent');
+                setTimeout(() => setPhoneStatus(''), 2000);
+                
             } catch (err) {
-                console.error('Finalize/SMS Error:', err);
-                alert('Finalize failed. SMS could not be sent.');
-                return;
+                console.error('SMS Resend Error:', err);
+                // Don't block printing if SMS fails - just show warning
+                setPhoneStatus('⚠️ SMS failed');
+                setTimeout(() => setPhoneStatus(''), 2000);
             } finally {
                 setIsDetailsLoading(false);
             }
+        } else {
+            // Optional: Show warning if no phone number
+            setPhoneStatus('⚠️ No phone number');
+            setTimeout(() => setPhoneStatus(''), 2000);
         }
+    }
 
-        // After backend success, proceed to show the browser print dialog
-        const content = getBillContent(finalBillNo);
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-            printWindow.document.write(`<html><body>${content}</body></html>`);
-            printWindow.document.close();
-            printWindow.focus();
-            printWindow.print();
+    // After backend success, proceed to show the browser print dialog
+    const content = getBillContent(finalBillNo);
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+        printWindow.document.write(`<html><body>${content}</body></html>`);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
 
-            // ✅ Refresh current page after print dialog opens
-            setTimeout(() => {
-                window.location.reload();
-            }, 500); // small delay helps avoid blocking print
-        }
-    }, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
+        // ✅ Refresh current page after print dialog opens
+        setTimeout(() => {
+            window.location.reload();
+        }, 500);
+    }
+}, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
 
     // --- Keyboard event listener ---
     useEffect(() => {
