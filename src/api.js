@@ -16,10 +16,6 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-
-  // ✅ DYNAMIC CONTENT-TYPE LOGIC
-  // If the data is FormData (images), we MUST let the browser set the Content-Type
-  // so it can include the unique boundary string.
   if (config.data instanceof FormData) {
     delete config.headers['Content-Type'];
   } else {

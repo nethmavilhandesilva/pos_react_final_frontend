@@ -33,6 +33,7 @@ import SalesReport from './components/Reports/SalesReport2';
 import PublicBill from './pages/PublicBill';
 import SupplierdobReport from './components/Suppliers/SupplierdobReport';
 import ViewSupplierBill from './pages/ViewSupplierBill';
+import FarmerLoanManager from './components/LoanManager/FarmerLoanManager';
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -272,6 +273,7 @@ export default function App() {
 
                 <Route path="/suppliers/dobreport" element={<SupplierdobReport />} />
                 <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
+                <Route path="/farmer-loans" element={<FarmerLoanManager />} />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

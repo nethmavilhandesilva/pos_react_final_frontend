@@ -18,6 +18,11 @@ const SupplierReport = () => {
     //new states  in adding telephone no
     const [phoneNo, setPhoneNo] = useState('');
     const [phoneStatus, setPhoneStatus] = useState(''); // For feedback
+    const [enteredAmount, setEnteredAmount] = useState(0);
+
+    // 🚀 NEW STATE: For loan/paying amount
+    const [payingAmount, setPayingAmount] = useState('');
+    const [loanStatus, setLoanStatus] = useState(''); // For feedback
 
     const [currentView, setCurrentView] = useState('summary');
     const [profilePic, setProfilePic] = useState(null);
@@ -136,6 +141,7 @@ const SupplierReport = () => {
             setIsDetailsLoading(false);
         }
     };
+    
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
@@ -164,6 +170,7 @@ const SupplierReport = () => {
         setAdvanceAmount(0);
         setProfilePic(null);
         setPhoneNo(''); // Reset before fetch
+        setPayingAmount(''); // Reset paying amount
         setAdvancePayload({ code: supplierCode, advance_amount: '' });
         setIsDetailsLoading(true);
 
@@ -202,6 +209,7 @@ const SupplierReport = () => {
         setAdvanceAmount(0);
         setProfilePic(null);
         setPhoneNo(''); // Reset before fetch
+        setPayingAmount(''); // Reset paying amount
         setAdvancePayload({ code: supplierCode, advance_amount: '' });
         setIsDetailsLoading(true);
 
@@ -247,6 +255,7 @@ const SupplierReport = () => {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
+    
     //function to add telephone number
     const handlePhoneSubmit = async (e) => {
         if (e.key === 'Enter') {
@@ -265,6 +274,55 @@ const SupplierReport = () => {
             }
         }
     };
+
+   // 🚀 NEW: Handle loan amount submission and trigger print
+const handleLoanSubmit = async (e) => {
+    if (e.key === 'Enter') {
+        if (!selectedSupplier || !payingAmount || parseFloat(payingAmount) <= 0) {
+            setLoanStatus('⚠️ Invalid amount');
+            setTimeout(() => setLoanStatus(''), 2000);
+            return;
+        }
+
+        setLoanStatus('Processing...');
+        
+        try {
+            // Calculate total amount (SupplierTotal - payingAmount)
+            const totalAmount = totalsupplierSales - parseFloat(payingAmount);
+            
+            // Save the loan amount
+            await api.post('/supplier-loan', {
+                code: selectedSupplier,
+                loan_amount: parseFloat(payingAmount),
+                total_amount: totalAmount,
+                bill_no: selectedBillNo || null
+            });
+            
+            setLoanStatus('✅ Loan saved');
+            
+            // Clear the input
+            setPayingAmount('');
+            
+            // Small delay to ensure the loan is saved before printing
+            setTimeout(() => {
+                // Trigger the print function
+                handlePrint();
+            }, 300);
+            
+        } catch (error) {
+            console.error("Loan Update Error:", error);
+            
+            if (error.response && error.response.status === 422) {
+                setLoanStatus('⚠️ Invalid supplier code');
+            } else {
+                setLoanStatus('❌ Error');
+            }
+            
+            setTimeout(() => setLoanStatus(''), 2000);
+        }
+    }
+};
+    
 
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
@@ -309,133 +367,153 @@ const SupplierReport = () => {
         };
     }, [supplierDetails]);
 
-    const getBillContent = useCallback((currentBillNo) => {
-        const date = new Date().toLocaleDateString('si-LK');
-        const mobile = '0777672838/071437115';
-        const is4Inch = billSize === '4inch';
-        const receiptMaxWidth = is4Inch ? '4in' : '350px';
-        const fontSizeBody = '25px';
-        const fontSizeHeader = '23px';
-        const fontSizeTotal = '28px';
+   const getBillContent = useCallback((currentBillNo) => {
+    const date = new Date().toLocaleDateString('si-LK');
+    const mobile = '0777672838/071437115';
+    const is4Inch = billSize === '4inch';
+    const receiptMaxWidth = is4Inch ? '4in' : '350px';
+    const fontSizeBody = '25px';
+    const fontSizeHeader = '23px';
+    const fontSizeTotal = '28px';
 
-        const colGroups = `
-        <colgroup>
-            <col style="width:32%;"> 
-            <col style="width:21%;">
-            <col style="width:21%;">
-            <col style="width:26%;">
-        </colgroup>`;
+    // 🚀 NEW: Calculation for Loan/Partial Payment
+    const paidAmountValue = parseFloat(payingAmount) || 0;
+    const remainingAfterPayment = totalsupplierSales - paidAmountValue;
 
-        const formatNumber = (value, maxDecimals = 3) => {
-            if (typeof value !== 'number' && typeof value !== 'string') return '0';
-            const number = parseFloat(value);
-            if (isNaN(number)) return '0';
-            if (Number.isInteger(number)) return number.toLocaleString('en-US');
-            const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-            return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-        };
+    const colGroups = `
+    <colgroup>
+        <col style="width:32%;"> 
+        <col style="width:21%;">
+        <col style="width:21%;">
+        <col style="width:26%;">
+    </colgroup>`;
 
-        const detailedItemsHtml = supplierDetails.map(record => {
-            const weight = parseFloat(record.weight) || 0;
-            const packs = parseInt(record.packs) || 0;
-            const price = parseFloat(record.SupplierPricePerKg) || 0;
-            const total = parseFloat(record.SupplierTotal) || 0;
-            const itemName = record.item_name || '';
-            const customerCode = record.customer_code?.toUpperCase() || '';
+    const formatNumber = (value, maxDecimals = 3) => {
+        if (typeof value !== 'number' && typeof value !== 'string') return '0';
+        const number = parseFloat(value);
+        if (isNaN(number)) return '0';
+        if (Number.isInteger(number)) return number.toLocaleString('en-US');
+        const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+        const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+        return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
+    };
 
-            return `
-            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
-                <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
-                <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
-                    <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
-                    <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
-                </td>
-            </tr>`;
-        }).join("");
-
-        const summaryEntries = Object.entries(itemSummaryData);
-        let itemSummaryHtml = '';
-        for (let i = 0; i < summaryEntries.length; i += 2) {
-            const [name1, d1] = summaryEntries[i];
-            const [name2, d2] = summaryEntries[i + 1] || [null, null];
-            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-            itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
-        }
-
-        // 🚀 CALCULATION FOR FINAL NET AMOUNT
-        const netPayable = totalsupplierSales - advanceAmount;
+    const detailedItemsHtml = supplierDetails.map(record => {
+        const weight = parseFloat(record.weight) || 0;
+        const packs = parseInt(record.packs) || 0;
+        const price = parseFloat(record.SupplierPricePerKg) || 0;
+        const total = parseFloat(record.SupplierTotal) || 0;
+        const itemName = record.item_name || '';
+        const customerCode = record.customer_code?.toUpperCase() || '';
 
         return `
-    <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
-        <div style="text-align:center; font-weight:bold;">
-            <div style="font-size:24px;">xxxx</div>
-            <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
-                <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span></div>
-            </div>
-          <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
-        </div>
-        <div style="font-size:19px; margin-top:10px; padding:0 5px;">
-            <div style="font-weight: bold;">දුර:${mobile}</div>
-            <div style="display:flex; justify-content:space-between; margin-top:3px;">
-                <span>බිල් අංකය:${currentBillNo}</span>
-                <span>දිනය:${date}</span>
-            </div>
-        </div>
-        <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
-        <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-            ${colGroups}
-            <thead>
-                <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                    <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
-                     <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
-                </tr>
-            </thead>
-            <tbody>${detailedItemsHtml}</tbody>
-            <tfoot>
-                <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
-                    <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
-                </tr>
-            </tfoot>
-        </table>
+        <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
+            <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
+            <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
+            <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
+            <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+                <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
+                <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
+            </td>
+        </tr>`;
+    }).join("");
 
-        <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-            <tr>
-              <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට ගෙවන්න:</td>
-              <td style="text-align:right;"><span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px; padding-left:25px;">${(totalsupplierSales.toFixed(2))}</span></td>
+    const summaryEntries = Object.entries(itemSummaryData);
+    let itemSummaryHtml = '';
+    for (let i = 0; i < summaryEntries.length; i += 2) {
+        const [name1, d1] = summaryEntries[i];
+        const [name2, d2] = summaryEntries[i + 1] || [null, null];
+        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+        itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
+    }
+
+    // 🚀 CALCULATION FOR FINAL NET AMOUNT
+    // We subtract both Advance and any current payment made
+    const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
+
+    return `
+<div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
+    <div style="text-align:center; font-weight:bold;">
+        <div style="font-size:24px;">xxxx</div>
+        <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
+            <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
+            <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span></div>
+        </div>
+      <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
+    </div>
+    <div style="font-size:19px; margin-top:10px; padding:0 5px;">
+        <div style="font-weight: bold;">දුර:${mobile}</div>
+        <div style="display:flex; justify-content:space-between; margin-top:3px;">
+            <span>බිල් අංකය:${currentBillNo}</span>
+            <span>දිනය:${date}</span>
+        </div>
+    </div>
+    <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
+    <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+        ${colGroups}
+        <thead>
+            <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
+                <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
+                <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
+                 <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
+                <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
             </tr>
-            
-           <tr style="font-size:18px;">
-  <td style="font-size:15px; padding-top:10px;">අත්තිකාරම්</td>
-  <td style="text-align:right; padding-top:10px; color:#000;">
-    - ${advanceAmount.toFixed(2)}
-  </td>
-</tr>
+        </thead>
+        <tbody>${detailedItemsHtml}</tbody>
+        <tfoot>
+            <tr style="border-top:2.5px solid #000; font-weight:bold;">
+                <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
+                <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
+            </tr>
+        </tfoot>
+    </table>
 
-           <tr style="font-weight:900;">
-  <td style="font-size:18px; padding-top:5px;">ඉතිරි ශේෂය:</td>
-  <td style="text-align:right; padding-top:5px;">
-    <span style="color:#000; font-size:${fontSizeTotal};">
-      ${netPayable.toFixed(2)}
-    </span>
-  </td>
-</tr>
+    <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
+        <tr>
+          <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
+          <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${(totalsupplierSales.toFixed(2))}</span></td>
+        </tr>
+        
+        ${paidAmountValue > 0 ? `
+        <tr style="font-size:18px;">
+            <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
+            <td style="text-align:right; padding-top:10px; color:#000;">
+                - ${paidAmountValue.toFixed(2)}
+            </td>
+        </tr>
+        <tr style="font-size:18px;">
+            <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
+            <td style="text-align:right; padding-top:5px; color:#000;">
+                ${remainingAfterPayment.toFixed(2)}
+            </td>
+        </tr>
+        <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
+        ` : ''}
 
-        </table>
+        <tr style="font-size:18px;">
+          <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
+          <td style="text-align:right; padding-top:5px; color:#000;">
+            - ${advanceAmount.toFixed(2)}
+          </td>
+        </tr>
 
-        <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
-    </div>`;
-    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount]);
+        <tr style="font-weight:900;">
+          <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
+          <td style="text-align:right; padding-top:10px;">
+            <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">
+              ${netPayable.toFixed(2)}
+            </span>
+          </td>
+        </tr>
+    </table>
+
+    <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
+</div>`;
+}, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
 
     // --- Print function ---
-  
+ 
 const handlePrint = useCallback(async () => {
     if (!supplierDetails || supplierDetails.length === 0) return;
 
@@ -530,6 +608,7 @@ const handlePrint = useCallback(async () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [supplierDetails, handlePrint, isDetailsLoading]);
+    
     //new profile pic view modal
     const renderImageModal = () => {
         if (!isImageModalOpen) return null;
@@ -742,24 +821,18 @@ const handlePrint = useCallback(async () => {
                                     value={phoneNo}
                                     onChange={(e) => setPhoneNo(e.target.value)}
                                     onKeyDown={handlePhoneSubmit}
-
-                                    /* --- ADDED DISABLED LOGIC HERE --- */
-                                    /* It is disabled if it's NOT an unprinted bill */
                                     disabled={!isUnprintedBill}
-
                                     style={{
                                         padding: '10px 15px',
                                         borderRadius: '8px',
                                         border: '2px solid #ffc107',
                                         fontSize: '1rem',
                                         width: '200px',
-                                        /* Visual feedback: Grey background if disabled, white if active */
                                         backgroundColor: !isUnprintedBill ? '#e9ecef' : '#ffffff',
                                         color: '#000000',
                                         fontWeight: 'bold',
                                         outline: 'none',
                                         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-                                        /* Visual hint for mouse cursor */
                                         cursor: !isUnprintedBill ? 'not-allowed' : 'text',
                                         opacity: !isUnprintedBill ? 0.8 : 1
                                     }}
@@ -767,6 +840,42 @@ const handlePrint = useCallback(async () => {
                                 {phoneStatus && (
                                     <span style={{ fontSize: '0.9rem', color: '#00ff00', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '4px' }}>
                                         {phoneStatus}
+                                    </span>
+                                )}
+                                
+                                {/* 🚀 NEW: Paying Amount Input */}
+                                <input
+                                    type="number"
+                                    placeholder="ගෙවන මුදල..."
+                                    value={payingAmount}
+                                    onChange={(e) => setPayingAmount(e.target.value)}
+                                    onKeyDown={handleLoanSubmit}
+                                    disabled={!selectedSupplier || supplierDetails.length === 0}
+                                    style={{
+                                        padding: '10px 15px',
+                                        borderRadius: '8px',
+                                        border: '2px solid #28a745',
+                                        fontSize: '1rem',
+                                        width: '180px',
+                                        backgroundColor: !selectedSupplier ? '#e9ecef' : '#ffffff',
+                                        color: '#000000',
+                                        fontWeight: 'bold',
+                                        outline: 'none',
+                                        boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+                                        cursor: !selectedSupplier ? 'not-allowed' : 'text',
+                                        marginLeft: '10px'
+                                    }}
+                                />
+                                {loanStatus && (
+                                    <span style={{ fontSize: '0.9rem', color: loanStatus.includes('✅') ? '#00ff00' : (loanStatus.includes('⚠️') ? '#ffc107' : '#ff4444'), fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '4px' }}>
+                                        {loanStatus}
+                                    </span>
+                                )}
+                                
+                                {/* Optional: Show the current SupplierTotal value for reference */}
+                                {totalsupplierSales > 0 && (
+                                    <span style={{ fontSize: '1rem', color: '#ffffff', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px 15px', borderRadius: '8px', marginLeft: '10px' }}>
+                                        ගෙවිය යුතු: රු. {totalsupplierSales.toFixed(2)}
                                     </span>
                                 )}
                             </div>
