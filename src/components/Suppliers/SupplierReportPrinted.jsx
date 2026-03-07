@@ -8,6 +8,7 @@ const SupplierReport = () => {
     // State for all data
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
+    const [loanSummary, setLoanSummary] = useState([]);
 
     // 🚀 NEW STATE: Bill size selector (3mm or 4mm)
     const [billSize, setBillSize] = useState('3mm');
@@ -81,6 +82,23 @@ const SupplierReport = () => {
     useEffect(() => {
         fetchSummary();
     }, [fetchSummary]);
+    //fetchoing loans for new unprinted section
+    const fetchLoanSummary = useCallback(async () => {
+        try {
+            const response = await api.get('/suppliers/loan-summary');
+            if (response.data.success) {
+                setLoanSummary(response.data.data);
+            }
+        } catch (error) {
+            console.error("Error fetching loan summary:", error);
+        }
+    }, []);
+
+    // Call this inside your existing useEffect or fetchSummary
+    useEffect(() => {
+        fetchSummary();
+        fetchLoanSummary(); // 🚀 Fetch the separate loan list
+    }, [fetchSummary, fetchLoanSummary]);
 
     // --- Navigation Handler ---
     const goToSalesEntry = () => {
@@ -141,7 +159,7 @@ const SupplierReport = () => {
             setIsDetailsLoading(false);
         }
     };
-    
+
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
@@ -201,43 +219,55 @@ const SupplierReport = () => {
     };
 
     // --- Updated: Handle Unprinted Bill Click ---
-    const handleUnprintedBillClick = async (supplierCode, billNo) => {
-        setSelectedSupplier(supplierCode);
-        setSelectedBillNo(billNo);
-        setIsUnprintedBill(true);
-        setSupplierDetails([]);
-        setAdvanceAmount(0);
-        setProfilePic(null);
-        setPhoneNo(''); // Reset before fetch
-        setPayingAmount(''); // Reset paying amount
-        setAdvancePayload({ code: supplierCode, advance_amount: '' });
-        setIsDetailsLoading(true);
+  // --- Updated: Handle Loan/Unprinted Bill Click ---
+const handleUnprintedBillClick = async (supplierCode, billNo) => {
+    setSelectedSupplier(supplierCode);
+    setSelectedBillNo(billNo);
+    setIsUnprintedBill(true);
+    setSupplierDetails([]);
+    setAdvanceAmount(0);
+    setProfilePic(null);
+    setPhoneNo(''); 
+    setPayingAmount(''); // Reset first
+    setAdvancePayload({ code: supplierCode, advance_amount: '' });
+    setIsDetailsLoading(true);
 
+    try {
+        // 1. Fetch the transaction details (the items in the bill)
+        const response = await api.get(`/suppliers/${supplierCode}/unprinted-details2`);
+        setSupplierDetails(response.data);
+
+        // 2. NEW: Fetch the saved loan amount for this specific bill/supplier
+        // Assuming you have a backend endpoint to find a loan by code and bill_no
         try {
-            const response = await api.get(`/suppliers/${supplierCode}/unprinted-details`);
-            setSupplierDetails(response.data);
-
-            // Fetch supplier profile to get the saved telephone number
-            const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
-            if (supRes.data) {
-                setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
-                setProfilePic(supRes.data.profile_pic);
-                // 🚀 MATCHING & FETCHING: This gets the phone from the DB record
-                setPhoneNo(supRes.data.telephone_no || '');
-
-                setSupplierDocs({
-                    title: supRes.data.name || supplierCode,
-                    profile: supRes.data.profile_pic,
-                    nic_front: supRes.data.nic_front,
-                    nic_back: supRes.data.nic_back
-                });
+            const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo || ''}`);
+            if (loanRes.data && loanRes.data.loan_amount) {
+                // Populate the Paying Amount input with the existing loan value
+                setPayingAmount(loanRes.data.loan_amount);
             }
-        } catch (error) {
-            console.error(`❌ Error fetching unprinted details:`, error.message);
-        } finally {
-            setIsDetailsLoading(false);
+        } catch (loanErr) {
+            console.warn("No existing loan record found for this selection.");
         }
-    };
+
+        // 3. Fetch supplier profile & advance (Existing logic)
+        const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
+        if (supRes.data) {
+            setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
+            setProfilePic(supRes.data.profile_pic);
+            setPhoneNo(supRes.data.telephone_no || '');
+            setSupplierDocs({
+                title: supRes.data.name || supplierCode,
+                profile: supRes.data.profile_pic,
+                nic_front: supRes.data.nic_front,
+                nic_back: supRes.data.nic_back
+            });
+        }
+    } catch (error) {
+        console.error(`❌ Error fetching details:`, error.message);
+    } finally {
+        setIsDetailsLoading(false);
+    }
+};
     // --- Function to reset details ---
     const resetDetails = () => {
         setSelectedSupplier(null);
@@ -255,7 +285,7 @@ const SupplierReport = () => {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
-    
+
     //function to add telephone number
     const handlePhoneSubmit = async (e) => {
         if (e.key === 'Enter') {
@@ -274,55 +304,62 @@ const SupplierReport = () => {
             }
         }
     };
-
-   // 🚀 NEW: Handle loan amount submission and trigger print
-const handleLoanSubmit = async (e) => {
-    if (e.key === 'Enter') {
-        if (!selectedSupplier || !payingAmount || parseFloat(payingAmount) <= 0) {
-            setLoanStatus('⚠️ Invalid amount');
-            setTimeout(() => setLoanStatus(''), 2000);
-            return;
-        }
-
-        setLoanStatus('Processing...');
-        
-        try {
-            // Calculate total amount (SupplierTotal - payingAmount)
-            const totalAmount = totalsupplierSales - parseFloat(payingAmount);
-            
-            // Save the loan amount
-            await api.post('/supplier-loan', {
-                code: selectedSupplier,
-                loan_amount: parseFloat(payingAmount),
-                total_amount: totalAmount,
-                bill_no: selectedBillNo || null
-            });
-            
-            setLoanStatus('✅ Loan saved');
-            
-            // Clear the input
-            setPayingAmount('');
-            
-            // Small delay to ensure the loan is saved before printing
-            setTimeout(() => {
-                // Trigger the print function
-                handlePrint();
-            }, 300);
-            
-        } catch (error) {
-            console.error("Loan Update Error:", error);
-            
-            if (error.response && error.response.status === 422) {
-                setLoanStatus('⚠️ Invalid supplier code');
-            } else {
-                setLoanStatus('❌ Error');
+    // 🚀 UPDATED: Handle loan amount submission and update sales records
+    const handleLoanSubmit = async (e) => {
+        if (e.key === 'Enter') {
+            if (!selectedSupplier || !payingAmount || parseFloat(payingAmount) <= 0) {
+                setLoanStatus('⚠️ Invalid amount');
+                setTimeout(() => setLoanStatus(''), 2000);
+                return;
             }
-            
-            setTimeout(() => setLoanStatus(''), 2000);
+
+            // Get the IDs of the records currently being viewed/processed
+            const currentTransactionIds = supplierDetails.map(record => record.id);
+
+            if (currentTransactionIds.length === 0) {
+                setLoanStatus('⚠️ No records selected');
+                return;
+            }
+
+            setLoanStatus('Processing...');
+
+            try {
+                // Calculate total amount (SupplierTotal - payingAmount)
+                const totalAmount = totalsupplierSales - parseFloat(payingAmount);
+
+                // Save the loan amount AND send the transaction IDs to update sales table
+                await api.post('/supplier-loan', {
+                    code: selectedSupplier,
+                    loan_amount: parseFloat(payingAmount),
+                    total_amount: totalAmount,
+                    bill_no: selectedBillNo || null,
+                    transaction_ids: currentTransactionIds // 🚀 NEW: Added this
+                });
+
+                setLoanStatus('✅ Loan saved');
+
+                // Clear the input
+                setPayingAmount('');
+
+                // Small delay to ensure the loan is saved before printing
+                setTimeout(() => {
+                    handlePrint();
+                }, 300);
+
+            } catch (error) {
+                console.error("Loan Update Error:", error);
+
+                if (error.response && error.response.status === 422) {
+                    setLoanStatus('⚠️ Invalid data');
+                } else {
+                    setLoanStatus('❌ Error');
+                }
+
+                setTimeout(() => setLoanStatus(''), 2000);
+            }
         }
-    }
-};
-    
+    };
+
 
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
@@ -367,20 +404,20 @@ const handleLoanSubmit = async (e) => {
         };
     }, [supplierDetails]);
 
-   const getBillContent = useCallback((currentBillNo) => {
-    const date = new Date().toLocaleDateString('si-LK');
-    const mobile = '0777672838/071437115';
-    const is4Inch = billSize === '4inch';
-    const receiptMaxWidth = is4Inch ? '4in' : '350px';
-    const fontSizeBody = '25px';
-    const fontSizeHeader = '23px';
-    const fontSizeTotal = '28px';
+    const getBillContent = useCallback((currentBillNo) => {
+        const date = new Date().toLocaleDateString('si-LK');
+        const mobile = '0777672838/071437115';
+        const is4Inch = billSize === '4inch';
+        const receiptMaxWidth = is4Inch ? '4in' : '350px';
+        const fontSizeBody = '25px';
+        const fontSizeHeader = '23px';
+        const fontSizeTotal = '28px';
 
-    // 🚀 NEW: Calculation for Loan/Partial Payment
-    const paidAmountValue = parseFloat(payingAmount) || 0;
-    const remainingAfterPayment = totalsupplierSales - paidAmountValue;
+        // 🚀 NEW: Calculation for Loan/Partial Payment
+        const paidAmountValue = parseFloat(payingAmount) || 0;
+        const remainingAfterPayment = totalsupplierSales - paidAmountValue;
 
-    const colGroups = `
+        const colGroups = `
     <colgroup>
         <col style="width:32%;"> 
         <col style="width:21%;">
@@ -388,25 +425,25 @@ const handleLoanSubmit = async (e) => {
         <col style="width:26%;">
     </colgroup>`;
 
-    const formatNumber = (value, maxDecimals = 3) => {
-        if (typeof value !== 'number' && typeof value !== 'string') return '0';
-        const number = parseFloat(value);
-        if (isNaN(number)) return '0';
-        if (Number.isInteger(number)) return number.toLocaleString('en-US');
-        const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-        const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-        return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-    };
+        const formatNumber = (value, maxDecimals = 3) => {
+            if (typeof value !== 'number' && typeof value !== 'string') return '0';
+            const number = parseFloat(value);
+            if (isNaN(number)) return '0';
+            if (Number.isInteger(number)) return number.toLocaleString('en-US');
+            const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
+        };
 
-    const detailedItemsHtml = supplierDetails.map(record => {
-        const weight = parseFloat(record.weight) || 0;
-        const packs = parseInt(record.packs) || 0;
-        const price = parseFloat(record.SupplierPricePerKg) || 0;
-        const total = parseFloat(record.SupplierTotal) || 0;
-        const itemName = record.item_name || '';
-        const customerCode = record.customer_code?.toUpperCase() || '';
+        const detailedItemsHtml = supplierDetails.map(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const price = parseFloat(record.SupplierPricePerKg) || 0;
+            const total = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || '';
+            const customerCode = record.customer_code?.toUpperCase() || '';
 
-        return `
+            return `
         <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
             <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
             <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
@@ -416,23 +453,23 @@ const handleLoanSubmit = async (e) => {
                 <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
             </td>
         </tr>`;
-    }).join("");
+        }).join("");
 
-    const summaryEntries = Object.entries(itemSummaryData);
-    let itemSummaryHtml = '';
-    for (let i = 0; i < summaryEntries.length; i += 2) {
-        const [name1, d1] = summaryEntries[i];
-        const [name2, d2] = summaryEntries[i + 1] || [null, null];
-        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-        itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
-    }
+        const summaryEntries = Object.entries(itemSummaryData);
+        let itemSummaryHtml = '';
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+            itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
+        }
 
-    // 🚀 CALCULATION FOR FINAL NET AMOUNT
-    // We subtract both Advance and any current payment made
-    const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
+        // 🚀 CALCULATION FOR FINAL NET AMOUNT
+        // We subtract both Advance and any current payment made
+        const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
 
-    return `
+        return `
 <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
     <div style="text-align:center; font-weight:bold;">
         <div style="font-size:24px;">xxxx</div>
@@ -510,91 +547,90 @@ const handleLoanSubmit = async (e) => {
 
     <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
 </div>`;
-}, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
+    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
 
     // --- Print function ---
- 
-const handlePrint = useCallback(async () => {
-    if (!supplierDetails || supplierDetails.length === 0) return;
 
-    let finalBillNo = selectedBillNo;
+    const handlePrint = useCallback(async () => {
+        if (!supplierDetails || supplierDetails.length === 0) return;
 
-    // If it's a new bill (Unprinted), we must finalize and send SMS
-    if (isUnprintedBill) {
-        setIsDetailsLoading(true);
-        try {
-            const response = await api.post('/suppliers/mark-as-printed', {
-                transaction_ids: supplierDetails.map(r => r.id),
-                telephone_no: phoneNo,
-                advance_amount: advanceAmount,
-                supplier_code: selectedSupplier
-            });
+        let finalBillNo = selectedBillNo;
 
-            finalBillNo = response.data.new_bill_no;
-            setSelectedBillNo(finalBillNo);
-
-            if (phoneNo) {
-                console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
-            }
-        } catch (err) {
-            console.error('Finalize/SMS Error:', err);
-            alert('Finalize failed. SMS could not be sent.');
-            return;
-        } finally {
-            setIsDetailsLoading(false);
-        }
-    } else {
-        // 🚀 NEW: For printed bills, send SMS without finalizing
-        if (phoneNo) {
+        // If it's a new bill (Unprinted), we must finalize and send SMS
+        if (isUnprintedBill) {
             setIsDetailsLoading(true);
             try {
-                // Send SMS for reprint using the same backend method
-                // but with a flag to indicate it's a reprint
-                const smsResponse = await api.post('/suppliers/resend-sms', {
-                    bill_no: selectedBillNo,
-                    telephone_no: phoneNo,
-                    supplier_code: selectedSupplier,
+                const response = await api.post('/suppliers/mark-as-printed', {
                     transaction_ids: supplierDetails.map(r => r.id),
                     advance_amount: advanceAmount,
-                    is_reprint: true  // Add flag to indicate reprint
+                    supplier_code: selectedSupplier
                 });
-                
-                console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
-                
-                // Show success message
-                setPhoneStatus('📱 SMS resent');
-                setTimeout(() => setPhoneStatus(''), 2000);
-                
+
+                finalBillNo = response.data.new_bill_no;
+                setSelectedBillNo(finalBillNo);
+
+                if (phoneNo) {
+                    console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
+                }
             } catch (err) {
-                console.error('SMS Resend Error:', err);
-                // Don't block printing if SMS fails - just show warning
-                setPhoneStatus('⚠️ SMS failed');
-                setTimeout(() => setPhoneStatus(''), 2000);
+                console.error('Finalize/SMS Error:', err);
+                alert('Finalize failed. SMS could not be sent.');
+                return;
             } finally {
                 setIsDetailsLoading(false);
             }
         } else {
-            // Optional: Show warning if no phone number
-            setPhoneStatus('⚠️ No phone number');
-            setTimeout(() => setPhoneStatus(''), 2000);
+            // 🚀 NEW: For printed bills, send SMS without finalizing
+            if (phoneNo) {
+                setIsDetailsLoading(true);
+                try {
+                    // Send SMS for reprint using the same backend method
+                    // but with a flag to indicate it's a reprint
+                    const smsResponse = await api.post('/suppliers/resend-sms', {
+                        bill_no: selectedBillNo,
+                        telephone_no: phoneNo,
+                        supplier_code: selectedSupplier,
+                        transaction_ids: supplierDetails.map(r => r.id),
+                        advance_amount: advanceAmount,
+                        is_reprint: true  // Add flag to indicate reprint
+                    });
+
+                    console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
+
+                    // Show success message
+                    setPhoneStatus('📱 SMS resent');
+                    setTimeout(() => setPhoneStatus(''), 2000);
+
+                } catch (err) {
+                    console.error('SMS Resend Error:', err);
+                    // Don't block printing if SMS fails - just show warning
+                    setPhoneStatus('⚠️ SMS failed');
+                    setTimeout(() => setPhoneStatus(''), 2000);
+                } finally {
+                    setIsDetailsLoading(false);
+                }
+            } else {
+                // Optional: Show warning if no phone number
+                setPhoneStatus('⚠️ No phone number');
+                setTimeout(() => setPhoneStatus(''), 2000);
+            }
         }
-    }
 
-    // After backend success, proceed to show the browser print dialog
-    const content = getBillContent(finalBillNo);
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-        printWindow.document.write(`<html><body>${content}</body></html>`);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
+        // After backend success, proceed to show the browser print dialog
+        const content = getBillContent(finalBillNo);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(`<html><body>${content}</body></html>`);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
 
-        // ✅ Refresh current page after print dialog opens
-        setTimeout(() => {
-            window.location.reload();
-        }, 500);
-    }
-}, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
+            // ✅ Refresh current page after print dialog opens
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        }
+    }, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
 
     // --- Keyboard event listener ---
     useEffect(() => {
@@ -608,7 +644,7 @@ const handlePrint = useCallback(async () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [supplierDetails, handlePrint, isDetailsLoading]);
-    
+
     //new profile pic view modal
     const renderImageModal = () => {
         if (!isImageModalOpen) return null;
@@ -811,35 +847,42 @@ const handlePrint = useCallback(async () => {
                         <h2 style={{ fontSize: "1.5rem", color: "white", margin: 0 }}>
                             ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo || 'N/A'}</strong>)
                         </h2>
-
                         {/* TELEPHONE INPUT - DISABLED FOR PRINTED BILLS */}
                         {selectedSupplier && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {/* 🚀 NEW: Paying Amount Input */}
                                 <input
-                                    type="text"
-                                    placeholder="දුරකථන අංකය..."
-                                    value={phoneNo}
-                                    onChange={(e) => setPhoneNo(e.target.value)}
-                                    onKeyDown={handlePhoneSubmit}
-                                    disabled={!isUnprintedBill}
+                                    type="number"
+                                    placeholder="ගෙවන මුදල..."
+                                    value={payingAmount}
+                                    onChange={(e) => setPayingAmount(e.target.value)}
+                                    onKeyDown={handleLoanSubmit}
+                                    disabled={!selectedSupplier || supplierDetails.length === 0}
                                     style={{
                                         padding: '10px 15px',
                                         borderRadius: '8px',
-                                        border: '2px solid #ffc107',
+                                        border: '2px solid #28a745',
                                         fontSize: '1rem',
-                                        width: '200px',
-                                        backgroundColor: !isUnprintedBill ? '#e9ecef' : '#ffffff',
+                                        width: '180px',
+                                        backgroundColor: !selectedSupplier ? '#e9ecef' : '#ffffff',
                                         color: '#000000',
                                         fontWeight: 'bold',
                                         outline: 'none',
                                         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-                                        cursor: !isUnprintedBill ? 'not-allowed' : 'text',
-                                        opacity: !isUnprintedBill ? 0.8 : 1
+                                        cursor: !selectedSupplier ? 'not-allowed' : 'text',
+                                        marginLeft: '10px'
                                     }}
                                 />
-                                {phoneStatus && (
-                                    <span style={{ fontSize: '0.9rem', color: '#00ff00', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '4px' }}>
-                                        {phoneStatus}
+                                {loanStatus && (
+                                    <span style={{ fontSize: '0.9rem', color: loanStatus.includes('✅') ? '#00ff00' : (loanStatus.includes('⚠️') ? '#ffc107' : '#ff4444'), fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '4px' }}>
+                                        {loanStatus}
+                                    </span>
+                                )}
+
+                                {/* Optional: Show the current SupplierTotal value for reference */}
+                                {totalsupplierSales > 0 && (
+                                    <span style={{ fontSize: '1rem', color: '#ffffff', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px 15px', borderRadius: '8px', marginLeft: '10px' }}>
+                                        ගෙවිය යුතු: රු. {totalsupplierSales.toFixed(2)}
                                     </span>
                                 )}
                             </div>
@@ -892,44 +935,7 @@ const handlePrint = useCallback(async () => {
                             </tbody>
                         </table>
 
-                        <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #ffffff33', borderRadius: '8px', backgroundColor: '#ffffff11' }}>
-                            <h3 style={{ color: '#ffc107', marginTop: 0, fontSize: '1.2rem' }}>අත්තිකාරම් ඇතුලත් කරන්න (Advance Entry)</h3>
-                            <form onSubmit={handleAdvanceSubmit} style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ fontSize: '0.8rem', color: '#eee', display: 'block', marginBottom: '5px' }}>Supplier Code</label>
-                                    <input
-                                        type="text"
-                                        value={advancePayload.code}
-                                        readOnly
-                                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', backgroundColor: '#eee', color: '#000' }}
-                                    />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ fontSize: '0.8rem', color: '#eee', display: 'block', marginBottom: '5px' }}>Amount (රු:)</label>
-                                    <input
-                                        type="number"
-                                        name="advance_amount"
-                                        value={advancePayload.advance_amount}
-                                        onChange={(e) => setAdvancePayload({ ...advancePayload, advance_amount: e.target.value })}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', color: '#000' }}
-                                        placeholder="0.00"
-                                        required
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={advanceLoading || !selectedSupplier}
-                                    style={{ padding: '10px 20px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', height: '40px' }}
-                                >
-                                    {advanceLoading ? 'Saving...' : 'Update Advance'}
-                                </button>
-                            </form>
-                            {advanceStatus.text && (
-                                <p style={{ color: advanceStatus.type === 'success' ? '#28a745' : '#ff4444', marginTop: '10px', fontWeight: 'bold' }}>
-                                    {advanceStatus.text}
-                                </p>
-                            )}
-                        </div>
+                        
                     </>
                 )}
                 <div style={{ textAlign: 'center' }}>
@@ -948,9 +954,9 @@ const handlePrint = useCallback(async () => {
     return (
         <>
             <nav style={navBarStyle}>
-                <h1 style={{ color: 'white', fontSize: '1.5rem', margin: 0 }}>සැපයුම්කරු වාර්තාව</h1>
+                <h1 style={{ color: 'white', fontSize: '1.5rem', margin: 0 }}>සැපයුම්කරු වාර්තාව ණය ලබාගත්</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                    <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/suppliers/printed-report')}>සැපයුම්කරු ණය</button>
+                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/farmer-loans')}>ගොවි ණය</button>
                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}>බිල්පත් ප්‍රමාණය: {billSize}</button>
                     <button style={{ padding: '10px 20px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={goToSalesEntry}>මුල් පිටුව</button>
                 </div>
@@ -968,9 +974,33 @@ const handlePrint = useCallback(async () => {
                     <div style={centerPanelContainerStyle}>{renderDetailsPanel()}</div>
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
-                            <h2 style={{ ...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px', whiteSpace: 'nowrap' }}>මුද්‍රණය නොකළ</h2>
-                            <input type="text" placeholder="🔍 මුද්‍රණ නොකළ සෙවීම..." value={unprintedSearchTerm} onChange={(e) => setUnprintedSearchTerm(e.target.value)} style={{ ...searchBarStyle, marginBottom: '20px', height: '22px', padding: '12px 25px' }} />
-                            <SupplierCodeList items={filteredUnprintedItems} type="unprinted" searchTerm={unprintedSearchTerm} />
+                       <h2 style={{ ...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px', whiteSpace: 'nowrap' }}>ණය ලබාගත්</h2>
+                            <div style={listContainerStyle}>
+                                {loanSummary.length > 0 ? (
+                                    loanSummary.map((loan, index) => (
+                                        <button
+                                            key={index}
+                                            onClick={() => handleUnprintedBillClick(loan.supplier_code, loan.supplier_bill_no)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px',
+                                                marginBottom: '5px',
+                                                backgroundColor: '#FF7043',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                cursor: 'pointer',
+                                                textAlign: 'left'
+                                            }}
+                                        >
+                                            <div style={{ fontWeight: 'bold' }}>{loan.supplier_code}</div>
+                                            <div style={{ fontSize: '12px' }}>බිල්: {loan.supplier_bill_no || 'Pending'}</div>
+                                        </button>
+                                    ))
+                                ) : (
+                                    <p style={{ color: 'white', padding: '10px' }}>ණය වාර්තා නොමැත</p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
