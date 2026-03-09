@@ -10,6 +10,18 @@ const SupplierReport = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [loanSummary, setLoanSummary] = useState([]);
 
+    // 🚀 NEW STATE: For Context Menu (Right Click)
+    const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, target: null });
+
+    // 🚀 NEW STATE: To hold specific loan record data (Paid & Remaining amounts)
+    const [selectedLoanRecord, setSelectedLoanRecord] = useState(null);
+
+    // 🚀 NEW STATES: For Farmer Full Report Feature
+    const [isFarmerModalOpen, setIsFarmerModalOpen] = useState(false);
+    const [allSuppliers, setAllSuppliers] = useState([]); 
+    const [selectedFarmerForReport, setSelectedFarmerForReport] = useState('');
+    const [fullReportData, setFullReportData] = useState(null); 
+
     // 🚀 NEW STATE: Bill size selector (3mm or 4mm)
     const [billSize, setBillSize] = useState('3mm');
 
@@ -92,6 +104,7 @@ const SupplierReport = () => {
     useEffect(() => {
         fetchSummary();
     }, [fetchSummary]);
+
     //fetchoing loans for new unprinted section
     const fetchLoanSummary = useCallback(async () => {
         try {
@@ -104,11 +117,88 @@ const SupplierReport = () => {
         }
     }, []);
 
+    // Fetch all suppliers for the report modal
+    const fetchAllSuppliersList = async () => {
+        try {
+            const res = await api.get('/suppliers/all-codes');
+            setAllSuppliers(res.data);
+        } catch (e) {
+            console.error("Error fetching codes:", e);
+        }
+    };
+
     // Call this inside your existing useEffect or fetchSummary
     useEffect(() => {
         fetchSummary();
         fetchLoanSummary(); // 🚀 Fetch the separate loan list
+        fetchAllSuppliersList(); // 🚀 Fetch for the Farmer Report Modal
     }, [fetchSummary, fetchLoanSummary]);
+
+    // 🚀 NEW: Context Menu Handlers
+    const handleContextMenu = (e, loan) => {
+        e.preventDefault();
+        setContextMenu({
+            visible: true,
+            x: e.pageX,
+            y: e.pageY,
+            target: loan
+        });
+    };
+
+    const closeContextMenu = () => {
+        setContextMenu({ ...contextMenu, visible: false });
+    };
+
+    // 🚀 NEW: Handle Delete Record
+    const handleDeleteRecord = async () => {
+        const loan = contextMenu.target;
+        if (!loan) return;
+
+        if (window.confirm(`${loan.supplier_code} සැපයුම්කරුගේ බිල් අංක ${loan.supplier_bill_no || 'Pending'} ට අදාල ණය වාර්තාව මකා දැමීමට ඔබට විශ්වාසද?`)) {
+            try {
+                setIsDetailsLoading(true);
+                await api.post('/suppliers/delete-loan-record', {
+                    code: loan.supplier_code,
+                    bill_no: loan.supplier_bill_no
+                });
+                
+                fetchLoanSummary();
+                fetchSummary();
+                resetDetails();
+                setLoanStatus('✅ මකා දමන ලදී');
+                setTimeout(() => setLoanStatus(''), 2000);
+            } catch (error) {
+                console.error("Delete Error:", error);
+                alert("මකා දැමීම අසාර්ථක විය.");
+            } finally {
+                setIsDetailsLoading(false);
+                closeContextMenu();
+            }
+        }
+    };
+
+    // 🚀 NEW: Farmer Report Logic
+    const handleOpenFarmerReport = async () => {
+        if (!selectedFarmerForReport) {
+            alert("කරුණාකර සැපයුම්කරුවෙකු තෝරන්න.");
+            return;
+        }
+        try {
+            const res = await api.get(`/suppliers/full-report?code=${selectedFarmerForReport}`);
+            if (res.data.success) {
+                setFullReportData(res.data);
+                setIsFarmerModalOpen(false);
+            }
+        } catch (e) {
+            alert("වාර්තාව ලබාගැනීම අසාර්ථක විය.");
+        }
+    };
+
+    // Listen for clicks to close context menu
+    useEffect(() => {
+        window.addEventListener('click', closeContextMenu);
+        return () => window.removeEventListener('click', closeContextMenu);
+    }, [contextMenu]);
 
     // --- Navigation Handler ---
     const goToSalesEntry = () => {
@@ -199,12 +289,23 @@ const SupplierReport = () => {
         setProfilePic(null);
         setPhoneNo(''); // Reset before fetch
         setPayingAmount(''); // Reset paying amount
+        setSelectedLoanRecord(null); // Reset loan data
         setAdvancePayload({ code: supplierCode, advance_amount: '' });
         setIsDetailsLoading(true);
 
         try {
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
+
+            // 🚀 NEW: Fetch existing loan record for this bill
+            try {
+                const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`);
+                if (loanRes.data) {
+                    setSelectedLoanRecord(loanRes.data);
+                }
+            } catch (loanErr) {
+                console.warn("No loan record found for this selection.");
+            }
 
             // Fetch supplier profile to get the saved telephone number
             const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
@@ -228,8 +329,7 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Updated: Handle Unprinted Bill Click ---
-  // --- Updated: Handle Loan/Unprinted Bill Click ---
+    // --- Updated: Handle Loan/Unprinted Bill Click ---
 const handleUnprintedBillClick = async (supplierCode, billNo) => {
     setSelectedSupplier(supplierCode);
     setSelectedBillNo(billNo);
@@ -239,6 +339,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
     setProfilePic(null);
     setPhoneNo(''); 
     setPayingAmount(''); // Reset first
+    setSelectedLoanRecord(null); // Reset loan data
     setAdvancePayload({ code: supplierCode, advance_amount: '' });
     setIsDetailsLoading(true);
 
@@ -248,12 +349,14 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         setSupplierDetails(response.data);
 
         // 2. NEW: Fetch the saved loan amount for this specific bill/supplier
-        // Assuming you have a backend endpoint to find a loan by code and bill_no
         try {
             const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo || ''}`);
-            if (loanRes.data && loanRes.data.loan_amount) {
-                // Populate the Paying Amount input with the existing loan value
-                setPayingAmount(loanRes.data.loan_amount);
+            if (loanRes.data) {
+                // Populate state for amounts and the input field
+                setSelectedLoanRecord(loanRes.data);
+                if (loanRes.data.loan_amount) {
+                    setPayingAmount(loanRes.data.loan_amount);
+                }
             }
         } catch (loanErr) {
             console.warn("No existing loan record found for this selection.");
@@ -287,6 +390,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         setAdvanceAmount(0);
         setAdvancePayload({ code: '', advance_amount: '' });
         setProfilePic(null);
+        setSelectedLoanRecord(null);
         fetchSummary();
     };
 
@@ -550,7 +654,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
 
     <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
 </div>`;
-    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, paymentAmount, paymentType]);
+    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, paymentAmount, paymentType, payingAmount]);
 
     // --- Print function ---
 
@@ -588,7 +692,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                 setIsDetailsLoading(true);
                 try {
                     // Send SMS for reprint using the same backend method
-                    // but with a flag to indicate it's a reprint
                     const smsResponse = await api.post('/suppliers/resend-sms', {
                         bill_no: selectedBillNo,
                         telephone_no: phoneNo,
@@ -606,14 +709,12 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
 
                 } catch (err) {
                     console.error('SMS Resend Error:', err);
-                    // Don't block printing if SMS fails - just show warning
                     setPhoneStatus('⚠️ SMS failed');
                     setTimeout(() => setPhoneStatus(''), 2000);
                 } finally {
                     setIsDetailsLoading(false);
                 }
             } else {
-                // Optional: Show warning if no phone number
                 setPhoneStatus('⚠️ No phone number');
                 setTimeout(() => setPhoneStatus(''), 2000);
             }
@@ -897,6 +998,109 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         );
     };
 
+    // 🚀 NEW: Selection Modal
+    const renderFarmerSelectorModal = () => {
+        if (!isFarmerModalOpen) return null;
+        return (
+            <div style={modalOverlayStyle}>
+                <div style={selectionModalContainer}>
+                    <h3 style={{ margin: '0 0 15px 0', color: '#1a2a6c' }}>සැපයුම්කරු වාර්තාව</h3>
+                    <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '15px' }}>වාර්තාව බැලීම සඳහා සැපයුම්කරු තෝරන්න</p>
+                    <select 
+                        style={modernSelect} 
+                        value={selectedFarmerForReport} 
+                        onChange={(e) => setSelectedFarmerForReport(e.target.value)}
+                    >
+                        <option value="">ගොවි කේතය තෝරන්න...</option>
+                        {allSuppliers.map(s => (
+                            <option key={s.id} value={s.code}>{s.code} - {s.name}</option>
+                        ))}
+                    </select>
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                        <button onClick={handleOpenFarmerReport} style={reportSubmitBtn}>වාර්තාව බලන්න</button>
+                        <button onClick={() => setIsFarmerModalOpen(false)} style={reportCancelBtn}>වසන්න</button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // 🚀 NEW: Interactive Full Report View
+    const renderFullReportView = () => {
+        if (!fullReportData) return null;
+        const { profile, loans, sales } = fullReportData;
+        const storageUrl = "https://goviraju.lk/sms_new_backend_50500/application/public/storage/";
+
+        return (
+            <div style={fullScreenReportOverlay}>
+                <div style={reportContainerPaper}>
+                    <button onClick={() => setFullReportData(null)} style={closeReportFloatingBtn}>✕ වසන්න</button>
+                    
+                    <div style={reportProfileHeader}>
+                        <img 
+                            src={profile.profile_pic ? `${storageUrl}${profile.profile_pic}` : 'https://via.placeholder.com/150'} 
+                            style={reportHeaderPic} 
+                            alt="Farmer" 
+                        />
+                        <div style={{ flex: 1 }}>
+                            <h1 style={{ margin: 0, color: '#1a2a6c' }}>{profile.name}</h1>
+                            <p style={{ margin: '5px 0', fontSize: '1.2rem', color: '#555' }}>ගොවි කේතය: <strong>{profile.code}</strong></p>
+                            <p style={{ margin: 0 }}>📍 {profile.address} | 📞 {profile.telephone_no}</p>
+                        </div>
+                        <div style={advanceReportBadge}>
+                            <small>පවතින අත්තිකාරම්</small>
+                            <h3>රු. {formatDecimal(profile.advance_amount)}</h3>
+                        </div>
+                    </div>
+
+                    <div style={reportContentGrid}>
+                        <div style={reportCard}>
+                            <h4 style={reportCardTitle}>විකුණුම් ඉතිහාසය (Sales)</h4>
+                            <div style={reportTableWrapper}>
+                                <table style={reportInteractiveTable}>
+                                    <thead>
+                                        <tr><th>දිනය</th><th>අයිතමය</th><th>බර (Kg)</th><th>මුළු අගය</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {sales.map(s => (
+                                            <tr key={s.id}>
+                                                <td>{s.Date}</td>
+                                                <td style={{ fontWeight: 'bold' }}>{s.item_name}</td>
+                                                <td>{s.weight}</td>
+                                                <td>{formatDecimal(s.SupplierTotal)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div style={reportCard}>
+                            <h4 style={reportCardTitle}>ණය සහ ගෙවීම් වාර්තා (Loans/Payments)</h4>
+                            <div style={reportTableWrapper}>
+                                <table style={reportInteractiveTable}>
+                                    <thead>
+                                        <tr><th>බිල් අං</th><th>ගෙවූ මුදල</th><th>ඉතිරි මුදල</th><th>ක්‍රමය</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {loans.map(l => (
+                                            <tr key={l.id}>
+                                                <td>{l.bill_no || 'N/A'}</td>
+                                                <td style={{ color: '#27ae60', fontWeight: 'bold' }}>{formatDecimal(l.loan_amount)}</td>
+                                                <td style={{ color: '#e74c3c' }}>{formatDecimal(l.total_amount)}</td>
+                                                <td>{l.type}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     // Helper component for rendering supplier codes
     const SupplierCodeList = ({ items, type, searchTerm }) => {
         const groupedItems = useMemo(() => {
@@ -921,7 +1125,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                 {supplierCodes.map(code => (
                     <div key={code}>
                         {groupedItems[code].map(id => (
-                            <button key={id} onClick={() => type === 'printed' ? handlePrintedBillClick(code, id) : handleUnprintedBillClick(code, null)} style={buttonStyle}>
+                            <button key={id} onClick={() => type === 'printed' ? handlePrintedBillClick(code, id) : handleUnprintedBillClick(code, id)} style={buttonStyle}>
                                 <span style={{ display: "block", textAlign: "left", fontSize: "15px", fontWeight: "600" }}>{type === 'printed' ? `${code}-${id}` : `${code}`}</span>
                             </button>
                         ))}
@@ -1061,7 +1265,34 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                             </tbody>
                         </table>
 
-                        
+                        {/* 🚀 NEW: DISPLAY PAID AND REMAINING AMOUNTS FETCHED FROM DATABASE */}
+                        {selectedLoanRecord && (
+                            <div style={{ 
+                                marginTop: '15px', 
+                                padding: '15px', 
+                                backgroundColor: '#0d2347', 
+                                borderRadius: '8px', 
+                                border: '1px solid #17a2b8',
+                                boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ flex: 1, textAlign: 'center' }}>
+                                        <p style={{ color: '#aaa', margin: '0 0 5px 0', fontSize: '0.8rem' }}>ගෙවූ මුදල (Paid Amount)</p>
+                                        <h3 style={{ color: '#2ecc71', margin: 0 }}>රු. {formatDecimal(selectedLoanRecord.loan_amount)}</h3>
+                                    </div>
+                                    <div style={{ height: '40px', width: '1px', backgroundColor: '#34495e' }}></div>
+                                    <div style={{ flex: 1, textAlign: 'center' }}>
+                                        <p style={{ color: '#aaa', margin: '0 0 5px 0', fontSize: '0.8rem' }}>මුළු ශේෂය (Remaining Balance)</p>
+                                        <h3 style={{ color: '#e74c3c', margin: 0 }}>රු. {formatDecimal(selectedLoanRecord.total_amount)}</h3>
+                                    </div>
+                                </div>
+                                {selectedLoanRecord.type === 'Cheque' && (
+                                    <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#17a2b8', textAlign: 'center', borderTop: '1px solid #1a3a6b', paddingTop: '5px' }}>
+                                        චෙක්පත්: {selectedLoanRecord.bank_name} - {selectedLoanRecord.cheque_no} ({selectedLoanRecord.realized_date})
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </>
                 )}
                 <div style={{ textAlign: 'center' }}>
@@ -1079,10 +1310,64 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
 
     return (
         <>
+            {/* 🚀 NEW: Context Menu UI */}
+            {contextMenu.visible && (
+                <div 
+                    style={{ 
+                        position: 'absolute', 
+                        top: contextMenu.y, 
+                        left: contextMenu.x, 
+                        backgroundColor: 'white', 
+                        border: '1px solid #ccc', 
+                        borderRadius: '4px', 
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)', 
+                        zIndex: 11000,
+                        overflow: 'hidden'
+                    }}
+                >
+                    <button 
+                        onClick={handleDeleteRecord}
+                        style={{ 
+                            padding: '10px 20px', 
+                            border: 'none', 
+                            background: 'white', 
+                            cursor: 'pointer', 
+                            width: '100%', 
+                            textAlign: 'left',
+                            color: '#d32f2f',
+                            fontWeight: 'bold',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                        onMouseOver={(e) => e.target.style.backgroundColor = '#f5f5f5'}
+                        onMouseOut={(e) => e.target.style.backgroundColor = 'white'}
+                    >
+                        🗑️ මකා දමන්න (Delete)
+                    </button>
+                </div>
+            )}
+
             <nav style={navBarStyle}>
                 <h1 style={{ color: 'white', fontSize: '1.5rem', margin: 0 }}>සැපයුම්කරු වාර්තාව ණය ලබාගත්</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/farmer-loans')}>ගොවි ණය</button>
+                    <button 
+                        style={{ 
+                            padding: '8px 15px', 
+                            fontSize: '1rem', 
+                            fontWeight: 'bold', 
+                            backgroundColor: '#6f42c1', // Purple color for Farmer Report
+                            color: 'white', 
+                            border: 'none', 
+                            borderRadius: '5px', 
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                        }} 
+                        onClick={() => setIsFarmerModalOpen(true)}
+                    >
+                        📊 ගොවි වාර්තාව (Farmer Report)
+                    </button>
+                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/supplier-loan-report')}>ගොවි ණය වාර්තාව</button>
                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}>බිල්පත් ප්‍රමාණය: {billSize}</button>
                     <button style={{ padding: '10px 20px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={goToSalesEntry}>මුල් පිටුව</button>
                 </div>
@@ -1107,6 +1392,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                                         <button
                                             key={index}
                                             onClick={() => handleUnprintedBillClick(loan.supplier_code, loan.supplier_bill_no)}
+                                            onContextMenu={(e) => handleContextMenu(e, loan)} // 🚀 Trigger Context Menu
                                             style={{
                                                 width: '100%',
                                                 padding: '10px',
@@ -1131,6 +1417,8 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                     </div>
                 </div>
             </div>
+            {renderFarmerSelectorModal()}
+            {renderFullReportView()}
             {renderImageModal()}
             {renderEditModal()}
             {renderPaymentModal()}
@@ -1139,6 +1427,24 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
 };
 
 // --- STYLES ---
+const modalOverlayStyle = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 12000 };
+const selectionModalContainer = { backgroundColor: 'white', padding: '40px', borderRadius: '16px', width: '450px', textAlign: 'center' };
+const modernSelect = { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '1rem', marginTop: '10px' };
+const reportSubmitBtn = { flex: 1, padding: '12px', backgroundColor: '#1a2a6c', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' };
+const reportCancelBtn = { flex: 1, padding: '12px', backgroundColor: '#f1f2f6', color: '#333', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' };
+
+const fullScreenReportOverlay = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: '#f0f2f5', zIndex: 13000, overflowY: 'auto', padding: '30px' };
+const reportContainerPaper = { maxWidth: '1300px', margin: '0 auto', backgroundColor: 'white', padding: '50px', borderRadius: '24px', position: 'relative', boxShadow: '0 10px 50px rgba(0,0,0,0.1)' };
+const closeReportFloatingBtn = { position: 'absolute', top: '25px', right: '25px', padding: '10px 20px', backgroundColor: '#ff4757', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' };
+const reportProfileHeader = { display: 'flex', alignItems: 'center', gap: '40px', borderBottom: '2px solid #f1f2f6', paddingBottom: '40px' };
+const reportHeaderPic = { width: '140px', height: '140px', borderRadius: '20px', objectFit: 'cover', border: '5px solid #1a2a6c' };
+const advanceReportBadge = { backgroundColor: '#1a2a6c', color: 'white', padding: '20px 35px', borderRadius: '15px', textAlign: 'center' };
+const reportContentGrid = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginTop: '40px' };
+const reportCard = { backgroundColor: '#fff', border: '1px solid #e1e1e1', borderRadius: '16px', overflow: 'hidden' };
+const reportCardTitle = { backgroundColor: '#f8f9fa', margin: 0, padding: '20px', color: '#1a2a6c', borderBottom: '1px solid #eee' };
+const reportTableWrapper = { maxHeight: '600px', overflowY: 'auto' };
+const reportInteractiveTable = { width: '100%', borderCollapse: 'collapse', textAlign: 'left' };
+
 const headerContainerStyle = { padding: '40px 0 30px 0', borderBottom: '1px solid #E0E0E0', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', backgroundColor: '#1ec139ff' };
 const searchBarStyle = { width: '100%', fontSize: '1rem', borderRadius: '6px', border: '1px solid #E0E0E0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', boxSizing: 'border-box', backgroundColor: 'white' };
 const sectionsContainerStyle = { display: 'flex', justifyContent: 'space-between', gap: '20px' };
