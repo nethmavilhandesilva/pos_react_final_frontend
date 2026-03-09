@@ -35,6 +35,7 @@ import SupplierdobReport from './components/Suppliers/SupplierdobReport';
 import ViewSupplierBill from './pages/ViewSupplierBill';
 import FarmerLoanManager from './components/LoanManager/FarmerLoanManager';
 import SupplierReportPrinted from './components/Suppliers/SupplierReportPrinted';
+import SupplierLoanReport from './components/Reports/SupplierLoanReport'; // Adjust the path based on where you saved the file
 
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
@@ -276,6 +277,7 @@ export default function App() {
                 <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
                 <Route path="/farmer-loans" element={<FarmerLoanManager />} />
                 <Route path="/suppliers/printed-report" element={<SupplierReportPrinted />} />
+                <Route path="/supplier-loan-report" element={<SupplierLoanReport />} />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />
