@@ -34,7 +34,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const [bottomPassword, setBottomPassword] = useState('');
     const [isBottomUnlocked, setIsBottomUnlocked] = useState(true);
 
-    const HOSTED_SYSTEM_URL = 'https://talentconnect.lk/sms_new_frontend/';
+    const HOSTED_SYSTEM_URL = 'https://goviraju.lk/sms_new_frontend_50500/';
 
     useEffect(() => {
         // 1. Handle User Session
@@ -89,7 +89,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const closeDayProcessModal = () => setIsDayProcessModalOpen(false);
 
     const handleProfitReportClick = () => {
-        window.location.href = '/supplier-profit';
+        window.location.href = '/sms_new_frontend_50500/supplier-profit';
     };
 
     const handleSupplierReportClick = () => {
@@ -135,6 +135,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                     <li><Link to="/suppliers" className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
                                     <li><Link to="/commissions" className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
                                     <li><Link to="/reports/printed-sales" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා</Link></li>
+                                    <li><Link to="/reports/printed-sales2" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා 2</Link></li>
                                     <li><hr className="dropdown-divider" /></li>
                                     <li>
                                         <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = '/customers-loans/report'}>
@@ -197,7 +198,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                         { label: 'එළවළු', onClick: openItemReportModal },
                         { label: 'බර මත', onClick: openWeightReportModal },
                         { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
-                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/sms_new_frontend/financial-report' },
+                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/sms_new_frontend_50500/financial-report' },
                         { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
                         { label: 'සැපයුම් ලාභ ', onClick: handleProfitReportClick },
                         { label: 'සැපයුම් වාර්තාව', onClick: handleSupplierReportClick }

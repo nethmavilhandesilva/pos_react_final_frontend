@@ -492,7 +492,8 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                             let customerCode, displayText, totalAmount, billSales;
                             if (type === "printed") {
                                 customerCode = item.customerCode;
-                                displayText = item.displayText;
+                                // Show customer_code-bill_no in the printed section without total amount
+                                displayText = `${item.customerCode}-${item.billNo}`;
                                 billSales = allSales.filter(s => s.customer_code === item.customerCode && s.bill_no === item.billNo);
                                 totalAmount = billSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
                             } else {
@@ -502,12 +503,23 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                                 totalAmount = billSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
                             }
                             const isItemSelected = isSelected(item);
-                            const buttonText = `${displayText.replace(/\n/g, ' ')} - ${formatDecimal(totalAmount)}`;
+                            // Remove the total amount from button text
+                            const buttonText = displayText.replace(/\n/g, ' ');
 
                             return (
                                 <li key={type === "printed" ? `${item.customerCode}-${item.billNo}` : item.customerCode} className="flex">
-                                    <button onClick={() => handleCustomerClick(type, customerCode, item.billNo || null, billSales)} className={`py-1 mb-2 rounded-xl border ${isItemSelected ? "border-blue-600" : "bg-gray-50 hover:bg-gray-100 border-gray-200"}`} style={isItemSelected ? { backgroundColor: '#93C5FD', paddingLeft: '05px', width: '280px', textAlign: 'left' } : { paddingLeft: '1px', width: '280px', textAlign: 'left' }}>
-                                        <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'inherit', width: '100%' }} className={`font-semibold ${isItemSelected ? 'text-black' : 'text-gray-700'}`} title={buttonText}>{buttonText}</span>
+                                    <button
+                                        onClick={() => handleCustomerClick(type, customerCode, item.billNo || null, billSales)}
+                                        className={`py-1 mb-2 rounded-xl border ${isItemSelected ? "border-blue-600" : "bg-gray-50 hover:bg-gray-100 border-gray-200"}`}
+                                        style={isItemSelected ? { backgroundColor: '#93C5FD', paddingLeft: '05px', width: '280px', textAlign: 'left' } : { paddingLeft: '1px', width: '280px', textAlign: 'left' }}
+                                    >
+                                        <span
+                                            style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'inherit', width: '100%' }}
+                                            className={`font-semibold ${isItemSelected ? 'text-black' : 'text-gray-700'}`}
+                                            title={buttonText}
+                                        >
+                                            {buttonText}
+                                        </span>
                                     </button>
                                 </li>
                             );
@@ -622,7 +634,7 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
         }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
     }, [sales]);
 
-    const finalPayable = totals.billTotal + totals.totalBagPrice ;
+    const finalPayable = totals.billTotal + totals.totalBagPrice;
 
     return (
         <div className="flex flex-row flex-nowrap items-center justify-between w-full p-2 mt-2 rounded-xl border-2 border-blue-500 bg-gray-900 text-white font-bold shadow-lg overflow-hidden">
@@ -668,7 +680,7 @@ export default function SalesEntry() {
         isSubmitting: false, formData: initialFormData, packCost: 0, customerSearchInput: "", itemSearchInput: "",
         supplierSearchInput: "", currentBillNo: null, isLoading: false, customers: [], items: [], suppliers: [],
         forceUpdate: null, windowFocused: null, isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
-        gridPricePerKg: "", selectedSaleForBreakdown: null,
+        gridPricePerKg: "", selectedSaleForBreakdown: null, showSavePhoneButton: false,
         currentUser: null,
         isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false, customerProfilePic: null, supplierProfilePic: null, customerNameDisplay: "", supplierNameDisplay: "", isImageModalOpen: false, selectedImageData: { profile: null, nic_front: null, nic_back: null, title: "" },
     });
@@ -804,7 +816,7 @@ export default function SalesEntry() {
                 return acc;
             }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
             const calculatedFinal = totals.billTotal + totals.totalBagPrice;
-            setFormData(prev => prev.given_amount === null || prev.given_amount === "" ? { ...prev, given_amount: calculatedFinal.toFixed(2) } : prev);
+            //  setFormData(prev => prev.given_amount === null || prev.given_amount === "" ? { ...prev, given_amount: calculatedFinal.toFixed(2) } : prev);
         } else {
             setFormData(prev => ({ ...prev, given_amount: "" }));
         }
@@ -912,10 +924,7 @@ export default function SalesEntry() {
 
             // 1. Handle Given Amount
             if (currentFieldName === "given_amount") {
-                // We wait for the result. If it fails validation (missing photos), success will be null.
                 const success = await handleSubmitGivenAmount(e);
-
-                // ONLY call print if validation passed and DB was updated
                 if (success) {
                     handlePrintAndClear();
                 }
@@ -927,44 +936,31 @@ export default function SalesEntry() {
 
             // 3. Logic for TELEPHONE input (Reverse Lookup)
             if (currentFieldName === "telephone_no") {
+                // Hide save button when navigating away
+                updateState({ showSavePhoneButton: false });
                 refs.customer_code_input.current?.focus();
                 return;
             }
 
-            // 4. Logic for CUSTOMER CODE input (Automatic Telephone Fetching)
+            // 4. Logic for CUSTOMER CODE input - MODIFIED: Removed auto-save
             if (currentFieldName === "customer_code_input") {
                 const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
-                const currentPhone = (formData.telephone_no || "").trim();
 
                 if (code) {
-                    // LOCAL LOOKUP
+                    // LOCAL LOOKUP ONLY - NO AUTO-SAVE
                     const match = customers.find(c => String(c.short_name).toUpperCase() === code);
 
                     if (match) {
-                        // ✅ Only update customer_name
+                        // Only update customer_name
                         setFormData(prev => ({
                             ...prev,
                             customer_name: match.name || ""
                         }));
                         fetchLoanAmount(code);
-                    }
-
-                    // BACKEND SYNC
-                    try {
-                        const response = await api.post('/customers/check-or-create', {
-                            short_name: code,
-                            telephone_no: currentPhone || (match ? match.telephone_no : "")
-                        });
-
-                        if (response.data.customer) {
-                            // ✅ Only update customer_name
-                            setFormData(prev => ({
-                                ...prev,
-                                customer_name: response.data.customer.name || prev.customer_name
-                            }));
-                        }
-                    } catch (err) {
-                        console.error("Customer sync failed", err);
+                    } else {
+                        // Optionally show a message that customer doesn't exist
+                        // but don't auto-create
+                        console.log("Customer not found in local data");
                     }
                 }
 
@@ -1208,6 +1204,7 @@ export default function SalesEntry() {
             const creditTransactionStatus = isCredit ? 'Y' : 'N';
 
             // 3. VALIDATION: Check column status 'Y'
+            /*
             if (creditTransactionStatus === 'Y') {
                 const customerRecord = customers.find(c =>
                     String(c.short_name).toUpperCase() === customerCode
@@ -1227,6 +1224,7 @@ export default function SalesEntry() {
                     return null; // STOP
                 }
             }
+                */
 
             // 4. PROCEED: Update database with the determined status
             const updatePromises = salesToUpdate.map(sale =>
@@ -1257,7 +1255,7 @@ export default function SalesEntry() {
         e.preventDefault();
         if (state.isSubmitting) return;
 
-        // --- VALIDATION LOGIC ---
+        // --- 1. VALIDATION LOGIC ---
         const requiredFields = [
             { key: "customer_code", ref: "customer_code_input", label: "Customer Code" },
             { key: "supplier_code", ref: "supplier_code", label: "Supplier Code" },
@@ -1279,23 +1277,20 @@ export default function SalesEntry() {
             }
         }
 
+        // --- 2. PRE-FLIGHT PREPARATION ---
         updateState({ errors: {}, isSubmitting: true });
+
+        // Capture these now so they are available for the reset after the async gap
+        const customerCode = (formData.customer_code || autoCustomerCode).toUpperCase();
+        const currentSupplierCode = formData.supplier_code;
+        const currentCustomerName = formData.customer_name;
+        const currentTelephone = formData.telephone_no;
         const shouldUpdateRelatedPrice = state.priceManuallyChanged;
 
         try {
-            const customerCode = formData.customer_code || autoCustomerCode;
-            // Store current supplier code to re-apply it after reset
-            const currentSupplierCode = formData.supplier_code;
-
             const isEditing = editingSaleId !== null;
-            if (!isEditing && selectedPrintedCustomer) {
-                updateState({
-                    errors: { form: "Cannot add new entries to printed bills..." },
-                    isSubmitting: false
-                });
-                return;
-            }
 
+            // --- 3. BILLING LOGIC ---
             let billPrintedStatus = undefined, billNoToUse = null;
             if (!isEditing) {
                 if (state.currentBillNo) {
@@ -1303,7 +1298,9 @@ export default function SalesEntry() {
                     billNoToUse = state.currentBillNo;
                 } else if (selectedPrintedCustomer) {
                     billPrintedStatus = 'Y';
-                    billNoToUse = selectedPrintedCustomer.includes('-') ? selectedPrintedCustomer.split('-')[1] : printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no;
+                    billNoToUse = selectedPrintedCustomer.includes('-')
+                        ? selectedPrintedCustomer.split('-')[1]
+                        : printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no;
                 } else if (selectedUnprintedCustomer) {
                     billPrintedStatus = 'N';
                 }
@@ -1311,8 +1308,8 @@ export default function SalesEntry() {
 
             const payload = {
                 supplier_code: currentSupplierCode.toUpperCase(),
-                customer_code: customerCode.toUpperCase(),
-                customer_name: formData.customer_name,
+                customer_code: customerCode,
+                customer_name: currentCustomerName,
                 item_code: formData.item_code,
                 item_name: formData.item_name,
                 weight: parseFloat(formData.weight) || 0,
@@ -1328,11 +1325,24 @@ export default function SalesEntry() {
 
             const url = isEditing ? `${routes.sales}/${editingSaleId}` : routes.sales;
             const method = isEditing ? "put" : "post";
+
+            // --- 4. API EXECUTION ---
             const response = await api[method](url, payload);
 
+            // --- 5. DATA SYNC ---
             let updatedSales = response.data.sales || [response.data.sale || response.data.data || response.data];
             const updatedIds = updatedSales.map(s => s.id);
             const newAllSales = allSales.filter(s => !updatedIds.includes(s.id)).concat(updatedSales);
+
+            // --- 6. OPTIMIZED UI RESET ---
+            // We update everything in one cycle to prevent multiple re-renders
+            setFormData({
+                ...initialFormData,
+                customer_code: customerCode,
+                customer_name: currentCustomerName,
+                telephone_no: currentTelephone,
+                supplier_code: currentSupplierCode,
+            });
 
             updateState({
                 allSales: newAllSales,
@@ -1343,22 +1353,11 @@ export default function SalesEntry() {
                 gridPricePerKg: "",
             });
 
-            // ✅ THE FIX: Reset form but keep BOTH customer AND supplier code
-            setFormData(prevForm => ({
-                ...initialFormData,
-                customer_code: customerCode,
-                customer_name: prevForm.customer_name,
-                telephone_no: prevForm.telephone_no,
-                supplier_code: currentSupplierCode, // Keeps the supplier code
-            }));
-
-            // ✅ THE FIX: Focus and highlight the text so you can either keep it or type over it
-            setTimeout(() => {
-                if (refs.supplier_code.current) {
-                    refs.supplier_code.current.focus();
-                    refs.supplier_code.current.select(); // Automatically selects the text
-                }
-            }, 50);
+            // Immediate focus (no timeout) for faster data entry workflow
+            if (refs.supplier_code.current) {
+                refs.supplier_code.current.focus();
+                refs.supplier_code.current.select();
+            }
 
         } catch (error) {
             updateState({
@@ -1410,10 +1409,10 @@ export default function SalesEntry() {
                 const price = parseFloat(s.price_per_kg) || 0;
                 const packs = parseFloat(s.packs) || 0;
                 const pCost = parseFloat(s.CustomerPackCost) || 0;
-               
+
                 acc.billTotal += (weight * price);
                 acc.totalBagPrice += (packs * pCost);
-               
+
                 return acc;
             }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
@@ -1429,9 +1428,6 @@ export default function SalesEntry() {
                     } catch (error) {
                         fetchedGivenAmount = salesRecords[0]?.given_amount || calculatedFinal.toFixed(2);
                     }
-                } else {
-                    // For UNPRINTED, we default to the calculated total (Cash Bill mode)
-                    fetchedGivenAmount = calculatedFinal.toFixed(2);
                 }
 
                 setFormData({
@@ -1602,7 +1598,7 @@ export default function SalesEntry() {
         return `
     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
-            <div style="font-size:24px;">xxxx</div>
+            <div style="font-size:24px;">Manju</div>
             <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
             
           <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
@@ -1810,16 +1806,21 @@ ${loanRow}
                 // This reloads the entire page from the server
                 window.location.reload();
             }
-            if (selectedPrintedCustomer && e.key === "F5") { e.preventDefault(); return; }
+            if (selectedPrintedCustomer && e.key === "F5") {
+                e.preventDefault();
+                return;
+            }
             if (e.key === "F1") {
                 e.preventDefault();
 
-                if (refs.given_amount.current) {
+                // Show the save button
+                updateState({ showSavePhoneButton: true });
 
+                if (refs.given_amount.current) {
                     // Scroll to the field smoothly
                     refs.given_amount.current.scrollIntoView({
                         behavior: "smooth",
-                        block: "center" // or "nearest", "start"
+                        block: "center"
                     });
 
                     // Focus and select text
@@ -1835,6 +1836,45 @@ ${loanRow}
         window.addEventListener("keydown", handleShortcut);
         return () => window.removeEventListener("keydown", handleShortcut);
     }, [displayedSales, newSales, selectedPrintedCustomer, handlePrintAndClear, handleMarkAllProcessed, handleSubmitGivenAmount]);
+
+    //new function to save phone no 
+    const savePhoneNumber = async () => {
+        const phoneNumber = formData.telephone_no;
+        const customerCode = formData.customer_code || autoCustomerCode;
+
+        if (!phoneNumber || !customerCode) {
+            alert("Please enter both phone number and customer code");
+            return;
+        }
+
+        try {
+            const response = await api.post('/customers/check-or-create', {
+                short_name: customerCode,
+                telephone_no: phoneNumber
+            });
+
+            if (response.data.customer) {
+                // Update the customer name if returned
+                setFormData(prev => ({
+                    ...prev,
+                    customer_name: response.data.customer.name || prev.customer_name
+                }));
+                // Hide the save button after saving
+                updateState({ showSavePhoneButton: false });
+
+                // Focus on given_amount field after saving
+                setTimeout(() => {
+                    if (refs.given_amount.current) {
+                        refs.given_amount.current.focus();
+                        refs.given_amount.current.select();
+                    }
+                }, 100);
+            }
+        } catch (err) {
+            console.error("Failed to save phone number:", err);
+            alert("Failed to save phone number. Please try again.");
+        }
+    };
 
     const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
 
@@ -2029,7 +2069,54 @@ ${loanRow}
                                             <div className="flex flex-col gap-2 w-full">
                                                 {/* TELEPHONE NUMBER FIELD - Moved up independently using relative positioning */}
                                                 <div className="flex-1 min-w-0" style={{ position: 'relative', top: '-50px' }}>
-                                                    <input id="telephone_no" ref={refs.telephone_no} name="telephone_no" value={formData.telephone_no || ""} onChange={(e) => handleInputChange("telephone_no", e.target.value)} onKeyDown={(e) => handleKeyDown(e, "telephone_no")} type="text" placeholder="දුරකථන අංකය" disabled={!!selectedPrintedCustomer} className="px-2 py-1 font-bold text-sm w-full border rounded text-black placeholder-gray-500" style={{ backgroundColor: selectedPrintedCustomer ? '#4a5568' : '#f6f6ff', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box', cursor: selectedPrintedCustomer ? 'not-allowed' : 'text', opacity: selectedPrintedCustomer ? 0.7 : 1 }} />
+                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                        <input
+                                                            id="telephone_no"
+                                                            ref={refs.telephone_no}
+                                                            name="telephone_no"
+                                                            value={formData.telephone_no || ""}
+                                                            onChange={(e) => handleInputChange("telephone_no", e.target.value)}
+                                                            onKeyDown={(e) => handleKeyDown(e, "telephone_no")}
+                                                            type="text"
+                                                            placeholder="දුරකථන අංකය"
+                                                            disabled={!!selectedPrintedCustomer}
+                                                            className="px-2 py-1 font-bold text-sm w-full border rounded text-black placeholder-gray-500"
+                                                            style={{
+                                                                backgroundColor: selectedPrintedCustomer ? '#4a5568' : '#f6f6ff',
+                                                                border: '1px solid #4a5568',
+                                                                color: 'white',
+                                                                height: '36px',
+                                                                fontSize: '1rem',
+                                                                padding: '0 0.75rem',
+                                                                borderRadius: '0.5rem',
+                                                                boxSizing: 'border-box',
+                                                                cursor: selectedPrintedCustomer ? 'not-allowed' : 'text',
+                                                                opacity: selectedPrintedCustomer ? 0.7 : 1,
+                                                                flex: 1
+                                                            }}
+                                                        />
+                                                        {state.showSavePhoneButton && (
+                                                            <button
+                                                                onClick={savePhoneNumber}
+                                                                style={{
+                                                                    backgroundColor: '#4CAF50',
+                                                                    color: 'white',
+                                                                    border: 'none',
+                                                                    padding: '8px 16px',
+                                                                    borderRadius: '0.5rem',
+                                                                    cursor: 'pointer',
+                                                                    fontWeight: 'bold',
+                                                                    fontSize: '0.9rem',
+                                                                    whiteSpace: 'nowrap',
+                                                                    height: '36px'
+                                                                }}
+                                                                onMouseEnter={(e) => e.target.style.backgroundColor = '#45a049'}
+                                                                onMouseLeave={(e) => e.target.style.backgroundColor = '#4CAF50'}
+                                                            >
+                                                                Save
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 {/* CUSTOMER CODE FIELD - Stays in its original position */}
                                                 <div className="flex-1 min-w-0" style={{ marginTop: '-40px' }}>
@@ -2237,7 +2324,7 @@ ${loanRow}
                                         style={{ marginTop: "-75px" }}  // adjust value as needed
                                     >
                                         <div style={{ marginLeft: '660px', marginTop: '-2px' }}>
-                                           <input id="given_amount" ref={refs.given_amount} name="given_amount_field" type="tel" inputMode="numeric" autoComplete="new-password" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
+                                            <input id="given_amount" ref={refs.given_amount} name="given_amount_field" type="tel" inputMode="numeric" autoComplete="new-password" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
                                         </div>
                                     </div>
                                     <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>

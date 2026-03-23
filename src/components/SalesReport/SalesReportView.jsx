@@ -43,6 +43,64 @@ const SalesReportView = ({ reportData, onClose }) => {
         fetchCompanyInfo();
     }, []);
 
+    // Function to calculate correct totals for display while keeping all records
+    const calculateCorrectTotal = (sale, billPackCostMap) => {
+        const weightTotal = (Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0);
+        
+        // Only add CustomerPackCost for the first occurrence in each bill
+        const billNo = sale.bill_no;
+        let packCost = 0;
+        
+        if (billPackCostMap && billPackCostMap.has(billNo)) {
+            const packInfo = billPackCostMap.get(billNo);
+            // Only add pack cost if this is the first item in the bill
+            if (packInfo.firstItemId === sale.id) {
+                packCost = packInfo.totalPackCost;
+            }
+        }
+        
+        return weightTotal + packCost;
+    };
+
+    // Function to identify which records should contribute to CustomerPackCost
+    const identifyPackCostRecords = (salesData) => {
+        if (!salesData || !Array.isArray(salesData)) return new Map();
+        
+        const billPackMap = new Map();
+        
+        // First pass: Group by bill_no and calculate total pack cost per bill
+        salesData.forEach((sale) => {
+            const billNo = sale.bill_no;
+            const packCost = Number(sale.CustomerPackCost) || 0;
+            
+            if (!billPackMap.has(billNo)) {
+                billPackMap.set(billNo, {
+                    totalPackCost: 0,
+                    firstItemId: null,
+                    items: []
+                });
+            }
+            
+            const billData = billPackMap.get(billNo);
+            billData.totalPackCost += packCost;
+            billData.items.push(sale);
+        });
+        
+        // Second pass: Determine which record gets the pack cost in display
+        billPackMap.forEach((billData, billNo) => {
+            // Find the first item in the bill to attach the total pack cost
+            if (billData.items.length > 0) {
+                // Sort by id or date to get the first record
+                const sortedItems = [...billData.items].sort((a, b) => {
+                    return (a.id || 0) - (b.id || 0);
+                });
+                billData.firstItemId = sortedItems[0].id;
+            }
+        });
+        
+        return billPackMap;
+    };
+
     // Fetch sales data when backend filters change
     const fetchFilteredData = async () => {
         setLoading(true);
@@ -89,16 +147,25 @@ const SalesReportView = ({ reportData, onClose }) => {
             console.log('📦 Received response from backend:', response);
 
             // Extract the salesData from the response
-            const data = response.data?.salesData || [];
+            let data = response.data?.salesData || [];
             console.log('📊 Number of records:', data.length);
 
             if (data.length > 0) {
                 console.log('📝 First record sample:', data[0]);
             }
+            
+            // Identify which records should contribute to pack costs
+            const packCostMap = identifyPackCostRecords(data);
+            
+            // Store the pack cost map with the data for calculations
+            const processedData = data.map(record => ({
+                ...record,
+                _packCostMap: packCostMap
+            }));
 
-            setSalesData(data);
+            setSalesData(processedData);
             // Apply client-side filters after getting new data
-            applyLocalFilters(data);
+            applyLocalFilters(processedData);
         } catch (err) {
             console.error('❌ Error fetching sales data:', err);
             setSalesData([]);
@@ -128,6 +195,23 @@ const SalesReportView = ({ reportData, onClose }) => {
         }
     }, []);
 
+    // Helper function to calculate total for a sale (with proper pack cost handling)
+    const calculateSaleTotal = (sale) => {
+        const weightTotal = (Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0);
+        let packCost = 0;
+        
+        // Check if this sale should contribute to pack cost
+        if (sale._packCostMap && sale._packCostMap.has(sale.bill_no)) {
+            const packInfo = sale._packCostMap.get(sale.bill_no);
+            // Only add pack cost for the first item in the bill
+            if (packInfo.firstItemId === sale.id) {
+                packCost = packInfo.totalPackCost;
+            }
+        }
+        
+        return weightTotal + packCost;
+    };
+
     // Apply local filters (total range) - client-side only
     const applyLocalFilters = (data) => {
         // If no data provided, use salesData
@@ -146,13 +230,13 @@ const SalesReportView = ({ reportData, onClose }) => {
 
         if (localFilters.min_total) {
             filtered = filtered.filter(sale =>
-                Number(sale.total) >= Number(localFilters.min_total)
+                calculateSaleTotal(sale) >= Number(localFilters.min_total)
             );
         }
 
         if (localFilters.max_total) {
             filtered = filtered.filter(sale =>
-                Number(sale.total) <= Number(localFilters.max_total)
+                calculateSaleTotal(sale) <= Number(localFilters.max_total)
             );
         }
 
@@ -199,7 +283,7 @@ const SalesReportView = ({ reportData, onClose }) => {
         fetchFilteredData();
     };
 
-    // Group data after filtering
+    // Group data after filtering - keep ALL records visible
     const groupedData = filteredData.reduce((acc, sale) => {
         const customer = sale.customer_code || 'Unknown Customer';
         const bill = sale.bill_no || 'No Bill';
@@ -209,13 +293,22 @@ const SalesReportView = ({ reportData, onClose }) => {
         return acc;
     }, {});
 
+    // Calculate grand total with proper pack cost handling (only count once per bill)
     const grandTotal = Object.values(groupedData).reduce((total, custBills) => {
         return total + Object.values(custBills).reduce((custSum, billSales) => {
-            return custSum + billSales.reduce((sum, sale) =>
-                sum +
-                (Number(sale.total) || 0) +
-                (Number(sale.CustomerPackCost) || 0),
-                0);
+            // For each bill, only add pack cost once
+            const billNo = billSales[0]?.bill_no;
+            let packCostForBill = 0;
+            
+            if (billSales[0]?._packCostMap && billSales[0]._packCostMap.has(billNo)) {
+                packCostForBill = billSales[0]._packCostMap.get(billNo).totalPackCost;
+            }
+            
+            // Calculate total weight cost for all items in bill
+            const weightTotal = billSales.reduce((sum, sale) => 
+                sum + ((Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0)), 0);
+            
+            return custSum + weightTotal + packCostForBill;
         }, 0);
     }, 0);
 
@@ -462,12 +555,19 @@ const SalesReportView = ({ reportData, onClose }) => {
         ` : '';
 
         const salesHTML = Object.entries(groupedData).map(([customerCode, bills]) => {
+            // Calculate customer total correctly (pack cost only once per bill)
             const customerTotal = Object.values(bills).reduce((custSum, billSales) => {
-                return custSum + billSales.reduce((sum, sale) =>
-                    sum +
-                    (Number(sale.total) || 0) +
-                    (Number(sale.CustomerPackCost) || 0),
-                    0);
+                const billNo = billSales[0]?.bill_no;
+                let packCostForBill = 0;
+                
+                if (billSales[0]?._packCostMap && billSales[0]._packCostMap.has(billNo)) {
+                    packCostForBill = billSales[0]._packCostMap.get(billNo).totalPackCost;
+                }
+                
+                const weightTotal = billSales.reduce((sum, sale) => 
+                    sum + ((Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0)), 0);
+                
+                return custSum + weightTotal + packCostForBill;
             }, 0);
 
             return `
@@ -478,14 +578,21 @@ const SalesReportView = ({ reportData, onClose }) => {
 
                     ${Object.entries(bills).map(([billNo, sales]) => {
                         const isBill = billNo !== 'No Bill';
-                        const billTotal = sales.reduce((sum, sale) => sum + (Number(sale.weight) * Number(sale.price_per_kg) || 0), 0);
-                        const billTotal2 = sales.reduce((sum, sale) =>
-                            sum +
-                            (Number(sale.total) || 0) +
-                            (Number(sale.CustomerPackCost) || 0),
-                            0);
+                        // Calculate weight total only (without pack cost for individual items)
+                        const weightTotal = sales.reduce((sum, sale) => sum + (Number(sale.weight) * Number(sale.price_per_kg) || 0), 0);
+                        
+                        // Get pack cost for this bill (only added once)
+                        let packCostForBill = 0;
+                        if (sales[0]?._packCostMap && sales[0]._packCostMap.has(billNo)) {
+                            packCostForBill = sales[0]._packCostMap.get(billNo).totalPackCost;
+                        }
+                        
+                        const billTotalWithPack = weightTotal + packCostForBill;
                         const firstPrinted = sales[0]?.FirstTimeBillPrintedOn;
                         const reprinted = sales[0]?.BillReprintAfterchanges;
+                        
+                        // Determine which item shows the pack cost
+                        const firstItemId = sales[0]?._packCostMap?.get(billNo)?.firstItemId;
 
                         return `
                             <div style="padding: 20px; border-bottom: 1px solid #e0e0e0;">
@@ -502,6 +609,7 @@ const SalesReportView = ({ reportData, onClose }) => {
                                 <table style="width:100%; border-collapse:collapse; margin-bottom:15px; border-radius:8px; overflow:hidden; border:1px solid #e0e0e0;">
                                     <thead>
                                         <tr>
+                                            <th style="background:#4CAF50; color:white; padding:12px 8px;">Date</th>
                                             <th style="background:#4CAF50; color:white; padding:12px 8px;">බිල් අං</th>
                                             <th style="background:#4CAF50; color:white; padding:12px 8px;">කේතය</th>
                                             <th style="background:#4CAF50; color:white; padding:12px 8px; text-align:left;">භාණ්ඩ නාමය</th>
@@ -516,48 +624,56 @@ const SalesReportView = ({ reportData, onClose }) => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${sales.map(sale => `
-                                            <tr style="border-bottom:1px solid #e0e0e0;">
-                                                <td style="padding:10px 8px; text-align:center;">${sale.bill_no || ''}</td>
-                                                <td style="padding:10px 8px; text-align:center;">${sale.item_code || ''}</td>
-                                                <td style="padding:10px 8px; text-align:left;">${sale.item_name || ''}</td>
-                                                <td style="padding:10px 8px; text-align:right;">${sale.packs || ''}</td>
-                                                <td style="padding:10px 8px; text-align:right;">${Number(sale.weight || 0).toFixed(2)}</td>
-                                                <td style="padding:10px 8px; text-align:right;">${Number(sale.price_per_kg || 0).toFixed(2)}</td>
-                                                <td style="padding:10px 8px; text-align:center;">${sale.customer_code || ''}</td>
-                                                <td style="padding:10px 8px; text-align:center;">${sale.supplier_code || ''}</td>
-                                                <td style="padding:10px 8px; text-align:right; font-weight:600;">
-                                                    ${(Number(sale.weight || 0) * Number(sale.price_per_kg || 0)).toFixed(2)}
-                                                </td>
-                                                <td style="padding:10px 8px; text-align:center;">
-                                                    <span style="padding:4px 8px; border-radius:12px; font-size:11px; font-weight:600; background:${sale.credit_transaction === 'Y' ? '#ffd700' : '#4CAF50'}; color:${sale.credit_transaction === 'Y' ? '#000' : 'white'};">
-                                                        ${sale.credit_transaction === 'Y' ? 'Credit' : 'Cash'}
-                                                    </span>
-                                                </td>
-                                                <td style="padding:10px 8px; text-align:center;">
-                                                    <span style="padding:4px 8px; border-radius:12px; font-size:11px; font-weight:600; background:${sale.bill_printed === 'Y' ? '#2196F3' : '#f44336'}; color:white;">
-                                                        ${sale.bill_printed === 'Y' ? 'Printed' : 'Not Printed'}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        `).join('')}
+                                        ${sales.map(sale => {
+                                            const weightOnlyTotal = (Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0);
+                                            const isFirstItem = firstItemId === sale.id;
+                                            const displayTotal = isFirstItem ? weightOnlyTotal + packCostForBill : weightOnlyTotal;
+                                            const packIndicator = isFirstItem && packCostForBill > 0 ? ` (+Pack: ${packCostForBill})` : '';
+                                            
+                                            return `
+                                                <tr style="border-bottom:1px solid #e0e0e0;">
+                                                    <td style="padding:10px 8px; text-align:center;">${sale.Date || ''}</td>
+                                                    <td style="padding:10px 8px; text-align:center;">${sale.bill_no || ''}</td>
+                                                    <td style="padding:10px 8px; text-align:center;">${sale.item_code || ''}</td>
+                                                    <td style="padding:10px 8px; text-align:left;">${sale.item_name || ''}${packIndicator}</td>
+                                                    <td style="padding:10px 8px; text-align:right;">${sale.packs || ''}</td>
+                                                    <td style="padding:10px 8px; text-align:right;">${Number(sale.weight || 0).toFixed(2)}</td>
+                                                    <td style="padding:10px 8px; text-align:right;">${Number(sale.price_per_kg || 0).toFixed(2)}</td>
+                                                    <td style="padding:10px 8px; text-align:center;">${sale.customer_code || ''}</td>
+                                                    <td style="padding:10px 8px; text-align:center;">${sale.supplier_code || ''}</td>
+                                                    <td style="padding:10px 8px; text-align:right; font-weight:600;">
+                                                        ${displayTotal.toFixed(2)}
+                                                    </td>
+                                                    <td style="padding:10px 8px; text-align:center;">
+                                                        <span style="padding:4px 8px; border-radius:12px; font-size:11px; font-weight:600; background:${sale.credit_transaction === 'Y' ? '#ffd700' : '#4CAF50'}; color:${sale.credit_transaction === 'Y' ? '#000' : 'white'};">
+                                                            ${sale.credit_transaction === 'Y' ? 'Credit' : 'Cash'}
+                                                        </span>
+                                                    </td>
+                                                    <td style="padding:10px 8px; text-align:center;">
+                                                        <span style="padding:4px 8px; border-radius:12px; font-size:11px; font-weight:600; background:${sale.bill_printed === 'Y' ? '#2196F3' : '#f44336'}; color:white;">
+                                                            ${sale.bill_printed === 'Y' ? 'Printed' : 'Not Printed'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            `;
+                                        }).join('')}
                                     </tbody>
                                     <tfoot>
                                         <tr>
-                                            <td colspan="8" style="padding:12px 8px; text-align:right; background:#f0f2f5; font-weight:600;">
+                                            <td colspan="9" style="padding:12px 8px; text-align:right; background:#f0f2f5; font-weight:600;">
                                                 එකතුව (බර මිල):
                                             </td>
                                             <td style="padding:12px 8px; text-align:right; background:#f0f2f5; font-weight:600; color:#4CAF50;">
-                                                ${billTotal.toFixed(2)}
+                                                ${weightTotal.toFixed(2)}
                                             </td>
                                             <td colspan="2" style="background:#f0f2f5;"></td>
                                         </tr>
                                         <tr>
-                                            <td colspan="8" style="padding:12px 8px; text-align:right; background:#f0f2f5; font-weight:600;">
+                                            <td colspan="9" style="padding:12px 8px; text-align:right; background:#f0f2f5; font-weight:600;">
                                                 මලු සමග එකතුව:
                                             </td>
                                             <td style="padding:12px 8px; text-align:right; background:#f0f2f5; font-weight:600; color:#4CAF50;">
-                                                ${billTotal2.toFixed(2)}
+                                                ${billTotalWithPack.toFixed(2)}
                                             </td>
                                             <td colspan="2" style="background:#f0f2f5;"></td>
                                         </tr>
@@ -607,13 +723,35 @@ const SalesReportView = ({ reportData, onClose }) => {
         // Add headers
         excelData.push([
             'Date', 'Customer Code', 'Bill No', 'Item Code', 'Item Name', 'Packs', 'Weight (kg)',
-            'Price/kg', 'Supplier Code', 'Total', 'Transaction Type', 'Bill Status'
+            'Price/kg', 'Supplier Code', 'Weight Only Total', 'Pack Cost (Bill Total)', 'Display Total', 
+            'Transaction Type', 'Bill Status', 'Note'
         ]);
 
-        // Add data rows from filteredData
+        // Create a map to track pack costs per bill for Excel export
+        const packCostMap = new Map();
+        filteredData.forEach(sale => {
+            const billNo = sale.bill_no;
+            if (!packCostMap.has(billNo)) {
+                const totalPackCost = filteredData
+                    .filter(s => s.bill_no === billNo)
+                    .reduce((sum, s) => sum + (Number(s.CustomerPackCost) || 0), 0);
+                packCostMap.set(billNo, totalPackCost);
+            }
+        });
+
+        // Add data rows
         Object.entries(groupedData).forEach(([customerCode, bills]) => {
             Object.entries(bills).forEach(([billNo, sales]) => {
+                const totalPackCostForBill = packCostMap.get(billNo) || 0;
+                let isFirstItem = true;
+                
                 sales.forEach((sale) => {
+                    const weightOnlyTotal = (Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0);
+                    const displayTotal = isFirstItem ? weightOnlyTotal + totalPackCostForBill : weightOnlyTotal;
+                    const note = isFirstItem && totalPackCostForBill > 0 
+                        ? `Includes pack cost: ${totalPackCostForBill}` 
+                        : (totalPackCostForBill > 0 ? 'Pack cost shown in first item' : '');
+                    
                     excelData.push([
                         sale.Date || '',
                         customerCode,
@@ -624,10 +762,15 @@ const SalesReportView = ({ reportData, onClose }) => {
                         Number(sale.weight || 0).toFixed(2),
                         Number(sale.price_per_kg || 0).toFixed(2),
                         sale.supplier_code || '',
-                        (Number(sale.weight || 0) * Number(sale.price_per_kg || 0)).toFixed(2),
+                        weightOnlyTotal.toFixed(2),
+                        isFirstItem ? totalPackCostForBill.toFixed(2) : '0.00',
+                        displayTotal.toFixed(2),
                         sale.credit_transaction === 'Y' ? 'Credit' : 'Cash',
-                        sale.bill_printed === 'Y' ? 'Printed' : 'Not Printed'
+                        sale.bill_printed === 'Y' ? 'Printed' : 'Not Printed',
+                        note
                     ]);
+                    
+                    isFirstItem = false;
                 });
             });
         });
@@ -636,7 +779,7 @@ const SalesReportView = ({ reportData, onClose }) => {
         excelData.push([]);
         
         // Add grand total
-        excelData.push(['GRAND TOTAL', '', '', '', '', '', '', '', '', '', grandTotal.toFixed(2), '', '']);
+        excelData.push(['GRAND TOTAL', '', '', '', '', '', '', '', '', '', '', grandTotal.toFixed(2), '', '', '']);
 
         // Add filter information
         excelData.push([]);
@@ -662,6 +805,10 @@ const SalesReportView = ({ reportData, onClose }) => {
         if (localFilters.min_total || localFilters.max_total) {
             excelData.push(['Total Range', `${localFilters.min_total || '0'} - ${localFilters.max_total || '∞'}`]);
         }
+        
+        // Add note about pack cost handling
+        excelData.push([]);
+        excelData.push(['NOTE: Pack costs are only counted once per bill and displayed with the first item only to prevent double counting']);
 
         const ws = XLSX.utils.aoa_to_sheet(excelData);
         
@@ -676,17 +823,20 @@ const SalesReportView = ({ reportData, onClose }) => {
             { wch: 12 }, // Weight
             { wch: 10 }, // Price/kg
             { wch: 15 }, // Supplier Code
-            { wch: 12 }, // Total
+            { wch: 15 }, // Weight Only Total
+            { wch: 15 }, // Pack Cost
+            { wch: 12 }, // Display Total
             { wch: 15 }, // Transaction Type
-            { wch: 12 }  // Bill Status
+            { wch: 12 }, // Bill Status
+            { wch: 35 }  // Note
         ];
 
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Processed Sales Summary');
+        XLSX.utils.book_append_sheet(wb, ws, 'Sales Report');
         
         // Generate filename with current date and filter info
         const dateStr = new Date().toISOString().split('T')[0];
-        let filename = `Sales_Summary_${dateStr}`;
+        let filename = `Sales_Report_${dateStr}`;
         if (localFilters.start_date || localFilters.end_date) {
             filename += `_${localFilters.start_date || 'start'}_to_${localFilters.end_date || 'end'}`;
         }
@@ -1303,12 +1453,19 @@ const SalesReportView = ({ reportData, onClose }) => {
                     </div>
                 ) : (
                     !loading && Object.entries(groupedData).map(([customerCode, bills]) => {
+                        // Calculate customer total correctly
                         const customerTotal = Object.values(bills).reduce((custSum, billSales) => {
-                            return custSum + billSales.reduce((sum, sale) =>
-                                sum +
-                                (Number(sale.total) || 0) +
-                                (Number(sale.CustomerPackCost) || 0),
-                                0);
+                            const billNo = billSales[0]?.bill_no;
+                            let packCostForBill = 0;
+                            
+                            if (billSales[0]?._packCostMap && billSales[0]._packCostMap.has(billNo)) {
+                                packCostForBill = billSales[0]._packCostMap.get(billNo).totalPackCost;
+                            }
+                            
+                            const weightTotal = billSales.reduce((sum, sale) => 
+                                sum + ((Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0)), 0);
+                            
+                            return custSum + weightTotal + packCostForBill;
                         }, 0);
 
                         return (
@@ -1331,14 +1488,17 @@ const SalesReportView = ({ reportData, onClose }) => {
 
                                 {Object.entries(bills).map(([billNo, sales]) => {
                                     const isBill = billNo !== 'No Bill';
-                                    const billTotal = sales.reduce((sum, sale) => sum + (Number(sale.weight) * Number(sale.price_per_kg) || 0), 0);
-                                    const billTotal2 = sales.reduce((sum, sale) =>
-                                        sum +
-                                        (Number(sale.total) || 0) +
-                                        (Number(sale.CustomerPackCost) || 0),
-                                        0);
+                                    const weightTotal = sales.reduce((sum, sale) => sum + (Number(sale.weight) * Number(sale.price_per_kg) || 0), 0);
+                                    
+                                    let packCostForBill = 0;
+                                    if (sales[0]?._packCostMap && sales[0]._packCostMap.has(billNo)) {
+                                        packCostForBill = sales[0]._packCostMap.get(billNo).totalPackCost;
+                                    }
+                                    
+                                    const billTotalWithPack = weightTotal + packCostForBill;
                                     const firstPrinted = sales[0]?.FirstTimeBillPrintedOn;
                                     const reprinted = sales[0]?.BillReprintAfterchanges;
+                                    const firstItemId = sales[0]?._packCostMap?.get(billNo)?.firstItemId;
 
                                     return (
                                         <div key={billNo} style={{
@@ -1388,46 +1548,53 @@ const SalesReportView = ({ reportData, onClose }) => {
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {sales.map((sale, idx) => (
-                                                        <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0' }}>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.Date || ''}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.bill_no}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.item_code}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'left' }}>{sale.item_name}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right' }}>{sale.packs}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right' }}>{Number(sale.weight).toFixed(2)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right' }}>{Number(sale.price_per_kg).toFixed(2)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.customer_code}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.supplier_code}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600' }}>
-                                                                {(Number(sale.weight) * Number(sale.price_per_kg)).toFixed(2)}
-                                                            </td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                                                                <span style={{
-                                                                    padding: '4px 8px',
-                                                                    borderRadius: '12px',
-                                                                    fontSize: '11px',
-                                                                    fontWeight: '600',
-                                                                    background: sale.credit_transaction === 'Y' ? '#ffd700' : '#4CAF50',
-                                                                    color: sale.credit_transaction === 'Y' ? '#000' : 'white'
-                                                                }}>
-                                                                    {sale.credit_transaction === 'Y' ? 'Credit' : 'Cash'}
-                                                                </span>
-                                                            </td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                                                                <span style={{
-                                                                    padding: '4px 8px',
-                                                                    borderRadius: '12px',
-                                                                    fontSize: '11px',
-                                                                    fontWeight: '600',
-                                                                    background: sale.bill_printed === 'Y' ? '#2196F3' : '#f44336',
-                                                                    color: 'white'
-                                                                }}>
-                                                                    {sale.bill_printed === 'Y' ? 'Printed' : 'Not Printed'}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
+                                                    {sales.map((sale, idx) => {
+                                                        const weightOnlyTotal = (Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0);
+                                                        const isFirstItem = firstItemId === sale.id;
+                                                        const displayTotal = isFirstItem ? weightOnlyTotal + packCostForBill : weightOnlyTotal;
+                                                        const packIndicator = isFirstItem && packCostForBill > 0 ? ` (+Pack: ${packCostForBill})` : '';
+                                                        
+                                                        return (
+                                                            <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.Date || ''}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.bill_no}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.item_code}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'left' }}>{sale.item_name}{packIndicator}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right' }}>{sale.packs}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right' }}>{Number(sale.weight).toFixed(2)}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right' }}>{Number(sale.price_per_kg).toFixed(2)}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.customer_code}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'center' }}>{sale.supplier_code}</td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600' }}>
+                                                                    {displayTotal.toFixed(2)}
+                                                                </td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                                                                    <span style={{
+                                                                        padding: '4px 8px',
+                                                                        borderRadius: '12px',
+                                                                        fontSize: '11px',
+                                                                        fontWeight: '600',
+                                                                        background: sale.credit_transaction === 'Y' ? '#ffd700' : '#4CAF50',
+                                                                        color: sale.credit_transaction === 'Y' ? '#000' : 'white'
+                                                                    }}>
+                                                                        {sale.credit_transaction === 'Y' ? 'Credit' : 'Cash'}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                                                                    <span style={{
+                                                                        padding: '4px 8px',
+                                                                        borderRadius: '12px',
+                                                                        fontSize: '11px',
+                                                                        fontWeight: '600',
+                                                                        background: sale.bill_printed === 'Y' ? '#2196F3' : '#f44336',
+                                                                        color: 'white'
+                                                                    }}>
+                                                                        {sale.bill_printed === 'Y' ? 'Printed' : 'Not Printed'}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
                                                 </tbody>
                                                 <tfoot>
                                                     <tr>
@@ -1435,7 +1602,7 @@ const SalesReportView = ({ reportData, onClose }) => {
                                                             එකතුව (බර මිල):
                                                         </td>
                                                         <td style={{ padding: '12px 8px', textAlign: 'right', background: '#f0f2f5', fontWeight: '600', color: '#4CAF50' }}>
-                                                            {billTotal.toFixed(2)}
+                                                            {weightTotal.toFixed(2)}
                                                         </td>
                                                         <td colSpan="2" style={{ background: '#f0f2f5' }}></td>
                                                     </tr>
@@ -1444,7 +1611,7 @@ const SalesReportView = ({ reportData, onClose }) => {
                                                             මලු සමග එකතුව:
                                                         </td>
                                                         <td style={{ padding: '12px 8px', textAlign: 'right', background: '#f0f2f5', fontWeight: '600', color: '#4CAF50' }}>
-                                                            {billTotal2.toFixed(2)}
+                                                            {billTotalWithPack.toFixed(2)}
                                                         </td>
                                                         <td colSpan="2" style={{ background: '#f0f2f5' }}></td>
                                                     </tr>

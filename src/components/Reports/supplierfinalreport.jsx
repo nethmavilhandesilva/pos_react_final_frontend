@@ -6,11 +6,15 @@ const SupplierReport = () => {
 
     // Report Data
     const [reportData, setReportData] = useState({ billed: {}, nonBilled: {} });
+    const [filteredReportData, setFilteredReportData] = useState({ billed: {}, nonBilled: {} });
     const [loading, setLoading] = useState(false);
 
     // Date Filters
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+
+    // Search Filter
+    const [searchSupplierBillNo, setSearchSupplierBillNo] = useState('');
 
     // Fetch Report
     const fetchReport = async () => {
@@ -25,6 +29,7 @@ const SupplierReport = () => {
             });
 
             setReportData(response.data);
+            setFilteredReportData(response.data);
         } catch (error) {
             console.error("Error fetching report:", error);
         } finally {
@@ -32,14 +37,56 @@ const SupplierReport = () => {
         }
     };
 
+    // Filter by Supplier Bill Number
+    const filterBySupplierBillNo = (searchTerm) => {
+        if (!searchTerm.trim()) {
+            setFilteredReportData(reportData);
+            return;
+        }
+
+        const filterGroups = (groups) => {
+            const filtered = {};
+            Object.keys(groups).forEach(supplierCode => {
+                const filteredSales = groups[supplierCode].filter(sale => 
+                    sale.supplier_bill_no && 
+                    sale.supplier_bill_no.toLowerCase().includes(searchTerm.toLowerCase())
+                );
+                if (filteredSales.length > 0) {
+                    filtered[supplierCode] = filteredSales;
+                }
+            });
+            return filtered;
+        };
+
+        setFilteredReportData({
+            billed: filterGroups(reportData.billed),
+            nonBilled: filterGroups(reportData.nonBilled)
+        });
+    };
+
+    // Handle search input change
+    const handleSearchChange = (e) => {
+        const value = e.target.value;
+        setSearchSupplierBillNo(value);
+        filterBySupplierBillNo(value);
+    };
+
+    // Clear search
+    const handleClearSearch = () => {
+        setSearchSupplierBillNo('');
+        setFilteredReportData(reportData);
+    };
+
     // Reset Function
     const handleReset = async () => {
         setStartDate('');
         setEndDate('');
+        setSearchSupplierBillNo('');
         setLoading(true);
 
         const response = await api.get('/supplier-report');
         setReportData(response.data);
+        setFilteredReportData(response.data);
         setLoading(false);
     };
 
@@ -77,7 +124,7 @@ const SupplierReport = () => {
                                     <th className="text-end">මිල</th>
                                     <th className="text-end">එකතුව</th>
                                     <th className="text-end">ලාභය</th>
-                                </tr>
+                                 </tr>
                             </thead>
                             <tbody>
                                 {groups[key].map((sale, idx) => (
@@ -142,7 +189,7 @@ const SupplierReport = () => {
                             />
                         </div>
 
-                        <div className="col-md-3">
+                        <div className="col-md-2">
                             <button
                                 className="btn btn-primary w-100"
                                 onClick={fetchReport}
@@ -152,7 +199,7 @@ const SupplierReport = () => {
                             </button>
                         </div>
 
-                        <div className="col-md-3">
+                        <div className="col-md-2">
                             <button className="btn btn-secondary w-100" onClick={handleReset}>
                                 Reset
                             </button>
@@ -165,6 +212,40 @@ const SupplierReport = () => {
                             Showing records from <b>{startDate}</b> to <b>{endDate}</b>
                         </div>
                     )}
+                </div>
+
+                {/* SEARCH BAR - SUPPLIER BILL NUMBER FILTER */}
+                <div className="card shadow mb-4 p-3">
+                    <div className="row g-3 align-items-center">
+                        <div className="col-md-8">
+                            <label className="fw-bold">සැපයුම්කරු බිල් අංකය අනුව සොයන්න</label>
+                            <div className="input-group">
+                                <input 
+                                    type="text" 
+                                    className="form-control"
+                                    placeholder="සැපයුම්කරු බිල් අංකය ඇතුලත් කරන්න..."
+                                    value={searchSupplierBillNo}
+                                    onChange={handleSearchChange}
+                                />
+                                {searchSupplierBillNo && (
+                                    <button 
+                                        className="btn btn-outline-secondary" 
+                                        onClick={handleClearSearch}
+                                        type="button"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        <div className="col-md-4">
+                            {searchSupplierBillNo && (
+                                <div className="alert alert-info mb-0 py-2">
+                                    <i className="bi bi-search"></i> පෙරහන: <strong>{searchSupplierBillNo}</strong>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
 
                 {/* TITLE */}
@@ -186,24 +267,26 @@ const SupplierReport = () => {
                 {/* DATA */}
                 {!loading && (
                     <>
-                        {Object.keys(reportData.nonBilled).length > 0 && (
+                        {Object.keys(filteredReportData.nonBilled).length > 0 && (
                             <>
                                 <h4 className="fw-bold">බිල් නොකළ වාර්තා</h4>
-                                {renderTableBlock(reportData.nonBilled)}
+                                {renderTableBlock(filteredReportData.nonBilled)}
                             </>
                         )}
 
-                        {Object.keys(reportData.billed).length > 0 && (
+                        {Object.keys(filteredReportData.billed).length > 0 && (
                             <>
                                 <hr />
                                 <h4 className="fw-bold">බිල් කළ වාර්තා</h4>
-                                {renderTableBlock(reportData.billed)}
+                                {renderTableBlock(filteredReportData.billed)}
                             </>
                         )}
 
-                        {Object.keys(reportData.billed).length === 0 &&
-                         Object.keys(reportData.nonBilled).length === 0 && (
-                            <div className="alert alert-info">No records found</div>
+                        {Object.keys(filteredReportData.billed).length === 0 &&
+                         Object.keys(filteredReportData.nonBilled).length === 0 && (
+                            <div className="alert alert-info">
+                                {searchSupplierBillNo ? `"${searchSupplierBillNo}" සඳහා වාර්තා හමු නොවිණි` : 'No records found'}
+                            </div>
                         )}
                     </>
                 )}

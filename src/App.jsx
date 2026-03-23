@@ -14,7 +14,7 @@ import EditSupplier from './components/Suppliers/EditSupplier';
 import GrnList from './components/Grn/GrnList';
 import CreateGrn from './components/Grn/CreateGrn';
 import EditGrn from './components/Grn/EditGrn';
-import LoanManager from './components/LoanManager/LoanManager'; // ✅ NEW: Import LoanManager
+import LoanManager from './components/LoanManager/LoanManager'; 
 import GrnEntryForm from './components/Grn/GrnEntryForm';
 import Dashboard from './components/Dashboard/Dashboard';
 import LoginPage from './components/Auth/LoginPage';
