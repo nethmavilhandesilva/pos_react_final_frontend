@@ -369,7 +369,7 @@ const handleLoanSubmit = async (e) => {
 
    const getBillContent = useCallback((currentBillNo) => {
     const date = new Date().toLocaleDateString('si-LK');
-    const mobile = '0777672838/071437115';
+    const mobile = '0775097620/0761042808';
     const is4Inch = billSize === '4inch';
     const receiptMaxWidth = is4Inch ? '4in' : '350px';
     const fontSizeBody = '25px';

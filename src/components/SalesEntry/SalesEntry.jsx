@@ -1366,97 +1366,124 @@ export default function SalesEntry() {
             });
         }
     };
-    const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
-        if (state.isPrinting) return;
+const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
+    if (state.isPrinting) return;
 
-        // --- ADMIN MODAL LOGIC ---
-        if (currentUser?.role === 'Admin') {
-            updateState({
-                isAdminModalOpen: true,
-                modalType: 'customer',
-                modalTitle: `Customer: ${customerCode} ${billNo ? `(Bill: ${billNo})` : ''}`,
-                modalData: salesRecords
-            });
-            return;
-        }
+    // --- ADMIN MODAL LOGIC ---
+    if (currentUser?.role === 'Admin') {
+        updateState({
+            isAdminModalOpen: true,
+            modalType: 'customer',
+            modalTitle: `Customer: ${customerCode} ${billNo ? `(Bill: ${billNo})` : ''}`,
+            modalData: salesRecords
+        });
+        return;
+    }
 
-        const isPrinted = type === 'printed';
-        let selectionKey = customerCode;
-        if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
-        const isCurrentlySelected = isPrinted ? selectedPrintedCustomer === selectionKey : selectedUnprintedCustomer === selectionKey;
+    const isPrinted = type === 'printed';
+    let selectionKey = customerCode;
+    if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
+    const isCurrentlySelected = isPrinted ? selectedPrintedCustomer === selectionKey : selectedUnprintedCustomer === selectionKey;
 
-        if (isPrinted) {
-            updateState({
-                selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
-                selectedUnprintedCustomer: null,
-                currentBillNo: isCurrentlySelected ? null : billNo
-            });
-        } else {
-            updateState({
-                selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey,
-                selectedPrintedCustomer: null,
-                currentBillNo: null
-            });
-        }
+    if (isPrinted) {
+        updateState({
+            selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
+            selectedUnprintedCustomer: null,
+            currentBillNo: isCurrentlySelected ? null : billNo
+        });
+    } else {
+        updateState({
+            selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey,
+            selectedPrintedCustomer: null,
+            currentBillNo: null
+        });
+    }
 
-        const customer = customers.find(x => String(x.short_name).toUpperCase() === String(customerCode).toUpperCase());
+    const customer = customers.find(x => String(x.short_name).toUpperCase() === String(customerCode).toUpperCase());
 
-        if (!isCurrentlySelected) {
-            // --- NEW CALCULATION LOGIC FOR GIVEN AMOUNT ---
-            // We calculate the sum of the records that are about to be displayed
-            const totals = salesRecords.reduce((acc, s) => {
-                const weight = parseFloat(s.weight) || 0;
-                const price = parseFloat(s.price_per_kg) || 0;
-                const packs = parseFloat(s.packs) || 0;
-                const pCost = parseFloat(s.CustomerPackCost) || 0;
+    if (!isCurrentlySelected) {
+        // --- NEW CALCULATION LOGIC FOR GIVEN AMOUNT ---
+        // We calculate the sum of the records that are about to be displayed
+        const totals = salesRecords.reduce((acc, s) => {
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const packs = parseFloat(s.packs) || 0;
+            const pCost = parseFloat(s.CustomerPackCost) || 0;
 
-                acc.billTotal += (weight * price);
-                acc.totalBagPrice += (packs * pCost);
+            acc.billTotal += (weight * price);
+            acc.totalBagPrice += (packs * pCost);
 
-                return acc;
-            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+            return acc;
+        }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
-            const calculatedFinal = totals.billTotal + totals.totalBagPrice;
+        const calculatedFinal = totals.billTotal + totals.totalBagPrice;
 
-            try {
-                let fetchedGivenAmount = "";
-                // If it's a printed bill, try to fetch the amount already stored
-                if (isPrinted) {
-                    try {
-                        const response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`);
+        try {
+            let fetchedGivenAmount = "";
+            
+            // If it's a printed bill, try to fetch the amount already stored
+            if (isPrinted) {
+                try {
+                    // If we have a specific bill number, use it to get the exact given_amount for that bill
+                    let response;
+                    if (billNo) {
+                        // Option 1: If you implemented the route with billNo parameter
+                        response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}/${billNo}`);
                         fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
-                    } catch (error) {
-                        fetchedGivenAmount = salesRecords[0]?.given_amount || calculatedFinal.toFixed(2);
+                    } else {
+                        // Option 2: If using the grouped response
+                        response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`);
+                        
+                        // Check if response has by_bill_no structure
+                        if (response.data?.by_bill_no && billNo) {
+                            fetchedGivenAmount = response.data.by_bill_no[billNo] ?? calculatedFinal.toFixed(2);
+                        } 
+                        // Check if response has all_entries structure
+                        else if (response.data?.all_entries) {
+                            const matchingEntry = response.data.all_entries.find(entry => entry.bill_no === billNo);
+                            fetchedGivenAmount = matchingEntry?.given_amount ?? calculatedFinal.toFixed(2);
+                        }
+                        // Fallback to latest_given_amount
+                        else {
+                            fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
+                        }
                     }
+                } catch (error) {
+                    console.error('Error fetching given amount:', error);
+                    // Try to find given_amount from salesRecords as fallback
+                    const matchingRecord = salesRecords.find(record => record.bill_no === billNo);
+                    fetchedGivenAmount = matchingRecord?.given_amount || calculatedFinal.toFixed(2);
                 }
-
-                setFormData({
-                    ...initialFormData,
-                    customer_code: customerCode,
-                    customer_name: customer?.name || "",
-                    telephone_no: customer?.telephone_no || "",
-                    given_amount: fetchedGivenAmount // This fills the field immediately
-                });
-
-                fetchLoanAmount(customerCode);
-                setTimeout(() => refs.supplier_code.current?.focus(), 50);
-
-            } catch (error) {
-                setFormData({
-                    ...initialFormData,
-                    customer_code: customerCode,
-                    customer_name: customer?.name || "",
-                    telephone_no: customer?.telephone_no || "",
-                    given_amount: calculatedFinal.toFixed(2)
-                });
-                fetchLoanAmount(customerCode);
             }
-        } else {
-            handleClearForm();
-        }
 
-        updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
-    };
+            setFormData({
+                ...initialFormData,
+                customer_code: customerCode,
+                customer_name: customer?.name || "",
+                telephone_no: customer?.telephone_no || "",
+                given_amount: fetchedGivenAmount // This fills the field immediately
+            });
+
+            fetchLoanAmount(customerCode);
+            setTimeout(() => refs.supplier_code.current?.focus(), 50);
+
+        } catch (error) {
+            console.error('Error in customer selection:', error);
+            setFormData({
+                ...initialFormData,
+                customer_code: customerCode,
+                customer_name: customer?.name || "",
+                telephone_no: customer?.telephone_no || "",
+                given_amount: calculatedFinal.toFixed(2)
+            });
+            fetchLoanAmount(customerCode);
+        }
+    } else {
+        handleClearForm();
+    }
+
+    updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
+};
     const handleMarkAllProcessed = async () => {
         const salesToProcess = [...newSales, ...unprintedSales];
         if (salesToProcess.length === 0) return;
@@ -1701,101 +1728,137 @@ ${loanRow}
     };
 
     const handlePrintAndClear = async () => {
-        let salesData = displayedSales.filter(s => s.id);
+    // Get the currently selected customer code/bill
+    let salesData = [];
+    let customerCode = "";
+    let customerName = "";
+    
+    // Determine which sales to print based on selection
+    if (selectedPrintedCustomer) {
+        // For printed customer selection (with bill number)
+        if (selectedPrintedCustomer.includes('-')) {
+            const [cCode, bNo] = selectedPrintedCustomer.split('-');
+            customerCode = cCode;
+            // Get only sales matching this specific customer AND bill number
+            salesData = allSales.filter(s => 
+                s.customer_code === cCode && 
+                String(s.bill_no) === String(bNo) &&
+                s.bill_printed !== 'Y'  // Only unprinted ones
+            );
+        } else {
+            // Fallback for single code selection
+            customerCode = selectedPrintedCustomer;
+            salesData = allSales.filter(s => 
+                s.customer_code === selectedPrintedCustomer && 
+                s.bill_printed !== 'Y'
+            );
+        }
+    } 
+    else if (selectedUnprintedCustomer) {
+        // For unprinted customer selection
+        customerCode = selectedUnprintedCustomer;
+        salesData = allSales.filter(s => 
+            s.customer_code === selectedUnprintedCustomer && 
+            (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+        );
+    }
+    else {
+        // Fallback to displayedSales if no selection (shouldn't happen normally)
+        salesData = displayedSales.filter(s => s.id);
+    }
 
-        if (!salesData.length) {
-            alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+    if (!salesData.length) {
+        alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+        return;
+    }
+
+    // --- COMMISSION VALIDATION ---
+    for (const s of salesData) {
+        if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+            const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
+            alert(errorMsg);
             return;
         }
+    }
 
-        // --- COMMISSION VALIDATION ---
-        for (const s of salesData) {
-            if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
-                const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
-                alert(errorMsg);
-                return;
-            }
-        }
+    // --- ZERO PRICE VALIDATION ---
+    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+    if (hasZeroPrice) {
+        alert("මිල 0 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+        return;
+    }
 
-        // --- ZERO PRICE VALIDATION ---
-        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-        if (hasZeroPrice) {
-            alert("මිල 0 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
-            return;
-        }
+    try {
+        updateState({ isPrinting: true });
 
+        // Get customer name from first sale
+        customerName = salesData[0].customer_code || customerCode;
+        const mobile = salesData[0].mobile || "0777672838 / 071437115";
+
+        let currentLoan = 0;
         try {
-            updateState({ isPrinting: true });
-
-            const customerCode = salesData[0].customer_code || "N/A";
-            const customerName = salesData[0].customer_code || salesData[0].customer_code || customerCode;
-            const mobile = salesData[0].mobile || "0777672838 / 071437115";
-
-            let currentLoan = 0;
-            try {
-                const loanRes = await api.post(routes.getLoanAmount, {
-                    customer_short_name: customerCode
-                });
-                currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
-            } catch (e) {
-                console.warn("Loan fetch failed");
-            }
-
-            const printResponse = await api.post(routes.markPrinted, {
-                sales_ids: salesData.map(s => s.id),
-                telephone_no: formData.telephone_no,
-                customer_code: customerCode,
-                customer_name: customerName,
-                loan_amount: currentLoan
+            const loanRes = await api.post(routes.getLoanAmount, {
+                customer_short_name: customerCode
             });
-
-            if (printResponse.data.status !== "success") {
-                throw new Error("මුද්‍රණය අසාර්ථකයි");
-            }
-
-            const billNo = printResponse.data.bill_no || "";
-            const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
-
-            // Update local state before reload
-            updateState({
-                allSales: allSales.map(s =>
-                    salesData.some(sd => sd.id === s.id)
-                        ? { ...s, bill_printed: "Y", bill_no: billNo }
-                        : s
-                ),
-                selectedPrintedCustomer: null,
-                selectedUnprintedCustomer: null,
-                isPrinting: false
-            });
-
-            handleClearForm(true);
-
-            // Open Print Window
-            const printWindow = window.open("", "_blank", "width=800,height=600");
-            if (!printWindow) {
-                alert("Please allow pop-ups for printing");
-                window.location.reload(); // Reload anyway if blocked
-                return;
-            }
-
-            printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
-            printWindow.document.close();
-
-            // --- RELOAD LOGIC ---
-            // This interval checks if the print window is closed every 500ms
-            const checkWindowClosed = setInterval(() => {
-                if (printWindow.closed) {
-                    clearInterval(checkWindowClosed);
-                    window.location.reload(); // Reloads the main screen
-                }
-            }, 500);
-
-        } catch (error) {
-            console.error("Printing error:", error);
-            alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය.");
-            updateState({ isPrinting: false });
+            currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
+        } catch (e) {
+            console.warn("Loan fetch failed");
         }
-    };
+
+        const printResponse = await api.post(routes.markPrinted, {
+            sales_ids: salesData.map(s => s.id),
+            telephone_no: formData.telephone_no,
+            customer_code: customerCode,
+            customer_name: customerName,
+            loan_amount: currentLoan
+        });
+
+        if (printResponse.data.status !== "success") {
+            throw new Error("මුද්‍රණය අසාර්ථකයි");
+        }
+
+        const billNo = printResponse.data.bill_no || "";
+        const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
+
+        // Update local state before reload
+        updateState({
+            allSales: allSales.map(s =>
+                salesData.some(sd => sd.id === s.id)
+                    ? { ...s, bill_printed: "Y", bill_no: billNo }
+                    : s
+            ),
+            selectedPrintedCustomer: null,
+            selectedUnprintedCustomer: null,
+            isPrinting: false
+        });
+
+        handleClearForm(true);
+
+        // Open Print Window
+        const printWindow = window.open("", "_blank", "width=800,height=600");
+        if (!printWindow) {
+            alert("Please allow pop-ups for printing");
+            window.location.reload();
+            return;
+        }
+
+        printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
+        printWindow.document.close();
+
+        // --- RELOAD LOGIC ---
+        const checkWindowClosed = setInterval(() => {
+            if (printWindow.closed) {
+                clearInterval(checkWindowClosed);
+                window.location.reload();
+            }
+        }, 500);
+
+    } catch (error) {
+        console.error("Printing error:", error);
+        alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය.");
+        updateState({ isPrinting: false });
+    }
+};
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 
