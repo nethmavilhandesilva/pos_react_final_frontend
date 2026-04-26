@@ -390,14 +390,13 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
     const getPrintedCustomerGroups = () => {
         const groups = {};
         allSales.filter(s => s.bill_printed === 'Y' && s.bill_no).forEach(sale => {
-
             // --- UPDATED FILTER LOGIC ---
             if (type === "printed") {
                 if (isCashFilterActive) {
-                    // When ticked: show only 'N' (Cash)
+                    // When ticked (Cash filter active): Show Credit transactions (credit_transaction = 'Y')
                     if (sale.credit_transaction !== 'Y') return;
                 } else {
-                    // When unticked (Default): show only 'Y' (Credit)
+                    // When unticked (Default): Show Cash transactions (credit_transaction = 'N')
                     if (sale.credit_transaction !== 'N') return;
                 }
             }
@@ -406,7 +405,9 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
             if (!groups[groupKey]) groups[groupKey] = {
                 customerCode: sale.customer_code,
                 billNo: sale.bill_no,
-                displayText: sale.customer_code
+                displayText: sale.customer_code,
+                // Track if any sale in this group has given_amount_applied
+                hasGivenAmountApplied: sale.given_amount_applied && sale.given_amount_applied.trim() !== ''
             };
         });
         return groups;
@@ -490,12 +491,19 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                     <ul className="flex flex-col px-1">
                         {displayItems.map((item) => {
                             let customerCode, displayText, totalAmount, billSales;
+                            let shouldShowRed = false; // ADD THIS LINE
+
                             if (type === "printed") {
                                 customerCode = item.customerCode;
-                                // Show customer_code-bill_no in the printed section without total amount
                                 displayText = `${item.customerCode}-${item.billNo}`;
                                 billSales = allSales.filter(s => s.customer_code === item.customerCode && s.bill_no === item.billNo);
                                 totalAmount = billSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
+
+                                // ADD THIS BLOCK - Check if this bill should be shown in RED
+                                const hasGivenAmountApplied = billSales.some(sale =>
+                                    sale.given_amount_applied && sale.given_amount_applied.trim() !== ''
+                                );
+                                shouldShowRed = !hasGivenAmountApplied;
                             } else {
                                 customerCode = item.customerCode;
                                 displayText = item.customerCode;
@@ -503,7 +511,6 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                                 totalAmount = billSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
                             }
                             const isItemSelected = isSelected(item);
-                            // Remove the total amount from button text
                             const buttonText = displayText.replace(/\n/g, ' ');
 
                             return (
@@ -514,7 +521,17 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                                         style={isItemSelected ? { backgroundColor: '#93C5FD', paddingLeft: '05px', width: '280px', textAlign: 'left' } : { paddingLeft: '1px', width: '280px', textAlign: 'left' }}
                                     >
                                         <span
-                                            style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'inherit', width: '100%' }}
+                                            style={{
+                                                display: 'block',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                textAlign: 'inherit',
+                                                width: '100%',
+                                                // ADD THESE STYLES - Apply red color for printed bills without given_amount_applied
+                                                color: shouldShowRed ? '#dc2626' : (isItemSelected ? 'black' : '#374151'),
+                                                fontWeight: shouldShowRed ? 'bold' : 'normal'
+                                            }}
                                             className={`font-semibold ${isItemSelected ? 'text-black' : 'text-gray-700'}`}
                                             title={buttonText}
                                         >
@@ -702,7 +719,6 @@ export default function SalesEntry() {
         });
         return Object.values(groups);
     }, [allSales]);
-
     const unprintedFarmers = useMemo(() => {
         const groups = {};
         allSales.filter(s => s.supplier_bill_printed === 'N' || !s.supplier_bill_printed).forEach(sale => {
@@ -769,6 +785,78 @@ export default function SalesEntry() {
             maximumFractionDigits: 2,
         }).format(Number(value || 0));
     };
+    // Add this useEffect to listen for updates from PrintedBills page
+    useEffect(() => {
+        console.log("✅ SalesEntry event listener MOUNTED - listening for updates");
+
+        // Function to refresh sales data
+        const refreshSalesData = async () => {
+            try {
+                console.log("🔄 Refreshing sales data from API...");
+                const response = await api.get(routes.sales);
+                const salesData = response.data.data || response.data.sales || response.data || [];
+                console.log("📊 Fetched sales data:", salesData.length, "records");
+
+                // Force a complete state update
+                updateState({
+                    allSales: salesData,
+                    forceUpdate: Date.now() // This will force CustomerList to re-render
+                });
+                console.log("✅ Sales data updated in state, forceUpdate:", Date.now());
+            } catch (error) {
+                console.error("❌ Failed to refresh sales data:", error);
+            }
+        };
+
+        // Listen for custom event from PrintedBills
+        const handleSalesUpdate = (event) => {
+            console.log("🎉 RECEIVED update from PrintedBills:", event.detail);
+            console.log("Calling refreshSalesData immediately...");
+            refreshSalesData();
+        };
+
+        // Listen for storage events (for cross-tab communication)
+        const handleStorageChange = (event) => {
+            if (event.key === 'salesDataUpdated') {
+                console.log("📦 Detected sales data update from localStorage");
+                refreshSalesData();
+            }
+        };
+
+        // Also add a manual test function to verify event system works
+        window.testSalesRefresh = () => {
+            console.log("Manual test refresh triggered");
+            refreshSalesData();
+        };
+
+        window.addEventListener('salesDataUpdated', handleSalesUpdate);
+        window.addEventListener('storage', handleStorageChange);
+
+        return () => {
+            console.log("❌ SalesEntry event listener UNMOUNTED");
+            window.removeEventListener('salesDataUpdated', handleSalesUpdate);
+            window.removeEventListener('storage', handleStorageChange);
+            delete window.testSalesRefresh;
+        };
+    }, []);
+    // Add this AFTER your other useEffects - Simple polling solution
+    useEffect(() => {
+        // Refresh every 5 seconds
+        const interval = setInterval(async () => {
+            try {
+                const response = await api.get(routes.sales);
+                const salesData = response.data.data || response.data.sales || response.data || [];
+                updateState({
+                    allSales: salesData,
+                    forceUpdate: Date.now()
+                });
+            } catch (error) {
+                console.error("Refresh failed:", error);
+            }
+        }, 5000); // 5 seconds
+
+        return () => clearInterval(interval);
+    }, []);
 
 
     const fetchLoanAmount = async (customerCode) => {
@@ -1366,124 +1454,124 @@ export default function SalesEntry() {
             });
         }
     };
-const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
-    if (state.isPrinting) return;
+    const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
+        if (state.isPrinting) return;
 
-    // --- ADMIN MODAL LOGIC ---
-    if (currentUser?.role === 'Admin') {
-        updateState({
-            isAdminModalOpen: true,
-            modalType: 'customer',
-            modalTitle: `Customer: ${customerCode} ${billNo ? `(Bill: ${billNo})` : ''}`,
-            modalData: salesRecords
-        });
-        return;
-    }
-
-    const isPrinted = type === 'printed';
-    let selectionKey = customerCode;
-    if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
-    const isCurrentlySelected = isPrinted ? selectedPrintedCustomer === selectionKey : selectedUnprintedCustomer === selectionKey;
-
-    if (isPrinted) {
-        updateState({
-            selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
-            selectedUnprintedCustomer: null,
-            currentBillNo: isCurrentlySelected ? null : billNo
-        });
-    } else {
-        updateState({
-            selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey,
-            selectedPrintedCustomer: null,
-            currentBillNo: null
-        });
-    }
-
-    const customer = customers.find(x => String(x.short_name).toUpperCase() === String(customerCode).toUpperCase());
-
-    if (!isCurrentlySelected) {
-        // --- NEW CALCULATION LOGIC FOR GIVEN AMOUNT ---
-        // We calculate the sum of the records that are about to be displayed
-        const totals = salesRecords.reduce((acc, s) => {
-            const weight = parseFloat(s.weight) || 0;
-            const price = parseFloat(s.price_per_kg) || 0;
-            const packs = parseFloat(s.packs) || 0;
-            const pCost = parseFloat(s.CustomerPackCost) || 0;
-
-            acc.billTotal += (weight * price);
-            acc.totalBagPrice += (packs * pCost);
-
-            return acc;
-        }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
-
-        const calculatedFinal = totals.billTotal + totals.totalBagPrice;
-
-        try {
-            let fetchedGivenAmount = "";
-            
-            // If it's a printed bill, try to fetch the amount already stored
-            if (isPrinted) {
-                try {
-                    // If we have a specific bill number, use it to get the exact given_amount for that bill
-                    let response;
-                    if (billNo) {
-                        // Option 1: If you implemented the route with billNo parameter
-                        response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}/${billNo}`);
-                        fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
-                    } else {
-                        // Option 2: If using the grouped response
-                        response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`);
-                        
-                        // Check if response has by_bill_no structure
-                        if (response.data?.by_bill_no && billNo) {
-                            fetchedGivenAmount = response.data.by_bill_no[billNo] ?? calculatedFinal.toFixed(2);
-                        } 
-                        // Check if response has all_entries structure
-                        else if (response.data?.all_entries) {
-                            const matchingEntry = response.data.all_entries.find(entry => entry.bill_no === billNo);
-                            fetchedGivenAmount = matchingEntry?.given_amount ?? calculatedFinal.toFixed(2);
-                        }
-                        // Fallback to latest_given_amount
-                        else {
-                            fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error fetching given amount:', error);
-                    // Try to find given_amount from salesRecords as fallback
-                    const matchingRecord = salesRecords.find(record => record.bill_no === billNo);
-                    fetchedGivenAmount = matchingRecord?.given_amount || calculatedFinal.toFixed(2);
-                }
-            }
-
-            setFormData({
-                ...initialFormData,
-                customer_code: customerCode,
-                customer_name: customer?.name || "",
-                telephone_no: customer?.telephone_no || "",
-                given_amount: fetchedGivenAmount // This fills the field immediately
+        // --- ADMIN MODAL LOGIC ---
+        if (currentUser?.role === 'Admin') {
+            updateState({
+                isAdminModalOpen: true,
+                modalType: 'customer',
+                modalTitle: `Customer: ${customerCode} ${billNo ? `(Bill: ${billNo})` : ''}`,
+                modalData: salesRecords
             });
-
-            fetchLoanAmount(customerCode);
-            setTimeout(() => refs.supplier_code.current?.focus(), 50);
-
-        } catch (error) {
-            console.error('Error in customer selection:', error);
-            setFormData({
-                ...initialFormData,
-                customer_code: customerCode,
-                customer_name: customer?.name || "",
-                telephone_no: customer?.telephone_no || "",
-                given_amount: calculatedFinal.toFixed(2)
-            });
-            fetchLoanAmount(customerCode);
+            return;
         }
-    } else {
-        handleClearForm();
-    }
 
-    updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
-};
+        const isPrinted = type === 'printed';
+        let selectionKey = customerCode;
+        if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
+        const isCurrentlySelected = isPrinted ? selectedPrintedCustomer === selectionKey : selectedUnprintedCustomer === selectionKey;
+
+        if (isPrinted) {
+            updateState({
+                selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
+                selectedUnprintedCustomer: null,
+                currentBillNo: isCurrentlySelected ? null : billNo
+            });
+        } else {
+            updateState({
+                selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey,
+                selectedPrintedCustomer: null,
+                currentBillNo: null
+            });
+        }
+
+        const customer = customers.find(x => String(x.short_name).toUpperCase() === String(customerCode).toUpperCase());
+
+        if (!isCurrentlySelected) {
+            // --- NEW CALCULATION LOGIC FOR GIVEN AMOUNT ---
+            // We calculate the sum of the records that are about to be displayed
+            const totals = salesRecords.reduce((acc, s) => {
+                const weight = parseFloat(s.weight) || 0;
+                const price = parseFloat(s.price_per_kg) || 0;
+                const packs = parseFloat(s.packs) || 0;
+                const pCost = parseFloat(s.CustomerPackCost) || 0;
+
+                acc.billTotal += (weight * price);
+                acc.totalBagPrice += (packs * pCost);
+
+                return acc;
+            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+
+            const calculatedFinal = totals.billTotal + totals.totalBagPrice;
+
+            try {
+                let fetchedGivenAmount = "";
+
+                // If it's a printed bill, try to fetch the amount already stored
+                if (isPrinted) {
+                    try {
+                        // If we have a specific bill number, use it to get the exact given_amount for that bill
+                        let response;
+                        if (billNo) {
+                            // Option 1: If you implemented the route with billNo parameter
+                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}/${billNo}`);
+                            fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
+                        } else {
+                            // Option 2: If using the grouped response
+                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`);
+
+                            // Check if response has by_bill_no structure
+                            if (response.data?.by_bill_no && billNo) {
+                                fetchedGivenAmount = response.data.by_bill_no[billNo] ?? calculatedFinal.toFixed(2);
+                            }
+                            // Check if response has all_entries structure
+                            else if (response.data?.all_entries) {
+                                const matchingEntry = response.data.all_entries.find(entry => entry.bill_no === billNo);
+                                fetchedGivenAmount = matchingEntry?.given_amount ?? calculatedFinal.toFixed(2);
+                            }
+                            // Fallback to latest_given_amount
+                            else {
+                                fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error fetching given amount:', error);
+                        // Try to find given_amount from salesRecords as fallback
+                        const matchingRecord = salesRecords.find(record => record.bill_no === billNo);
+                        fetchedGivenAmount = matchingRecord?.given_amount || calculatedFinal.toFixed(2);
+                    }
+                }
+
+                setFormData({
+                    ...initialFormData,
+                    customer_code: customerCode,
+                    customer_name: customer?.name || "",
+                    telephone_no: customer?.telephone_no || "",
+                    given_amount: fetchedGivenAmount // This fills the field immediately
+                });
+
+                fetchLoanAmount(customerCode);
+                setTimeout(() => refs.supplier_code.current?.focus(), 50);
+
+            } catch (error) {
+                console.error('Error in customer selection:', error);
+                setFormData({
+                    ...initialFormData,
+                    customer_code: customerCode,
+                    customer_name: customer?.name || "",
+                    telephone_no: customer?.telephone_no || "",
+                    given_amount: calculatedFinal.toFixed(2)
+                });
+                fetchLoanAmount(customerCode);
+            }
+        } else {
+            handleClearForm();
+        }
+
+        updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
+    };
     const handleMarkAllProcessed = async () => {
         const salesToProcess = [...newSales, ...unprintedSales];
         if (salesToProcess.length === 0) return;
@@ -1509,131 +1597,112 @@ const handleCustomerClick = async (type, customerCode, billNo = null, salesRecor
         });
     };
 
-    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
-        const formatNumber = (num) => {
-            if (typeof num !== 'number' && typeof num !== 'string') return '0';
-            const number = parseFloat(num);
-            if (isNaN(number)) return '0';
+   const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+    const formatNumber = (num) => {
+        if (typeof num !== 'number' && typeof num !== 'string') return '0';
+        const number = parseFloat(num);
+        if (isNaN(number)) return '0';
 
-            // Check if it's a whole number or has decimals
-            if (Number.isInteger(number)) {
-                return number.toLocaleString('en-US');
-            } else {
-                // For decimal numbers, format the whole part with commas
-                const parts = number.toFixed(2).split('.');
-                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-                return `${wholePart}.${parts[1]}`;
-            }
-        };
+        if (Number.isInteger(number)) {
+            return number.toLocaleString('en-US');
+        } else {
+            const parts = number.toFixed(2).split('.');
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return `${wholePart}.${parts[1]}`;
+        }
+    };
 
-        const date = new Date().toLocaleDateString();
-        const time = new Date().toLocaleTimeString();
-        let totalAmountSum = 0;
-        const consolidatedSummary = {};
+    const date = new Date().toLocaleDateString();
+    const time = new Date().toLocaleTimeString();
+    let totalAmountSum = 0;
+    const consolidatedSummary = {};
 
-        salesData.forEach(s => {
-            const itemName = s.item_name || 'Unknown';
-            if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
-            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
-            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
-            totalAmountSum += parseFloat(s.total) || 0;
-        });
+    salesData.forEach(s => {
+        const itemName = s.item_name || 'Unknown';
+        if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+        consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+        consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+        totalAmountSum += parseFloat(s.total) || 0;
+    });
 
-        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
-        const is4Inch = billSize === '4inch';
+    const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+    const is4Inch = billSize === '4inch';
+    const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-        // Increased width to 350px for maximum clarity on 3-inch/80mm printers
-        const receiptMaxWidth = is4Inch ? '4in' : '350px';
+    const fontSizeBody = '25px';
+    const fontSizeHeader = '23px';
+    const fontSizeTotal = '28px';
 
-        const fontSizeBody = '25px';
-        const fontSizeHeader = '23px';
-        const fontSizeTotal = '28px';
+    const colGroups = `
+    <colgroup>
+        <col style="width:32%;"> 
+        <col style="width:21%;">
+        <col style="width:21%;">
+        <col style="width:26%;">
+    </colgroup>`;
 
-        // Optimized column widths for the new 350px width
-        const colGroups = `
-        <colgroup>
-            <col style="width:32%;"> 
-            <col style="width:21%;">
-            <col style="width:21%;">
-            <col style="width:26%;">
-        </colgroup>`;
+    const itemsHtml = salesData.map(s => {
+        const packs = parseInt(s.packs) || 0;
+        const weight = parseFloat(s.weight) || 0;
+        const price = parseFloat(s.price_per_kg) || 0;
+        const value = (weight * price).toFixed(2);
 
-        const itemsHtml = salesData.map(s => {
-            const packs = parseInt(s.packs) || 0;
-            const weight = parseFloat(s.weight) || 0;
-            const price = parseFloat(s.price_per_kg) || 0;
-            const value = (weight * price).toFixed(2);
+        return `
+    <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom;">
+        <td style="text-align:left; padding:10px 0; white-space: nowrap;">
+            ${s.item_name || ""}<br>${formatNumber(packs)}
+        </td>
+        <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">
+            ${formatNumber(weight.toFixed(2))}
+        </td>
+        <td style="text-align:right; padding:10px 2px; position: relative; left: -55px;">${formatNumber(price.toFixed(2))}</td>
+        <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+            <div style="font-size:25px; white-space:nowrap;">${s.supplier_code || "ASW"}</div>
+            <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
+        </td>
+    </tr>`;
+    }).join("");
 
-            return `
-        <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom;">
-                <td style="text-align:left; padding:10px 0; white-space: nowrap;">
-                    ${s.item_name || ""}<br>${formatNumber(packs)}
-                </td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">
-                   ${formatNumber(weight.toFixed(2))}
-                </td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -55px;">${formatNumber(price.toFixed(2))}</td>
-              <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+    const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+    const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+    const finalGrandTotal = totalSales + totalPackCost;
+    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+    const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
     
-    <div style="font-size:25px; white-space:nowrap;">
-        ${s.supplier_code || "ASW"}
-    </div>
+    const loanRow = globalLoanAmount !== 0 ? `
+    <tr>
+        <td style="font-size:20px; padding-top:8px;">පෙර ණය:</td>
+        <td style="text-align:right; font-size:22px; font-weight:bold; padding-top:8px;">
+            Rs. ${formatNumber(Math.abs(globalLoanAmount).toFixed(2))}
+        </td>
+    </tr>` : '';
 
-    <div style="
-        font-weight:900;
-        white-space:nowrap;
-    ">
-        ${formatNumber(value)}
-    </div>
-
-</td>
-
-
-            </tr>`;
-        }).join("");
-
-        const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-        const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
-        const finalGrandTotal = totalSales + totalPackCost;
-        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-        // This keeps the calculation the same but ensures the displayed 'remaining' is always positive
-        const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
-        const loanRow = globalLoanAmount !== 0 ? `
-        <tr>
-            <td style="font-size:20px; padding-top:8px;">පෙර ණය:</td>
-            <td style="text-align:right; font-size:22px; font-weight:bold; padding-top:8px;">
-                Rs. ${formatNumber(Math.abs(globalLoanAmount).toFixed(2))}
-            </td>
-        </tr>
-    ` : '';
-
-        const summaryEntries = Object.entries(consolidatedSummary);
-        let summaryHtmlContent = '';
-        for (let i = 0; i < summaryEntries.length; i += 2) {
-            const [name1, d1] = summaryEntries[i];
-            const [name2, d2] = summaryEntries[i + 1] || [null, null];
-            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-            summaryHtmlContent += `
+    const summaryEntries = Object.entries(consolidatedSummary);
+    let summaryHtmlContent = '';
+    for (let i = 0; i < summaryEntries.length; i += 2) {
+        const [name1, d1] = summaryEntries[i];
+        const [name2, d2] = summaryEntries[i + 1] || [null, null];
+        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+        summaryHtmlContent += `
         <tr>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>
         </tr>`;
-        }
+    }
 
-
-        return `
+    return `
     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
             <div style="font-size:24px;">Manju</div>
             <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
             
-          <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-          <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
-          <span style="border:2.5px solid #000; padding:5px 12px; font-size:35px;">
-          ${customerName.toUpperCase()}
-         </span>
-          </div>
+            <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:38px;">
+                    ${customerName.toUpperCase()}
+                </span>
+            </div>
             
             <div style="font-size:16px;">එළවළු,පළතුරු තොග වෙළෙන්දෝ</div>
             <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px; padding:0 5px;">
@@ -1645,81 +1714,78 @@ const handleCustomerClick = async (type, customerCode, billNo = null, salesRecor
         <div style="font-size:19px; margin-top:10px; padding:0 5px;">
             <div style="font-weight: bold;">දුර: 0777672838 / 0714371115</div>
             <div style="display:flex; justify-content:space-between; margin-top:3px;">
-                <span>බිල් අංකය:${billNo}</span>
-                <span>දිනය:${date}</span>
+                <span>බිල් අංකය:<strong style="color: #000; font-weight: bold;">${billNo}</strong></span>
+                <span>දිනය:<strong style="color: #000; font-weight: bold;">${date}</strong></span>
             </div>
         </div>
 
         <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
 
-        <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-            ${colGroups}
-            <thead>
-                <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                    <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px;top: 24px;">මිල</th>
-                    <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${itemsHtml}
-            </tbody>
-            <tfoot>
-                <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                    <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
-                  <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};">
-    <div style="text-align:right; float:right; white-space:nowrap;">
-    ${Number(totalSales).toFixed(2)}
-</div>
+        <!-- ITEMS TABLE WITH PAGE BREAK CONTROL -->
+        <div style="page-break-inside: avoid;">
+            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+                ${colGroups}
+                <thead>
+                    <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
+                        <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px;top: 24px;">මිල</th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsHtml}
+                </tbody>
+            </table>
+        </div>
 
-</td>
+        <!-- TOTALS TABLE - SEPARATE FROM ITEMS TABLE TO AVOID DUPLICATION -->
+        <div style="page-break-before: avoid; page-break-after: avoid;">
+            <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px; border-collapse:collapse;">
+                <tbody>
+                    <tr>
+                        <td style="width:50%; font-size:20px;">මලු:</td>
+                        <td style="width:50%; text-align:right; font-weight:bold;">${formatNumber(totalPackCost.toFixed(2))}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-size:20px; padding-top:8px;">එකතුව:</td>
+                        <td style="text-align:right; padding-top:8px;">
+                            <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px; display:inline-block;">
+                                ${Number(finalGrandTotal).toFixed(2)}
+                            </span>
+                        </td>
+                    </tr>
+                    ${loanRow}
+                    ${givenAmount > 0 ? `
+                    <tr>
+                        <td style="font-size:18px; padding-top:18px;">දුන් මුදල:</td>
+                        <td style="text-align:right; font-size:20px; padding-top:18px; font-weight:bold;">
+                            ${formatNumber(parseFloat(givenAmount).toFixed(2))}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-size:22px;">ඉතිරිය:</td>
+                        <td style="text-align:right; font-size:26px;">${formatNumber(remaining.toFixed(2))}</td>
+                    </tr>` : ''}
+                </tbody>
+            </table>
+        </div>
 
-                </tr>
-            </tfoot>
-        </table>
-
-        <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-            <tr>
-                <td>මලු:</td>
-               <td style="text-align:right; font-weight:bold;">
-    ${formatNumber(totalPackCost.toFixed(2))}
-</td>
-
-            </tr>
-            <tr>
-                <td style="font-size:20px; padding-top:8px;">එකතුව:</td>
-                <td style="text-align:right; padding-top:8px;">
-                <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">
-                ${(Number(finalGrandTotal).toFixed(2))}
-                </span>
-                </td>
-            </tr>
-            <!-- ✅ LOAN ROW HERE -->
-${loanRow}
-            ${givenAmount > 0 ? `
-            <tr>
-                <td style="font-size:18px; padding-top:18px;">දුන් මුදල:</td>
-                <td style="text-align:right; font-size:20px; padding-top:18px; font-weight:bold;">
-                ${formatNumber(parseFloat(givenAmount).toFixed(2))}
-                </td>
-            </tr>
-            <tr>
-                <td style="font-size:22px;">ඉතිරිය:</td>
-                <td style="text-align:right; font-size:26px;">${formatNumber(remaining.toFixed(2))}</td>
-            </tr>` : ''}
-        </table>
-
-        <table style="width:100%; border-collapse:collapse; margin-top:25px; font-size:14px; text-align:center;">
-            ${summaryHtmlContent}
-        </table>
+        <!-- SUMMARY TABLE -->
+        <div style="margin-top:25px; border-top:2.5px solid #000; padding-top:10px;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">
+                <tbody>
+                    ${summaryHtmlContent || '<tr><td colspan="2">No items</td></tr>'}
+                </tbody>
+            </table>
+        </div>
 
         <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;">
             <p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
             <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
         </div>
     </div>`;
-    };
+};
     const formatReceiptValue = (value) => {
         if (value === null || value === undefined || value === '') return '0.00';
         const num = parseFloat(value);
@@ -1728,137 +1794,178 @@ ${loanRow}
     };
 
     const handlePrintAndClear = async () => {
-    // Get the currently selected customer code/bill
-    let salesData = [];
-    let customerCode = "";
-    let customerName = "";
-    
-    // Determine which sales to print based on selection
-    if (selectedPrintedCustomer) {
-        // For printed customer selection (with bill number)
-        if (selectedPrintedCustomer.includes('-')) {
-            const [cCode, bNo] = selectedPrintedCustomer.split('-');
-            customerCode = cCode;
-            // Get only sales matching this specific customer AND bill number
-            salesData = allSales.filter(s => 
-                s.customer_code === cCode && 
-                String(s.bill_no) === String(bNo) &&
-                s.bill_printed !== 'Y'  // Only unprinted ones
-            );
-        } else {
-            // Fallback for single code selection
-            customerCode = selectedPrintedCustomer;
-            salesData = allSales.filter(s => 
-                s.customer_code === selectedPrintedCustomer && 
-                s.bill_printed !== 'Y'
-            );
-        }
-    } 
-    else if (selectedUnprintedCustomer) {
-        // For unprinted customer selection
-        customerCode = selectedUnprintedCustomer;
-        salesData = allSales.filter(s => 
-            s.customer_code === selectedUnprintedCustomer && 
-            (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
-        );
-    }
-    else {
-        // Fallback to displayedSales if no selection (shouldn't happen normally)
-        salesData = displayedSales.filter(s => s.id);
-    }
+        // Get the currently selected customer code/bill
+        let salesData = [];
+        let customerCode = "";
+        let customerName = "";
 
-    if (!salesData.length) {
-        alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
-        return;
-    }
-
-    // --- COMMISSION VALIDATION ---
-    for (const s of salesData) {
-        if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
-            const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
-            alert(errorMsg);
-            return;
-        }
-    }
-
-    // --- ZERO PRICE VALIDATION ---
-    const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-    if (hasZeroPrice) {
-        alert("මිල 0 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
-        return;
-    }
-
-    try {
-        updateState({ isPrinting: true });
-
-        // Get customer name from first sale
-        customerName = salesData[0].customer_code || customerCode;
-        const mobile = salesData[0].mobile || "0777672838 / 071437115";
-
-        let currentLoan = 0;
-        try {
-            const loanRes = await api.post(routes.getLoanAmount, {
-                customer_short_name: customerCode
-            });
-            currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
-        } catch (e) {
-            console.warn("Loan fetch failed");
-        }
-
-        const printResponse = await api.post(routes.markPrinted, {
-            sales_ids: salesData.map(s => s.id),
-            telephone_no: formData.telephone_no,
-            customer_code: customerCode,
-            customer_name: customerName,
-            loan_amount: currentLoan
-        });
-
-        if (printResponse.data.status !== "success") {
-            throw new Error("මුද්‍රණය අසාර්ථකයි");
-        }
-
-        const billNo = printResponse.data.bill_no || "";
-        const receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
-
-        // Update local state before reload
-        updateState({
-            allSales: allSales.map(s =>
-                salesData.some(sd => sd.id === s.id)
-                    ? { ...s, bill_printed: "Y", bill_no: billNo }
-                    : s
-            ),
-            selectedPrintedCustomer: null,
-            selectedUnprintedCustomer: null,
-            isPrinting: false
-        });
-
-        handleClearForm(true);
-
-        // Open Print Window
-        const printWindow = window.open("", "_blank", "width=800,height=600");
-        if (!printWindow) {
-            alert("Please allow pop-ups for printing");
-            window.location.reload();
-            return;
-        }
-
-        printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
-        printWindow.document.close();
-
-        // --- RELOAD LOGIC ---
-        const checkWindowClosed = setInterval(() => {
-            if (printWindow.closed) {
-                clearInterval(checkWindowClosed);
-                window.location.reload();
+        // Determine which sales to print based on selection
+        if (selectedPrintedCustomer) {
+            // For printed customer selection (with bill number)
+            if (selectedPrintedCustomer.includes('-')) {
+                const [cCode, bNo] = selectedPrintedCustomer.split('-');
+                customerCode = cCode;
+                // REMOVED the condition s.bill_printed !== 'Y' to allow reprinting
+                salesData = allSales.filter(s =>
+                    s.customer_code === cCode &&
+                    String(s.bill_no) === String(bNo)
+                );
+            } else {
+                // Fallback for single code selection
+                customerCode = selectedPrintedCustomer;
+                // REMOVED the condition s.bill_printed !== 'Y' to allow reprinting
+                salesData = allSales.filter(s =>
+                    s.customer_code === selectedPrintedCustomer
+                );
             }
-        }, 500);
+        }
+        else if (selectedUnprintedCustomer) {
+            // For unprinted customer selection
+            customerCode = selectedUnprintedCustomer;
+            salesData = allSales.filter(s =>
+                s.customer_code === selectedUnprintedCustomer &&
+                (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+            );
+        }
+        else {
+            // Fallback to displayedSales if no selection (shouldn't happen normally)
+            salesData = displayedSales.filter(s => s.id);
+        }
 
-    } catch (error) {
-        console.error("Printing error:", error);
-        alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය.");
-        updateState({ isPrinting: false });
-    }
-};
+        if (!salesData.length) {
+            alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+            return;
+        }
+
+        // --- COMMISSION VALIDATION ---
+        for (const s of salesData) {
+            if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+                const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
+                alert(errorMsg);
+                return;
+            }
+        }
+
+        // --- ZERO PRICE VALIDATION ---
+        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
+        if (hasZeroPrice) {
+            alert("මිල 0 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+            return;
+        }
+
+        try {
+            updateState({ isPrinting: true });
+
+            // Get customer name from first sale
+            customerName = salesData[0].customer_code || customerCode;
+            const mobile = salesData[0].mobile || "0777672838 / 071437115";
+
+            let currentLoan = 0;
+            try {
+                const loanRes = await api.post(routes.getLoanAmount, {
+                    customer_short_name: customerCode
+                });
+                currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
+            } catch (e) {
+                console.warn("Loan fetch failed");
+            }
+
+            // Check if these are already printed or not
+            const isReprint = salesData.some(s => s.bill_printed === 'Y');
+
+            let billNo = "";
+            let receiptHtml = "";
+
+            if (isReprint) {
+                // For reprint, use the existing bill number from the first sale
+                billNo = salesData[0].bill_no || "N/A";
+                receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
+
+                // Just print without calling markPrinted API for reprints
+                const printWindow = window.open("", "_blank", "width=800,height=600");
+                if (!printWindow) {
+                    alert("Please allow pop-ups for printing");
+                    updateState({ isPrinting: false });
+                    return;
+                }
+
+                printWindow.document.write(`<html><head><title>Print Bill - Reprint</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
+                printWindow.document.close();
+
+                // Update state to clear selections
+                updateState({
+                    selectedPrintedCustomer: null,
+                    selectedUnprintedCustomer: null,
+                    isPrinting: false
+                });
+
+                handleClearForm(true);
+
+                // RELOAD THE PAGE AFTER REPRINT
+                const checkWindowClosed = setInterval(() => {
+                    if (printWindow.closed) {
+                        clearInterval(checkWindowClosed);
+                        window.location.reload();
+                    }
+                }, 500);
+
+            } else {
+                // For new prints, call the API
+                const printResponse = await api.post(routes.markPrinted, {
+                    sales_ids: salesData.map(s => s.id),
+                    telephone_no: formData.telephone_no,
+                    customer_code: customerCode,
+                    customer_name: customerName,
+                    loan_amount: currentLoan
+                });
+
+                if (printResponse.data.status !== "success") {
+                    throw new Error("මුද්‍රණය අසාර්ථකයි");
+                }
+
+                billNo = printResponse.data.bill_no || "";
+                receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
+
+                // Update local state for new prints
+                updateState({
+                    allSales: allSales.map(s =>
+                        salesData.some(sd => sd.id === s.id)
+                            ? { ...s, bill_printed: "Y", bill_no: billNo }
+                            : s
+                    ),
+                    selectedPrintedCustomer: null,
+                    selectedUnprintedCustomer: null,
+                    isPrinting: false
+                });
+
+                handleClearForm(true);
+
+                // Open Print Window
+                const printWindow = window.open("", "_blank", "width=800,height=600");
+                if (!printWindow) {
+                    alert("Please allow pop-ups for printing");
+                    window.location.reload();
+                    return;
+                }
+
+                printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
+                printWindow.document.close();
+
+                // RELOAD THE PAGE AFTER NEW PRINT
+                const checkWindowClosed = setInterval(() => {
+                    if (printWindow.closed) {
+                        clearInterval(checkWindowClosed);
+                        window.location.reload();
+                    }
+                }, 500);
+            }
+
+        } catch (error) {
+            console.error("Printing error:", error);
+            alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය.");
+            updateState({ isPrinting: false });
+        }
+    };
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 
@@ -1869,36 +1976,42 @@ ${loanRow}
                 // This reloads the entire page from the server
                 window.location.reload();
             }
+
+            if (e.key === "F1") {
+                e.preventDefault();
+
+                // Directly call handlePrintAndClear when F1 is pressed
+                // Check if there are sales to print (either selected customer or displayed sales)
+                let hasSalesToPrint = false;
+
+                if (selectedPrintedCustomer || selectedUnprintedCustomer) {
+                    hasSalesToPrint = true;
+                } else if (displayedSales.length > 0) {
+                    hasSalesToPrint = true;
+                }
+
+                if (hasSalesToPrint) {
+                    handlePrintAndClear();
+                } else {
+                    alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+                }
+                return;
+            }
+
             if (selectedPrintedCustomer && e.key === "F5") {
                 e.preventDefault();
                 return;
             }
-            if (e.key === "F1") {
-                e.preventDefault();
 
-                // Show the save button
-                updateState({ showSavePhoneButton: true });
-
-                if (refs.given_amount.current) {
-                    // Scroll to the field smoothly
-                    refs.given_amount.current.scrollIntoView({
-                        behavior: "smooth",
-                        block: "center"
-                    });
-
-                    // Focus and select text
-                    refs.given_amount.current.focus();
-                    refs.given_amount.current.select();
-                }
-            }
-            else if (e.key === "F5") {
+            if (e.key === "F5") {
                 e.preventDefault();
                 if (typeof handleMarkAllProcessed === "function") handleMarkAllProcessed();
             }
         };
+
         window.addEventListener("keydown", handleShortcut);
         return () => window.removeEventListener("keydown", handleShortcut);
-    }, [displayedSales, newSales, selectedPrintedCustomer, handlePrintAndClear, handleMarkAllProcessed, handleSubmitGivenAmount]);
+    }, [displayedSales, newSales, selectedPrintedCustomer, selectedUnprintedCustomer, handlePrintAndClear, handleMarkAllProcessed, handleSubmitGivenAmount]);
 
     //new function to save phone no 
     const savePhoneNumber = async () => {
@@ -2386,7 +2499,7 @@ ${loanRow}
                                         className="flex items-center space-x-3 overflow-x-auto whitespace-nowrap"
                                         style={{ marginTop: "-75px" }}  // adjust value as needed
                                     >
-                                        <div style={{ marginLeft: '660px', marginTop: '-2px' }}>
+                                        <div style={{ marginLeft: '660px', marginTop: '-2px', display: "none" }}>
                                             <input id="given_amount" ref={refs.given_amount} name="given_amount_field" type="tel" inputMode="numeric" autoComplete="new-password" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
                                         </div>
                                     </div>
@@ -2394,9 +2507,12 @@ ${loanRow}
                                     <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
                                         {/* Red Total Text */}
                                         <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
-                                            <div className="text-2xl font-bold" style={{ color: 'red' }}>
-                                                (විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )
-                                            </div>
+                                            {/* Red Total Text - Only show when displayedSales has records */}
+                                            {displayedSales.length > 0 && (
+                                                <div className="text-2xl font-bold" style={{ color: 'red' }}>
+                                                    (විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

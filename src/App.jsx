@@ -14,7 +14,7 @@ import EditSupplier from './components/Suppliers/EditSupplier';
 import GrnList from './components/Grn/GrnList';
 import CreateGrn from './components/Grn/CreateGrn';
 import EditGrn from './components/Grn/EditGrn';
-import LoanManager from './components/LoanManager/LoanManager'; 
+import LoanManager from './components/LoanManager/LoanManager';
 import GrnEntryForm from './components/Grn/GrnEntryForm';
 import Dashboard from './components/Dashboard/Dashboard';
 import LoginPage from './components/Auth/LoginPage';
@@ -35,9 +35,9 @@ import SupplierdobReport from './components/Suppliers/SupplierdobReport';
 import ViewSupplierBill from './pages/ViewSupplierBill';
 import FarmerLoanManager from './components/LoanManager/FarmerLoanManager';
 import SupplierReportPrinted from './components/Suppliers/SupplierReportPrinted';
-import SupplierLoanReport from './components/Reports/SupplierLoanReport'; 
-import SupplierFinalReport from './components/Reports/SupplierFullReport';// Adjust the path based on where you saved the file
-
+import SupplierLoanReport from './components/Reports/SupplierLoanReport';
+import SupplierFinalReport from './components/Reports/SupplierFullReport';
+import PrintedBills from './components/SalesEntry/PrintedBills';// Adjust the path based on where you saved the file
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
 const ProtectedRoute = ({ children }) => {
@@ -280,6 +280,15 @@ export default function App() {
                 <Route path="/suppliers/printed-report" element={<SupplierReportPrinted />} />
                 <Route path="/supplier-loan-report" element={<SupplierLoanReport />} />
                 <Route path="/supplier-finalreport" element={<SupplierFinalReport />} />
+                {/* PRINTED BILLS - For cashier to view and reprint bills */}
+                <Route
+                    path="/printed-bills"
+                    element={
+                        <ProtectedRoute>
+                            <PrintedBills />
+                        </ProtectedRoute>
+                    }
+                />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />

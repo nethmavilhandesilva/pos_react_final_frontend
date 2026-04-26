@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import api from "../../api";
 import { useNavigate } from 'react-router-dom';
 
@@ -8,6 +8,15 @@ const SupplierReport = () => {
     // State for all data
     const [summary, setSummary] = useState({ printed: [], unprinted: [] });
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const refreshIntervalRef = useRef(null);
+
+    // Track selected items to preserve selection during refresh
+    const selectedStateRef = useRef({
+        selectedSupplier: null,
+        selectedBillNo: null,
+        isUnprintedBill: false
+    });
 
     // 🚀 NEW STATE: Bill size selector (3mm or 4mm)
     const [billSize, setBillSize] = useState('3mm');
@@ -50,7 +59,28 @@ const SupplierReport = () => {
     const [newFarmerCode, setNewFarmerCode] = useState('');
     const [newCustomerCode, setNewCustomerCode] = useState('');
 
-    // --- Function to fetch the summary data ---
+    // --- Silent refresh callback (doesn't show loading) ---
+    const silentFetchSummary = useCallback(async () => {
+        console.log("🔄 Silent refreshing supplier summary data...");
+        setIsRefreshing(true);
+        try {
+            const response = await api.get('/suppliers/bill-status-summary');
+
+            if (response.data) {
+                setSummary({
+                    printed: response.data.printed || [],
+                    unprinted: response.data.unprinted || [],
+                });
+                console.log("✅ Data refreshed successfully");
+            }
+        } catch (error) {
+            console.error('❌ Error refreshing summary data:', error.message);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, []);
+
+    // --- Function to fetch the summary data with loading indicator (only first time) ---
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
         setCurrentView('summary');
@@ -77,10 +107,85 @@ const SupplierReport = () => {
         }
     }, []);
 
+    // --- Function to refresh the current details view without changing selection ---
+    const refreshCurrentDetails = useCallback(async () => {
+        const currentSelected = selectedStateRef.current;
+        
+        if (!currentSelected.selectedSupplier) return;
+
+        console.log("🔄 Refreshing current details for:", currentSelected.selectedSupplier);
+        
+        if (currentSelected.isUnprintedBill) {
+            // Refresh unprinted details
+            try {
+                const response = await api.get(`/suppliers/${currentSelected.selectedSupplier}/unprinted-details`);
+                if (response.data) {
+                    setSupplierDetails(response.data);
+                }
+            } catch (error) {
+                console.error(`❌ Error refreshing unprinted details:`, error.message);
+            }
+        } else if (currentSelected.selectedBillNo) {
+            // Refresh printed details
+            try {
+                const response = await api.get(`/suppliers/bill/${currentSelected.selectedBillNo}/details`);
+                if (response.data) {
+                    setSupplierDetails(response.data);
+                }
+            } catch (error) {
+                console.error(`❌ Error refreshing printed details:`, error.message);
+            }
+        }
+
+        // Refresh advance amount and profile
+        try {
+            const supRes = await api.get(`/suppliers/search-by-code/${currentSelected.selectedSupplier}`);
+            if (supRes.data) {
+                setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
+                setProfilePic(supRes.data.profile_pic);
+                setPhoneNo(supRes.data.telephone_no || '');
+                setSupplierDocs({
+                    title: supRes.data.name || currentSelected.selectedSupplier,
+                    profile: supRes.data.profile_pic,
+                    nic_front: supRes.data.nic_front,
+                    nic_back: supRes.data.nic_back
+                });
+                setAdvancePayload({ code: currentSelected.selectedSupplier, advance_amount: '' });
+            }
+        } catch (error) {
+            console.error(`Error refreshing supplier info:`, error.message);
+        }
+    }, []);
+
+    // --- Start/Stop refresh interval (every 3 seconds) ---
+    useEffect(() => {
+        // Start interval
+        refreshIntervalRef.current = setInterval(() => {
+            silentFetchSummary();
+            refreshCurrentDetails();
+        }, 3000); // Every 3 seconds
+
+        // Cleanup on unmount
+        return () => {
+            if (refreshIntervalRef.current) {
+                clearInterval(refreshIntervalRef.current);
+            }
+        };
+    }, [silentFetchSummary, refreshCurrentDetails]);
+
     // --- Initial Fetch ---
     useEffect(() => {
         fetchSummary();
     }, [fetchSummary]);
+
+    // Update selected state ref when selection changes
+    useEffect(() => {
+        selectedStateRef.current = {
+            selectedSupplier,
+            selectedBillNo,
+            isUnprintedBill
+        };
+    }, [selectedSupplier, selectedBillNo, isUnprintedBill]);
 
     // --- Navigation Handler ---
     const goToSalesEntry = () => {
@@ -110,7 +215,6 @@ const SupplierReport = () => {
 
     // --- 🚀 NEW: Update Farmer Logic ---
     const handleUpdateFarmer = async () => {
-        // Both are now technically optional, but we need at least one change or we just send existing values
         const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
         const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
 
@@ -183,7 +287,6 @@ const SupplierReport = () => {
             if (supRes.data) {
                 setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
                 setProfilePic(supRes.data.profile_pic);
-                // 🚀 MATCHING & FETCHING: This gets the phone from the DB record
                 setPhoneNo(supRes.data.telephone_no || '');
 
                 setSupplierDocs({
@@ -222,7 +325,6 @@ const SupplierReport = () => {
             if (supRes.data) {
                 setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
                 setProfilePic(supRes.data.profile_pic);
-                // 🚀 MATCHING & FETCHING: This gets the phone from the DB record
                 setPhoneNo(supRes.data.telephone_no || '');
 
                 setSupplierDocs({
@@ -238,6 +340,7 @@ const SupplierReport = () => {
             setIsDetailsLoading(false);
         }
     };
+    
     // --- Function to reset details ---
     const resetDetails = () => {
         setSelectedSupplier(null);
@@ -275,55 +378,48 @@ const SupplierReport = () => {
         }
     };
 
-   // 🚀 NEW: Handle loan amount submission and trigger print
-const handleLoanSubmit = async (e) => {
-    if (e.key === 'Enter') {
-        if (!selectedSupplier || !payingAmount || parseFloat(payingAmount) <= 0) {
-            setLoanStatus('⚠️ Invalid amount');
-            setTimeout(() => setLoanStatus(''), 2000);
-            return;
-        }
-
-        setLoanStatus('Processing...');
-        
-        try {
-            // Calculate total amount (SupplierTotal - payingAmount)
-            const totalAmount = totalsupplierSales - parseFloat(payingAmount);
-            
-            // Save the loan amount
-            await api.post('/supplier-loan', {
-                code: selectedSupplier,
-                loan_amount: parseFloat(payingAmount),
-                total_amount: totalAmount,
-                bill_no: selectedBillNo || null
-            });
-            
-            setLoanStatus('✅ Loan saved');
-            
-            // Clear the input
-            setPayingAmount('');
-            
-            // Small delay to ensure the loan is saved before printing
-            setTimeout(() => {
-                // Trigger the print function
-                handlePrint();
-            }, 300);
-            
-        } catch (error) {
-            console.error("Loan Update Error:", error);
-            
-            if (error.response && error.response.status === 422) {
-                setLoanStatus('⚠️ Invalid supplier code');
-            } else {
-                setLoanStatus('❌ Error');
+    // 🚀 NEW: Handle loan amount submission and trigger print
+    const handleLoanSubmit = async (e) => {
+        if (e.key === 'Enter') {
+            if (!selectedSupplier || !payingAmount || parseFloat(payingAmount) <= 0) {
+                setLoanStatus('⚠️ Invalid amount');
+                setTimeout(() => setLoanStatus(''), 2000);
+                return;
             }
-            
-            setTimeout(() => setLoanStatus(''), 2000);
-        }
-    }
-};
-    
 
+            setLoanStatus('Processing...');
+            
+            try {
+                const totalAmount = totalsupplierSales - parseFloat(payingAmount);
+                
+                await api.post('/supplier-loan', {
+                    code: selectedSupplier,
+                    loan_amount: parseFloat(payingAmount),
+                    total_amount: totalAmount,
+                    bill_no: selectedBillNo || null
+                });
+                
+                setLoanStatus('✅ Loan saved');
+                setPayingAmount('');
+                
+                setTimeout(() => {
+                    handlePrint();
+                }, 300);
+                
+            } catch (error) {
+                console.error("Loan Update Error:", error);
+                
+                if (error.response && error.response.status === 422) {
+                    setLoanStatus('⚠️ Invalid supplier code');
+                } else {
+                    setLoanStatus('❌ Error');
+                }
+                
+                setTimeout(() => setLoanStatus(''), 2000);
+            }
+        }
+    };
+    
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
     // --- CALCULATIONS ---
@@ -367,234 +463,216 @@ const handleLoanSubmit = async (e) => {
         };
     }, [supplierDetails]);
 
-   const getBillContent = useCallback((currentBillNo) => {
-    const date = new Date().toLocaleDateString('si-LK');
-    const mobile = '0775097620/0761042808';
-    const is4Inch = billSize === '4inch';
-    const receiptMaxWidth = is4Inch ? '4in' : '350px';
-    const fontSizeBody = '25px';
-    const fontSizeHeader = '23px';
-    const fontSizeTotal = '28px';
+    const getBillContent = useCallback((currentBillNo) => {
+        const date = new Date().toLocaleDateString('si-LK');
+        const mobile = '0775097620/0761042808';
+        const is4Inch = billSize === '4inch';
+        const receiptMaxWidth = is4Inch ? '4in' : '350px';
+        const fontSizeBody = '25px';
+        const fontSizeHeader = '23px';
+        const fontSizeTotal = '28px';
 
-    // 🚀 NEW: Calculation for Loan/Partial Payment
-    const paidAmountValue = parseFloat(payingAmount) || 0;
-    const remainingAfterPayment = totalsupplierSales - paidAmountValue;
+        const paidAmountValue = parseFloat(payingAmount) || 0;
+        const remainingAfterPayment = totalsupplierSales - paidAmountValue;
 
-    const colGroups = `
-    <colgroup>
-        <col style="width:32%;"> 
-        <col style="width:21%;">
-        <col style="width:21%;">
-        <col style="width:26%;">
-    </colgroup>`;
+        const colGroups = `
+        <colgroup>
+            <col style="width:32%;"> 
+            <col style="width:21%;">
+            <col style="width:21%;">
+            <col style="width:26%;">
+        </colgroup>`;
 
-    const formatNumber = (value, maxDecimals = 3) => {
-        if (typeof value !== 'number' && typeof value !== 'string') return '0';
-        const number = parseFloat(value);
-        if (isNaN(number)) return '0';
-        if (Number.isInteger(number)) return number.toLocaleString('en-US');
-        const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-        const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-        return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-    };
+        const formatNumber = (value, maxDecimals = 3) => {
+            if (typeof value !== 'number' && typeof value !== 'string') return '0';
+            const number = parseFloat(value);
+            if (isNaN(number)) return '0';
+            if (Number.isInteger(number)) return number.toLocaleString('en-US');
+            const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
+        };
 
-    const detailedItemsHtml = supplierDetails.map(record => {
-        const weight = parseFloat(record.weight) || 0;
-        const packs = parseInt(record.packs) || 0;
-        const price = parseFloat(record.SupplierPricePerKg) || 0;
-        const total = parseFloat(record.SupplierTotal) || 0;
-        const itemName = record.item_name || '';
-        const customerCode = record.customer_code?.toUpperCase() || '';
+        const detailedItemsHtml = supplierDetails.map(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const price = parseFloat(record.SupplierPricePerKg) || 0;
+            const total = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || '';
+            const customerCode = record.customer_code?.toUpperCase() || '';
+
+            return `
+            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
+                <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
+                <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+                    <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
+                    <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
+                </td>
+             </tr>`;
+        }).join("");
+
+        const summaryEntries = Object.entries(itemSummaryData);
+        let itemSummaryHtml = '';
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+            itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
+        }
+
+        const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
 
         return `
-        <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
-            <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
-            <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
-            <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
-            <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
-                <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
-                <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
-            </td>
-        </tr>`;
-    }).join("");
+        <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
+            <div style="text-align:center; font-weight:bold;">
+                <div style="font-size:24px;">Manju</div>
+                <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
+                    <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
+                    <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span></div>
+                </div>
+                <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
+            </div>
+            <div style="font-size:19px; margin-top:10px; padding:0 5px;">
+                <div style="font-weight: bold;">දුර:${mobile}</div>
+                <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                    <span>බිල් අංකය:${currentBillNo}</span>
+                    <span>දිනය:${date}</span>
+                </div>
+            </div>
+            <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
+            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+                ${colGroups}
+                <thead>
+                    <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
+                        <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
+                    </tr>
+                </thead>
+                <tbody>${detailedItemsHtml}</tbody>
+                <tfoot>
+                    <tr style="border-top:2.5px solid #000; font-weight:bold;">
+                        <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
+                        <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
+                    </tr>
+                </tfoot>
+            </table>
 
-    const summaryEntries = Object.entries(itemSummaryData);
-    let itemSummaryHtml = '';
-    for (let i = 0; i < summaryEntries.length; i += 2) {
-        const [name1, d1] = summaryEntries[i];
-        const [name2, d2] = summaryEntries[i + 1] || [null, null];
-        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-        itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
-    }
+            <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
+                <tr>
+                    <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
+                    <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${(totalsupplierSales.toFixed(2))}</span></td>
+                </tr>
+                
+                ${paidAmountValue > 0 ? `
+                <tr style="font-size:18px;">
+                    <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
+                    <td style="text-align:right; padding-top:10px; color:#000;">- ${paidAmountValue.toFixed(2)}</td>
+                </tr>
+                <tr style="font-size:18px;">
+                    <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
+                    <td style="text-align:right; padding-top:5px; color:#000;">${remainingAfterPayment.toFixed(2)}</td>
+                </tr>
+                <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
+                ` : ''}
 
-    // 🚀 CALCULATION FOR FINAL NET AMOUNT
-    // We subtract both Advance and any current payment made
-    const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
+                <tr style="font-size:18px;">
+                    <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
+                    <td style="text-align:right; padding-top:5px; color:#000;">- ${advanceAmount.toFixed(2)}</td>
+                </tr>
 
-    return `
-<div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
-    <div style="text-align:center; font-weight:bold;">
-        <div style="font-size:24px;">Manju</div>
-        <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-            <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
-            <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span></div>
-        </div>
-      <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
-    </div>
-    <div style="font-size:19px; margin-top:10px; padding:0 5px;">
-        <div style="font-weight: bold;">දුර:${mobile}</div>
-        <div style="display:flex; justify-content:space-between; margin-top:3px;">
-            <span>බිල් අංකය:${currentBillNo}</span>
-            <span>දිනය:${date}</span>
-        </div>
-    </div>
-    <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
-    <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-        ${colGroups}
-        <thead>
-            <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
-                 <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
-                <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
-            </tr>
-        </thead>
-        <tbody>${detailedItemsHtml}</tbody>
-        <tfoot>
-            <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
-                <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
-            </tr>
-        </tfoot>
-    </table>
+                <tr style="font-weight:900;">
+                    <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
+                    <td style="text-align:right; padding-top:10px;">
+                        <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">
+                        ${netPayable.toFixed(2)}
+                        </span>
+                    </td>
+                </tr>
+            </table>
 
-    <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-        <tr>
-          <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
-          <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${(totalsupplierSales.toFixed(2))}</span></td>
-        </tr>
-        
-        ${paidAmountValue > 0 ? `
-        <tr style="font-size:18px;">
-            <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
-            <td style="text-align:right; padding-top:10px; color:#000;">
-                - ${paidAmountValue.toFixed(2)}
-            </td>
-        </tr>
-        <tr style="font-size:18px;">
-            <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
-            <td style="text-align:right; padding-top:5px; color:#000;">
-                ${remainingAfterPayment.toFixed(2)}
-            </td>
-        </tr>
-        <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
-        ` : ''}
-
-        <tr style="font-size:18px;">
-          <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
-          <td style="text-align:right; padding-top:5px; color:#000;">
-            - ${advanceAmount.toFixed(2)}
-          </td>
-        </tr>
-
-        <tr style="font-weight:900;">
-          <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
-          <td style="text-align:right; padding-top:10px;">
-            <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">
-              ${netPayable.toFixed(2)}
-            </span>
-          </td>
-        </tr>
-    </table>
-
-    <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
-</div>`;
-}, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
+            <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
+                <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
+            </div>
+        </div>`;
+    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
 
     // --- Print function ---
- 
-const handlePrint = useCallback(async () => {
-    if (!supplierDetails || supplierDetails.length === 0) return;
+    const handlePrint = useCallback(async () => {
+        if (!supplierDetails || supplierDetails.length === 0) return;
 
-    let finalBillNo = selectedBillNo;
+        let finalBillNo = selectedBillNo;
 
-    // If it's a new bill (Unprinted), we must finalize and send SMS
-    if (isUnprintedBill) {
-        setIsDetailsLoading(true);
-        try {
-            const response = await api.post('/suppliers/mark-as-printed', {
-                transaction_ids: supplierDetails.map(r => r.id),
-                telephone_no: phoneNo,
-                advance_amount: advanceAmount,
-                supplier_code: selectedSupplier
-            });
-
-            finalBillNo = response.data.new_bill_no;
-            setSelectedBillNo(finalBillNo);
-
-            if (phoneNo) {
-                console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
-            }
-        } catch (err) {
-            console.error('Finalize/SMS Error:', err);
-            alert('Finalize failed. SMS could not be sent.');
-            return;
-        } finally {
-            setIsDetailsLoading(false);
-        }
-    } else {
-        // 🚀 NEW: For printed bills, send SMS without finalizing
-        if (phoneNo) {
+        if (isUnprintedBill) {
             setIsDetailsLoading(true);
             try {
-                // Send SMS for reprint using the same backend method
-                // but with a flag to indicate it's a reprint
-                const smsResponse = await api.post('/suppliers/resend-sms', {
-                    bill_no: selectedBillNo,
-                    telephone_no: phoneNo,
-                    supplier_code: selectedSupplier,
+                const response = await api.post('/suppliers/mark-as-printed', {
                     transaction_ids: supplierDetails.map(r => r.id),
+                    telephone_no: phoneNo,
                     advance_amount: advanceAmount,
-                    is_reprint: true  // Add flag to indicate reprint
+                    supplier_code: selectedSupplier
                 });
-                
-                console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
-                
-                // Show success message
-                setPhoneStatus('📱 SMS resent');
-                setTimeout(() => setPhoneStatus(''), 2000);
-                
+
+                finalBillNo = response.data.new_bill_no;
+                setSelectedBillNo(finalBillNo);
+
+                if (phoneNo) {
+                    console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
+                }
             } catch (err) {
-                console.error('SMS Resend Error:', err);
-                // Don't block printing if SMS fails - just show warning
-                setPhoneStatus('⚠️ SMS failed');
-                setTimeout(() => setPhoneStatus(''), 2000);
+                console.error('Finalize/SMS Error:', err);
+                alert('Finalize failed. SMS could not be sent.');
+                return;
             } finally {
                 setIsDetailsLoading(false);
             }
         } else {
-            // Optional: Show warning if no phone number
-            setPhoneStatus('⚠️ No phone number');
-            setTimeout(() => setPhoneStatus(''), 2000);
+            if (phoneNo) {
+                setIsDetailsLoading(true);
+                try {
+                    await api.post('/suppliers/resend-sms', {
+                        bill_no: selectedBillNo,
+                        telephone_no: phoneNo,
+                        supplier_code: selectedSupplier,
+                        transaction_ids: supplierDetails.map(r => r.id),
+                        advance_amount: advanceAmount,
+                        is_reprint: true
+                    });
+                    
+                    console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
+                    setPhoneStatus('📱 SMS resent');
+                    setTimeout(() => setPhoneStatus(''), 2000);
+                    
+                } catch (err) {
+                    console.error('SMS Resend Error:', err);
+                    setPhoneStatus('⚠️ SMS failed');
+                    setTimeout(() => setPhoneStatus(''), 2000);
+                } finally {
+                    setIsDetailsLoading(false);
+                }
+            } else {
+                setPhoneStatus('⚠️ No phone number');
+                setTimeout(() => setPhoneStatus(''), 2000);
+            }
         }
-    }
 
-    // After backend success, proceed to show the browser print dialog
-    const content = getBillContent(finalBillNo);
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-        printWindow.document.write(`<html><body>${content}</body></html>`);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
+        const content = getBillContent(finalBillNo);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(`<html><body>${content}</body></html>`);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
 
-        // ✅ Refresh current page after print dialog opens
-        setTimeout(() => {
-            window.location.reload();
-        }, 500);
-    }
-}, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        }
+    }, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
 
     // --- Keyboard event listener ---
     useEffect(() => {
@@ -613,7 +691,6 @@ const handlePrint = useCallback(async () => {
     const renderImageModal = () => {
         if (!isImageModalOpen) return null;
 
-        // Helper to format URLs correctly
         const formatUrl = (path) => {
             if (!path) return null;
             return path.startsWith('http') ? path : `https://goviraju.lk/sms_new_backend_50500/application/public/storage/${path}`;
@@ -630,7 +707,6 @@ const handlePrint = useCallback(async () => {
                     style={{ backgroundColor: '#1f2937', borderRadius: '20px', width: '95%', maxWidth: '1000px', maxHeight: '95vh', padding: '25px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)', border: '1px solid #4b5563', display: 'flex', flexDirection: 'column' }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    {/* Header Area */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #374151', paddingBottom: '15px' }}>
                         <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'white', margin: 0 }}>
                             {supplierDocs.title} - ලේඛන පරීක්ෂාව
@@ -641,9 +717,7 @@ const handlePrint = useCallback(async () => {
                         > ✕ </button>
                     </div>
 
-                    {/* Larger Images Grid */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '20px', overflowY: 'auto', padding: '5px' }}>
-                        {/* Profile Picture */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <span style={{ color: '#60a5fa', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>ප්‍රධාන රූපය</span>
                             <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #3b82f6', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
@@ -651,7 +725,6 @@ const handlePrint = useCallback(async () => {
                             </div>
                         </div>
 
-                        {/* NIC Front */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC ඉදිරිපස</span>
                             <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
@@ -663,7 +736,6 @@ const handlePrint = useCallback(async () => {
                             </div>
                         </div>
 
-                        {/* NIC Back */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC පසුපස</span>
                             <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
@@ -676,7 +748,6 @@ const handlePrint = useCallback(async () => {
                         </div>
                     </div>
 
-                    {/* Action Area */}
                     <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '15px' }}>
                         <button
                             onClick={onClose}
@@ -701,12 +772,11 @@ const handlePrint = useCallback(async () => {
                         <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
                     </div>
 
-                    {/* Supplier Code Input */}
                     <div style={{ marginTop: '15px' }}>
                         <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
                         <input
                             type="text"
-                            placeholder={editingRecord.supplier_code} // Show current code as placeholder
+                            placeholder={editingRecord.supplier_code}
                             value={newFarmerCode}
                             onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
                             style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
@@ -714,12 +784,11 @@ const handlePrint = useCallback(async () => {
                         />
                     </div>
 
-                    {/* Customer Code Input */}
                     <div style={{ marginTop: '15px' }}>
                         <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
                         <input
                             type="text"
-                            placeholder={editingRecord.customer_code} // Show current code as placeholder
+                            placeholder={editingRecord.customer_code}
                             value={newCustomerCode}
                             onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
                             style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
@@ -796,7 +865,8 @@ const handlePrint = useCallback(async () => {
                     <td style={tdStyle} colSpan="3"><strong>TOTALS</strong></td>
                     <td style={tdStyle}>{totalPacksSum}</td>
                     <td style={tdStyle}>{totalWeight.toFixed(3)}</td>
-                    <td style={tdStyle}>-</td><td style={tdStyle}>-</td>
+                    <td style={tdStyle}>-</td>
+                    <td style={tdStyle}>-</td>
                     <td style={tdStyle}>{totalCusGross.toFixed(2)}</td>
                     <td style={tdStyle}>{totalsupplierSales.toFixed(2)}</td>
                     <td style={tdStyle}>-</td>
@@ -812,7 +882,6 @@ const handlePrint = useCallback(async () => {
                             ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo || 'N/A'}</strong>)
                         </h2>
 
-                        {/* TELEPHONE INPUT - DISABLED FOR PRINTED BILLS */}
                         {selectedSupplier && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <input
@@ -842,11 +911,15 @@ const handlePrint = useCallback(async () => {
                                         {phoneStatus}
                                     </span>
                                 )}
+                                {isRefreshing && (
+                                    <span style={{ fontSize: '0.8rem', color: '#ffc107', fontWeight: 'bold' }}>
+                                        🔄 Refreshing...
+                                    </span>
+                                )}
                             </div>
                         )}
                     </div>
 
-                    {/* 🚀 DISPLAY PROFILE PIC ON THE RIGHT */}
                     {profilePic && (
                         <div style={{ marginLeft: '20px' }}>
                             <img
@@ -872,7 +945,16 @@ const handlePrint = useCallback(async () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '250px', fontSize: '0.9rem', marginBottom: '30px' }}>
                         <thead>
                             <tr>
-                                <th style={thStyle}>බිල් අං:</th><th style={thStyle}>ගනුදෙ</th><th style={thStyle}>අයිත</th><th style={thStyle}>අසුරුම්</th><th style={thStyle}>බර</th><th style={thStyle}>ගනුදෙ මිල</th><th style={thStyle}>සැපයුම් මිල</th><th style={thStyle}>ගනුදෙ එක</th><th style={thStyle}>සැපයුම් එක</th><th style={thStyle}>කොමි</th>
+                                <th style={thStyle}>බිල් අං:</th>
+                                <th style={thStyle}>ගනුදෙ</th>
+                                <th style={thStyle}>අයිත</th>
+                                <th style={thStyle}>අසුරුම්</th>
+                                <th style={thStyle}>බර</th>
+                                <th style={thStyle}>ගනුදෙ මිල</th>
+                                <th style={thStyle}>සැපයුම් මිල</th>
+                                <th style={thStyle}>ගනුදෙ එක</th>
+                                <th style={thStyle}>සැපයුම් එක</th>
+                                <th style={thStyle}>කොමි</th>
                             </tr>
                         </thead>
                         {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0' }}>Select a bill to view details</td></tr></tbody>}
@@ -883,11 +965,19 @@ const handlePrint = useCallback(async () => {
                     <>
                         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0px' }}>
                             <thead>
-                                <tr><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>අයිතමය නම</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>සම්පූර්ණ බර</th><th style={{ ...thStyle, backgroundColor: '#6c757d' }}>මුළු අසුරුම්</th></tr>
+                                <tr>
+                                    <th style={{ ...thStyle, backgroundColor: '#6c757d' }}>අයිතමය නම</th>
+                                    <th style={{ ...thStyle, backgroundColor: '#6c757d' }}>සම්පූර්ණ බර</th>
+                                    <th style={{ ...thStyle, backgroundColor: '#6c757d' }}>මුළු අසුරුම්</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 {Object.keys(itemSummaryData).map((name, i) => (
-                                    <tr key={name} style={getRowStyle(i)}><td style={tdStyle}>{name}</td><td style={tdStyle}>{formatDecimal(itemSummaryData[name].totalWeight, 3)}</td><td style={tdStyle}>{itemSummaryData[name].totalPacks}</td></tr>
+                                    <tr key={name} style={getRowStyle(i)}>
+                                        <td style={tdStyle}>{name}</td>
+                                        <td style={tdStyle}>{formatDecimal(itemSummaryData[name].totalWeight, 3)}</td>
+                                        <td style={tdStyle}>{itemSummaryData[name].totalPacks}</td>
+                                    </tr>
                                 ))}
                             </tbody>
                         </table>
@@ -940,9 +1030,11 @@ const handlePrint = useCallback(async () => {
             </div>
         );
     };
+    
     const navBarStyle = { backgroundColor: '#343a40', padding: '15px 50px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' };
     const reportContainerStyle = { minHeight: '100vh', padding: '90px 50px 50px 50px', fontFamily: 'Roboto, Arial, sans-serif', boxSizing: 'border-box', backgroundColor: '#1ec139ff' };
 
+    // Only show full loading screen on initial load, not on refresh
     if (isLoading) return <div style={loadingStyle}>Loading Supplier Report...</div>;
 
     return (
