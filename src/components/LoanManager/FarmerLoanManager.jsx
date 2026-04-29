@@ -22,6 +22,8 @@ const FarmerLoanManager = () => {
     const [loans, setLoans] = useState([]);
     const [totalLoanDisplay, setTotalLoanDisplay] = useState('');
     const [loading, setLoading] = useState(true);
+    const [editingId, setEditingId] = useState(null);
+    const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     const isCheque = form.settling_way === 'cheque';
 
@@ -88,25 +90,119 @@ const FarmerLoanManager = () => {
         } else if (loan_type === 'today') {
             newDescription = "ගොවියන්ගේ ණය ගෙවීම";
         }
-        if (newDescription) setForm(prev => ({ ...prev, description: newDescription }));
-    }, [form.loan_type, form.settling_way, form.bank]);
+        if (newDescription && !editingId) setForm(prev => ({ ...prev, description: newDescription }));
+    }, [form.loan_type, form.settling_way, form.bank, editingId]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
 
         try {
-            // Sending raw amount as entered by user
-            await api.post('/farmer-loans', form);
+            if (editingId) {
+                // Update existing record
+                await api.put(`/farmer-loans/${editingId}`, form);
+                alert('දත්ත සාර්ථකව යාවත්කාලීන කරන ලදී!');
+                setEditingId(null);
+            } else {
+                // Create new record
+                await api.post('/farmer-loans', form);
+                alert('දත්ත සාර්ථකව ඇතුලත් කරන ලදී!');
+            }
+            
             setForm(getInitialFormState());
             fetchLoans();
             fetchFarmerBalance(form.supplier_code);
-            alert('දත්ත සාර්ථකව ඇතුලත් කරන ලදී!');
         } catch (error) {
-            alert('ඇතුලත් කිරීම අසාර්ථකයි');
+            alert(editingId ? 'යාවත්කාලීන කිරීම අසාර්ථකයි' : 'ඇතුලත් කිරීම අසාර්ථකයි');
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleEdit = (loan) => {
+        setEditingId(loan.id);
+        setForm({
+            loan_id: loan.id,
+            loan_type: loan.loan_type,
+            settling_way: loan.settling_way || 'cash',
+            supplier_code: loan.supplier_code,
+            bill_no: loan.bill_no || '',
+            amount: loan.amount,
+            description: loan.description || '',
+            cheque_no: loan.cheque_no || '',
+            bank: loan.bank || '',
+            cheque_date: loan.cheque_date || new Date().toISOString().slice(0, 10),
+        });
+        
+        // Scroll to form
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleDelete = async (id) => {
+        try {
+            await api.delete(`/farmer-loans/${id}`);
+            alert('දත්ත සාර්ථකව මකා දමන ලදී!');
+            fetchLoans();
+            setDeleteConfirm(null);
+            
+            // If we were editing this record, reset the form
+            if (editingId === id) {
+                setEditingId(null);
+                setForm(getInitialFormState());
+            }
+        } catch (error) {
+            alert('මකා දැමීම අසාර්ථකයි');
+        }
+    };
+
+    const handleCancelEdit = () => {
+        setEditingId(null);
+        setForm(getInitialFormState());
+    };
+
+    // Delete Confirmation Modal
+    const DeleteConfirmModal = () => {
+        if (!deleteConfirm) return null;
+        
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 1000
+            }}>
+                <div style={{
+                    backgroundColor: 'white',
+                    padding: '25px',
+                    borderRadius: '8px',
+                    width: '400px',
+                    textAlign: 'center'
+                }}>
+                    <h4>මකා දැමීම තහවුරු කරන්න</h4>
+                    <p>ඔබට මෙම ගනුදෙනුව මකා දැමීමට අවශ්‍ය බව විශ්වාසද?</p>
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
+                        <button 
+                            onClick={() => handleDelete(deleteConfirm)}
+                            style={{ padding: '8px 20px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        >
+                            ඔව්, මකන්න
+                        </button>
+                        <button 
+                            onClick={() => setDeleteConfirm(null)}
+                            style={{ padding: '8px 20px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        >
+                            අවලංගු කරන්න
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     if (loading) return <div className="text-center mt-5">Loading...</div>;
@@ -120,17 +216,30 @@ const FarmerLoanManager = () => {
                     .custom-card { background-color: #003366 !important; color: #fff; padding: 25px; border-radius: 10px; }
                     label { color: #fff; font-size: 0.85rem; font-weight: bold; }
                     .balance-display { background: #ffcc00; color: #000; padding: 8px 15px; border-radius: 5px; font-weight: 800; display: inline-block; margin-top: 10px; border: 2px solid #000; }
+                    .action-buttons { display: flex; gap: 8px; justify-content: center; }
+                    .edit-btn { background-color: #28a745; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+                    .delete-btn { background-color: #dc3545; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+                    .cancel-btn { background-color: #6c757d; color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; margin-left: 10px; }
                 `}</style>
 
                 <div className="custom-card">
-                    <h3 className="mb-4">ගොවි ණය කළමනාකරණය (Farmer Loan)</h3>
+                    <h3 className="mb-4">
+                        {editingId ? 'ගනුදෙනුව සංශෝධනය කරන්න' : 'ගොවි ණය කළමනාකරණය (Farmer Loan)'}
+                    </h3>
 
                     <form onSubmit={handleSubmit} className="p-3 border rounded bg-dark">
                         <div className="row gy-3">
                             <div className="col-md-12">
                                 {['old', 'today'].map(type => (
                                     <label key={type} className="me-4">
-                                        <input type="radio" name="loan_type" value={type} checked={form.loan_type === type} onChange={handleInputChange} />
+                                        <input 
+                                            type="radio" 
+                                            name="loan_type" 
+                                            value={type} 
+                                            checked={form.loan_type === type} 
+                                            onChange={handleInputChange}
+                                            disabled={!!editingId}
+                                        />
                                         {' '}
                                         {type === 'old' && 'ගොවි ණයට එකතු කිරීම (Old)'}
                                         {type === 'today' && 'ගොවියන්ගේ ණය ගෙවීම (Today)'}
@@ -146,8 +255,8 @@ const FarmerLoanManager = () => {
                                     value={farmers.find(f => f.value === form.supplier_code)}
                                     placeholder="සොයන්න..."
                                     className="text-dark"
+                                    isDisabled={!!editingId}
                                 />
-                                {/* Changed: Wrapped in form.supplier_code check */}
                                 {form.supplier_code && totalLoanDisplay && (
                                     <div className="balance-display">
                                         {totalLoanDisplay}
@@ -157,19 +266,40 @@ const FarmerLoanManager = () => {
 
                             <div className="col-md-2">
                                 <label>මුදල</label>
-                                <input type="number" step="0.01" name="amount" className="form-control form-control-sm" value={form.amount} onChange={handleInputChange} required />
+                                <input 
+                                    type="number" 
+                                    step="0.01" 
+                                    name="amount" 
+                                    className="form-control form-control-sm" 
+                                    value={form.amount} 
+                                    onChange={handleInputChange} 
+                                    required 
+                                />
                             </div>
 
                             <div className="col-md-4">
                                 <label>විස්තරය</label>
-                                <input type="text" name="description" className="form-control form-control-sm" value={form.description} onChange={handleInputChange} />
+                                <input 
+                                    type="text" 
+                                    name="description" 
+                                    className="form-control form-control-sm" 
+                                    value={form.description} 
+                                    onChange={handleInputChange} 
+                                />
                             </div>
 
                             <div className="col-md-12">
                                 <label className="d-block">ගෙවීමේ ක්‍රමය:</label>
                                 {['cash', 'cheque'].map(way => (
                                     <label key={way} className="me-3">
-                                        <input type="radio" name="settling_way" value={way} checked={form.settling_way === way} onChange={handleInputChange} />
+                                        <input 
+                                            type="radio" 
+                                            name="settling_way" 
+                                            value={way} 
+                                            checked={form.settling_way === way} 
+                                            onChange={handleInputChange}
+                                            disabled={!!editingId}
+                                        />
                                         {' '} {way.toUpperCase()}
                                     </label>
                                 ))}
@@ -193,7 +323,18 @@ const FarmerLoanManager = () => {
                             )}
 
                             <div className="col-12">
-                                <button type="submit" className="btn btn-warning btn-sm fw-bold">දත්ත ඇතුලත් කරන්න</button>
+                                <button type="submit" className="btn btn-warning btn-sm fw-bold">
+                                    {editingId ? 'යාවත්කාලීන කරන්න' : 'දත්ත ඇතුලත් කරන්න'}
+                                </button>
+                                {editingId && (
+                                    <button 
+                                        type="button" 
+                                        onClick={handleCancelEdit}
+                                        className="cancel-btn"
+                                    >
+                                        අවලංගු කරන්න
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </form>
@@ -207,22 +348,49 @@ const FarmerLoanManager = () => {
                                     <th>වර්ගය</th>
                                     <th>විස්තරය</th>
                                     <th className="text-end">මුදල</th>
+                                    <th className="text-center">ක්‍රියා</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {loans.map(loan => (
-                                    <tr key={loan.id}>
+                                    <tr key={loan.id} style={editingId === loan.id ? { backgroundColor: '#fff3cd' } : {}}>
                                         <td>{loan.supplier_code}</td>
-                                        <td>{loan.loan_type}</td>
+                                        <td>{loan.loan_type === 'old' ? 'ණයට එකතු කිරීම' : 'ණය ගෙවීම'}</td>
                                         <td>{loan.description}</td>
                                         <td className="text-end">{parseFloat(loan.amount).toFixed(2)}</td>
+                                        <td className="text-center">
+                                            <div className="action-buttons">
+                                                <button 
+                                                    onClick={() => handleEdit(loan)}
+                                                    className="edit-btn"
+                                                    title="Edit"
+                                                >
+                                                    ✏️ සංස්කරණය
+                                                </button>
+                                                <button 
+                                                    onClick={() => setDeleteConfirm(loan.id)}
+                                                    className="delete-btn"
+                                                    title="Delete"
+                                                >
+                                                    🗑️ මකන්න
+                                                </button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
+                                {loans.length === 0 && (
+                                    <tr>
+                                        <td colSpan="5" className="text-center text-muted">
+                                            අද දින කිසිදු ගනුදෙනුවක් නොමැත
+                                        </td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
+            <DeleteConfirmModal />
         </div>
     );
 };

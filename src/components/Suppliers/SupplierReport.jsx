@@ -213,38 +213,52 @@ const SupplierReport = () => {
         }
     };
 
-    // --- 🚀 NEW: Update Farmer Logic ---
-    const handleUpdateFarmer = async () => {
-        const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
-        const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
+  // --- 🚀 NEW: Update Farmer Logic with Bill Number Regeneration ---
+// --- 🚀 Update Farmer Logic with Conditional Bill Number Generation ---
+const handleUpdateFarmer = async () => {
+    const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
+    const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
 
-        try {
-            setIsDetailsLoading(true);
-            const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
-                supplier_code: finalSupplierCode,
-                customer_code: finalCustomerCode
-            });
+    // Check if customer code is actually changing
+    const isCustomerCodeChanging = newCustomerCode && newCustomerCode !== editingRecord.customer_code;
 
-            if (response.status === 200) {
-                setEditingRecord(null);
-                setNewFarmerCode('');
-                setNewCustomerCode('');
+    try {
+        setIsDetailsLoading(true);
+        const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
+            supplier_code: finalSupplierCode,
+            customer_code: finalCustomerCode
+        });
 
-                // Refresh current view
-                if (isUnprintedBill) {
-                    await handleUnprintedBillClick(selectedSupplier, null);
-                } else {
-                    await handlePrintedBillClick(selectedSupplier, selectedBillNo);
+        if (response.status === 200) {
+            // Show appropriate message based on whether bill was updated
+            if (response.data.bill_updated && response.data.new_bill_no) { 
+                // Update the displayed bill number in the state
+                if (selectedBillNo) {
+                    setSelectedBillNo(response.data.new_bill_no.toString());
                 }
-                fetchSummary();
+            } else if (response.data.had_existing_bill === false && isCustomerCodeChanging) {
+            } else {
             }
-        } catch (error) {
-            console.error("Update failed:", error);
-            alert("Failed to update records.");
-        } finally {
-            setIsDetailsLoading(false);
+            
+            setEditingRecord(null);
+            setNewFarmerCode('');
+            setNewCustomerCode('');
+
+            // Refresh current view to show updated data
+            if (isUnprintedBill) {
+                await handleUnprintedBillClick(selectedSupplier, null);
+            } else {
+                await handlePrintedBillClick(selectedSupplier, selectedBillNo);
+            }
+            fetchSummary(); // Refresh the summary lists
         }
-    };
+    } catch (error) {
+        console.error("Update failed:", error);
+        alert("Failed to update records. Please try again.");
+    } finally {
+        setIsDetailsLoading(false);
+    }
+};
     
     // --- Filtering Logic ---
     const filteredPrintedItems = useMemo(() => {

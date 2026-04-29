@@ -6,7 +6,815 @@ const routes = {
     sales: "/sales",
     customers: "/customers",
     getAllSales: "/sales/all",
-    updateGivenAmountApplied: "/sales/update-given-amount-applied"
+    updateGivenAmountApplied: "/sales/update-given-amount-applied",
+    getBanks: "/banks",
+    applyAdjustment: "/adjustments/apply",
+    pendingCustomerBills: "/adjustments/pending-customer-bills",
+    pendingFarmerBills: "/adjustments/pending-farmer-bills"
+};
+
+// ==================== BANK ACCOUNT SELECTOR COMPONENT ====================
+const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) => {
+    const [banks, setBanks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        fetchBanks();
+    }, []);
+
+    const fetchBanks = async () => {
+        setLoading(true);
+        try {
+            const response = await api.get(routes.getBanks);
+            if (response.data.success) {
+                setBanks(response.data.data);
+            } else {
+                setError('Failed to load bank accounts');
+            }
+        } catch (error) {
+            setError('Unable to load bank accounts');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (loading) {
+        return <div style={{ padding: '10px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>Loading bank accounts...</div>;
+    }
+
+    if (error) {
+        return <div style={{ padding: '10px', textAlign: 'center', color: '#ef4444', fontSize: '12px' }}>{error}</div>;
+    }
+
+    return (
+        <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '13px', color: '#334155' }}>
+                Select Bank Account <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <select
+                value={selectedAccountId || ''}
+                onChange={(e) => onSelect(e.target.value ? parseInt(e.target.value) : null)}
+                disabled={disabled}
+                style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    background: 'white',
+                    cursor: 'pointer'
+                }}
+            >
+                <option value="">-- Select Bank Account --</option>
+                {banks.map(bank => (
+                    <option key={bank.id} value={bank.id}>
+                        {bank.bank_name} - {bank.branch} (Acc: {bank.account_no})
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+};
+
+// ==================== CHEQUE MODAL WITH BANK ACCOUNT SELECTION ====================
+const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
+    const [chequeDetails, setChequeDetails] = useState({
+        cheq_date: '',
+        cheq_no: '',
+        bank_account_id: null
+    });
+
+    if (!isOpen) return null;
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setChequeDetails(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleBankSelect = (bankId) => {
+        setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }));
+    };
+
+    const handleSubmit = () => {
+        if (!chequeDetails.cheq_date || !chequeDetails.cheq_no || !chequeDetails.bank_account_id) {
+            alert("Please fill all cheque details and select a bank account");
+            return;
+        }
+        onConfirm(chequeDetails);
+        setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
+    };
+
+    const modalStyles = {
+        overlay: {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999,
+        },
+        modal: {
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '25px',
+            width: '450px',
+            maxWidth: '90%',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+        },
+        title: {
+            margin: '0 0 20px 0',
+            color: '#333',
+            fontSize: '20px',
+            fontWeight: '600',
+        },
+        formGroup: {
+            marginBottom: '15px',
+        },
+        label: {
+            display: 'block',
+            marginBottom: '5px',
+            fontWeight: '500',
+            fontSize: '13px',
+            color: '#334155',
+        },
+        input: {
+            width: '100%',
+            padding: '10px',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            fontSize: '14px',
+        },
+        footer: {
+            display: 'flex',
+            gap: '10px',
+            justifyContent: 'flex-end',
+            marginTop: '20px',
+        },
+        cancelBtn: {
+            padding: '8px 20px',
+            background: '#6c757d',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+        },
+        confirmBtn: {
+            padding: '8px 20px',
+            background: '#4CAF50',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+        },
+    };
+
+    return (
+        <div style={modalStyles.overlay} onClick={onClose}>
+            <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
+                <h3 style={modalStyles.title}>Cheque Payment</h3>
+                <div style={modalStyles.formGroup}>
+                    <label style={modalStyles.label}>Amount: Rs. {amount.toFixed(2)}</label>
+                </div>
+                <div style={modalStyles.formGroup}>
+                    <label style={modalStyles.label}>Cheque Date *</label>
+                    <input
+                        type="date"
+                        name="cheq_date"
+                        value={chequeDetails.cheq_date}
+                        onChange={handleChange}
+                        style={modalStyles.input}
+                    />
+                </div>
+                <div style={modalStyles.formGroup}>
+                    <label style={modalStyles.label}>Cheque Number *</label>
+                    <input
+                        type="text"
+                        name="cheq_no"
+                        value={chequeDetails.cheq_no}
+                        onChange={handleChange}
+                        placeholder="Enter cheque number"
+                        style={modalStyles.input}
+                    />
+                </div>
+                <div style={modalStyles.formGroup}>
+                    <BankAccountSelector
+                        selectedAccountId={chequeDetails.bank_account_id}
+                        onSelect={handleBankSelect}
+                        disabled={false}
+                    />
+                </div>
+                <div style={modalStyles.footer}>
+                    <button onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
+                    <button onClick={handleSubmit} style={modalStyles.confirmBtn}>Confirm Payment</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ==================== PAYMENT ADJUSTMENT MODAL ====================
+const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCode, originalBillTotal }) => {
+    const [adjustmentType, setAdjustmentType] = useState('bag_to_box');
+    
+    // Bag to Box fields
+    const [bagCount, setBagCount] = useState('');
+    const [boxCount, setBoxCount] = useState('');
+    const [bagValue, setBagValue] = useState('');
+    const [boxValue, setBoxValue] = useState('');
+    
+    // Bill to Bill fields
+    const [customerCodeField, setCustomerCodeField] = useState('');
+    const [customerBillNo, setCustomerBillNo] = useState('');
+    const [customerBillValue, setCustomerBillValue] = useState('');
+    const [farmerCode, setFarmerCode] = useState('');
+    const [farmerBillNo, setFarmerBillNo] = useState('');
+    const [farmerBillValue, setFarmerBillValue] = useState('');
+    const [pendingCustomerBills, setPendingCustomerBills] = useState([]);
+    const [pendingFarmerBills, setPendingFarmerBills] = useState([]);
+    const [loadingBills, setLoadingBills] = useState(false);
+    const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+    const [farmerSearchTerm, setFarmerSearchTerm] = useState('');
+    
+    // Bad Debt fields
+    const [badDebtName, setBadDebtName] = useState('');
+    const [badDebtAmount, setBadDebtAmount] = useState('');
+
+    if (!isOpen) return null;
+
+    const calculateBagToBoxAdjustment = () => {
+        const totalBagValue = (parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0);
+        const totalBoxValue = (parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0);
+        return totalBagValue - totalBoxValue;
+    };
+
+    const calculateBillToBillTotal = () => {
+        return (parseFloat(customerBillValue) || 0) + (parseFloat(farmerBillValue) || 0);
+    };
+
+    const handleSearchCustomerBills = async () => {
+        if (!customerCodeField) {
+            alert('Please enter customer code');
+            return;
+        }
+        
+        setLoadingBills(true);
+        try {
+            const response = await api.get(`${routes.pendingCustomerBills}?customer_code=${customerCodeField}`);
+            if (response.data.success) {
+                setPendingCustomerBills(response.data.data);
+            }
+        } catch (error) {
+            alert('Failed to fetch pending bills');
+        } finally {
+            setLoadingBills(false);
+        }
+    };
+
+    const handleSearchFarmerBills = async () => {
+        if (!farmerCode) {
+            alert('Please enter farmer/supplier code');
+            return;
+        }
+        
+        setLoadingBills(true);
+        try {
+            const response = await api.get(`${routes.pendingFarmerBills}?supplier_code=${farmerCode}`);
+            if (response.data.success) {
+                setPendingFarmerBills(response.data.data);
+            }
+        } catch (error) {
+            alert('Failed to fetch farmer bills');
+        } finally {
+            setLoadingBills(false);
+        }
+    };
+
+    const handleSubmit = () => {
+        const adjustmentData = {
+            bill_no: billNo,
+            adjustment_type: adjustmentType,
+            original_bill_total: originalBillTotal
+        };
+
+        if (adjustmentType === 'bag_to_box') {
+            if (!bagCount || !boxCount || !bagValue || !boxValue) {
+                alert('Please fill all bag/box fields');
+                return;
+            }
+            adjustmentData.bag_count = parseInt(bagCount);
+            adjustmentData.box_count = parseInt(boxCount);
+            adjustmentData.bag_value = parseFloat(bagValue);
+            adjustmentData.box_value = parseFloat(boxValue);
+        }
+
+        if (adjustmentType === 'bill_to_bill') {
+            if (!customerCodeField || !customerBillNo || !customerBillValue || !farmerCode || !farmerBillNo || !farmerBillValue) {
+                alert('Please fill all bill to bill fields');
+                return;
+            }
+            adjustmentData.customer_code = customerCodeField;
+            adjustmentData.customer_bill_no = customerBillNo;
+            adjustmentData.customer_bill_value = parseFloat(customerBillValue);
+            adjustmentData.farmer_code = farmerCode;
+            adjustmentData.farmer_bill_no = farmerBillNo;
+            adjustmentData.farmer_bill_value = parseFloat(farmerBillValue);
+        }
+
+        if (adjustmentType === 'bad_debt') {
+            if (!badDebtName || !badDebtAmount) {
+                alert('Please enter bad debt name and amount');
+                return;
+            }
+            adjustmentData.bad_debt_name = badDebtName;
+            adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
+        }
+
+        onConfirm(adjustmentData);
+    };
+
+    const filteredCustomerBills = pendingCustomerBills.filter(bill =>
+        bill.bill_no.toString().includes(customerSearchTerm.toLowerCase())
+    );
+
+    const filteredFarmerBills = pendingFarmerBills.filter(bill =>
+        bill.supplier_bill_no.toString().includes(farmerSearchTerm.toLowerCase())
+    );
+
+    const modalStyles = {
+        overlay: {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10000,
+        },
+        modal: {
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            width: '750px',
+            maxWidth: '90%',
+            maxHeight: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+        },
+        header: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderBottom: '1px solid #e2e8f0',
+        },
+        title: {
+            margin: 0,
+            fontSize: '18px',
+            fontWeight: '600',
+            color: '#0f172a',
+        },
+        closeBtn: {
+            background: 'none',
+            border: 'none',
+            fontSize: '24px',
+            cursor: 'pointer',
+            color: '#94a3b8',
+        },
+        content: {
+            padding: '20px',
+            overflowY: 'auto',
+            flex: 1,
+        },
+        formGroup: {
+            marginBottom: '16px',
+        },
+        label: {
+            display: 'block',
+            marginBottom: '6px',
+            fontWeight: '500',
+            fontSize: '13px',
+            color: '#334155',
+        },
+        input: {
+            width: '100%',
+            padding: '10px 12px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '14px',
+            outline: 'none',
+        },
+        select: {
+            width: '100%',
+            padding: '10px 12px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '14px',
+            background: 'white',
+        },
+        row: {
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '16px',
+            marginBottom: '16px',
+        },
+        infoBox: {
+            background: '#f0fdf4',
+            padding: '12px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            marginBottom: '16px',
+            border: '1px solid #dcfce7',
+            color: '#166534',
+        },
+        warningBox: {
+            background: '#fef3c7',
+            padding: '12px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            marginBottom: '16px',
+            border: '1px solid #fde68a',
+            color: '#92400e',
+        },
+        searchRow: {
+            display: 'flex',
+            gap: '10px',
+            marginBottom: '10px',
+        },
+        searchBtn: {
+            padding: '10px 20px',
+            background: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+        },
+        billList: {
+            maxHeight: '150px',
+            overflowY: 'auto',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '8px',
+            marginTop: '8px',
+            marginBottom: '16px',
+        },
+        billItem: {
+            padding: '10px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '6px',
+            border: '1px solid #e2e8f0',
+        },
+        billSelected: {
+            background: '#eff6ff',
+            borderColor: '#3b82f6',
+        },
+        section: {
+            marginBottom: '20px',
+            padding: '16px',
+            background: '#f8fafc',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+        },
+        sectionTitle: {
+            fontSize: '14px',
+            fontWeight: '600',
+            color: '#1e293b',
+            marginBottom: '12px',
+            paddingBottom: '8px',
+            borderBottom: '1px solid #e2e8f0',
+        },
+        footer: {
+            padding: '16px 20px',
+            borderTop: '1px solid #e2e8f0',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '12px',
+        },
+        cancelBtn: {
+            padding: '8px 20px',
+            background: '#f1f5f9',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '500',
+        },
+        confirmBtn: {
+            padding: '8px 20px',
+            background: '#4CAF50',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '500',
+        },
+    };
+
+    return (
+        <div style={modalStyles.overlay} onClick={onClose}>
+            <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
+                <div style={modalStyles.header}>
+                    <h3 style={modalStyles.title}>Payment Adjustment</h3>
+                    <button style={modalStyles.closeBtn} onClick={onClose}>×</button>
+                </div>
+
+                <div style={modalStyles.content}>
+                    <div style={modalStyles.formGroup}>
+                        <label style={modalStyles.label}>Adjustment Type</label>
+                        <select
+                            value={adjustmentType}
+                            onChange={(e) => setAdjustmentType(e.target.value)}
+                            style={modalStyles.select}
+                        >
+                            <option value="bag_to_box">Bag to Box Conversion</option>
+                            <option value="bill_to_bill">Bill to Bill Transfer</option>
+                            <option value="bad_debt">Bad Debt Write-off</option>
+                        </select>
+                    </div>
+
+                    {adjustmentType === 'bag_to_box' && (
+                        <>
+                            <div style={modalStyles.row}>
+                                <div style={modalStyles.formGroup}>
+                                    <label style={modalStyles.label}>Number of Bags</label>
+                                    <input
+                                        type="number"
+                                        value={bagCount}
+                                        onChange={(e) => setBagCount(e.target.value)}
+                                        placeholder="Enter bag count"
+                                        style={modalStyles.input}
+                                    />
+                                </div>
+                                <div style={modalStyles.formGroup}>
+                                    <label style={modalStyles.label}>Value per Bag (Rs.)</label>
+                                    <input
+                                        type="number"
+                                        value={bagValue}
+                                        onChange={(e) => setBagValue(e.target.value)}
+                                        placeholder="Bag value"
+                                        style={modalStyles.input}
+                                    />
+                                </div>
+                            </div>
+                            <div style={modalStyles.row}>
+                                <div style={modalStyles.formGroup}>
+                                    <label style={modalStyles.label}>Number of Boxes</label>
+                                    <input
+                                        type="number"
+                                        value={boxCount}
+                                        onChange={(e) => setBoxCount(e.target.value)}
+                                        placeholder="Enter box count"
+                                        style={modalStyles.input}
+                                    />
+                                </div>
+                                <div style={modalStyles.formGroup}>
+                                    <label style={modalStyles.label}>Value per Box (Rs.)</label>
+                                    <input
+                                        type="number"
+                                        value={boxValue}
+                                        onChange={(e) => setBoxValue(e.target.value)}
+                                        placeholder="Box value"
+                                        style={modalStyles.input}
+                                    />
+                                </div>
+                            </div>
+                            <div style={modalStyles.infoBox}>
+                                <strong>Adjustment Summary:</strong><br />
+                                Total Bag Value: Rs. {(parseInt(bagCount) * parseFloat(bagValue) || 0).toFixed(2)}<br />
+                                Total Box Value: Rs. {(parseInt(boxCount) * parseFloat(boxValue) || 0).toFixed(2)}<br />
+                                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#166534' }}>
+                                    Adjustment Amount: Rs. {calculateBagToBoxAdjustment().toFixed(2)}
+                                </span><br />
+                                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                                    This amount will be deducted from the remaining payment
+                                </span>
+                            </div>
+                        </>
+                    )}
+
+                    {adjustmentType === 'bill_to_bill' && (
+                        <>
+                            {/* Customer Bill Section */}
+                            <div style={modalStyles.section}>
+                                <div style={modalStyles.sectionTitle}>Customer Bill Transfer</div>
+                                <div style={modalStyles.formGroup}>
+                                    <label style={modalStyles.label}>Customer Code</label>
+                                    <div style={modalStyles.searchRow}>
+                                        <input
+                                            type="text"
+                                            value={customerCodeField}
+                                            onChange={(e) => setCustomerCodeField(e.target.value.toUpperCase())}
+                                            placeholder="Enter customer code"
+                                            style={{ ...modalStyles.input, flex: 1 }}
+                                        />
+                                        <button onClick={handleSearchCustomerBills} style={modalStyles.searchBtn}>
+                                            Search Bills
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {loadingBills && <div style={{ textAlign: 'center', padding: '10px', color: '#64748b' }}>Loading bills...</div>}
+
+                                {pendingCustomerBills.length > 0 && (
+                                    <div style={modalStyles.billList}>
+                                        <input
+                                            type="text"
+                                            placeholder="Search bills..."
+                                            value={customerSearchTerm}
+                                            onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                                            style={{ ...modalStyles.input, marginBottom: '10px' }}
+                                        />
+                                        {filteredCustomerBills.map(bill => (
+                                            <div
+                                                key={bill.bill_no}
+                                                style={{
+                                                    ...modalStyles.billItem,
+                                                    ...(customerBillNo === bill.bill_no ? modalStyles.billSelected : {})
+                                                }}
+                                                onClick={() => {
+                                                    setCustomerBillNo(bill.bill_no);
+                                                    setCustomerBillValue(bill.total_amount);
+                                                }}
+                                            >
+                                                <div>
+                                                    <strong>Bill #{bill.bill_no}</strong>
+                                                    <div style={{ fontSize: '12px', color: '#64748b' }}>{bill.customer_code}</div>
+                                                </div>
+                                                <div style={{ fontWeight: 'bold' }}>
+                                                    Rs. {parseFloat(bill.total_amount).toLocaleString()}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div style={modalStyles.row}>
+                                    <div style={modalStyles.formGroup}>
+                                        <label style={modalStyles.label}>Selected Bill No</label>
+                                        <input
+                                            type="text"
+                                            value={customerBillNo}
+                                            onChange={(e) => setCustomerBillNo(e.target.value)}
+                                            placeholder="Bill number"
+                                            style={modalStyles.input}
+                                            readOnly
+                                        />
+                                    </div>
+                                    <div style={modalStyles.formGroup}>
+                                        <label style={modalStyles.label}>Bill Value (Rs.)</label>
+                                        <input
+                                            type="number"
+                                            value={customerBillValue}
+                                            onChange={(e) => setCustomerBillValue(e.target.value)}
+                                            placeholder="Bill value"
+                                            style={modalStyles.input}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Farmer Bill Section */}
+                            <div style={modalStyles.section}>
+                                <div style={modalStyles.sectionTitle}>Farmer/Supplier Bill Transfer</div>
+                                <div style={modalStyles.formGroup}>
+                                    <label style={modalStyles.label}>Farmer/Supplier Code</label>
+                                    <div style={modalStyles.searchRow}>
+                                        <input
+                                            type="text"
+                                            value={farmerCode}
+                                            onChange={(e) => setFarmerCode(e.target.value.toUpperCase())}
+                                            placeholder="Enter farmer/supplier code"
+                                            style={{ ...modalStyles.input, flex: 1 }}
+                                        />
+                                        <button onClick={handleSearchFarmerBills} style={modalStyles.searchBtn}>
+                                            Search Bills
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {pendingFarmerBills.length > 0 && (
+                                    <div style={modalStyles.billList}>
+                                        <input
+                                            type="text"
+                                            placeholder="Search bills..."
+                                            value={farmerSearchTerm}
+                                            onChange={(e) => setFarmerSearchTerm(e.target.value)}
+                                            style={{ ...modalStyles.input, marginBottom: '10px' }}
+                                        />
+                                        {filteredFarmerBills.map(bill => (
+                                            <div
+                                                key={bill.supplier_bill_no}
+                                                style={{
+                                                    ...modalStyles.billItem,
+                                                    ...(farmerBillNo === bill.supplier_bill_no ? modalStyles.billSelected : {})
+                                                }}
+                                                onClick={() => {
+                                                    setFarmerBillNo(bill.supplier_bill_no);
+                                                    setFarmerBillValue(bill.total_amount);
+                                                }}
+                                            >
+                                                <div>
+                                                    <strong>Bill #{bill.supplier_bill_no}</strong>
+                                                    <div style={{ fontSize: '12px', color: '#64748b' }}>{bill.supplier_code}</div>
+                                                </div>
+                                                <div style={{ fontWeight: 'bold' }}>
+                                                    Rs. {parseFloat(bill.total_amount).toLocaleString()}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div style={modalStyles.row}>
+                                    <div style={modalStyles.formGroup}>
+                                        <label style={modalStyles.label}>Selected Bill No</label>
+                                        <input
+                                            type="text"
+                                            value={farmerBillNo}
+                                            onChange={(e) => setFarmerBillNo(e.target.value)}
+                                            placeholder="Bill number"
+                                            style={modalStyles.input}
+                                            readOnly
+                                        />
+                                    </div>
+                                    <div style={modalStyles.formGroup}>
+                                        <label style={modalStyles.label}>Bill Value (Rs.)</label>
+                                        <input
+                                            type="number"
+                                            value={farmerBillValue}
+                                            onChange={(e) => setFarmerBillValue(e.target.value)}
+                                            placeholder="Bill value"
+                                            style={modalStyles.input}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={modalStyles.infoBox}>
+                                <strong>Transfer Summary:</strong><br />
+                                Customer Bill Amount: Rs. {(parseFloat(customerBillValue) || 0).toLocaleString()}<br />
+                                Farmer Bill Amount: Rs. {(parseFloat(farmerBillValue) || 0).toLocaleString()}<br />
+                                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#166534' }}>
+                                    Total Transfer Amount: Rs. {calculateBillToBillTotal().toLocaleString()}
+                                </span><br />
+                                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                                    This amount will be deducted from the remaining payment
+                                </span>
+                            </div>
+                        </>
+                    )}
+
+                    {adjustmentType === 'bad_debt' && (
+                        <>
+                            <div style={modalStyles.formGroup}>
+                                <label style={modalStyles.label}>Bad Debt Name/Reference</label>
+                                <input
+                                    type="text"
+                                    value={badDebtName}
+                                    onChange={(e) => setBadDebtName(e.target.value)}
+                                    placeholder="Enter customer name or reference"
+                                    style={modalStyles.input}
+                                />
+                            </div>
+                            <div style={modalStyles.formGroup}>
+                                <label style={modalStyles.label}>Bad Debt Amount (Rs.)</label>
+                                <input
+                                    type="number"
+                                    value={badDebtAmount}
+                                    onChange={(e) => setBadDebtAmount(e.target.value)}
+                                    placeholder="Enter amount to write off"
+                                    style={modalStyles.input}
+                                />
+                            </div>
+                            <div style={modalStyles.warningBox}>
+                                ⚠️ Bad debt adjustment will write off Rs. {(parseFloat(badDebtAmount) || 0).toLocaleString()} from this bill.<br />
+                                This action cannot be undone and will deduct this amount from the remaining payment.
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div style={modalStyles.footer}>
+                    <button onClick={onClose} style={modalStyles.cancelBtn}>
+                        Cancel
+                    </button>
+                    <button onClick={handleSubmit} style={modalStyles.confirmBtn}>
+                        Apply Adjustment
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 // ==================== RECEIPT HTML BUILDER ====================
@@ -61,7 +869,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                 <div style="font-size:25px; white-space:nowrap;">${s.supplier_code || "ASW"}</div>
                 <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
             </td>
-        <tr>`;
+        </tr>`;
     }).join("");
 
     const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
@@ -89,9 +897,8 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         </tr>`;
     }
 
-    // Payment method display
     const paymentMethodDisplay = paymentMethod === 'cheque' && chequeDetails 
-        ? `<div style="font-size:14px; margin-top:5px;">💳 Cheque: ${chequeDetails.bank_name} | No: ${chequeDetails.cheq_no} | Date: ${chequeDetails.cheq_date}</div>`
+        ? `<div style="font-size:14px; margin-top:5px;">💳 Cheque: ${chequeDetails.bank_name || 'Bank'} | No: ${chequeDetails.cheq_no} | Date: ${chequeDetails.cheq_date}</div>`
         : '<div style="font-size:14px; margin-top:5px;">💰 Payment: Cash</div>';
 
     return `
@@ -142,7 +949,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         </table>
 
         <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-            <tr><td style="font-size:20px;">මලු:</td><td style="text-align:right;">${formatNumber(totalPackCost.toFixed(2))}</td></tr>
+            <tr><td style="font-size:20px;">මලු:</td><td style="text-align:right;">${formatNumber(totalPackCost.toFixed(2))}ERC20
             <tr><td style="font-size:20px; padding-top:8px;">එකතුව:</td>
                 <td style="text-align:right; padding-top:8px;">
                     <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${Number(finalGrandTotal).toFixed(2)}</span>
@@ -169,133 +976,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
     </div>`;
 };
 
-// ==================== CHEQUE MODAL COMPONENT ====================
-const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
-    const [chequeDetails, setChequeDetails] = useState({
-        cheq_date: '',
-        cheq_no: '',
-        bank_name: ''
-    });
-
-    if (!isOpen) return null;
-
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setChequeDetails(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSubmit = () => {
-        if (!chequeDetails.cheq_date || !chequeDetails.cheq_no || !chequeDetails.bank_name) {
-            alert("Please fill all cheque details");
-            return;
-        }
-        onConfirm(chequeDetails);
-        setChequeDetails({ cheq_date: '', cheq_no: '', bank_name: '' });
-    };
-
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 9999
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '12px',
-                padding: '25px',
-                width: '400px',
-                maxWidth: '90%',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
-            }} onClick={(e) => e.stopPropagation()}>
-                <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>Cheque Details</h3>
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Amount: Rs. {amount.toFixed(2)}</label>
-                </div>
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Cheque Date *</label>
-                    <input
-                        type="date"
-                        name="cheq_date"
-                        value={chequeDetails.cheq_date}
-                        onChange={handleChange}
-                        style={{
-                            width: '100%',
-                            padding: '10px',
-                            border: '1px solid #ddd',
-                            borderRadius: '6px',
-                            fontSize: '14px'
-                        }}
-                    />
-                </div>
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Cheque Number *</label>
-                    <input
-                        type="text"
-                        name="cheq_no"
-                        value={chequeDetails.cheq_no}
-                        onChange={handleChange}
-                        placeholder="Enter cheque number"
-                        style={{
-                            width: '100%',
-                            padding: '10px',
-                            border: '1px solid #ddd',
-                            borderRadius: '6px',
-                            fontSize: '14px'
-                        }}
-                    />
-                </div>
-                <div style={{ marginBottom: '20px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Bank Name *</label>
-                    <input
-                        type="text"
-                        name="bank_name"
-                        value={chequeDetails.bank_name}
-                        onChange={handleChange}
-                        placeholder="Enter bank name"
-                        style={{
-                            width: '100%',
-                            padding: '10px',
-                            border: '1px solid #ddd',
-                            borderRadius: '6px',
-                            fontSize: '14px'
-                        }}
-                    />
-                </div>
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button onClick={onClose} style={{
-                        padding: '8px 20px',
-                        background: '#6c757d',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer'
-                    }}>
-                        Cancel
-                    </button>
-                    <button onClick={handleSubmit} style={{
-                        padding: '8px 20px',
-                        background: '#4CAF50',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer'
-                    }}>
-                        Confirm Payment
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ==================== SIMPLE, FULL-WIDTH STYLES ====================
+// ==================== STYLES ====================
 const styles = {
     app: {
         width: '100vw',
@@ -607,17 +1288,56 @@ const styles = {
         borderRadius: '6px',
         transition: 'all 0.2s',
     },
-    paymentMethodGroup: {
-        display: 'flex',
-        gap: '20px',
-        marginBottom: '15px',
-        alignItems: 'center'
-    },
-    radioLabel: {
+    adjustmentBtn: {
+        width: 'calc(100% - 32px)',
+        margin: '0 16px 8px 16px',
+        padding: '12px',
+        background: '#f59e0b',
+        color: 'white',
+        border: 'none',
+        borderRadius: '12px',
+        fontWeight: '600',
+        fontSize: '13px',
+        cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: '8px',
-        cursor: 'pointer'
+        transition: 'all 0.2s',
+    },
+    cashPaymentBtn: {
+        width: 'calc(100% - 32px)',
+        margin: '0 16px 8px 16px',
+        padding: '12px',
+        background: '#10b981',
+        color: 'white',
+        border: 'none',
+        borderRadius: '12px',
+        fontWeight: '600',
+        fontSize: '13px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        transition: 'all 0.2s',
+    },
+    chequePaymentBtn: {
+        width: 'calc(100% - 32px)',
+        margin: '0 16px 8px 16px',
+        padding: '12px',
+        background: '#8b5cf6',
+        color: 'white',
+        border: 'none',
+        borderRadius: '12px',
+        fontWeight: '600',
+        fontSize: '13px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        transition: 'all 0.2s',
     }
 };
 
@@ -651,9 +1371,9 @@ export default function PrintedBills() {
         isPrinting: false,
         givenAmountInput: "",
         isUpdatingCompletedBill: false,
-        paymentMethod: "cash",
         showChequeModal: false,
-        pendingChequeAmount: 0
+        pendingChequeAmount: 0,
+        showAdjustmentModal: false
     });
 
     const formatDecimal = (value) => {
@@ -726,16 +1446,14 @@ export default function PrintedBills() {
                 ...prev,
                 selectedBill: null,
                 givenAmountInput: "",
-                isUpdatingCompletedBill: false,
-                paymentMethod: "cash"
+                isUpdatingCompletedBill: false
             }));
         } else {
             setState(prev => ({
                 ...prev,
                 selectedBill: bill,
-                givenAmountInput: bill.givenAmount > 0 ? bill.givenAmount.toString() : "",
-                isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
-                paymentMethod: "cash"
+                givenAmountInput: "",
+                isUpdatingCompletedBill: bill.givenAmountApplied === 'Y'
             }));
         }
     };
@@ -744,32 +1462,29 @@ export default function PrintedBills() {
         setState(prev => ({ ...prev, givenAmountInput: e.target.value }));
     };
 
-    const handlePaymentMethodChange = (method) => {
-        setState(prev => ({ ...prev, paymentMethod: method }));
-    };
-
-    const processPayment = async (newPaymentAmount, chequeDetails = null) => {
+    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null) => {
         if (!state.selectedBill || state.isPrinting) return;
         
         setState(prev => ({ ...prev, isPrinting: true }));
 
         try {
-            const totalGivenAmount = state.selectedBill.givenAmount + newPaymentAmount;
+            const totalGivenAmount = state.selectedBill.givenAmount + paymentAmount;
             const isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
             const creditTransaction = isFullySettled ? 'N' : 'Y';
+            const givenAmountApplied = totalGivenAmount >= state.selectedBill.totalAmount ? 'Y' : 'N';
 
             const payload = {
                 bill_no: state.selectedBill.billNo,
                 given_amount: totalGivenAmount,
-                given_amount_applied: 'Y',
+                given_amount_applied: givenAmountApplied,
                 credit_transaction: creditTransaction
             };
 
             // Add cheque details if payment method is cheque
-            if (state.paymentMethod === 'cheque' && chequeDetails) {
+            if (isCheque && chequeDetails) {
                 payload.cheq_date = chequeDetails.cheq_date;
                 payload.cheq_no = chequeDetails.cheq_no;
-                payload.bank_name = chequeDetails.bank_name;
+                payload.bank_account_id = chequeDetails.bank_account_id;
             }
 
             const response = await api.put(routes.updateGivenAmountApplied, payload);
@@ -798,7 +1513,7 @@ export default function PrintedBills() {
                     customer?.telephone_no || "",
                     0,
                     totalGivenAmount,
-                    state.paymentMethod,
+                    isCheque ? 'cheque' : 'cash',
                     chequeDetails
                 );
 
@@ -829,13 +1544,16 @@ export default function PrintedBills() {
                 `);
                 printWindow.document.close();
 
-                alert(`✓ Added: Rs. ${formatDecimal(newPaymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}`);
+                const statusMessage = givenAmountApplied === 'Y' 
+                    ? `✅ Payment Complete!\n\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill is now FULLY PAID and moved to Completed Payments.`
+                    : `✓ Payment Added!\n\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}`;
+                
+                alert(statusMessage);
                 
                 setState(prev => ({ 
                     ...prev, 
                     selectedBill: null, 
                     givenAmountInput: "", 
-                    paymentMethod: "cash",
                     showChequeModal: false
                 }));
             }
@@ -847,22 +1565,26 @@ export default function PrintedBills() {
         }
     };
 
-    const handleProcessPayment = async () => {
+    const handleCashPayment = async () => {
         const paymentAmount = parseFloat(state.givenAmountInput) || 0;
         if (paymentAmount === 0) {
             alert("Please enter an amount");
             return;
         }
+        await processPayment(paymentAmount, false, null);
+    };
 
-        if (state.paymentMethod === 'cheque') {
-            setState(prev => ({ ...prev, pendingChequeAmount: paymentAmount, showChequeModal: true }));
-        } else {
-            await processPayment(paymentAmount);
+    const handleChequePayment = async () => {
+        const paymentAmount = parseFloat(state.givenAmountInput) || 0;
+        if (paymentAmount === 0) {
+            alert("Please enter an amount");
+            return;
         }
+        setState(prev => ({ ...prev, pendingChequeAmount: paymentAmount, showChequeModal: true }));
     };
 
     const handleChequeConfirm = async (chequeDetails) => {
-        await processPayment(state.pendingChequeAmount, chequeDetails);
+        await processPayment(state.pendingChequeAmount, true, chequeDetails);
     };
 
     const handlePrintWithoutUpdate = async () => {
@@ -903,6 +1625,20 @@ export default function PrintedBills() {
             alert("Error printing bill");
         } finally {
             setState(prev => ({ ...prev, isPrinting: false }));
+        }
+    };
+
+    const handleApplyAdjustment = async (adjustmentData) => {
+        try {
+            const response = await api.post(routes.applyAdjustment, adjustmentData);
+            if (response.data.success) {
+                const data = response.data.data;
+                alert(`Adjustment applied successfully!\n\nAdjustment Amount: Rs. ${formatDecimal(data.adjustment_amount)}\nNew Given Amount: Rs. ${formatDecimal(data.new_given_amount)}\nRemaining: Rs. ${formatDecimal(data.remaining)}`);
+                setState(prev => ({ ...prev, showAdjustmentModal: false }));
+                await fetchSalesData();
+            }
+        } catch (error) {
+            alert('Failed to apply adjustment: ' + (error.response?.data?.message || error.message));
         }
     };
  
@@ -957,7 +1693,6 @@ export default function PrintedBills() {
     return (
         <div style={styles.app}>
             <div style={styles.container}>
-                {/* Header */}
                 <div style={styles.header}>
                     <div style={styles.headerTop}>
                         <h1 style={styles.title}>Printed Bills</h1>
@@ -965,10 +1700,9 @@ export default function PrintedBills() {
                             🔄 Refresh
                         </button>
                     </div>
-                    <p style={styles.subtitle}>Manage payments and re-print bills</p>
+                    <p style={styles.subtitle}>Manage payments, re-print bills, and apply adjustments</p>
                 </div>
 
-                {/* Three Column Full Width Layout */}
                 <div style={styles.threeColumns}>
                     {/* LEFT: Pending Bills */}
                     <div style={styles.panel}>
@@ -1018,7 +1752,7 @@ export default function PrintedBills() {
                         </div>
                     </div>
 
-                    {/* CENTER: Bill Details - WIDER */}
+                    {/* CENTER: Bill Details */}
                     <div style={styles.panel}>
                         <div style={styles.panelHeader}>
                             <h2 style={styles.panelTitle}>
@@ -1026,7 +1760,7 @@ export default function PrintedBills() {
                                 {state.selectedBill && (
                                     <button 
                                         style={styles.clearBtn}
-                                        onClick={() => setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "", isUpdatingCompletedBill: false, paymentMethod: "cash" }))}
+                                        onClick={() => setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "", isUpdatingCompletedBill: false }))}
                                     >
                                         ✕ Clear
                                     </button>
@@ -1120,34 +1854,8 @@ export default function PrintedBills() {
                                     {/* Payment Section */}
                                     <div style={styles.paymentBox}>
                                         <div style={styles.paymentLabel}>
-                                            {state.isUpdatingCompletedBill ? "💰 Add Additional Payment" : "💰 Enter Payment Amount"}
+                                            💰 Enter Payment Amount
                                         </div>
-                                        
-                                        {/* Payment Method Selection */}
-                                        {!state.isUpdatingCompletedBill && (
-                                            <div style={styles.paymentMethodGroup}>
-                                                <label style={styles.radioLabel}>
-                                                    <input
-                                                        type="radio"
-                                                        name="paymentMethod"
-                                                        value="cash"
-                                                        checked={state.paymentMethod === 'cash'}
-                                                        onChange={() => handlePaymentMethodChange('cash')}
-                                                    />
-                                                    💵 Cash
-                                                </label>
-                                                <label style={styles.radioLabel}>
-                                                    <input
-                                                        type="radio"
-                                                        name="paymentMethod"
-                                                        value="cheque"
-                                                        checked={state.paymentMethod === 'cheque'}
-                                                        onChange={() => handlePaymentMethodChange('cheque')}
-                                                    />
-                                                    💳 Cheque
-                                                </label>
-                                            </div>
-                                        )}
                                         
                                         <input
                                             type="number"
@@ -1158,34 +1866,29 @@ export default function PrintedBills() {
                                             disabled={state.isPrinting}
                                         />
                                         <div style={styles.remainingBox}>
-                                            <span>
-                                                {state.isUpdatingCompletedBill ? "New Total Given:" : "After Payment:"}
-                                            </span>
+                                            <span>After Payment:</span>
                                             <span style={{ fontWeight: 'bold', color: '#15803d' }}>
                                                 Rs. {formatDecimal((state.selectedBill.givenAmount + currentGiven))}
                                             </span>
                                         </div>
-                                        
-                                        {state.isUpdatingCompletedBill ? (
-                                            <>
-                                                <button 
-                                                    onClick={handleProcessPayment} 
-                                                    disabled={state.isPrinting || currentGiven === 0}
-                                                    style={{ ...styles.printBtn, background: '#3b82f6', color: 'white', border: 'none', marginTop: '12px' }}
-                                                >
-                                                    ➕ Add Payment
-                                                </button>
-                                                <div style={styles.hint}>Adds to existing payment (Total will accumulate)</div>
-                                            </>
-                                        ) : (
+
+                                        {/* Payment Buttons */}
+                                        <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
                                             <button 
-                                                onClick={handleProcessPayment} 
+                                                onClick={handleCashPayment}
                                                 disabled={state.isPrinting || currentGiven === 0}
-                                                style={{ ...styles.printBtn, background: '#4CAF50', color: 'white', border: 'none', marginTop: '12px' }}
+                                                style={styles.cashPaymentBtn}
                                             >
-                                                {state.paymentMethod === 'cheque' ? '💳 Pay with Cheque' : '💵 Pay with Cash'}
+                                                💵 Pay with Cash
                                             </button>
-                                        )}
+                                            <button 
+                                                onClick={handleChequePayment}
+                                                disabled={state.isPrinting || currentGiven === 0}
+                                                style={styles.chequePaymentBtn}
+                                            >
+                                                💳 Pay with Cheque
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <button 
@@ -1195,9 +1898,16 @@ export default function PrintedBills() {
                                     >
                                         🖨️ Re-print Bill
                                     </button>
+
+                                    <button 
+                                        onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))}
+                                        style={styles.adjustmentBtn}
+                                    >
+                                        🔧 Payment Adjustment
+                                    </button>
                                 </>
                             ) : (
-                                <EmptyState message="Click on any bill from left or right panel to view details" />
+                                <EmptyState message="Click on any bill to view details and process payment" />
                             )}
                         </div>
                     </div>
@@ -1251,7 +1961,7 @@ export default function PrintedBills() {
                     </div>
                 </div>
 
-                {/* Stats Cards - MOVED TO BOTTOM */}
+                {/* Stats Cards */}
                 <div style={styles.statsRow}>
                     <div style={styles.statBox}>
                         <div style={styles.statLabel}>Pending</div>
@@ -1282,6 +1992,16 @@ export default function PrintedBills() {
                 onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))}
                 onConfirm={handleChequeConfirm}
                 amount={state.pendingChequeAmount}
+            />
+
+            {/* Payment Adjustment Modal */}
+            <PaymentAdjustmentModal
+                isOpen={state.showAdjustmentModal}
+                onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))}
+                onConfirm={handleApplyAdjustment}
+                billNo={state.selectedBill?.billNo}
+                customerCode={state.selectedBill?.customerCode}
+                originalBillTotal={state.selectedBill?.totalAmount || 0}
             />
         </div>
     );

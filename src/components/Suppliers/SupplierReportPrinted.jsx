@@ -1349,8 +1349,8 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             )}
 
             <nav style={navBarStyle}>
-                <h1 style={{ color: 'white', fontSize: '1.5rem', margin: 0 }}>සැපයුම්කරු වාර්තාව ණය ලබාගත්</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                    <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/farmer-loans')}>ගොවි ණය ඇතුළත් කිරීම</button>
                     <button 
                         style={{ 
                             padding: '8px 15px', 

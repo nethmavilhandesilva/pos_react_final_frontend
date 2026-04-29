@@ -37,7 +37,8 @@ import FarmerLoanManager from './components/LoanManager/FarmerLoanManager';
 import SupplierReportPrinted from './components/Suppliers/SupplierReportPrinted';
 import SupplierLoanReport from './components/Reports/SupplierLoanReport';
 import SupplierFinalReport from './components/Reports/SupplierFullReport';
-import PrintedBills from './components/SalesEntry/PrintedBills';// Adjust the path based on where you saved the file
+import PrintedBills from './components/SalesEntry/PrintedBills';
+import Banks from './components/Banks/Banks';// Adjust the path based on where you saved the file
 
 // ✅ ProtectedRoute component — blocks access if user not logged in
 const ProtectedRoute = ({ children }) => {
@@ -289,6 +290,7 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
+                <Route path="/banks" element={<Banks />} />
 
                 {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />
