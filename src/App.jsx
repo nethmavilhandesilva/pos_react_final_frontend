@@ -1,6 +1,7 @@
 // src/App.jsx 
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import api from './api';
 
 // Import All Components
 import CustomerList from './components/Customers/CustomerList';
@@ -26,7 +27,7 @@ import SupplierDetailsModal from './components/Suppliers/SupplierDetailsModal';
 import CommissionPage from './components/Commission/CommissionPage';
 import SupplierProfitReport from './components/Suppliers/SupplierProfitReport';
 import FinancialReport from './components/Reports/FinancialReport';
-import LoanReportManager from './components/LoanManager/LoanReportManager'; // ✅ Add this
+import LoanReportManager from './components/LoanManager/LoanReportManager';
 import SupplierReport2 from './components/Reports/supplierfinalreport';
 import PrintedSalesReport from './components/Reports/PrintedSalesReport';
 import SalesReport from './components/Reports/SalesReport2';
@@ -39,19 +40,108 @@ import SupplierLoanReport from './components/Reports/SupplierLoanReport';
 import SupplierFinalReport from './components/Reports/SupplierFullReport';
 import PrintedBills from './components/SalesEntry/PrintedBills';
 import Banks from './components/Banks/Banks';
-import BankDashboard from './components/Banks/BankDashboard';// Adjust the path based on where you saved the file
+import BankDashboard from './components/Banks/BankDashboard';
 
-// ✅ ProtectedRoute component — blocks access if user not logged in
-const ProtectedRoute = ({ children }) => {
-    const user = localStorage.getItem('user');
-    // NOTE: It's better practice to check for the token, not 'user' 
-    // since the provided API uses the 'token'.
+// Loading component
+const LoadingSpinner = () => (
+    <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        fontSize: '16px',
+        color: '#64748b'
+    }}>
+        Loading...
+    </div>
+);
+
+// ✅ Enhanced ProtectedRoute component with role checking
+const ProtectedRoute = ({ children, allowedRoles = null }) => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
     const token = localStorage.getItem('token');
+
+    useEffect(() => {
+        const fetchUser = async () => {
+            if (!token) {
+                setLoading(false);
+                return;
+            }
+            
+            try {
+                const response = await api.get('/user');
+                if (response.data.success) {
+                    setUser(response.data.user);
+                    // Store user in localStorage for quick access
+                    localStorage.setItem('userData', JSON.stringify(response.data.user));
+                }
+            } catch (error) {
+                console.error('Failed to fetch user:', error);
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                localStorage.removeItem('userData');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchUser();
+    }, [token]);
+
+    if (loading) {
+        return <LoadingSpinner />;
+    }
 
     if (!token) {
         return <Navigate to="/login" replace />;
     }
+
+    // Check if user has required role
+    if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+        return <Navigate to="/unauthorized" replace />;
+    }
+
     return children;
+};
+
+// ✅ Role-based redirect component for root path
+const RootRedirect = () => {
+    const [userRole, setUserRole] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const getUserRole = async () => {
+            try {
+                const response = await api.get('/user');
+                if (response.data.success) {
+                    setUserRole(response.data.user.role);
+                }
+            } catch (error) {
+                console.error('Failed to get user role:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        getUserRole();
+    }, []);
+
+    if (loading) {
+        return <LoadingSpinner />;
+    }
+
+    // Redirect based on user role
+    if (userRole === 'level2') {
+        return <Navigate to="/printed-bills" replace />;
+    }
+    
+    if (userRole === 'level3') {
+        return <Navigate to="/bank-dashboard" replace />;
+    }
+    
+    // Default redirect for other roles to dashboard
+    return <Navigate to="/dashboard" replace />;
 };
 
 export default function App() {
@@ -61,12 +151,16 @@ export default function App() {
                 {/* 🔒 Auth Routes: Login and Register are public */}
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
+                <Route path="/unauthorized" element={<UnAuthorizedPage />} />
 
-                {/* 🏠 CORE ROUTES: Protected */}
+                {/* 🏠 Root Route with role-based redirection */}
+                <Route path="/" element={<RootRedirect />} />
+
+                {/* DASHBOARD - For non-level2 and non-level3 users */}
                 <Route
-                    path="/"
+                    path="/dashboard"
                     element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allowedRoles={['admin', 'level1', 'User']}>
                             <Dashboard />
                         </ProtectedRoute>
                     }
@@ -189,12 +283,10 @@ export default function App() {
                     path="/customers-loans"
                     element={
                         <ProtectedRoute>
-                            {/* 🚀 CORRECTION: Use LoanManager for the main loans page */}
                             <LoanManager />
                         </ProtectedRoute>
                     }
                 />
-                {/* Loan Report View is often considered protected data */}
                 <Route
                     path="/customers-loans/report"
                     element={
@@ -204,7 +296,7 @@ export default function App() {
                     }
                 />
 
-                {/* ⚠️ CRITICAL CORRECTION: Sales Entry MUST be Protected */}
+                {/* SALES ENTRY */}
                 <Route
                     path="/sales"
                     element={
@@ -231,7 +323,6 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
-                {/* Supplier Details Modal is likely a standalone page for quick links, should be protected */}
                 <Route
                     path="/suppliermodal"
                     element={
@@ -264,8 +355,22 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
-                <Route path="/reports/supplier" element={<SupplierReport2 />} />
-                <Route path="/reports/printed-sales" element={<PrintedSalesReport />} />
+                <Route 
+                    path="/reports/supplier" 
+                    element={
+                        <ProtectedRoute>
+                            <SupplierReport2 />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/reports/printed-sales" 
+                    element={
+                        <ProtectedRoute>
+                            <PrintedSalesReport />
+                        </ProtectedRoute>
+                    } 
+                />
                 <Route
                     path="/reports/newsales"
                     element={
@@ -274,28 +379,157 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
+                
+                {/* PUBLIC BILL VIEWS */}
                 <Route path="/view-bill/:token" element={<PublicBill />} />
-
                 <Route path="/suppliers/dobreport" element={<SupplierdobReport />} />
                 <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
-                <Route path="/farmer-loans" element={<FarmerLoanManager />} />
-                <Route path="/suppliers/printed-report" element={<SupplierReportPrinted />} />
-                <Route path="/supplier-loan-report" element={<SupplierLoanReport />} />
-                <Route path="/supplier-finalreport" element={<SupplierFinalReport />} />
-                {/* PRINTED BILLS - For cashier to view and reprint bills */}
+                
+                {/* LOAN MANAGERS */}
+                <Route 
+                    path="/farmer-loans" 
+                    element={
+                        <ProtectedRoute>
+                            <FarmerLoanManager />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/suppliers/printed-report" 
+                    element={
+                        <ProtectedRoute>
+                            <SupplierReportPrinted />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/supplier-loan-report" 
+                    element={
+                        <ProtectedRoute>
+                            <SupplierLoanReport />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/supplier-finalreport" 
+                    element={
+                        <ProtectedRoute>
+                            <SupplierFinalReport />
+                        </ProtectedRoute>
+                    } 
+                />
+                
+                {/* PRINTED BILLS - For level2 users (cashiers) */}
                 <Route
                     path="/printed-bills"
                     element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allowedRoles={['level2']}>
                             <PrintedBills />
                         </ProtectedRoute>
                     }
                 />
-                <Route path="/bank-dashboard" element={<BankDashboard />} />
-                <Route path="/banks" element={<Banks />} />
-                {/* ❌ Fallback route: Redirect all unknown paths to the main dashboard */}
+                
+                {/* BANK DASHBOARD - For level3 users (bank managers) */}
+                <Route 
+                    path="/bank-dashboard" 
+                    element={
+                        <ProtectedRoute allowedRoles={['level3']}>
+                            <BankDashboard />
+                        </ProtectedRoute>
+                    } 
+                />
+                
+                {/* BANKS - For level3 users */}
+                <Route 
+                    path="/banks" 
+                    element={
+                        <ProtectedRoute allowedRoles={['level3']}>
+                            <Banks />
+                        </ProtectedRoute>
+                    } 
+                />
+                
+                {/* ❌ Fallback route: Redirect all unknown paths to root (which will handle role-based redirect) */}
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </BrowserRouter>
     );
 }
+
+// Unauthorized Page Component
+const UnAuthorizedPage = () => {
+    const navigate = useNavigate();
+    
+    const styles = {
+        container: {
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: '100vh',
+            backgroundColor: '#f8fafc',
+            fontFamily: "'Inter', sans-serif",
+        },
+        card: {
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            padding: '40px',
+            textAlign: 'center',
+            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+            maxWidth: '400px',
+            width: '90%',
+        },
+        icon: {
+            fontSize: '64px',
+            marginBottom: '20px',
+        },
+        title: {
+            fontSize: '24px',
+            fontWeight: '600',
+            color: '#ef4444',
+            marginBottom: '12px',
+        },
+        message: {
+            fontSize: '14px',
+            color: '#64748b',
+            marginBottom: '24px',
+            lineHeight: '1.5',
+        },
+        button: {
+            padding: '10px 24px',
+            backgroundColor: '#4F46E5',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.3s ease',
+        }
+    };
+
+    return (
+        <div style={styles.container}>
+            <div style={styles.card}>
+                <div style={styles.icon}>🔒</div>
+                <h2 style={styles.title}>Unauthorized Access</h2>
+                <p style={styles.message}>
+                    You don't have permission to access this page. This area is restricted to authorized personnel only.
+                </p>
+                <button 
+                    style={styles.button}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#4338CA';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#4F46E5';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                    onClick={() => navigate('/')}
+                >
+                    Go to Home
+                </button>
+            </div>
+        </div>
+    );
+};

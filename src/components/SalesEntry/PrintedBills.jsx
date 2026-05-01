@@ -78,7 +78,7 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) 
 };
 
 // ==================== PAYMENT HISTORY MODAL ====================
-const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
+const PaymentHistoryModal = ({ isOpen, onClose, payments, totalPaid, totalBill, remaining }) => {
     if (!isOpen) return null;
 
     const modalStyles = {
@@ -97,7 +97,7 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
         modal: {
             backgroundColor: 'white',
             borderRadius: '12px',
-            width: '500px',
+            width: '550px',
             maxWidth: '90%',
             maxHeight: '80vh',
             display: 'flex',
@@ -123,6 +123,26 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
             fontSize: '24px',
             cursor: 'pointer',
             color: '#94a3b8',
+        },
+        summary: {
+            padding: '16px 20px',
+            background: '#f8fafc',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '12px',
+        },
+        summaryItem: {
+            textAlign: 'center',
+        },
+        summaryLabel: {
+            fontSize: '11px',
+            color: '#64748b',
+            marginBottom: '4px',
+        },
+        summaryValue: {
+            fontSize: '16px',
+            fontWeight: 'bold',
         },
         content: {
             padding: '20px',
@@ -171,6 +191,31 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
         }
     };
 
+    const formatCurrency = (amount) => {
+        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const getPaymentIcon = (method) => {
+        switch(method) {
+            case 'Cash': return '💰';
+            case 'Cheque': return '💳';
+            case 'Bank Transfer': return '🏦';
+            case 'bag_to_box': return '📦';
+            case 'bill_to_bill': return '📄';
+            case 'bad_debt': return '⚠️';
+            default: return '💵';
+        }
+    };
+
+    const getMethodDisplayName = (method) => {
+        switch(method) {
+            case 'bag_to_box': return 'Bag to Box';
+            case 'bill_to_bill': return 'Bill to Bill';
+            case 'bad_debt': return 'Bad Debt';
+            default: return method;
+        }
+    };
+
     return (
         <div style={modalStyles.overlay} onClick={onClose}>
             <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
@@ -178,6 +223,22 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
                     <h3 style={modalStyles.title}>Payment History</h3>
                     <button style={modalStyles.closeBtn} onClick={onClose}>×</button>
                 </div>
+                
+                <div style={modalStyles.summary}>
+                    <div style={modalStyles.summaryItem}>
+                        <div style={modalStyles.summaryLabel}>Total Bill</div>
+                        <div style={{...modalStyles.summaryValue, color: '#ef4444'}}>{formatCurrency(totalBill)}</div>
+                    </div>
+                    <div style={modalStyles.summaryItem}>
+                        <div style={modalStyles.summaryLabel}>Total Paid</div>
+                        <div style={{...modalStyles.summaryValue, color: '#10b981'}}>{formatCurrency(totalPaid)}</div>
+                    </div>
+                    <div style={modalStyles.summaryItem}>
+                        <div style={modalStyles.summaryLabel}>Remaining</div>
+                        <div style={{...modalStyles.summaryValue, color: '#f59e0b'}}>{formatCurrency(remaining)}</div>
+                    </div>
+                </div>
+
                 <div style={modalStyles.content}>
                     {payments && payments.length > 0 ? (
                         payments.map((payment, index) => (
@@ -190,24 +251,25 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
                                         {new Date(payment.date).toLocaleString()}
                                     </div>
                                     {payment.reference && (
-                                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                                             Ref: {payment.reference}
                                         </div>
                                     )}
+                                    {payment.running_balance && (
+                                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                                            Balance after: {formatCurrency(payment.running_balance)}
+                                        </div>
+                                    )}
                                 </div>
-                                <div>
+                                <div style={{ textAlign: 'right' }}>
                                     <span style={{
                                         ...modalStyles.paymentMethod,
                                         ...getPaymentMethodStyle(payment.method)
                                     }}>
-                                        {payment.method === 'bag_to_box' ? '📦 Bag to Box' :
-                                         payment.method === 'bill_to_bill' ? '📄 Bill to Bill' :
-                                         payment.method === 'bad_debt' ? '⚠️ Bad Debt' :
-                                         payment.method === 'Bank Transfer' ? '🏦 Bank Transfer' :
-                                         payment.method === 'Cheque' ? '💳 Cheque' : '💰 Cash'}
+                                        {getPaymentIcon(payment.method)} {getMethodDisplayName(payment.method)}
                                     </span>
-                                    <div style={{ fontWeight: 'bold', marginTop: '4px' }}>
-                                        Rs. {payment.amount.toFixed(2)}
+                                    <div style={{ fontWeight: 'bold', marginTop: '8px', fontSize: '14px' }}>
+                                        {formatCurrency(payment.amount)}
                                     </div>
                                 </div>
                             </div>
@@ -218,6 +280,7 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
                         </div>
                     )}
                 </div>
+                
                 <div style={modalStyles.footer}>
                     <button onClick={onClose} style={{
                         padding: '8px 20px',
@@ -232,7 +295,7 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
     );
 };
 
-// ==================== CHEQUE MODAL WITH BANK ACCOUNT SELECTION ====================
+// ==================== CHEQUE MODAL ====================
 const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
     const [chequeDetails, setChequeDetails] = useState({
         cheq_date: '',
@@ -683,7 +746,6 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
 
     const handleConfirm = () => {
         const adjustmentData = {
-            bill_no: billNo,
             adjustment_type: adjustmentType,
             original_bill_total: originalBillTotal
         };
@@ -697,6 +759,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
             adjustmentData.box_count = parseInt(boxCount);
             adjustmentData.bag_value = parseFloat(bagValue);
             adjustmentData.box_value = parseFloat(boxValue);
+            adjustmentData.amount = Math.abs(calculateBagToBoxAdjustment());
         }
 
         if (adjustmentType === 'bill_to_bill') {
@@ -710,6 +773,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
             adjustmentData.farmer_code = farmerCode;
             adjustmentData.farmer_bill_no = farmerBillNo;
             adjustmentData.farmer_bill_value = parseFloat(farmerBillValue);
+            adjustmentData.amount = calculateBillToBillTotal();
         }
 
         if (adjustmentType === 'bad_debt') {
@@ -719,6 +783,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
             }
             adjustmentData.bad_debt_name = badDebtName;
             adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
+            adjustmentData.amount = parseFloat(badDebtAmount);
         }
 
         onConfirm(adjustmentData);
@@ -981,7 +1046,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                                 Total Bag Value: Rs. {(parseInt(bagCount) * parseFloat(bagValue) || 0).toFixed(2)}<br />
                                 Total Box Value: Rs. {(parseInt(boxCount) * parseFloat(boxValue) || 0).toFixed(2)}<br />
                                 <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#166534' }}>
-                                    Adjustment Amount: Rs. {calculateBagToBoxAdjustment().toFixed(2)}
+                                    Adjustment Amount: Rs. {Math.abs(calculateBagToBoxAdjustment()).toFixed(2)}
                                 </span><br />
                                 <span style={{ fontSize: '12px', color: '#64748b' }}>
                                     This amount will be deducted from the remaining payment
@@ -992,7 +1057,6 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
 
                     {adjustmentType === 'bill_to_bill' && (
                         <>
-                            {/* Customer Bill Section */}
                             <div style={modalStyles.section}>
                                 <div style={modalStyles.sectionTitle}>Customer Bill Transfer</div>
                                 <div style={modalStyles.formGroup}>
@@ -1071,7 +1135,6 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                                 </div>
                             </div>
 
-                            {/* Farmer Bill Section */}
                             <div style={modalStyles.section}>
                                 <div style={modalStyles.sectionTitle}>Farmer/Supplier Bill Transfer</div>
                                 <div style={modalStyles.formGroup}>
@@ -1293,11 +1356,11 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">🏦 Bank Transfer: ${paymentDetails.bank_name || 'Bank'} | Ref: ${paymentDetails.reference_no} | Date: ${paymentDetails.transfer_date}</div>`;
     } else if (paymentMethod === 'adjustment' && paymentDetails) {
         if (paymentDetails.type === 'bag_to_box') {
-            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">📦 Bag to Box Adjustment: Rs. ${paymentDetails.amount.toFixed(2)}</div>`;
+            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">📦 Bag to Box Adjustment: Rs. ${paymentDetails.amount.toFixed(2)}<br>${paymentDetails.bag_count} bags @ Rs.${paymentDetails.bag_value} → ${paymentDetails.box_count} boxes @ Rs.${paymentDetails.box_value}</div>`;
         } else if (paymentDetails.type === 'bill_to_bill') {
-            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">📄 Bill to Bill Transfer: Rs. ${paymentDetails.amount.toFixed(2)}</div>`;
+            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">📄 Bill to Bill Transfer: Rs. ${paymentDetails.amount.toFixed(2)}<br>Customer Bill: ${paymentDetails.customer_bill_no} | Farmer Bill: ${paymentDetails.farmer_bill_no}</div>`;
         } else if (paymentDetails.type === 'bad_debt') {
-            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">⚠️ Bad Debt Write-off: Rs. ${paymentDetails.amount.toFixed(2)}</div>`;
+            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">⚠️ Bad Debt Write-off: Rs. ${paymentDetails.amount.toFixed(2)}<br>${paymentDetails.name}</div>`;
         }
     }
 
@@ -1828,7 +1891,9 @@ export default function PrintedBills() {
         pendingBankToBankAmount: 0,
         showPaymentHistoryModal: false,
         currentPayments: [],
-        pendingAdjustmentData: null
+        paymentHistoryTotalPaid: 0,
+        paymentHistoryTotalBill: 0,
+        paymentHistoryRemaining: 0
     });
 
     const formatDecimal = (value) => {
@@ -1898,7 +1963,10 @@ export default function PrintedBills() {
             if (response.data.success) {
                 setState(prev => ({
                     ...prev,
-                    currentPayments: response.data.payments,
+                    currentPayments: response.data.payments || [],
+                    paymentHistoryTotalPaid: response.data.total_paid || 0,
+                    paymentHistoryTotalBill: response.data.total_bill || 0,
+                    paymentHistoryRemaining: response.data.remaining || 0,
                     showPaymentHistoryModal: true
                 }));
             }
@@ -1936,7 +2004,7 @@ export default function PrintedBills() {
         setState(prev => ({ ...prev, givenAmountInput: e.target.value }));
     };
 
-    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null) => {
+    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
         if (!state.selectedBill || state.isPrinting) return;
         
         setState(prev => ({ ...prev, isPrinting: true }));
@@ -1948,36 +2016,91 @@ export default function PrintedBills() {
             const creditTransaction = isFullySettled ? 'N' : 'Y';
             const givenAmountApplied = isFullySettled ? 'Y' : 'N';
 
+            // Determine payment method
+            let paymentMethod = 'Cash';
+            if (isAdjustment && adjustmentDetails) {
+                paymentMethod = adjustmentDetails.type;
+            } else if (isBankTransfer) {
+                paymentMethod = 'Bank Transfer';
+            } else if (isCheque) {
+                paymentMethod = 'Cheque';
+            }
+
             const payload = {
                 bill_no: state.selectedBill.billNo,
                 given_amount: totalGivenAmount,
                 given_amount_applied: givenAmountApplied,
                 credit_transaction: creditTransaction,
                 payment_amount: paymentAmount,
-                payment_method: isBankTransfer ? 'Bank Transfer' : (isCheque ? 'Cheque' : 'Cash')
+                payment_method: paymentMethod
             };
 
             let paymentMethodText = 'Cash';
             let paymentDetailsForReceipt = null;
 
-            if (isBankTransfer && bankTransferDetails) {
+            // Handle Adjustment (Bag to Box, Bill to Bill, Bad Debt)
+            if (isAdjustment && adjustmentDetails) {
+                if (adjustmentDetails.type === 'bag_to_box') {
+                    payload.bag_count = adjustmentDetails.bag_count;
+                    payload.box_count = adjustmentDetails.box_count;
+                    payload.bag_value = adjustmentDetails.bag_value;
+                    payload.box_value = adjustmentDetails.box_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                    paymentMethodText = 'Bag to Box';
+                    paymentDetailsForReceipt = {
+                        type: 'bag_to_box',
+                        amount: adjustmentDetails.amount,
+                        bag_count: adjustmentDetails.bag_count,
+                        box_count: adjustmentDetails.box_count,
+                        bag_value: adjustmentDetails.bag_value,
+                        box_value: adjustmentDetails.box_value
+                    };
+                } else if (adjustmentDetails.type === 'bill_to_bill') {
+                    payload.target_customer_code = adjustmentDetails.customer_code;
+                    payload.target_bill_no = adjustmentDetails.customer_bill_no;
+                    payload.target_bill_value = adjustmentDetails.customer_bill_value;
+                    payload.target_supplier_code = adjustmentDetails.farmer_code;
+                    payload.target_supplier_bill_no = adjustmentDetails.farmer_bill_no;
+                    payload.target_supplier_bill_value = adjustmentDetails.farmer_bill_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                    paymentMethodText = 'Bill to Bill';
+                    paymentDetailsForReceipt = {
+                        type: 'bill_to_bill',
+                        amount: adjustmentDetails.amount,
+                        customer_bill_no: adjustmentDetails.customer_bill_no,
+                        farmer_bill_no: adjustmentDetails.farmer_bill_no
+                    };
+                } else if (adjustmentDetails.type === 'bad_debt') {
+                    payload.bad_debt_name = adjustmentDetails.bad_debt_name;
+                    payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                    paymentMethodText = 'Bad Debt';
+                    paymentDetailsForReceipt = {
+                        type: 'bad_debt',
+                        amount: adjustmentDetails.amount,
+                        name: adjustmentDetails.bad_debt_name
+                    };
+                }
+            } 
+            // Handle Bank Transfer
+            else if (isBankTransfer && bankTransferDetails) {
                 payload.bank_account_id = bankTransferDetails.bank_account_id;
                 payload.transfer_reference_no = bankTransferDetails.reference_no;
                 payload.transfer_date = bankTransferDetails.transfer_date;
                 payload.transfer_notes = bankTransferDetails.notes;
                 paymentMethodText = 'Bank Transfer';
                 paymentDetailsForReceipt = {
-                    bank_name: null,
                     reference_no: bankTransferDetails.reference_no,
                     transfer_date: bankTransferDetails.transfer_date
                 };
-            } else if (isCheque && chequeDetails) {
+            } 
+            // Handle Cheque
+            else if (isCheque && chequeDetails) {
                 payload.cheq_date = chequeDetails.cheq_date;
                 payload.cheq_no = chequeDetails.cheq_no;
                 payload.bank_account_id = chequeDetails.bank_account_id;
                 paymentMethodText = 'Cheque';
                 paymentDetailsForReceipt = {
-                    bank_name: null,
                     cheq_no: chequeDetails.cheq_no,
                     cheq_date: chequeDetails.cheq_date
                 };
@@ -2013,7 +2136,7 @@ export default function PrintedBills() {
                     customer?.telephone_no || "",
                     0,
                     totalGivenAmount,
-                    isBankTransfer ? 'bank_to_bank' : (isCheque ? 'cheque' : 'cash'),
+                    isAdjustment ? 'adjustment' : (isBankTransfer ? 'bank_to_bank' : (isCheque ? 'cheque' : 'cash')),
                     paymentDetailsForReceipt
                 );
 
@@ -2048,7 +2171,7 @@ export default function PrintedBills() {
                     ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill is now FULLY PAID and moved to Completed Payments.`
                     : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}`;
                 
-                alert(statusMessage);
+               
                 
                 setState(prev => ({ 
                     ...prev, 
@@ -2056,6 +2179,7 @@ export default function PrintedBills() {
                     givenAmountInput: "", 
                     showChequeModal: false,
                     showBankToBankModal: false,
+                    showAdjustmentModal: false,
                     pendingBankToBankAmount: 0
                 }));
             }
@@ -2073,7 +2197,7 @@ export default function PrintedBills() {
             alert("Please enter an amount");
             return;
         }
-        await processPayment(paymentAmount, false, null, false, null);
+        await processPayment(paymentAmount, false, null, false, null, false, null);
     };
 
     const handleChequePayment = async () => {
@@ -2086,7 +2210,7 @@ export default function PrintedBills() {
     };
 
     const handleChequeConfirm = async (chequeDetails) => {
-        await processPayment(state.pendingChequeAmount, true, chequeDetails, false, null);
+        await processPayment(state.pendingChequeAmount, true, chequeDetails, false, null, false, null);
     };
 
     const handleBankToBankPayment = async () => {
@@ -2099,7 +2223,7 @@ export default function PrintedBills() {
     };
 
     const handleBankToBankConfirm = async (transferDetails) => {
-        await processPayment(state.pendingBankToBankAmount, false, null, true, transferDetails);
+        await processPayment(state.pendingBankToBankAmount, false, null, true, transferDetails, false, null);
     };
 
     const handlePrintWithoutUpdate = async () => {
@@ -2166,20 +2290,38 @@ export default function PrintedBills() {
 
     const handleApplyAdjustment = async (adjustmentData) => {
         try {
-            const paymentAmount = parseFloat(state.givenAmountInput) || 0;
-            if (paymentAmount === 0 && !adjustmentData.adjustment_amount) {
-                alert("Please enter an amount or use adjustment");
+            // Calculate the adjustment amount
+            let adjustmentAmount = 0;
+            
+            if (adjustmentData.adjustment_type === 'bag_to_box') {
+                adjustmentAmount = Math.abs((adjustmentData.bag_count * adjustmentData.bag_value) - (adjustmentData.box_count * adjustmentData.box_value));
+            } else if (adjustmentData.adjustment_type === 'bill_to_bill') {
+                adjustmentAmount = adjustmentData.customer_bill_value + adjustmentData.farmer_bill_value;
+            } else if (adjustmentData.adjustment_type === 'bad_debt') {
+                adjustmentAmount = adjustmentData.bad_debt_amount;
+            }
+            
+            if (adjustmentAmount === 0) {
+                alert("Adjustment amount is zero");
                 return;
             }
             
-            const response = await api.post(routes.applyAdjustment, adjustmentData);
-            if (response.data.success) {
-                const data = response.data.data;
-                alert(`Adjustment applied successfully!\n\nAdjustment Amount: Rs. ${formatDecimal(data.adjustment_amount)}\nNew Given Amount: Rs. ${formatDecimal(data.new_given_amount)}\nRemaining: Rs. ${formatDecimal(data.remaining)}`);
-                setState(prev => ({ ...prev, showAdjustmentModal: false }));
-                await fetchSalesData();
-                setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "" }));
-            }
+            // Process as adjustment payment
+            await processPayment(
+                adjustmentAmount, 
+                false, 
+                null, 
+                false, 
+                null, 
+                true, 
+                {
+                    type: adjustmentData.adjustment_type,
+                    amount: adjustmentAmount,
+                    ...adjustmentData
+                }
+            );
+            
+            setState(prev => ({ ...prev, showAdjustmentModal: false }));
         } catch (error) {
             alert('Failed to apply adjustment: ' + (error.response?.data?.message || error.message));
         }
@@ -2261,7 +2403,6 @@ export default function PrintedBills() {
                             🔄 Refresh
                         </button>
                     </div>
-                    <p style={styles.subtitle}>Manage payments, re-print bills, and apply adjustments</p>
                 </div>
 
                 <div style={styles.threeColumns}>
@@ -2623,6 +2764,9 @@ export default function PrintedBills() {
                 isOpen={state.showPaymentHistoryModal}
                 onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))}
                 payments={state.currentPayments}
+                totalPaid={state.paymentHistoryTotalPaid}
+                totalBill={state.paymentHistoryTotalBill}
+                remaining={state.paymentHistoryRemaining}
             />
         </div>
     );
