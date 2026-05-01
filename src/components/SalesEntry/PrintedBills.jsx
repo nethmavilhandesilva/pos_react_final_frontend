@@ -1,4 +1,3 @@
-// src/components/SalesEntry/PrintedBills.jsx
 import React, { useState, useEffect, useMemo } from "react";
 import api from "../../api";
 
@@ -949,7 +948,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         </table>
 
         <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-            <tr><td style="font-size:20px;">මලු:</td><td style="text-align:right;">${formatNumber(totalPackCost.toFixed(2))}ERC20
+            <tr><td style="font-size:20px;">මලු:</td><td style="text-align:right;">${formatNumber(totalPackCost.toFixed(2))}</td></tr>
             <tr><td style="font-size:20px; padding-top:8px;">එකතුව:</td>
                 <td style="text-align:right; padding-top:8px;">
                     <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${Number(finalGrandTotal).toFixed(2)}</span>
@@ -967,7 +966,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
             ` : ''}
         </table>
 
-        <table style="width:100%; border-collapse:collapse; margin-top:25px; font-size:14px; text-align:center;">${summaryHtmlContent}</td>
+        <table style="width:100%; border-collapse:collapse; margin-top:25px; font-size:14px; text-align:center;">${summaryHtmlContent}</table>
 
         <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;">
             <p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
@@ -1306,8 +1305,8 @@ const styles = {
         transition: 'all 0.2s',
     },
     cashPaymentBtn: {
-        width: 'calc(100% - 32px)',
-        margin: '0 16px 8px 16px',
+        width: 'calc(50% - 6px)',
+        margin: '0',
         padding: '12px',
         background: '#10b981',
         color: 'white',
@@ -1323,8 +1322,8 @@ const styles = {
         transition: 'all 0.2s',
     },
     chequePaymentBtn: {
-        width: 'calc(100% - 32px)',
-        margin: '0 16px 8px 16px',
+        width: 'calc(50% - 6px)',
+        margin: '0',
         padding: '12px',
         background: '#8b5cf6',
         color: 'white',
@@ -1338,6 +1337,11 @@ const styles = {
         justifyContent: 'center',
         gap: '8px',
         transition: 'all 0.2s',
+    },
+    paymentButtonsContainer: {
+        display: 'flex',
+        gap: '12px',
+        marginTop: '12px',
     }
 };
 
@@ -1411,6 +1415,7 @@ export default function PrintedBills() {
                             totalAmount: 0,
                             givenAmount: sale.given_amount || 0,
                             givenAmountApplied: sale.given_amount_applied || 'N',
+                            paymentAdjustmentType: sale.payment_adjustment_type || null,
                             createdAt: sale.created_at
                         };
                     }
@@ -1471,7 +1476,7 @@ export default function PrintedBills() {
             const totalGivenAmount = state.selectedBill.givenAmount + paymentAmount;
             const isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
             const creditTransaction = isFullySettled ? 'N' : 'Y';
-            const givenAmountApplied = totalGivenAmount >= state.selectedBill.totalAmount ? 'Y' : 'N';
+            const givenAmountApplied = isFullySettled ? 'Y' : 'N';
 
             const payload = {
                 bill_no: state.selectedBill.billNo,
@@ -1485,6 +1490,11 @@ export default function PrintedBills() {
                 payload.cheq_date = chequeDetails.cheq_date;
                 payload.cheq_no = chequeDetails.cheq_no;
                 payload.bank_account_id = chequeDetails.bank_account_id;
+            } else {
+                // For cash payments, ensure cheque fields are cleared
+                payload.cheq_date = null;
+                payload.cheq_no = null;
+                payload.bank_account_id = null;
             }
 
             const response = await api.put(routes.updateGivenAmountApplied, payload);
@@ -1538,15 +1548,16 @@ export default function PrintedBills() {
                             window.print(); 
                             setTimeout(() => window.close(), 1000); 
                         };
-                    </script>
+                    <\/script>
                     </body>
                     </html>
                 `);
                 printWindow.document.close();
 
+                const paymentMethodText = isCheque ? `Cheque No: ${chequeDetails.cheq_no}` : 'Cash';
                 const statusMessage = givenAmountApplied === 'Y' 
-                    ? `✅ Payment Complete!\n\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill is now FULLY PAID and moved to Completed Payments.`
-                    : `✓ Payment Added!\n\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}`;
+                    ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill is now FULLY PAID and moved to Completed Payments.`
+                    : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}`;
                 
                 alert(statusMessage);
                 
@@ -1603,7 +1614,9 @@ export default function PrintedBills() {
                 customer?.name || state.selectedBill.customerCode,
                 customer?.telephone_no || "",
                 0,
-                state.selectedBill.givenAmount || 0
+                state.selectedBill.givenAmount || 0,
+                state.selectedBill.paymentAdjustmentType === 'Cheque' ? 'cheque' : 'cash',
+                state.selectedBill.cheque_details
             );
 
             const printWindow = window.open("", "_blank", "width=800,height=600");
@@ -1740,6 +1753,11 @@ export default function PrintedBills() {
                                                 <div style={styles.billNo}>#{bill.billNo}</div>
                                                 <div style={styles.billCustomer}>{bill.customerCode}</div>
                                                 <span style={{ ...styles.badge, ...styles.badgePending }}>Pending</span>
+                                                {bill.paymentAdjustmentType && (
+                                                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                                                        {bill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : '💰 Cash'}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div style={styles.billRight}>
                                                 <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
@@ -1790,6 +1808,11 @@ export default function PrintedBills() {
                                             <div style={{ marginTop: '12px', padding: '8px', background: '#f0fdf4', borderRadius: '8px' }}>
                                                 <div style={{ fontSize: '13px', color: '#15803d' }}>
                                                     💰 Already Given: Rs. {formatDecimal(state.selectedBill.givenAmount)}
+                                                    {state.selectedBill.paymentAdjustmentType && (
+                                                        <div style={{ fontSize: '11px', marginTop: '4px' }}>
+                                                            Payment Type: {state.selectedBill.paymentAdjustmentType === 'Cheque' ? 'Cheque Payment' : 'Cash Payment'}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         )}
@@ -1873,7 +1896,7 @@ export default function PrintedBills() {
                                         </div>
 
                                         {/* Payment Buttons */}
-                                        <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                                        <div style={styles.paymentButtonsContainer}>
                                             <button 
                                                 onClick={handleCashPayment}
                                                 disabled={state.isPrinting || currentGiven === 0}
@@ -1948,6 +1971,11 @@ export default function PrintedBills() {
                                                 <div style={styles.billNo}>#{bill.billNo}</div>
                                                 <div style={styles.billCustomer}>{bill.customerCode}</div>
                                                 <span style={{ ...styles.badge, ...styles.badgeApplied }}>Paid</span>
+                                                {bill.paymentAdjustmentType && (
+                                                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                                                        {bill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : '💰 Cash'}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div style={styles.billRight}>
                                                 <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
