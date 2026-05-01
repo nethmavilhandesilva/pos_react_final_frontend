@@ -9,7 +9,8 @@ const routes = {
     getBanks: "/banks",
     applyAdjustment: "/adjustments/apply",
     pendingCustomerBills: "/adjustments/pending-customer-bills",
-    pendingFarmerBills: "/adjustments/pending-farmer-bills"
+    pendingFarmerBills: "/adjustments/pending-farmer-bills",
+    paymentHistory: "/sales/payment-history"
 };
 
 // ==================== BANK ACCOUNT SELECTOR COMPONENT ====================
@@ -72,6 +73,161 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) 
                     </option>
                 ))}
             </select>
+        </div>
+    );
+};
+
+// ==================== PAYMENT HISTORY MODAL ====================
+const PaymentHistoryModal = ({ isOpen, onClose, payments }) => {
+    if (!isOpen) return null;
+
+    const modalStyles = {
+        overlay: {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10001,
+        },
+        modal: {
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            width: '500px',
+            maxWidth: '90%',
+            maxHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+        },
+        header: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderBottom: '1px solid #e2e8f0',
+        },
+        title: {
+            margin: 0,
+            fontSize: '18px',
+            fontWeight: '600',
+            color: '#0f172a',
+        },
+        closeBtn: {
+            background: 'none',
+            border: 'none',
+            fontSize: '24px',
+            cursor: 'pointer',
+            color: '#94a3b8',
+        },
+        content: {
+            padding: '20px',
+            overflowY: 'auto',
+            flex: 1,
+        },
+        paymentItem: {
+            padding: '12px',
+            borderBottom: '1px solid #f1f5f9',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+        },
+        paymentMethod: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '4px 12px',
+            borderRadius: '20px',
+            fontSize: '12px',
+            fontWeight: '500',
+        },
+        footer: {
+            padding: '16px 20px',
+            borderTop: '1px solid #e2e8f0',
+            textAlign: 'right',
+        },
+    };
+
+    const getPaymentMethodStyle = (method) => {
+        switch(method) {
+            case 'Cash':
+                return { backgroundColor: '#10b981', color: 'white' };
+            case 'Cheque':
+                return { backgroundColor: '#8b5cf6', color: 'white' };
+            case 'Bank Transfer':
+                return { backgroundColor: '#ec489a', color: 'white' };
+            case 'bag_to_box':
+                return { backgroundColor: '#f59e0b', color: 'white' };
+            case 'bill_to_bill':
+                return { backgroundColor: '#3b82f6', color: 'white' };
+            case 'bad_debt':
+                return { backgroundColor: '#ef4444', color: 'white' };
+            default:
+                return { backgroundColor: '#6b7280', color: 'white' };
+        }
+    };
+
+    return (
+        <div style={modalStyles.overlay} onClick={onClose}>
+            <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
+                <div style={modalStyles.header}>
+                    <h3 style={modalStyles.title}>Payment History</h3>
+                    <button style={modalStyles.closeBtn} onClick={onClose}>×</button>
+                </div>
+                <div style={modalStyles.content}>
+                    {payments && payments.length > 0 ? (
+                        payments.map((payment, index) => (
+                            <div key={index} style={modalStyles.paymentItem}>
+                                <div>
+                                    <div style={{ fontWeight: '600', fontSize: '14px' }}>
+                                        Payment #{index + 1}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#64748b' }}>
+                                        {new Date(payment.date).toLocaleString()}
+                                    </div>
+                                    {payment.reference && (
+                                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                            Ref: {payment.reference}
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <span style={{
+                                        ...modalStyles.paymentMethod,
+                                        ...getPaymentMethodStyle(payment.method)
+                                    }}>
+                                        {payment.method === 'bag_to_box' ? '📦 Bag to Box' :
+                                         payment.method === 'bill_to_bill' ? '📄 Bill to Bill' :
+                                         payment.method === 'bad_debt' ? '⚠️ Bad Debt' :
+                                         payment.method === 'Bank Transfer' ? '🏦 Bank Transfer' :
+                                         payment.method === 'Cheque' ? '💳 Cheque' : '💰 Cash'}
+                                    </span>
+                                    <div style={{ fontWeight: 'bold', marginTop: '4px' }}>
+                                        Rs. {payment.amount.toFixed(2)}
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            No payment history available
+                        </div>
+                    )}
+                </div>
+                <div style={modalStyles.footer}>
+                    <button onClick={onClose} style={{
+                        padding: '8px 20px',
+                        background: '#f1f5f9',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                    }}>Close</button>
+                </div>
+            </div>
         </div>
     );
 };
@@ -216,6 +372,238 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
     );
 };
 
+// ==================== BANK TO BANK MODAL ====================
+const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, customerName }) => {
+    const [transferDetails, setTransferDetails] = useState({
+        bank_account_id: null,
+        reference_no: '',
+        transfer_date: new Date().toISOString().split('T')[0],
+        notes: ''
+    });
+    const [banks, setBanks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        if (isOpen) {
+            fetchBanks();
+        }
+    }, [isOpen]);
+
+    const fetchBanks = async () => {
+        setLoading(true);
+        try {
+            const response = await api.get(routes.getBanks);
+            if (response.data.success) {
+                setBanks(response.data.data);
+            } else {
+                setError('Failed to load bank accounts');
+            }
+        } catch (error) {
+            setError('Unable to load bank accounts');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setTransferDetails(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleBankSelect = (bankId) => {
+        setTransferDetails(prev => ({ ...prev, bank_account_id: bankId ? parseInt(bankId) : null }));
+    };
+
+    const handleSubmit = () => {
+        if (!transferDetails.bank_account_id) {
+            alert("Please select a bank account");
+            return;
+        }
+        if (!transferDetails.reference_no) {
+            alert("Please enter transaction reference number");
+            return;
+        }
+        
+        onConfirm(transferDetails);
+        setTransferDetails({
+            bank_account_id: null,
+            reference_no: '',
+            transfer_date: new Date().toISOString().split('T')[0],
+            notes: ''
+        });
+    };
+
+    const modalStyles = {
+        overlay: {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999,
+        },
+        modal: {
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '25px',
+            width: '500px',
+            maxWidth: '90%',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+        },
+        title: {
+            margin: '0 0 20px 0',
+            color: '#333',
+            fontSize: '20px',
+            fontWeight: '600',
+        },
+        formGroup: {
+            marginBottom: '15px',
+        },
+        label: {
+            display: 'block',
+            marginBottom: '5px',
+            fontWeight: '500',
+            fontSize: '13px',
+            color: '#334155',
+        },
+        select: {
+            width: '100%',
+            padding: '10px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '14px',
+            background: 'white',
+            cursor: 'pointer',
+        },
+        input: {
+            width: '100%',
+            padding: '10px',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            fontSize: '14px',
+        },
+        textarea: {
+            width: '100%',
+            padding: '10px',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            fontSize: '14px',
+            resize: 'vertical',
+            minHeight: '60px',
+        },
+        infoBox: {
+            background: '#fdf2f8',
+            padding: '12px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            marginBottom: '16px',
+            border: '1px solid #fbcfe8',
+            color: '#be185d',
+        },
+        footer: {
+            display: 'flex',
+            gap: '10px',
+            justifyContent: 'flex-end',
+            marginTop: '20px',
+        },
+        cancelBtn: {
+            padding: '8px 20px',
+            background: '#6c757d',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+        },
+        confirmBtn: {
+            padding: '8px 20px',
+            background: '#ec489a',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+        },
+    };
+
+    return (
+        <div style={modalStyles.overlay} onClick={onClose}>
+            <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
+                <h3 style={modalStyles.title}>Bank to Bank Transfer</h3>
+                
+                <div style={modalStyles.infoBox}>
+                    <strong>Payment Details:</strong><br />
+                    Amount: Rs. {amount.toFixed(2)}<br />
+                    Customer: {customerName || customerCode}
+                </div>
+
+                <div style={modalStyles.formGroup}>
+                    <label style={modalStyles.label}>Select Bank Account *</label>
+                    <select
+                        value={transferDetails.bank_account_id || ''}
+                        onChange={(e) => handleBankSelect(e.target.value)}
+                        style={modalStyles.select}
+                        disabled={loading}
+                    >
+                        <option value="">-- Select Bank Account --</option>
+                        {banks.map(bank => (
+                            <option key={bank.id} value={bank.id}>
+                                {bank.bank_name} - {bank.branch} (Acc: {bank.account_no})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={modalStyles.formGroup}>
+                    <label style={modalStyles.label}>Transaction Reference Number *</label>
+                    <input
+                        type="text"
+                        name="reference_no"
+                        value={transferDetails.reference_no}
+                        onChange={handleChange}
+                        placeholder="Enter transaction ID / Reference"
+                        style={modalStyles.input}
+                    />
+                </div>
+
+                <div style={modalStyles.formGroup}>
+                    <label style={modalStyles.label}>Transfer Date *</label>
+                    <input
+                        type="date"
+                        name="transfer_date"
+                        value={transferDetails.transfer_date}
+                        onChange={handleChange}
+                        style={modalStyles.input}
+                    />
+                </div>
+
+                <div style={modalStyles.formGroup}>
+                    <label style={modalStyles.label}>Notes (Optional)</label>
+                    <textarea
+                        name="notes"
+                        value={transferDetails.notes}
+                        onChange={handleChange}
+                        placeholder="Additional notes about the transfer..."
+                        style={modalStyles.textarea}
+                    />
+                </div>
+
+                <div style={modalStyles.footer}>
+                    <button onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
+                    <button onClick={handleSubmit} style={modalStyles.confirmBtn}>
+                        Confirm Transfer
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ==================== PAYMENT ADJUSTMENT MODAL ====================
 const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCode, originalBillTotal }) => {
     const [adjustmentType, setAdjustmentType] = useState('bag_to_box');
@@ -293,7 +681,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
         }
     };
 
-    const handleSubmit = () => {
+    const handleConfirm = () => {
         const adjustmentData = {
             bill_no: billNo,
             adjustment_type: adjustmentType,
@@ -334,6 +722,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
         }
 
         onConfirm(adjustmentData);
+        onClose();
     };
 
     const filteredCustomerBills = pendingCustomerBills.filter(bill =>
@@ -807,7 +1196,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                     <button onClick={onClose} style={modalStyles.cancelBtn}>
                         Cancel
                     </button>
-                    <button onClick={handleSubmit} style={modalStyles.confirmBtn}>
+                    <button onClick={handleConfirm} style={modalStyles.confirmBtn}>
                         Apply Adjustment
                     </button>
                 </div>
@@ -817,7 +1206,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
 };
 
 // ==================== RECEIPT HTML BUILDER ====================
-const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, givenAmount = 0, paymentMethod = 'cash', chequeDetails = null) => {
+const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, givenAmount = 0, paymentMethod = 'cash', paymentDetails = null) => {
     const formatNumber = (num) => {
         if (typeof num !== 'number' && typeof num !== 'string') return '0';
         const number = parseFloat(num);
@@ -896,9 +1285,21 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         </tr>`;
     }
 
-    const paymentMethodDisplay = paymentMethod === 'cheque' && chequeDetails 
-        ? `<div style="font-size:14px; margin-top:5px;">💳 Cheque: ${chequeDetails.bank_name || 'Bank'} | No: ${chequeDetails.cheq_no} | Date: ${chequeDetails.cheq_date}</div>`
-        : '<div style="font-size:14px; margin-top:5px;">💰 Payment: Cash</div>';
+    let paymentMethodDisplay = '<div style="font-size:14px; margin-top:5px;">💰 Payment: Cash</div>';
+    
+    if (paymentMethod === 'cheque' && paymentDetails) {
+        paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">💳 Cheque: ${paymentDetails.bank_name || 'Bank'} | No: ${paymentDetails.cheq_no} | Date: ${paymentDetails.cheq_date}</div>`;
+    } else if (paymentMethod === 'bank_to_bank' && paymentDetails) {
+        paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">🏦 Bank Transfer: ${paymentDetails.bank_name || 'Bank'} | Ref: ${paymentDetails.reference_no} | Date: ${paymentDetails.transfer_date}</div>`;
+    } else if (paymentMethod === 'adjustment' && paymentDetails) {
+        if (paymentDetails.type === 'bag_to_box') {
+            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">📦 Bag to Box Adjustment: Rs. ${paymentDetails.amount.toFixed(2)}</div>`;
+        } else if (paymentDetails.type === 'bill_to_bill') {
+            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">📄 Bill to Bill Transfer: Rs. ${paymentDetails.amount.toFixed(2)}</div>`;
+        } else if (paymentDetails.type === 'bad_debt') {
+            paymentMethodDisplay = `<div style="font-size:14px; margin-top:5px;">⚠️ Bad Debt Write-off: Rs. ${paymentDetails.amount.toFixed(2)}</div>`;
+        }
+    }
 
     return `
     <div style="width:350px; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
@@ -1305,7 +1706,7 @@ const styles = {
         transition: 'all 0.2s',
     },
     cashPaymentBtn: {
-        width: 'calc(50% - 6px)',
+        width: 'calc(33.33% - 8px)',
         margin: '0',
         padding: '12px',
         background: '#10b981',
@@ -1322,10 +1723,44 @@ const styles = {
         transition: 'all 0.2s',
     },
     chequePaymentBtn: {
-        width: 'calc(50% - 6px)',
+        width: 'calc(33.33% - 8px)',
         margin: '0',
         padding: '12px',
         background: '#8b5cf6',
+        color: 'white',
+        border: 'none',
+        borderRadius: '12px',
+        fontWeight: '600',
+        fontSize: '13px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        transition: 'all 0.2s',
+    },
+    bankToBankPaymentBtn: {
+        width: 'calc(33.33% - 8px)',
+        margin: '0',
+        padding: '12px',
+        background: '#ec489a',
+        color: 'white',
+        border: 'none',
+        borderRadius: '12px',
+        fontWeight: '600',
+        fontSize: '13px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        transition: 'all 0.2s',
+    },
+    paymentHistoryBtn: {
+        width: 'calc(100% - 32px)',
+        margin: '0 16px 8px 16px',
+        padding: '12px',
+        background: '#6366f1',
         color: 'white',
         border: 'none',
         borderRadius: '12px',
@@ -1342,6 +1777,17 @@ const styles = {
         display: 'flex',
         gap: '12px',
         marginTop: '12px',
+        flexWrap: 'wrap',
+    },
+    paymentTypeBadge: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '2px 8px',
+        borderRadius: '12px',
+        fontSize: '10px',
+        fontWeight: '500',
+        marginTop: '4px',
     }
 };
 
@@ -1377,7 +1823,12 @@ export default function PrintedBills() {
         isUpdatingCompletedBill: false,
         showChequeModal: false,
         pendingChequeAmount: 0,
-        showAdjustmentModal: false
+        showAdjustmentModal: false,
+        showBankToBankModal: false,
+        pendingBankToBankAmount: 0,
+        showPaymentHistoryModal: false,
+        currentPayments: [],
+        pendingAdjustmentData: null
     });
 
     const formatDecimal = (value) => {
@@ -1416,7 +1867,9 @@ export default function PrintedBills() {
                             givenAmount: sale.given_amount || 0,
                             givenAmountApplied: sale.given_amount_applied || 'N',
                             paymentAdjustmentType: sale.payment_adjustment_type || null,
-                            createdAt: sale.created_at
+                            createdAt: sale.created_at,
+                            chequeDetails: sale.cheq_no ? { cheq_no: sale.cheq_no, cheq_date: sale.cheq_date, bank_name: sale.bank_name } : null,
+                            transferDetails: sale.transfer_reference_no ? { reference_no: sale.transfer_reference_no, transfer_date: sale.transfer_date } : null
                         };
                     }
                     targetMap[billNo].sales.push(sale);
@@ -1436,6 +1889,22 @@ export default function PrintedBills() {
         } catch (error) {
             console.error("Error fetching data:", error);
             setState(prev => ({ ...prev, isLoading: false }));
+        }
+    };
+
+    const fetchPaymentHistory = async (billNo) => {
+        try {
+            const response = await api.get(`${routes.paymentHistory}/${billNo}`);
+            if (response.data.success) {
+                setState(prev => ({
+                    ...prev,
+                    currentPayments: response.data.payments,
+                    showPaymentHistoryModal: true
+                }));
+            }
+        } catch (error) {
+            console.error('Error fetching payment history:', error);
+            alert('Failed to fetch payment history');
         }
     };
 
@@ -1467,13 +1936,14 @@ export default function PrintedBills() {
         setState(prev => ({ ...prev, givenAmountInput: e.target.value }));
     };
 
-    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null) => {
+    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null) => {
         if (!state.selectedBill || state.isPrinting) return;
         
         setState(prev => ({ ...prev, isPrinting: true }));
 
         try {
-            const totalGivenAmount = state.selectedBill.givenAmount + paymentAmount;
+            const currentGiven = state.selectedBill.givenAmount || 0;
+            const totalGivenAmount = currentGiven + paymentAmount;
             const isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
             const creditTransaction = isFullySettled ? 'N' : 'Y';
             const givenAmountApplied = isFullySettled ? 'Y' : 'N';
@@ -1482,19 +1952,35 @@ export default function PrintedBills() {
                 bill_no: state.selectedBill.billNo,
                 given_amount: totalGivenAmount,
                 given_amount_applied: givenAmountApplied,
-                credit_transaction: creditTransaction
+                credit_transaction: creditTransaction,
+                payment_amount: paymentAmount,
+                payment_method: isBankTransfer ? 'Bank Transfer' : (isCheque ? 'Cheque' : 'Cash')
             };
 
-            // Add cheque details if payment method is cheque
-            if (isCheque && chequeDetails) {
+            let paymentMethodText = 'Cash';
+            let paymentDetailsForReceipt = null;
+
+            if (isBankTransfer && bankTransferDetails) {
+                payload.bank_account_id = bankTransferDetails.bank_account_id;
+                payload.transfer_reference_no = bankTransferDetails.reference_no;
+                payload.transfer_date = bankTransferDetails.transfer_date;
+                payload.transfer_notes = bankTransferDetails.notes;
+                paymentMethodText = 'Bank Transfer';
+                paymentDetailsForReceipt = {
+                    bank_name: null,
+                    reference_no: bankTransferDetails.reference_no,
+                    transfer_date: bankTransferDetails.transfer_date
+                };
+            } else if (isCheque && chequeDetails) {
                 payload.cheq_date = chequeDetails.cheq_date;
                 payload.cheq_no = chequeDetails.cheq_no;
                 payload.bank_account_id = chequeDetails.bank_account_id;
-            } else {
-                // For cash payments, ensure cheque fields are cleared
-                payload.cheq_date = null;
-                payload.cheq_no = null;
-                payload.bank_account_id = null;
+                paymentMethodText = 'Cheque';
+                paymentDetailsForReceipt = {
+                    bank_name: null,
+                    cheq_no: chequeDetails.cheq_no,
+                    cheq_date: chequeDetails.cheq_date
+                };
             }
 
             const response = await api.put(routes.updateGivenAmountApplied, payload);
@@ -1516,6 +2002,10 @@ export default function PrintedBills() {
                     String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
                 );
 
+                if (paymentDetailsForReceipt && response.data.data.bank_name) {
+                    paymentDetailsForReceipt.bank_name = response.data.data.bank_name;
+                }
+
                 const receiptHtml = buildFullReceiptHTML(
                     state.selectedBill.sales,
                     state.selectedBill.billNo,
@@ -1523,8 +2013,8 @@ export default function PrintedBills() {
                     customer?.telephone_no || "",
                     0,
                     totalGivenAmount,
-                    isCheque ? 'cheque' : 'cash',
-                    chequeDetails
+                    isBankTransfer ? 'bank_to_bank' : (isCheque ? 'cheque' : 'cash'),
+                    paymentDetailsForReceipt
                 );
 
                 const printWindow = window.open("", "_blank", "width=800,height=600");
@@ -1554,7 +2044,6 @@ export default function PrintedBills() {
                 `);
                 printWindow.document.close();
 
-                const paymentMethodText = isCheque ? `Cheque No: ${chequeDetails.cheq_no}` : 'Cash';
                 const statusMessage = givenAmountApplied === 'Y' 
                     ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill is now FULLY PAID and moved to Completed Payments.`
                     : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}`;
@@ -1565,7 +2054,9 @@ export default function PrintedBills() {
                     ...prev, 
                     selectedBill: null, 
                     givenAmountInput: "", 
-                    showChequeModal: false
+                    showChequeModal: false,
+                    showBankToBankModal: false,
+                    pendingBankToBankAmount: 0
                 }));
             }
         } catch (error) {
@@ -1582,7 +2073,7 @@ export default function PrintedBills() {
             alert("Please enter an amount");
             return;
         }
-        await processPayment(paymentAmount, false, null);
+        await processPayment(paymentAmount, false, null, false, null);
     };
 
     const handleChequePayment = async () => {
@@ -1595,7 +2086,20 @@ export default function PrintedBills() {
     };
 
     const handleChequeConfirm = async (chequeDetails) => {
-        await processPayment(state.pendingChequeAmount, true, chequeDetails);
+        await processPayment(state.pendingChequeAmount, true, chequeDetails, false, null);
+    };
+
+    const handleBankToBankPayment = async () => {
+        const paymentAmount = parseFloat(state.givenAmountInput) || 0;
+        if (paymentAmount === 0) {
+            alert("Please enter an amount");
+            return;
+        }
+        setState(prev => ({ ...prev, pendingBankToBankAmount: paymentAmount, showBankToBankModal: true }));
+    };
+
+    const handleBankToBankConfirm = async (transferDetails) => {
+        await processPayment(state.pendingBankToBankAmount, false, null, true, transferDetails);
     };
 
     const handlePrintWithoutUpdate = async () => {
@@ -1608,6 +2112,25 @@ export default function PrintedBills() {
                 String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
             );
 
+            let paymentMethod = 'cash';
+            let paymentDetails = null;
+
+            if (state.selectedBill.paymentAdjustmentType === 'Cheque') {
+                paymentMethod = 'cheque';
+                paymentDetails = {
+                    cheq_no: state.selectedBill.chequeDetails?.cheq_no,
+                    cheq_date: state.selectedBill.chequeDetails?.cheq_date,
+                    bank_name: state.selectedBill.chequeDetails?.bank_name
+                };
+            } else if (state.selectedBill.paymentAdjustmentType === 'Bank Transfer') {
+                paymentMethod = 'bank_to_bank';
+                paymentDetails = {
+                    reference_no: state.selectedBill.transferDetails?.reference_no,
+                    transfer_date: state.selectedBill.transferDetails?.transfer_date,
+                    bank_name: state.selectedBill.bank_name
+                };
+            }
+
             const receiptHtml = buildFullReceiptHTML(
                 state.selectedBill.sales,
                 state.selectedBill.billNo,
@@ -1615,8 +2138,8 @@ export default function PrintedBills() {
                 customer?.telephone_no || "",
                 0,
                 state.selectedBill.givenAmount || 0,
-                state.selectedBill.paymentAdjustmentType === 'Cheque' ? 'cheque' : 'cash',
-                state.selectedBill.cheque_details
+                paymentMethod,
+                paymentDetails
             );
 
             const printWindow = window.open("", "_blank", "width=800,height=600");
@@ -1643,15 +2166,28 @@ export default function PrintedBills() {
 
     const handleApplyAdjustment = async (adjustmentData) => {
         try {
+            const paymentAmount = parseFloat(state.givenAmountInput) || 0;
+            if (paymentAmount === 0 && !adjustmentData.adjustment_amount) {
+                alert("Please enter an amount or use adjustment");
+                return;
+            }
+            
             const response = await api.post(routes.applyAdjustment, adjustmentData);
             if (response.data.success) {
                 const data = response.data.data;
                 alert(`Adjustment applied successfully!\n\nAdjustment Amount: Rs. ${formatDecimal(data.adjustment_amount)}\nNew Given Amount: Rs. ${formatDecimal(data.new_given_amount)}\nRemaining: Rs. ${formatDecimal(data.remaining)}`);
                 setState(prev => ({ ...prev, showAdjustmentModal: false }));
                 await fetchSalesData();
+                setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "" }));
             }
         } catch (error) {
             alert('Failed to apply adjustment: ' + (error.response?.data?.message || error.message));
+        }
+    };
+
+    const handleViewPaymentHistory = () => {
+        if (state.selectedBill) {
+            fetchPaymentHistory(state.selectedBill.billNo);
         }
     };
  
@@ -1687,6 +2223,18 @@ export default function PrintedBills() {
             totalGiven: pendingGiven + appliedGiven,
         };
     }, [filterPendingBills, filterAppliedBills]);
+
+    const getPaymentTypeBadge = (type) => {
+        const badges = {
+            'Cash': { icon: '💰', text: 'Cash', color: '#10b981' },
+            'Cheque': { icon: '💳', text: 'Cheque', color: '#8b5cf6' },
+            'Bank Transfer': { icon: '🏦', text: 'Bank Transfer', color: '#ec489a' },
+            'bag_to_box': { icon: '📦', text: 'Bag to Box', color: '#f59e0b' },
+            'bill_to_bill': { icon: '📄', text: 'Bill to Bill', color: '#3b82f6' },
+            'bad_debt': { icon: '⚠️', text: 'Bad Debt', color: '#ef4444' }
+        };
+        return badges[type] || badges['Cash'];
+    };
 
     if (state.isLoading) return <LoadingSkeleton />;
 
@@ -1738,34 +2286,37 @@ export default function PrintedBills() {
                             {filterPendingBills.length === 0 ? (
                                 <EmptyState message="No pending bills" />
                             ) : (
-                                filterPendingBills.map(bill => (
-                                    <div 
-                                        key={bill.billNo} 
-                                        style={{
-                                            ...styles.billItem,
-                                            ...styles.billPending,
-                                            ...(state.selectedBill?.billNo === bill.billNo && !state.isUpdatingCompletedBill ? styles.billSelected : {})
-                                        }}
-                                        onClick={() => handleBillClick(bill)}
-                                    >
-                                        <div style={styles.billRow}>
-                                            <div style={styles.billLeft}>
-                                                <div style={styles.billNo}>#{bill.billNo}</div>
-                                                <div style={styles.billCustomer}>{bill.customerCode}</div>
-                                                <span style={{ ...styles.badge, ...styles.badgePending }}>Pending</span>
-                                                {bill.paymentAdjustmentType && (
-                                                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-                                                        {bill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : '💰 Cash'}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div style={styles.billRight}>
-                                                <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
-                                                {bill.givenAmount > 0 && <div style={styles.billGiven}>Given: {formatDecimal(bill.givenAmount)}</div>}
+                                filterPendingBills.map(bill => {
+                                    const paymentBadge = getPaymentTypeBadge(bill.paymentAdjustmentType);
+                                    return (
+                                        <div 
+                                            key={bill.billNo} 
+                                            style={{
+                                                ...styles.billItem,
+                                                ...styles.billPending,
+                                                ...(state.selectedBill?.billNo === bill.billNo && !state.isUpdatingCompletedBill ? styles.billSelected : {})
+                                            }}
+                                            onClick={() => handleBillClick(bill)}
+                                        >
+                                            <div style={styles.billRow}>
+                                                <div style={styles.billLeft}>
+                                                    <div style={styles.billNo}>#{bill.billNo}</div>
+                                                    <div style={styles.billCustomer}>{bill.customerCode}</div>
+                                                    <span style={{ ...styles.badge, ...styles.badgePending }}>Pending</span>
+                                                    {bill.paymentAdjustmentType && (
+                                                        <div style={{...styles.paymentTypeBadge, backgroundColor: paymentBadge.color}}>
+                                                            {paymentBadge.icon} {paymentBadge.text}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div style={styles.billRight}>
+                                                    <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
+                                                    {bill.givenAmount > 0 && <div style={styles.billGiven}>Given: {formatDecimal(bill.givenAmount)}</div>}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>
@@ -1810,7 +2361,13 @@ export default function PrintedBills() {
                                                     💰 Already Given: Rs. {formatDecimal(state.selectedBill.givenAmount)}
                                                     {state.selectedBill.paymentAdjustmentType && (
                                                         <div style={{ fontSize: '11px', marginTop: '4px' }}>
-                                                            Payment Type: {state.selectedBill.paymentAdjustmentType === 'Cheque' ? 'Cheque Payment' : 'Cash Payment'}
+                                                            Payment Type: {
+                                                                state.selectedBill.paymentAdjustmentType === 'Cheque' ? 'Cheque Payment' : 
+                                                                state.selectedBill.paymentAdjustmentType === 'Bank Transfer' ? 'Bank Transfer' : 
+                                                                state.selectedBill.paymentAdjustmentType === 'bag_to_box' ? 'Bag to Box Adjustment' :
+                                                                state.selectedBill.paymentAdjustmentType === 'bill_to_bill' ? 'Bill to Bill Transfer' :
+                                                                state.selectedBill.paymentAdjustmentType === 'bad_debt' ? 'Bad Debt Write-off' : 'Cash Payment'
+                                                            }
                                                         </div>
                                                     )}
                                                 </div>
@@ -1902,14 +2459,21 @@ export default function PrintedBills() {
                                                 disabled={state.isPrinting || currentGiven === 0}
                                                 style={styles.cashPaymentBtn}
                                             >
-                                                💵 Pay with Cash
+                                                💵 Cash
                                             </button>
                                             <button 
                                                 onClick={handleChequePayment}
                                                 disabled={state.isPrinting || currentGiven === 0}
                                                 style={styles.chequePaymentBtn}
                                             >
-                                                💳 Pay with Cheque
+                                                💳 Cheque
+                                            </button>
+                                            <button 
+                                                onClick={handleBankToBankPayment}
+                                                disabled={state.isPrinting || currentGiven === 0}
+                                                style={styles.bankToBankPaymentBtn}
+                                            >
+                                                🏦 Bank Transfer
                                             </button>
                                         </div>
                                     </div>
@@ -1927,6 +2491,13 @@ export default function PrintedBills() {
                                         style={styles.adjustmentBtn}
                                     >
                                         🔧 Payment Adjustment
+                                    </button>
+
+                                    <button 
+                                        onClick={handleViewPaymentHistory}
+                                        style={styles.paymentHistoryBtn}
+                                    >
+                                        📜 View Payment History
                                     </button>
                                 </>
                             ) : (
@@ -1956,34 +2527,37 @@ export default function PrintedBills() {
                             {filterAppliedBills.length === 0 ? (
                                 <EmptyState message="No completed bills" />
                             ) : (
-                                filterAppliedBills.map(bill => (
-                                    <div 
-                                        key={bill.billNo} 
-                                        style={{ 
-                                            ...styles.billItem, 
-                                            ...styles.billApplied,
-                                            ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {})
-                                        }}
-                                        onClick={() => handleBillClick(bill)}
-                                    >
-                                        <div style={styles.billRow}>
-                                            <div style={styles.billLeft}>
-                                                <div style={styles.billNo}>#{bill.billNo}</div>
-                                                <div style={styles.billCustomer}>{bill.customerCode}</div>
-                                                <span style={{ ...styles.badge, ...styles.badgeApplied }}>Paid</span>
-                                                {bill.paymentAdjustmentType && (
-                                                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-                                                        {bill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : '💰 Cash'}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div style={styles.billRight}>
-                                                <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
-                                                {bill.givenAmount > 0 && <div style={styles.billGiven}>Given: {formatDecimal(bill.givenAmount)}</div>}
+                                filterAppliedBills.map(bill => {
+                                    const paymentBadge = getPaymentTypeBadge(bill.paymentAdjustmentType);
+                                    return (
+                                        <div 
+                                            key={bill.billNo} 
+                                            style={{ 
+                                                ...styles.billItem, 
+                                                ...styles.billApplied,
+                                                ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {})
+                                            }}
+                                            onClick={() => handleBillClick(bill)}
+                                        >
+                                            <div style={styles.billRow}>
+                                                <div style={styles.billLeft}>
+                                                    <div style={styles.billNo}>#{bill.billNo}</div>
+                                                    <div style={styles.billCustomer}>{bill.customerCode}</div>
+                                                    <span style={{ ...styles.badge, ...styles.badgeApplied }}>Paid</span>
+                                                    {bill.paymentAdjustmentType && (
+                                                        <div style={{...styles.paymentTypeBadge, backgroundColor: paymentBadge.color}}>
+                                                            {paymentBadge.icon} {paymentBadge.text}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div style={styles.billRight}>
+                                                    <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
+                                                    {bill.givenAmount > 0 && <div style={styles.billGiven}>Given: {formatDecimal(bill.givenAmount)}</div>}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>
@@ -2022,6 +2596,18 @@ export default function PrintedBills() {
                 amount={state.pendingChequeAmount}
             />
 
+            {/* Bank to Bank Modal */}
+            <BankToBankModal
+                isOpen={state.showBankToBankModal}
+                onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))}
+                onConfirm={handleBankToBankConfirm}
+                amount={state.pendingBankToBankAmount}
+                customerCode={state.selectedBill?.customerCode}
+                customerName={state.selectedBill ? state.customers.find(c => 
+                    String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
+                )?.name : ''}
+            />
+
             {/* Payment Adjustment Modal */}
             <PaymentAdjustmentModal
                 isOpen={state.showAdjustmentModal}
@@ -2030,6 +2616,13 @@ export default function PrintedBills() {
                 billNo={state.selectedBill?.billNo}
                 customerCode={state.selectedBill?.customerCode}
                 originalBillTotal={state.selectedBill?.totalAmount || 0}
+            />
+
+            {/* Payment History Modal */}
+            <PaymentHistoryModal
+                isOpen={state.showPaymentHistoryModal}
+                onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))}
+                payments={state.currentPayments}
             />
         </div>
     );

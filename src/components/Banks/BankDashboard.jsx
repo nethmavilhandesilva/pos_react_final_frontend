@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -17,7 +17,17 @@ import {
   DollarSign,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  Upload,
+  CreditCard,
+  Bell,
+  BellOff,
+  RefreshCcw,
+  Package,
+  Send,
+  AlertTriangle,
+  DollarSign as DollarIcon,
+  Building2
 } from 'lucide-react';
 
 // Set base URL from environment variable
@@ -34,7 +44,7 @@ const BankStatement = () => {
     summary: { total_debit: 0, total_credit: 0 }
   });
   const [loading, setLoading] = useState(true);
-  const [selectedBank, setSelectedBank] = useState('');
+  const [selectedBank, setSelectedBank] = useState('all'); // Changed default to 'all'
   const [banks, setBanks] = useState([]);
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -47,6 +57,13 @@ const BankStatement = () => {
   const [showModal, setShowModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
+  
+  // Auto-refresh states
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
+  const [refreshInterval] = useState(3000); // 3 seconds
+  const intervalRef = useRef(null);
+  const isRefreshingRef = useRef(false);
 
   // Create axios instance with base URL
   const api = axios.create({
@@ -64,39 +81,75 @@ const BankStatement = () => {
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   }
 
+  // Fetch banks on component mount
   useEffect(() => {
     fetchBanks();
   }, []);
 
+  // Fetch statement when dependencies change
   useEffect(() => {
-    if (selectedBank) {
-      fetchStatement();
-    }
+    fetchStatement();
   }, [selectedBank, dateRange, filterType, searchTerm]);
+
+  // Setup auto-refresh interval (silent - no loading indicator)
+  useEffect(() => {
+    if (autoRefresh) {
+      // Clear existing interval
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      
+      // Set new interval
+      intervalRef.current = setInterval(() => {
+        if (!isRefreshingRef.current) {
+          refreshDataSilently();
+        }
+      }, refreshInterval);
+      
+      // Cleanup on unmount or when autoRefresh changes
+      return () => {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+        }
+      };
+    } else if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, [autoRefresh, selectedBank, dateRange, filterType, searchTerm]);
 
   const fetchBanks = async () => {
     try {
       const response = await api.get('/api/banks/list');
       if (response.data.success) {
         setBanks(response.data.data);
-        if (response.data.data.length > 0) {
-          setSelectedBank(response.data.data[0].id);
-        }
       }
     } catch (error) {
       console.error('Error fetching banks:', error);
     }
   };
 
-  const fetchStatement = async () => {
-    setLoading(true);
+  const fetchStatement = async (showLoading = true) => {
+    if (showLoading) {
+      setLoading(true);
+    }
+    
     try {
-      const response = await api.get(`/api/bank-accounts/statement/${selectedBank}`, {
+      // Build URL based on selected bank
+      let url;
+      if (selectedBank === 'all') {
+        url = `/api/bank-accounts/statement/all`;
+      } else {
+        url = `/api/bank-accounts/statement/${selectedBank}`;
+      }
+      
+      const response = await api.get(url, {
         params: {
           start_date: dateRange.start.toISOString().split('T')[0],
           end_date: dateRange.end.toISOString().split('T')[0]
         }
       });
+      
       if (response.data.success) {
         let transactions = response.data.data.transactions;
         
@@ -109,7 +162,10 @@ const BankStatement = () => {
         if (searchTerm) {
           transactions = transactions.filter(t => 
             t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (t.cheq_no && t.cheq_no.toLowerCase().includes(searchTerm.toLowerCase()))
+            (t.cheq_no && t.cheq_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.transfer_reference_no && t.transfer_reference_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.adjustment_type && t.adjustment_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase()))
           );
         }
         
@@ -117,22 +173,92 @@ const BankStatement = () => {
           ...response.data.data,
           transactions: transactions
         });
+        setLastRefreshTime(new Date());
         setCurrentPage(1);
       }
     } catch (error) {
       console.error('Error fetching statement:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
+      isRefreshingRef.current = false;
     }
+  };
+
+  // Silent refresh function (without loading spinner - user sees no change)
+  const refreshDataSilently = useCallback(async () => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    
+    try {
+      // Build URL based on selected bank
+      let url;
+      if (selectedBank === 'all') {
+        url = `/api/bank-accounts/statement/all`;
+      } else {
+        url = `/api/bank-accounts/statement/${selectedBank}`;
+      }
+      
+      const response = await api.get(url, {
+        params: {
+          start_date: dateRange.start.toISOString().split('T')[0],
+          end_date: dateRange.end.toISOString().split('T')[0]
+        }
+      });
+      
+      if (response.data.success) {
+        let transactions = response.data.data.transactions;
+        
+        if (filterType === 'debit') {
+          transactions = transactions.filter(t => t.debit > 0);
+        } else if (filterType === 'credit') {
+          transactions = transactions.filter(t => t.credit > 0);
+        }
+        
+        if (searchTerm) {
+          transactions = transactions.filter(t => 
+            t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (t.cheq_no && t.cheq_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.transfer_reference_no && t.transfer_reference_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.adjustment_type && t.adjustment_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase()))
+          );
+        }
+        
+        setStatementData(prev => ({
+          ...response.data.data,
+          transactions: transactions
+        }));
+        setLastRefreshTime(new Date());
+      }
+    } catch (error) {
+      console.error('Auto-refresh error:', error);
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  }, [selectedBank, dateRange, filterType, searchTerm]);
+
+  // Manual refresh with loading indicator
+  const handleManualRefresh = async () => {
+    await fetchStatement(true);
+  };
+
+  // Toggle auto-refresh
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(prev => !prev);
   };
 
   const exportToCSV = () => {
     const csvData = [
-      ['Date', 'Description', 'Cheque No', 'Debit (Dr)', 'Credit (Cr)', 'Balance'],
+      ['Date', 'Description', 'Bank Account', 'Payment Method', 'Adjustment Type', 'Reference No', 'Debit (Dr)', 'Credit (Cr)', 'Balance'],
       ...statementData.transactions.map(t => [
         t.date,
         t.description,
-        t.cheq_no || '-',
+        t.bank_name || 'N/A',
+        t.payment_method || (t.cheq_no ? 'Cheque' : (t.transfer_reference_no ? 'Bank Transfer' : 'Cash')),
+        t.adjustment_type || 'none',
+        t.cheq_no || t.transfer_reference_no || '-',
         t.debit > 0 ? t.debit : '-',
         t.credit > 0 ? t.credit : '-',
         t.balance
@@ -144,7 +270,7 @@ const BankStatement = () => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bank_statement_${statementData.bank?.bank_name}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `bank_statement_${selectedBank === 'all' ? 'all_accounts' : statementData.bank?.bank_name}_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -154,7 +280,7 @@ const BankStatement = () => {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Bank Statement - ${statementData.bank?.bank_name}</title>
+          <title>Bank Statement - ${selectedBank === 'all' ? 'All Accounts' : statementData.bank?.bank_name}</title>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: white; }
@@ -172,6 +298,14 @@ const BankStatement = () => {
             .text-right { text-align: right; }
             .debit { color: #DC2626; }
             .credit { color: #10B981; }
+            .badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; display: inline-block; font-weight: 600; }
+            .badge-cash { background: #10B981; color: white; }
+            .badge-cheque { background: #8B5CF6; color: white; }
+            .badge-transfer { background: #EC489A; color: white; }
+            .badge-bag-box { background: #F59E0B; color: white; }
+            .badge-bill-bill { background: #3B82F6; color: white; }
+            .badge-bad-debt { background: #EF4444; color: white; }
+            .badge-none { background: #6B7280; color: white; }
             .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #6B7280; }
             @media print {
               body { margin: 0; }
@@ -181,7 +315,7 @@ const BankStatement = () => {
         <body>
           <div class="header">
             <h1>Bank Statement</h1>
-            <h2>${statementData.bank?.bank_name} - ${statementData.bank?.account_no}</h2>
+            <h2>${selectedBank === 'all' ? 'ALL BANK ACCOUNTS' : `${statementData.bank?.bank_name} - ${statementData.bank?.account_no}`}</h2>
             <p class="period">Period: ${statementData.start_date} to ${statementData.end_date}</p>
           </div>
           <div class="summary">
@@ -207,7 +341,10 @@ const BankStatement = () => {
               <tr>
                 <th>Date</th>
                 <th>Description</th>
-                <th>Cheque No</th>
+                <th>Bank Account</th>
+                <th>Payment Method</th>
+                <th>Adjustment Type</th>
+                <th>Reference No</th>
                 <th class="text-right">Debit (Dr)</th>
                 <th class="text-right">Credit (Cr)</th>
                 <th class="text-right">Balance</th>
@@ -215,21 +352,52 @@ const BankStatement = () => {
             </thead>
             <tbody>
               <tr style="background:#FEF3C7">
-                <td colspan="5"><strong>Opening Balance</strong></td>
+                <td colspan="8"><strong>Opening Balance</strong></td>
                 <td class="text-right"><strong>Rs${statementData.opening_balance.toLocaleString()}</strong></td>
               </tr>
-              ${statementData.transactions.map(t => `
+              ${statementData.transactions.map(t => {
+                const getBadgeClass = () => {
+                  switch(t.adjustment_type) {
+                    case 'cash': return 'badge-cash';
+                    case 'cheque': return 'badge-cheque';
+                    case 'Bank Transfer': return 'badge-transfer';
+                    case 'bag_to_box': return 'badge-bag-box';
+                    case 'bill_to_bill': return 'badge-bill-bill';
+                    case 'bad_debt': return 'badge-bad-debt';
+                    default: return 'badge-none';
+                  }
+                };
+                const getBadgeText = () => {
+                  switch(t.adjustment_type) {
+                    case 'cash': return '💰 Cash';
+                    case 'cheque': return '💳 Cheque';
+                    case 'Bank Transfer': return '🏦 Bank Transfer';
+                    case 'bag_to_box': return '📦 Bag to Box';
+                    case 'bill_to_bill': return '📄 Bill to Bill';
+                    case 'bad_debt': return '⚠️ Bad Debt';
+                    default: return 'None';
+                  }
+                };
+                return `
                 <tr>
                   <td>${t.date}</td>
                   <td>${t.description}</td>
-                  <td>${t.cheq_no || '-'}</td>
+                  <td>${t.bank_name || '-'}</td>
+                  <td>
+                    ${t.payment_method === 'Bank Transfer' ? 
+                      '<span class="badge badge-transfer">🏦 Bank Transfer</span>' : 
+                      (t.payment_method === 'Cheque' ? '<span class="badge badge-cheque">💳 Cheque</span>' : 
+                      (t.payment_method === 'Cash' ? '<span class="badge badge-cash">💰 Cash</span>' : '💰 Cash'))}
+                  </td>
+                  <td><span class="badge ${getBadgeClass()}">${getBadgeText()}</span></td>
+                  <td>${t.cheq_no || t.transfer_reference_no || '-'}</td>
                   <td class="text-right debit">${t.debit > 0 ? `Rs${t.debit.toLocaleString()}` : '-'}</td>
                   <td class="text-right credit">${t.credit > 0 ? `Rs${t.credit.toLocaleString()}` : '-'}</td>
                   <td class="text-right">Rs${t.balance.toLocaleString()}</td>
-                </tr>
-              `).join('')}
+                </tr>`;
+              }).join('')}
               <tr style="background:#E0E7FF">
-                <td colspan="5"><strong>Closing Balance</strong></td>
+                <td colspan="8"><strong>Closing Balance</strong></td>
                 <td class="text-right"><strong>Rs${statementData.closing_balance.toLocaleString()}</strong></td>
               </tr>
             </tbody>
@@ -250,13 +418,78 @@ const BankStatement = () => {
     setShowModal(true);
   };
 
+  const getPaymentMethodIcon = (transaction) => {
+    if (transaction.transfer_reference_no) {
+      return <Upload size={14} style={{ marginRight: '5px' }} />;
+    } else if (transaction.cheq_no) {
+      return <CreditCard size={14} style={{ marginRight: '5px' }} />;
+    }
+    return <DollarIcon size={14} style={{ marginRight: '5px' }} />;
+  };
+
+  const getAdjustmentTypeIcon = (adjustmentType) => {
+    switch(adjustmentType) {
+      case 'bag_to_box':
+        return <Package size={14} style={{ marginRight: '4px' }} />;
+      case 'bill_to_bill':
+        return <Send size={14} style={{ marginRight: '4px' }} />;
+      case 'bad_debt':
+        return <AlertTriangle size={14} style={{ marginRight: '4px' }} />;
+      default:
+        return null;
+    }
+  };
+
+  const getPaymentMethodBadge = (transaction) => {
+    if (transaction.transfer_reference_no) {
+      return {
+        text: 'Bank Transfer',
+        style: { backgroundColor: '#EC489A', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+      };
+    } else if (transaction.cheq_no) {
+      return {
+        text: 'Cheque',
+        style: { backgroundColor: '#8B5CF6', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+      };
+    }
+    return {
+      text: 'Cash',
+      style: { backgroundColor: '#10B981', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+    };
+  };
+
+  const getAdjustmentTypeBadge = (adjustmentType) => {
+    const badges = {
+      'cash': { text: 'Cash', style: { backgroundColor: '#10B981', color: 'white' } },
+      'cheque': { text: 'Cheque', style: { backgroundColor: '#8B5CF6', color: 'white' } },
+      'Bank Transfer': { text: 'Bank Transfer', style: { backgroundColor: '#EC489A', color: 'white' } },
+      'bag_to_box': { text: 'Bag to Box', style: { backgroundColor: '#F59E0B', color: 'white' } },
+      'bill_to_bill': { text: 'Bill to Bill', style: { backgroundColor: '#3B82F6', color: 'white' } },
+      'bad_debt': { text: 'Bad Debt', style: { backgroundColor: '#EF4444', color: 'white' } },
+      'none': { text: 'None', style: { backgroundColor: '#6B7280', color: 'white' } }
+    };
+    return badges[adjustmentType] || badges['none'];
+  };
+
+  // Format time for last refresh display
+  const formatLastRefreshTime = () => {
+    return lastRefreshTime.toLocaleTimeString();
+  };
+
+  // Get selected bank name for display
+  const getSelectedBankName = () => {
+    if (selectedBank === 'all') return 'All Bank Accounts';
+    const bank = banks.find(b => b.id === parseInt(selectedBank));
+    return bank ? `${bank.bank_name} - ${bank.account_no}` : 'Select Bank';
+  };
+
   // Pagination
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentTransactions = statementData.transactions.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(statementData.transactions.length / itemsPerPage);
 
-  // Full-screen styles without any max-width constraints
+  // Full-screen styles
   const styles = {
     container: {
       width: '100vw',
@@ -302,7 +535,9 @@ const BankStatement = () => {
     },
     actionButtons: {
       display: 'flex',
-      gap: '10px'
+      gap: '10px',
+      alignItems: 'center',
+      flexWrap: 'wrap'
     },
     actionBtn: {
       padding: '10px 20px',
@@ -315,6 +550,26 @@ const BankStatement = () => {
       alignItems: 'center',
       gap: '8px',
       transition: 'all 0.3s'
+    },
+    autoRefreshBtn: {
+      padding: '10px 20px',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: '600',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      transition: 'all 0.3s',
+      backgroundColor: '#EC489A',
+      color: 'white'
+    },
+    refreshStatus: {
+      fontSize: '12px',
+      color: '#9CA3AF',
+      marginLeft: '10px',
+      marginTop: '8px'
     },
     mainContent: {
       width: '100%',
@@ -466,7 +721,7 @@ const BankStatement = () => {
     table: {
       width: '100%',
       borderCollapse: 'collapse',
-      minWidth: '800px'
+      minWidth: '1200px'
     },
     th: {
       padding: '12px 15px',
@@ -566,6 +821,15 @@ const BankStatement = () => {
       fontSize: '12px',
       color: '#9CA3AF',
       width: '100%'
+    },
+    adjustmentTypeBadge: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '4px',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: '500'
     }
   };
 
@@ -574,6 +838,11 @@ const BankStatement = () => {
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
     }
     
     .custom-datepicker {
@@ -620,9 +889,18 @@ const BankStatement = () => {
           <div style={styles.headerContent}>
             <div style={styles.titleSection}>
               <h1 style={styles.title}>Bank Statement</h1>
-              <p style={styles.subtitle}>Complete transaction history with debit/credit entries</p>
+              <p style={styles.subtitle}>Complete transaction history including all payment and adjustment types</p>
             </div>
             <div style={styles.actionButtons}>
+              <button
+                onClick={toggleAutoRefresh}
+                style={{...styles.autoRefreshBtn, backgroundColor: autoRefresh ? '#10B981' : '#6B7280'}}
+                title={autoRefresh ? 'Auto-refresh is ON - Updates every 3 seconds' : 'Auto-refresh is OFF - Click to enable'}
+              >
+                <RefreshCcw size={16} />
+                {autoRefresh ? 'Live Updates ON' : 'Live Updates OFF'}
+              </button>
+              
               <button
                 onClick={exportToCSV}
                 style={{...styles.actionBtn, backgroundColor: '#10B981', color: 'white'}}
@@ -640,15 +918,22 @@ const BankStatement = () => {
                 <Printer size={16} /> Print
               </button>
               <button
-                onClick={fetchStatement}
-                style={{...styles.actionBtn, backgroundColor: '#4F46E5', color: 'white'}}
+                onClick={handleManualRefresh}
+                disabled={loading}
+                style={{...styles.actionBtn, backgroundColor: '#4F46E5', color: 'white', opacity: loading ? 0.6 : 1}}
                 onMouseEnter={(e) => e.target.style.backgroundColor = '#4338CA'}
                 onMouseLeave={(e) => e.target.style.backgroundColor = '#4F46E5'}
               >
-                <RefreshCw size={16} /> Refresh
+                <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+                Refresh
               </button>
             </div>
           </div>
+          {autoRefresh && (
+            <div style={styles.refreshStatus}>
+              🔄 Live updates every 3 seconds (silent refresh) • Last updated: {formatLastRefreshTime()}
+            </div>
+          )}
         </div>
 
         <div style={styles.mainContent}>
@@ -664,18 +949,25 @@ const BankStatement = () => {
             <div style={styles.filtersBody}>
               <div style={styles.filterGrid}>
                 <div style={styles.filterGroup}>
-                  <label style={styles.label}>Bank Account</label>
+                  <label style={styles.label}>
+                    <Building2 size={14} style={{ display: 'inline', marginRight: '4px' }} />
+                    Bank Account
+                  </label>
                   <select
                     value={selectedBank}
                     onChange={(e) => setSelectedBank(e.target.value)}
                     style={styles.select}
                   >
+                    <option value="all">🏦 All Bank Accounts</option>
                     {banks.map(bank => (
                       <option key={bank.id} value={bank.id}>
                         {bank.bank_name} - {bank.account_no} ({bank.branch})
                       </option>
                     ))}
                   </select>
+                  <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>
+                    Currently viewing: <strong>{getSelectedBankName()}</strong>
+                  </div>
                 </div>
                 <div style={styles.filterGroup}>
                   <label style={styles.label}>Start Date</label>
@@ -701,7 +993,7 @@ const BankStatement = () => {
                 <Search size={18} style={{ alignSelf: 'center', color: '#9CA3AF' }} />
                 <input
                   type="text"
-                  placeholder="Search by description, bill number, or cheque number..."
+                  placeholder="Search by description, bill number, cheque number, transfer reference, bank name, or adjustment type..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   style={styles.searchInput}
@@ -803,7 +1095,7 @@ const BankStatement = () => {
             <div style={styles.tableHeader}>
               <div>
                 <strong style={{ fontSize: '16px' }}>
-                  {statementData.bank?.bank_name} - {statementData.bank?.account_no}
+                  {selectedBank === 'all' ? 'ALL BANK ACCOUNTS' : `${statementData.bank?.bank_name} - ${statementData.bank?.account_no}`}
                 </strong>
                 <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '5px' }}>
                   <Calendar size={12} style={{ display: 'inline', marginRight: '5px' }} />
@@ -828,7 +1120,10 @@ const BankStatement = () => {
                       <tr>
                         <th style={styles.th}>Date</th>
                         <th style={styles.th}>Description</th>
-                        <th style={styles.th}>Cheque No</th>
+                        <th style={styles.th}>Bank Account</th>
+                        <th style={styles.th}>Payment Method</th>
+                        <th style={styles.th}>Adjustment Type</th>
+                        <th style={styles.th}>Reference No</th>
                         <th style={{...styles.th, textAlign: 'right'}}>Debit (Dr)</th>
                         <th style={{...styles.th, textAlign: 'right'}}>Credit (Cr)</th>
                         <th style={{...styles.th, textAlign: 'right'}}>Balance (Rs)</th>
@@ -836,7 +1131,7 @@ const BankStatement = () => {
                     </thead>
                     <tbody>
                       <tr style={{ backgroundColor: '#FEF3C7' }}>
-                        <td style={styles.td} colSpan="5">
+                        <td style={styles.td} colSpan="8">
                           <strong>Opening Balance</strong>
                         </td>
                         <td style={{...styles.td, textAlign: 'right'}}>
@@ -846,48 +1141,69 @@ const BankStatement = () => {
                       
                       {currentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan="6" style={{...styles.td, textAlign: 'center', padding: '40px' }}>
+                          <td colSpan="9" style={{...styles.td, textAlign: 'center', padding: '40px' }}>
                             No transactions found for the selected period
                           </td>
                         </tr>
                       ) : (
-                        currentTransactions.map((transaction, index) => (
-                          <tr 
-                            key={index} 
-                            style={{...styles.clickableRow, backgroundColor: index % 2 === 0 ? 'white' : '#F9FAFB'}}
-                            onClick={() => viewTransactionDetails(transaction)}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? 'white' : '#F9FAFB'}
-                          >
-                            <td style={styles.td}>{transaction.date}</td>
-                            <td style={styles.td}>
-                              {transaction.description}
-                              {transaction.cheq_no && (
-                                <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '3px' }}>
-                                  Cheque: {transaction.cheq_no}
-                                </div>
-                              )}
-                            </td>
-                            <td style={styles.td}>{transaction.cheq_no || '-'}</td>
-                            <td style={{...styles.td, textAlign: 'right'}}>
-                              {transaction.debit > 0 ? (
-                                <span style={styles.debitAmount}>Rs{transaction.debit.toLocaleString()}</span>
-                              ) : '-'}
-                            </td>
-                            <td style={{...styles.td, textAlign: 'right'}}>
-                              {transaction.credit > 0 ? (
-                                <span style={styles.creditAmount}>Rs{transaction.credit.toLocaleString()}</span>
-                              ) : '-'}
-                            </td>
-                            <td style={{...styles.td, textAlign: 'right'}}>
-                              <span style={{ fontWeight: '600' }}>Rs{transaction.balance.toLocaleString()}</span>
-                            </td>
-                          </tr>
-                        ))
+                        currentTransactions.map((transaction, index) => {
+                          const paymentBadge = getPaymentMethodBadge(transaction);
+                          const adjustmentBadge = getAdjustmentTypeBadge(transaction.adjustment_type);
+                          return (
+                            <tr 
+                              key={index} 
+                              style={{...styles.clickableRow, backgroundColor: index % 2 === 0 ? 'white' : '#F9FAFB'}}
+                              onClick={() => viewTransactionDetails(transaction)}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? 'white' : '#F9FAFB'}
+                            >
+                              <td style={styles.td}>{transaction.date}</td>
+                              <td style={styles.td}>
+                                {transaction.description}
+                                {transaction.transfer_notes && (
+                                  <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '3px' }}>
+                                    Notes: {transaction.transfer_notes}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={styles.td}>
+                                <strong>{transaction.bank_name || '-'}</strong>
+                              </td>
+                              <td style={styles.td}>
+                                <span style={paymentBadge.style}>
+                                  {getPaymentMethodIcon(transaction)}
+                                  {paymentBadge.text}
+                                </span>
+                              </td>
+                              <td style={styles.td}>
+                                <span style={{...styles.adjustmentTypeBadge, ...adjustmentBadge.style}}>
+                                  {getAdjustmentTypeIcon(transaction.adjustment_type)}
+                                  {adjustmentBadge.text}
+                                </span>
+                              </td>
+                              <td style={styles.td}>
+                                {transaction.cheq_no || transaction.transfer_reference_no || '-'}
+                              </td>
+                              <td style={{...styles.td, textAlign: 'right'}}>
+                                {transaction.debit > 0 ? (
+                                  <span style={styles.debitAmount}>Rs{transaction.debit.toLocaleString()}</span>
+                                ) : '-'}
+                              </td>
+                              <td style={{...styles.td, textAlign: 'right'}}>
+                                {transaction.credit > 0 ? (
+                                  <span style={styles.creditAmount}>Rs{transaction.credit.toLocaleString()}</span>
+                                ) : '-'}
+                              </td>
+                              <td style={{...styles.td, textAlign: 'right'}}>
+                                <span style={{ fontWeight: '600' }}>Rs{transaction.balance.toLocaleString()}</span>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                       
                       <tr style={{ backgroundColor: '#E0E7FF' }}>
-                        <td style={styles.td} colSpan="5">
+                        <td style={styles.td} colSpan="8">
                           <strong>Closing Balance</strong>
                         </td>
                         <td style={{...styles.td, textAlign: 'right'}}>
@@ -950,9 +1266,53 @@ const BankStatement = () => {
                   <span>{selectedTransaction.description}</span>
                 </div>
                 <div style={styles.detailRow}>
-                  <strong>Cheque No:</strong>
-                  <span>{selectedTransaction.cheq_no || '-'}</span>
+                  <strong>Bank Account:</strong>
+                  <span><strong>{selectedTransaction.bank_name || 'N/A'}</strong></span>
                 </div>
+                <div style={styles.detailRow}>
+                  <strong>Payment Method:</strong>
+                  <span>
+                    {selectedTransaction.payment_method === 'Bank Transfer' ? '🏦 Bank Transfer' : 
+                     (selectedTransaction.payment_method === 'Cheque' ? '💳 Cheque' : '💰 Cash')}
+                  </span>
+                </div>
+                <div style={styles.detailRow}>
+                  <strong>Adjustment Type:</strong>
+                  <span>
+                    {selectedTransaction.adjustment_type === 'bag_to_box' ? '📦 Bag to Box Conversion' :
+                     selectedTransaction.adjustment_type === 'bill_to_bill' ? '📄 Bill to Bill Transfer' :
+                     selectedTransaction.adjustment_type === 'bad_debt' ? '⚠️ Bad Debt Write-off' :
+                     selectedTransaction.adjustment_type === 'cheque' ? '💳 Cheque Payment' :
+                     selectedTransaction.adjustment_type === 'Bank Transfer' ? '🏦 Bank Transfer' :
+                     selectedTransaction.adjustment_type === 'cash' ? '💰 Cash Payment' : 'None'}
+                  </span>
+                </div>
+                {selectedTransaction.cheq_no && (
+                  <div style={styles.detailRow}>
+                    <strong>Cheque Number:</strong>
+                    <span>{selectedTransaction.cheq_no}</span>
+                  </div>
+                )}
+                {selectedTransaction.transfer_reference_no && (
+                  <>
+                    <div style={styles.detailRow}>
+                      <strong>Transfer Reference:</strong>
+                      <span>{selectedTransaction.transfer_reference_no}</span>
+                    </div>
+                    {selectedTransaction.transfer_date && (
+                      <div style={styles.detailRow}>
+                        <strong>Transfer Date:</strong>
+                        <span>{selectedTransaction.transfer_date}</span>
+                      </div>
+                    )}
+                    {selectedTransaction.transfer_notes && (
+                      <div style={styles.detailRow}>
+                        <strong>Notes:</strong>
+                        <span>{selectedTransaction.transfer_notes}</span>
+                      </div>
+                    )}
+                  </>
+                )}
                 <div style={styles.detailRow}>
                   <strong>Debit (Dr):</strong>
                   <span style={{ color: '#DC2626', fontWeight: 'bold' }}>
@@ -969,6 +1329,18 @@ const BankStatement = () => {
                   <strong>Balance:</strong>
                   <span style={{ fontWeight: 'bold' }}>Rs{selectedTransaction.balance.toLocaleString()}</span>
                 </div>
+                {selectedTransaction.bill_no && (
+                  <div style={styles.detailRow}>
+                    <strong>Bill Number:</strong>
+                    <span>#{selectedTransaction.bill_no}</span>
+                  </div>
+                )}
+                {selectedTransaction.customer_name && (
+                  <div style={styles.detailRow}>
+                    <strong>Customer:</strong>
+                    <span>{selectedTransaction.customer_name}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
