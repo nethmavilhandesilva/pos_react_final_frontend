@@ -56,7 +56,7 @@ const LoadingSpinner = () => (
     </div>
 );
 
-// ✅ Enhanced ProtectedRoute component with role checking
+// ✅ Enhanced ProtectedRoute component with role checking and debugging
 const ProtectedRoute = ({ children, allowedRoles = null }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -69,18 +69,44 @@ const ProtectedRoute = ({ children, allowedRoles = null }) => {
                 return;
             }
             
+            // First check if user data exists in localStorage
+            const storedUser = localStorage.getItem('userData');
+            if (storedUser) {
+                try {
+                    const parsedUser = JSON.parse(storedUser);
+                    console.log('User from localStorage:', parsedUser);
+                    setUser(parsedUser);
+                    setLoading(false);
+                    return;
+                } catch (e) {
+                    console.error('Error parsing stored user:', e);
+                }
+            }
+            
             try {
+                // Set auth header
+                api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+                
                 const response = await api.get('/user');
-                if (response.data.success) {
+                console.log('User API Response:', response.data);
+                
+                if (response.data.success && response.data.user) {
+                    console.log('User role from API:', response.data.user.role);
                     setUser(response.data.user);
-                    // Store user in localStorage for quick access
                     localStorage.setItem('userData', JSON.stringify(response.data.user));
+                } else {
+                    // Invalid user data, clear token
+                    console.error('Invalid user data received');
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('userData');
                 }
             } catch (error) {
                 console.error('Failed to fetch user:', error);
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
-                localStorage.removeItem('userData');
+                if (error.response?.status === 401) {
+                    // Token invalid or expired
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('userData');
+                }
             } finally {
                 setLoading(false);
             }
@@ -94,31 +120,69 @@ const ProtectedRoute = ({ children, allowedRoles = null }) => {
     }
 
     if (!token) {
+        console.log('No token found, redirecting to login');
         return <Navigate to="/login" replace />;
     }
 
-    // Check if user has required role
-    if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-        return <Navigate to="/unauthorized" replace />;
+    // If no specific roles required, just check authentication
+    if (!allowedRoles) {
+        console.log('No role restrictions, access granted');
+        return children;
     }
 
-    return children;
+    // Check if user has required role
+    if (user && allowedRoles.includes(user.role)) {
+        console.log(`Access granted. User role: ${user.role} matches allowed roles:`, allowedRoles);
+        return children;
+    }
+
+    // Access denied
+    console.log(`Access denied. User role: ${user?.role}, Required roles:`, allowedRoles);
+    return <Navigate to="/unauthorized" replace />;
 };
 
-// ✅ Role-based redirect component for root path
+// ✅ Enhanced Role-based redirect component with level4 support
 const RootRedirect = () => {
     const [userRole, setUserRole] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const getUserRole = async () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                setLoading(false);
+                return;
+            }
+            
             try {
+                // First check localStorage
+                const storedUser = localStorage.getItem('userData');
+                if (storedUser) {
+                    const user = JSON.parse(storedUser);
+                    console.log('RootRedirect - User from localStorage:', user);
+                    setUserRole(user.role);
+                    setLoading(false);
+                    return;
+                }
+                
+                // Set auth header
+                api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+                
                 const response = await api.get('/user');
-                if (response.data.success) {
-                    setUserRole(response.data.user.role);
+                console.log('RootRedirect - User API Response:', response.data);
+                
+                if (response.data.success && response.data.user) {
+                    const role = response.data.user.role;
+                    console.log('RootRedirect - User role:', role);
+                    setUserRole(role);
+                    localStorage.setItem('userData', JSON.stringify(response.data.user));
                 }
             } catch (error) {
                 console.error('Failed to get user role:', error);
+                if (error.response?.status === 401) {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('userData');
+                }
             } finally {
                 setLoading(false);
             }
@@ -131,16 +195,26 @@ const RootRedirect = () => {
         return <LoadingSpinner />;
     }
 
+    console.log('RootRedirect - Redirecting based on role:', userRole);
+
     // Redirect based on user role
     if (userRole === 'level2') {
+        console.log('Redirecting level2 user to /printed-bills');
         return <Navigate to="/printed-bills" replace />;
     }
     
     if (userRole === 'level3') {
+        console.log('Redirecting level3 user to /bank-dashboard');
         return <Navigate to="/bank-dashboard" replace />;
     }
     
+    if (userRole === 'level4') {
+        console.log('Redirecting level4 user to /supplierreport');
+        return <Navigate to="/supplierreport" replace />;
+    }
+    
     // Default redirect for other roles to dashboard
+    console.log('Redirecting to dashboard for role:', userRole);
     return <Navigate to="/dashboard" replace />;
 };
 
@@ -156,7 +230,7 @@ export default function App() {
                 {/* 🏠 Root Route with role-based redirection */}
                 <Route path="/" element={<RootRedirect />} />
 
-                {/* DASHBOARD - For non-level2 and non-level3 users */}
+                {/* DASHBOARD - For non-level2, non-level3, non-level4 users */}
                 <Route
                     path="/dashboard"
                     element={
@@ -315,14 +389,17 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
+                
+                {/* SUPPLIER REPORT - Only accessible by level4 role */}
                 <Route
                     path="/supplierreport"
                     element={
-                        <ProtectedRoute>
+                        <ProtectedRoute allowedRoles={['level4']}>
                             <SupplierReport />
                         </ProtectedRoute>
                     }
                 />
+                
                 <Route
                     path="/suppliermodal"
                     element={
@@ -456,7 +533,7 @@ export default function App() {
     );
 }
 
-// Unauthorized Page Component
+// Enhanced Unauthorized Page Component
 const UnAuthorizedPage = () => {
     const navigate = useNavigate();
     

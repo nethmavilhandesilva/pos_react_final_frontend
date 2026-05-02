@@ -149,7 +149,6 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                             {user?.role !== 'Admin' && (
                                 <>
                                     <Link to="/customers-loans" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }}>ණය දීම/ගැනීම</Link>
-                                    <Link to="/supplierreport" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }}>සැපයුම්කරු බිල්පත්</Link>
                                     <button type="button" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }} onClick={openDayProcessModal}>දින අවසාන ක්‍රියාවලිය</button>
                                 </>
                             )}
