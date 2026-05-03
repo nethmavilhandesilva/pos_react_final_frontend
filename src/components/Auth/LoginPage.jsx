@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import api from "../../api";
 
 const LoginPage = () => {
@@ -9,7 +9,18 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
-  React.useEffect(() => {
+  // Get base path for routing
+  const getBasePath = () => {
+    // Check if running in production (hosted) or local
+    if (window.location.hostname === 'goviraju.lk') {
+      return '/sms_new_frontend_50500';
+    }
+    return ''; // Local development
+  };
+
+  const basePath = getBasePath();
+
+  useEffect(() => {
     const savedUserId = localStorage.getItem("remembered_user");
     if (savedUserId) {
       setUserId(savedUserId);
@@ -29,23 +40,35 @@ const LoginPage = () => {
       });
 
       if (response.data.token) {
+        // Store token
         localStorage.setItem("token", response.data.token);
         
+        // Store user data (important for role-based routing)
         if (response.data.user) {
+          console.log("Login successful - User data:", response.data.user);
+          console.log("User role:", response.data.user.role);
+          
+          // Store user data in both formats for compatibility
           localStorage.setItem("user", JSON.stringify(response.data.user));
+          localStorage.setItem("userData", JSON.stringify(response.data.user));
         }
 
+        // Handle remember me
         if (rememberMe) {
           localStorage.setItem("remembered_user", user_id);
         } else {
           localStorage.removeItem("remembered_user");
         }
 
-        window.location.href = "/sms_new_frontend_50500/sales";
+        // ✅ IMPORTANT: Redirect to root path so RootRedirect can handle role-based routing
+        // This will automatically send level2 users to /printed-bills, level3 to /bank-dashboard, etc.
+        window.location.href = `${basePath}/`;
+        
       } else {
         setError("Invalid credentials");
       }
     } catch (err) {
+      console.error("Login error:", err);
       setError(err.response?.data?.message || "Login failed. Please check your credentials.");
     } finally {
       setIsLoading(false);
@@ -177,7 +200,7 @@ const LoginPage = () => {
                   />
                   <span>Remember me</span>
                 </label>
-                <a href="/sms_new_frontend_50500/forgot-password" style={styles.forgotLink}>
+                <a href={`${basePath}/forgot-password`} style={styles.forgotLink}>
                   Forgot password?
                 </a>
               </div>
@@ -206,7 +229,7 @@ const LoginPage = () => {
 
               <div style={styles.registerWrapper}>
                 <span style={styles.registerText}>New to POS Trading?</span>
-                <a href="/sms_new_frontend_50500/register" style={styles.registerLink}>
+                <a href={`${basePath}/register`} style={styles.registerLink}>
                   Create an account
                 </a>
               </div>

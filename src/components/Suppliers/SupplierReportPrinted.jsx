@@ -10,36 +10,39 @@ const SupplierReport = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [loanSummary, setLoanSummary] = useState([]);
 
-    // 🚀 NEW STATE: For Context Menu (Right Click)
+    // Payment History Modal
+    const [isPaymentHistoryModalOpen, setIsPaymentHistoryModalOpen] = useState(false);
+    const [paymentHistory, setPaymentHistory] = useState(null);
+
+    // Context Menu (Right Click)
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, target: null });
 
-    // 🚀 NEW STATE: To hold specific loan record data (Paid & Remaining amounts)
+    // To hold specific loan record data (Paid & Remaining amounts)
     const [selectedLoanRecord, setSelectedLoanRecord] = useState(null);
 
-    // 🚀 NEW STATES: For Farmer Full Report Feature
+    // For Farmer Full Report Feature
     const [isFarmerModalOpen, setIsFarmerModalOpen] = useState(false);
     const [allSuppliers, setAllSuppliers] = useState([]); 
     const [selectedFarmerForReport, setSelectedFarmerForReport] = useState('');
     const [fullReportData, setFullReportData] = useState(null); 
 
-    // 🚀 NEW STATE: Bill size selector (3mm or 4mm)
+    // Bill size selector (3mm or 4mm)
     const [billSize, setBillSize] = useState('3mm');
 
     const [printedSearchTerm, setPrintedSearchTerm] = useState('');
     const [unprintedSearchTerm, setUnprintedSearchTerm] = useState('');
 
-    //new states  in adding telephone no
+    // Telephone number state
     const [phoneNo, setPhoneNo] = useState('');
-    const [phoneStatus, setPhoneStatus] = useState(''); // For feedback
+    const [phoneStatus, setPhoneStatus] = useState('');
     const [enteredAmount, setEnteredAmount] = useState(0);
 
-    // 🚀 NEW STATE: For loan/paying amount
+    // Loan/paying amount
     const [payingAmount, setPayingAmount] = useState('');
-    const [loanStatus, setLoanStatus] = useState(''); // For feedback
+    const [loanStatus, setLoanStatus] = useState('');
 
     const [currentView, setCurrentView] = useState('summary');
     const [profilePic, setProfilePic] = useState(null);
-    // Add these with your other state variables
     const [isImageModalOpen, setIsImageModalOpen] = useState(false);
     const [supplierDocs, setSupplierDocs] = useState({ title: '', profile: null, nic_front: null, nic_back: null });
 
@@ -50,30 +53,76 @@ const SupplierReport = () => {
     const [supplierDetails, setSupplierDetails] = useState([]);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
 
-    // 🚀 NEW STATE: To hold the advance amount from the suppliers table
+    // Advance amount from the suppliers table
     const [advanceAmount, setAdvanceAmount] = useState(0);
 
-    // 🚀 NEW STATE: For the Advance Entry Form Logic
+    // Advance Entry Form Logic
     const [advancePayload, setAdvancePayload] = useState({ code: '', advance_amount: '' });
     const [advanceLoading, setAdvanceLoading] = useState(false);
     const [advanceStatus, setAdvanceStatus] = useState({ type: '', text: '' });
 
-    // 🚀 NEW STATE: For Editing Records
+    // For Editing Records
     const [editingRecord, setEditingRecord] = useState(null);
     const [newFarmerCode, setNewFarmerCode] = useState('');
     const [newCustomerCode, setNewCustomerCode] = useState('');
 
-    // 🚀 NEW STATES FOR PAYMENT MODAL FEATURES
+    // PAYMENT MODAL FEATURES
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [paymentType, setPaymentType] = useState('Cash'); 
     const [paymentAmount, setPaymentAmount] = useState('');
     
-    // 🚀 NEW STATES FOR CHEQUE DETAILS
+    // CHEQUE DETAILS
     const [bankName, setBankName] = useState('');
     const [chequeNo, setChequeNo] = useState('');
     const [realizedDate, setRealizedDate] = useState('');
+    
+    const [banks, setBanks] = useState([]);
+    const [loadingBills, setLoadingBills] = useState(false);
+    const [pendingCustomerBills, setPendingCustomerBills] = useState([]);
+    const [pendingFarmerBills, setPendingFarmerBills] = useState([]);
+    const [bankTransferDetails, setBankTransferDetails] = useState({
+        bank_account_id: null,
+        bank_name: '',
+        reference_no: '',
+        transfer_date: new Date().toISOString().split('T')[0],
+        notes: ''
+    });
+    const [bagToBoxDetails, setBagToBoxDetails] = useState({
+        bag_count: '',
+        box_count: '',
+        bag_value: '',
+        box_value: ''
+    });
+    const [badDebtDetails, setBadDebtDetails] = useState({
+        name: '',
+        amount: ''
+    });
+    const [billToBillDetails, setBillToBillDetails] = useState({
+        customer_code: '',
+        customer_bill_no: '',
+        customer_bill_value: '',
+        farmer_code: '',
+        farmer_bill_no: '',
+        farmer_bill_value: ''
+    });
 
-    // --- Function to fetch the summary data ---
+    // Function to show payment history
+    const handleShowPaymentHistory = async () => {
+        if (!selectedSupplier || !selectedBillNo) return;
+        
+        try {
+            const response = await api.get(`/supplier-loan/payment-history?code=${selectedSupplier}&bill_no=${selectedBillNo}`);
+            if (response.data.success) {
+                setPaymentHistory(response.data.data);
+                setIsPaymentHistoryModalOpen(true);
+            }
+        } catch (error) {
+            console.error("Error fetching payment history:", error);
+            alert("ගෙවීම් ඉතිහාසය ලබාගැනීම අසාර්ථක විය.");
+        }
+    };
+
+    // Function to fetch the summary data
     const fetchSummary = useCallback(async () => {
         setIsLoading(true);
         setCurrentView('summary');
@@ -100,12 +149,12 @@ const SupplierReport = () => {
         }
     }, []);
 
-    // --- Initial Fetch ---
+    // Initial Fetch
     useEffect(() => {
         fetchSummary();
     }, [fetchSummary]);
 
-    //fetchoing loans for new unprinted section
+    // Fetching loans for unprinted section
     const fetchLoanSummary = useCallback(async () => {
         try {
             const response = await api.get('/suppliers/loan-summary');
@@ -127,14 +176,25 @@ const SupplierReport = () => {
         }
     };
 
-    // Call this inside your existing useEffect or fetchSummary
     useEffect(() => {
         fetchSummary();
-        fetchLoanSummary(); // 🚀 Fetch the separate loan list
-        fetchAllSuppliersList(); // 🚀 Fetch for the Farmer Report Modal
+        fetchLoanSummary();
+        fetchAllSuppliersList();
     }, [fetchSummary, fetchLoanSummary]);
 
-    // 🚀 NEW: Context Menu Handlers
+    useEffect(() => {
+        const fetchBanks = async () => {
+            try {
+                const response = await api.get('/banks');
+                if (response.data.success) setBanks(response.data.data);
+            } catch (error) {
+                console.error("Error fetching banks:", error);
+            }
+        };
+        fetchBanks();
+    }, []);
+
+    // Context Menu Handlers
     const handleContextMenu = (e, loan) => {
         e.preventDefault();
         setContextMenu({
@@ -149,7 +209,7 @@ const SupplierReport = () => {
         setContextMenu({ ...contextMenu, visible: false });
     };
 
-    // 🚀 NEW: Handle Delete Record
+    // Handle Delete Record
     const handleDeleteRecord = async () => {
         const loan = contextMenu.target;
         if (!loan) return;
@@ -177,7 +237,7 @@ const SupplierReport = () => {
         }
     };
 
-    // 🚀 NEW: Farmer Report Logic
+    // Farmer Report Logic
     const handleOpenFarmerReport = async () => {
         if (!selectedFarmerForReport) {
             alert("කරුණාකර සැපයුම්කරුවෙකු තෝරන්න.");
@@ -200,12 +260,7 @@ const SupplierReport = () => {
         return () => window.removeEventListener('click', closeContextMenu);
     }, [contextMenu]);
 
-    // --- Navigation Handler ---
-    const goToSalesEntry = () => {
-        navigate('/sales');
-    };
-
-    // 🚀 NEW: Handle Advance Entry Form Submission
+    // Handle Advance Entry Form Submission
     const handleAdvanceSubmit = async (e) => {
         e.preventDefault();
         setAdvanceLoading(true);
@@ -214,8 +269,6 @@ const SupplierReport = () => {
         try {
             const response = await api.post('/suppliers/advance', advancePayload);
             setAdvanceStatus({ type: 'success', text: `සාර්ථකයි! අත්තිකාරම් යාවත්කාලීන විය.` });
-
-            // Immediately update the display advance amount
             setAdvanceAmount(parseFloat(response.data.data.advance_amount) || 0);
             setAdvancePayload({ ...advancePayload, advance_amount: '' });
         } catch (error) {
@@ -226,9 +279,8 @@ const SupplierReport = () => {
         }
     };
 
-    // --- 🚀 NEW: Update Farmer Logic ---
+    // Update Farmer Logic
     const handleUpdateFarmer = async () => {
-        // Both are now technically optional, but we need at least one change or we just send existing values
         const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
         const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
 
@@ -244,7 +296,6 @@ const SupplierReport = () => {
                 setNewFarmerCode('');
                 setNewCustomerCode('');
 
-                // Refresh current view
                 if (isUnprintedBill) {
                     await handleUnprintedBillClick(selectedSupplier, null);
                 } else {
@@ -260,7 +311,7 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Filtering Logic ---
+    // Filtering Logic
     const filteredPrintedItems = useMemo(() => {
         const lowerCaseSearch = printedSearchTerm.toLowerCase();
         const filtered = summary.printed.filter(item =>
@@ -278,8 +329,7 @@ const SupplierReport = () => {
         return filtered;
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    // --- Handle Unprinted Bill Click ---
-    // --- Handle Printed Bill Click ---
+    // Handle Printed Bill Click
     const handlePrintedBillClick = async (supplierCode, billNo) => {
         setSelectedSupplier(supplierCode);
         setSelectedBillNo(billNo);
@@ -287,9 +337,9 @@ const SupplierReport = () => {
         setSupplierDetails([]);
         setAdvanceAmount(0);
         setProfilePic(null);
-        setPhoneNo(''); // Reset before fetch
-        setPayingAmount(''); // Reset paying amount
-        setSelectedLoanRecord(null); // Reset loan data
+        setPhoneNo('');
+        setPayingAmount('');
+        setSelectedLoanRecord(null);
         setAdvancePayload({ code: supplierCode, advance_amount: '' });
         setIsDetailsLoading(true);
 
@@ -297,7 +347,6 @@ const SupplierReport = () => {
             const response = await api.get(`/suppliers/bill/${billNo}/details`);
             setSupplierDetails(response.data);
 
-            // 🚀 NEW: Fetch existing loan record for this bill
             try {
                 const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`);
                 if (loanRes.data) {
@@ -307,12 +356,10 @@ const SupplierReport = () => {
                 console.warn("No loan record found for this selection.");
             }
 
-            // Fetch supplier profile to get the saved telephone number
             const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
             if (supRes.data) {
                 setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
                 setProfilePic(supRes.data.profile_pic);
-                // 🚀 MATCHING & FETCHING: This gets the phone from the DB record
                 setPhoneNo(supRes.data.telephone_no || '');
 
                 setSupplierDocs({
@@ -329,30 +376,42 @@ const SupplierReport = () => {
         }
     };
 
-    // --- Updated: Handle Loan/Unprinted Bill Click ---
+    // Handle Unprinted Bill Click
+   // Handle Unprinted Bill Click
 const handleUnprintedBillClick = async (supplierCode, billNo) => {
     setSelectedSupplier(supplierCode);
     setSelectedBillNo(billNo);
-    setIsUnprintedBill(true);
+    
+    // First, check if this is a bad debt record by fetching loan details
+    let isBadDebt = false;
+    try {
+        const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo || ''}`);
+        if (loanRes.data && loanRes.data.type === 'bad_debt') {
+            isBadDebt = true;
+        }
+    } catch (loanErr) {
+        console.warn("No loan record found for this selection.");
+    }
+    
+    // For bad debt records, treat them as printed bills (so F4 won't create new bill numbers)
+    setIsUnprintedBill(!isBadDebt && !billNo);  // Only true for truly unprinted bills without bill numbers
+    
     setSupplierDetails([]);
     setAdvanceAmount(0);
     setProfilePic(null);
     setPhoneNo(''); 
-    setPayingAmount(''); // Reset first
-    setSelectedLoanRecord(null); // Reset loan data
+    setPayingAmount('');
+    setSelectedLoanRecord(null);
     setAdvancePayload({ code: supplierCode, advance_amount: '' });
     setIsDetailsLoading(true);
 
     try {
-        // 1. Fetch the transaction details (the items in the bill)
         const response = await api.get(`/suppliers/${supplierCode}/unprinted-details2`);
         setSupplierDetails(response.data);
 
-        // 2. NEW: Fetch the saved loan amount for this specific bill/supplier
         try {
             const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo || ''}`);
             if (loanRes.data) {
-                // Populate state for amounts and the input field
                 setSelectedLoanRecord(loanRes.data);
                 if (loanRes.data.loan_amount) {
                     setPayingAmount(loanRes.data.loan_amount);
@@ -362,7 +421,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             console.warn("No existing loan record found for this selection.");
         }
 
-        // 3. Fetch supplier profile & advance (Existing logic)
         const supRes = await api.get(`/suppliers/search-by-code/${supplierCode}`);
         if (supRes.data) {
             setAdvanceAmount(parseFloat(supRes.data.advance_amount) || 0);
@@ -381,7 +439,8 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         setIsDetailsLoading(false);
     }
 };
-    // --- Function to reset details ---
+
+    // Function to reset details
     const resetDetails = () => {
         setSelectedSupplier(null);
         setSelectedBillNo(null);
@@ -394,13 +453,13 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         fetchSummary();
     };
 
-    // --- Helper function for details panel ---
+    // Helper function for details panel
     const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
 
-    //function to add telephone number
+    // Function to add telephone number
     const handlePhoneSubmit = async (e) => {
         if (e.key === 'Enter') {
             if (!selectedSupplier) return;
@@ -418,7 +477,8 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             }
         }
     };
-    // 🚀 UPDATED: Handle loan amount submission and update sales records
+
+    // Handle loan amount submission
     const handleLoanSubmit = async (e) => {
         if (e.key === 'Enter') {
             if (!selectedSupplier || !payingAmount || parseFloat(payingAmount) <= 0) {
@@ -427,7 +487,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                 return;
             }
 
-            // Get the IDs of the records currently being viewed/processed
             const currentTransactionIds = supplierDetails.map(record => record.id);
 
             if (currentTransactionIds.length === 0) {
@@ -438,46 +497,34 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             setLoanStatus('Processing...');
 
             try {
-                // Calculate total amount (SupplierTotal - payingAmount)
                 const totalAmount = totalsupplierSales - parseFloat(payingAmount);
 
-                // Save the loan amount AND send the transaction IDs to update sales table
                 await api.post('/supplier-loan', {
                     code: selectedSupplier,
                     loan_amount: parseFloat(payingAmount),
                     total_amount: totalAmount,
                     bill_no: selectedBillNo || null,
-                    transaction_ids: currentTransactionIds // 🚀 NEW: Added this
+                    transaction_ids: currentTransactionIds
                 });
 
                 setLoanStatus('✅ Loan saved');
-
-                // Clear the input
                 setPayingAmount('');
 
-                // Small delay to ensure the loan is saved before printing
                 setTimeout(() => {
                     handlePrint();
                 }, 300);
 
             } catch (error) {
                 console.error("Loan Update Error:", error);
-
-                if (error.response && error.response.status === 422) {
-                    setLoanStatus('⚠️ Invalid data');
-                } else {
-                    setLoanStatus('❌ Error');
-                }
-
+                setLoanStatus(error.response && error.response.status === 422 ? '⚠️ Invalid data' : '❌ Error');
                 setTimeout(() => setLoanStatus(''), 2000);
             }
         }
     };
 
-
     const getRowStyle = (index) => index % 2 === 0 ? { backgroundColor: '#f8f9fa' } : { backgroundColor: '#ffffff' };
 
-    // --- CALCULATIONS ---
+    // CALCULATIONS
     const {
         totalWeight,
         totalCommission,
@@ -527,10 +574,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         const fontSizeHeader = '23px';
         const fontSizeTotal = '28px';
 
-        // 🚀 NEW: Calculation for Loan/Partial Payment
-        const paidAmountValue = parseFloat(payingAmount) || 0;
-        const remainingAfterPayment = totalsupplierSales - paidAmountValue;
-
         const colGroups = `
     <colgroup>
         <col style="width:32%;"> 
@@ -579,8 +622,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
         }
 
-        // 🚀 CALCULATION FOR FINAL NET AMOUNT
-        // We subtract both Advance and any current payment made
         const netPayable = totalsupplierSales - advanceAmount - (parseFloat(paymentAmount) || 0);
 
         return `
@@ -652,18 +693,16 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         </tr>
     </table>
 
-    <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table></div>
+    <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}<table></div>
 </div>`;
     }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, paymentAmount, paymentType, payingAmount]);
 
-    // --- Print function ---
-
+    // Print function
     const handlePrint = useCallback(async () => {
         if (!supplierDetails || supplierDetails.length === 0) return;
 
         let finalBillNo = selectedBillNo;
 
-        // If it's a new bill (Unprinted), we must finalize and send SMS
         if (isUnprintedBill) {
             setIsDetailsLoading(true);
             try {
@@ -687,26 +726,19 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                 setIsDetailsLoading(false);
             }
         } else {
-            // 🚀 NEW: For printed bills, send SMS without finalizing
             if (phoneNo) {
                 setIsDetailsLoading(true);
                 try {
-                    // Send SMS for reprint using the same backend method
-                    const smsResponse = await api.post('/suppliers/resend-sms', {
+                    await api.post('/suppliers/resend-sms', {
                         bill_no: selectedBillNo,
                         telephone_no: phoneNo,
                         supplier_code: selectedSupplier,
                         transaction_ids: supplierDetails.map(r => r.id),
                         advance_amount: advanceAmount,
-                        is_reprint: true  // Add flag to indicate reprint
+                        is_reprint: true
                     });
-
-                    console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
-
-                    // Show success message
                     setPhoneStatus('📱 SMS resent');
                     setTimeout(() => setPhoneStatus(''), 2000);
-
                 } catch (err) {
                     console.error('SMS Resend Error:', err);
                     setPhoneStatus('⚠️ SMS failed');
@@ -720,7 +752,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             }
         }
 
-        // After backend success, proceed to show the browser print dialog
         const content = getBillContent(finalBillNo);
         const printWindow = window.open('', '_blank');
         if (printWindow) {
@@ -729,56 +760,285 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             printWindow.focus();
             printWindow.print();
 
-            // ✅ Refresh current page after print dialog opens
             setTimeout(() => {
                 window.location.reload();
             }, 500);
         }
     }, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
 
-    // 🚀 NEW: Handle Final Payment Submission with Type and Cheque details
-    const handlePaymentSubmit = async (e) => {
-        if (e && e.key && e.key !== 'Enter') return;
+    // Reset payment details
+    const resetPaymentDetails = () => {
+        setPaymentAmount('');
+        setBankName('');
+        setChequeNo('');
+        setRealizedDate('');
+        setBankTransferDetails({
+            bank_account_id: null,
+            bank_name: '',
+            reference_no: '',
+            transfer_date: new Date().toISOString().split('T')[0],
+            notes: ''
+        });
+        setBagToBoxDetails({
+            bag_count: '',
+            box_count: '',
+            bag_value: '',
+            box_value: ''
+        });
+        setBillToBillDetails({
+            customer_code: '',
+            customer_bill_no: '',
+            customer_bill_value: '',
+            farmer_code: '',
+            farmer_bill_no: '',
+            farmer_bill_value: ''
+        });
+        setBadDebtDetails({ name: '', amount: '' });
+        setPendingCustomerBills([]);
+        setPendingFarmerBills([]);
+    };
 
-        if (!paymentAmount || isNaN(paymentAmount)) {
-            alert("කරුණාකර නිවැරදි මුදලක් ඇතුළත් කරන්න.");
+    // Handle payment submission with proper payment_details storage
+  const handlePaymentConfirm = async () => {
+    let finalAmount = parseFloat(paymentAmount);
+    let finalType = paymentType;
+    let finalDetails = null;
+    let paymentDetailsArray = [];
+
+    if (paymentType === 'Bag to Box') {
+        const bagTotal = (parseFloat(bagToBoxDetails.bag_count) || 0) * (parseFloat(bagToBoxDetails.bag_value) || 0);
+        const boxTotal = (parseFloat(bagToBoxDetails.box_count) || 0) * (parseFloat(bagToBoxDetails.box_value) || 0);
+        finalAmount = Math.abs(bagTotal - boxTotal);
+        if (finalAmount <= 0) {
+            alert("කරුණාකර නිවැරදි බෑග්/බොක්ස් අගයන් ඇතුළත් කරන්න.");
             return;
         }
+        finalDetails = bagToBoxDetails;
+        paymentDetailsArray.push({
+            method: 'bag_to_box',
+            amount: finalAmount,
+            bag_count: bagToBoxDetails.bag_count,
+            box_count: bagToBoxDetails.box_count,
+            bag_value: bagToBoxDetails.bag_value,
+            box_value: bagToBoxDetails.box_value,
+            date: new Date().toISOString()
+        });
+    } 
+    else if (paymentType === 'Bill to Bill') {
+        const customerTotal = (parseFloat(billToBillDetails.customer_bill_value) || 0);
+        const farmerTotal = (parseFloat(billToBillDetails.farmer_bill_value) || 0);
+        finalAmount = customerTotal + farmerTotal;
+        if (finalAmount <= 0 || !billToBillDetails.customer_bill_no || !billToBillDetails.farmer_bill_no) {
+            alert("කරුණාකර බිල්පත් දෙකම තෝරන්න.");
+            return;
+        }
+        finalDetails = billToBillDetails;
+        paymentDetailsArray.push({
+            method: 'bill_to_bill',
+            amount: finalAmount,
+            customer_code: billToBillDetails.customer_code,
+            customer_bill_no: billToBillDetails.customer_bill_no,
+            customer_bill_value: billToBillDetails.customer_bill_value,
+            farmer_code: billToBillDetails.farmer_code,
+            farmer_bill_no: billToBillDetails.farmer_bill_no,
+            farmer_bill_value: billToBillDetails.farmer_bill_value,
+            date: new Date().toISOString()
+        });
+    }
+    else if (paymentType === 'Bad Debt') {
+        if (!badDebtDetails.name || parseFloat(badDebtDetails.amount) <= 0) {
+            alert("කරුණාකර නරක ණය නම සහ මුදල ඇතුළත් කරන්න.");
+            return;
+        }
+        finalAmount = parseFloat(badDebtDetails.amount);
+        finalDetails = badDebtDetails;
+        paymentDetailsArray.push({
+            method: 'bad_debt',
+            amount: finalAmount,
+            bad_debt_name: badDebtDetails.name,  // CHANGED: use bad_debt_name instead of name
+            bad_debt_amount: parseFloat(badDebtDetails.amount),  // CHANGED: explicit amount
+            date: new Date().toISOString()
+        });
+    }
+    else if (paymentType === 'Bank Transfer') {
+        if (!bankTransferDetails.bank_account_id || !bankTransferDetails.reference_no) {
+            alert("කරුණාකර බැංකු ගිණුම සහ යොමු අංකය ඇතුළත් කරන්න.");
+            return;
+        }
+        finalDetails = bankTransferDetails;
+        paymentDetailsArray.push({
+            method: 'bank_transfer',
+            amount: finalAmount,
+            bank_account_id: bankTransferDetails.bank_account_id,
+            bank_name: bankTransferDetails.bank_name,
+            reference_no: bankTransferDetails.reference_no,
+            transfer_date: bankTransferDetails.transfer_date,
+            notes: bankTransferDetails.notes,
+            date: new Date().toISOString()
+        });
+    }
+    else if (paymentType === 'Cheque') {
+        if (!bankName || !chequeNo) {
+            alert("කරුණාකර චෙක්පත් විස්තර සම්පූර්ණ කරන්න.");
+            return;
+        }
+        finalDetails = { bank_name: bankName, cheque_no: chequeNo, realized_date: realizedDate };
+        paymentDetailsArray.push({
+            method: 'cheque',
+            amount: finalAmount,
+            bank_name: bankName,
+            cheque_no: chequeNo,
+            realized_date: realizedDate,
+            date: new Date().toISOString()
+        });
+    }
+    else if (paymentType === 'Cash') {
+        paymentDetailsArray.push({
+            method: 'cash',
+            amount: finalAmount,
+            date: new Date().toISOString()
+        });
+    }
 
-        setIsDetailsLoading(true);
-        try {
-            // Write record to supplier_loans table
-            await api.post('/supplier-loan', {
-                code: selectedSupplier,
-                loan_amount: parseFloat(paymentAmount),
-                total_amount: totalsupplierSales,
-                bill_no: selectedBillNo || null,
-                type: paymentType, 
-                bank_name: paymentType === 'Cheque' ? bankName : null,
-                cheque_no: paymentType === 'Cheque' ? chequeNo : null,
-                realized_date: paymentType === 'Cheque' ? realizedDate : null,
-                transaction_ids: supplierDetails.map(record => record.id)
-            });
+    if (finalAmount <= 0) {
+        alert("කරුණාකර නිවැරදි මුදලක් ඇතුළත් කරන්න.");
+        return;
+    }
 
+    setIsDetailsLoading(true);
+    try {
+        let existingPaymentDetails = [];
+        if (selectedLoanRecord && selectedLoanRecord.payment_details) {
+            existingPaymentDetails = selectedLoanRecord.payment_details;
+        }
+        
+        const allPaymentDetails = [...existingPaymentDetails, ...paymentDetailsArray];
+        
+        // BUILD THE PAYLOAD WITH ALL FIELDS AT ROOT LEVEL
+        const payload = {
+            code: selectedSupplier,
+            loan_amount: finalAmount,
+            total_amount: totalsupplierSales - finalAmount,
+            bill_no: selectedBillNo || null,
+            transaction_ids: supplierDetails.map(record => record.id),
+            payment_details: allPaymentDetails
+        };
+        
+        // Set type and payment-specific fields based on payment type
+        if (paymentType === 'Cash') {
+            payload.type = 'Cash';
+        } 
+        else if (paymentType === 'Cheque') {
+            payload.type = 'Cheque';
+            payload.bank_name = finalDetails.bank_name;
+            payload.cheque_no = finalDetails.cheque_no;
+            payload.realized_date = finalDetails.realized_date;
+        } 
+        else if (paymentType === 'Bank Transfer') {
+            payload.type = 'Bank Transfer';
+            payload.bank_account_id = finalDetails.bank_account_id;
+            payload.bank_name = finalDetails.bank_name;
+            payload.transfer_reference_no = finalDetails.reference_no;
+            payload.transfer_date = finalDetails.transfer_date;
+            payload.transfer_notes = finalDetails.notes;
+        } 
+        else if (paymentType === 'Bag to Box') {
+            payload.type = 'bag_to_box';
+            payload.bag_count = finalDetails.bag_count;
+            payload.box_count = finalDetails.box_count;
+            payload.bag_value = finalDetails.bag_value;
+            payload.box_value = finalDetails.box_value;
+        } 
+        else if (paymentType === 'Bill to Bill') {
+            payload.type = 'bill_to_bill';
+            payload.target_customer_code = finalDetails.customer_code;
+            payload.target_bill_no = finalDetails.customer_bill_no;
+            payload.target_bill_value = finalDetails.customer_bill_value;
+            payload.target_supplier_code = finalDetails.farmer_code;
+            payload.target_supplier_bill_no = finalDetails.farmer_bill_no;
+            payload.target_supplier_bill_value = finalDetails.farmer_bill_value;
+        } 
+        else if (paymentType === 'Bad Debt') {
+            payload.type = 'bad_debt';
+            payload.bad_debt_name = finalDetails.name;
+            payload.bad_debt_amount = finalDetails.amount;
+        }
+
+        // Log the payload before sending
+        console.log('Sending payload:', JSON.stringify(payload, null, 2));
+        
+        const response = await api.post('/supplier-loan', payload);
+        
+        if (response.data.success) {
             setIsPaymentModalOpen(false);
-            handlePrint(); // Trigger the existing print logic
+            setLoanStatus('✅ Payment saved');
+            setTimeout(() => setLoanStatus(''), 2000);
+            
+            resetPaymentDetails();
+            
+            await fetchLoanSummary();
+            await fetchSummary();
+            
+            if (isUnprintedBill) {
+                await handleUnprintedBillClick(selectedSupplier, selectedBillNo);
+            } else {
+                await handlePrintedBillClick(selectedSupplier, selectedBillNo);
+            }
+            
+            handlePrint();
+        } else {
+            alert(response.data.message || "ගෙවීම සුරැකීම අසාර්ථක විය.");
+        }
+        
+    } catch (error) {
+        console.error("Payment Error:", error);
+        console.error("Error response:", error.response?.data);
+        alert(error.response?.data?.message || "ගෙවීම සුරැකීම අසාර්ථක විය.");
+    } finally {
+        setIsDetailsLoading(false);
+    }
+};
 
+    // Fetch bills for Bill to Bill
+    const fetchCustomerBills = async () => {
+        if (!billToBillDetails.customer_code) {
+            alert("කරුණාකර ගනුදෙනුකරු කේතය ඇතුළත් කරන්න.");
+            return;
+        }
+        setLoadingBills(true);
+        try {
+            const response = await api.get(`/pending-customer-bills?customer_code=${billToBillDetails.customer_code}`);
+            if (response.data.success) setPendingCustomerBills(response.data.data);
         } catch (error) {
-            console.error("Payment Submission Error:", error);
-            alert("දත්ත සුරැකීම අසාර්ථක විය.");
+            console.error("Error:", error);
         } finally {
-            setIsDetailsLoading(false);
+            setLoadingBills(false);
         }
     };
 
-    // --- Keyboard event listener ---
+    const fetchFarmerBills = async () => {
+        if (!billToBillDetails.farmer_code) {
+            alert("කරුණාකර ගොවි කේතය ඇතුළත් කරන්න.");
+            return;
+        }
+        setLoadingBills(true);
+        try {
+            const response = await api.get(`/pending-farmer-bills?supplier_code=${billToBillDetails.farmer_code}`);
+            if (response.data.success) setPendingFarmerBills(response.data.data);
+        } catch (error) {
+            console.error("Error:", error);
+        } finally {
+            setLoadingBills(false);
+        }
+    };
+
+    // Keyboard event listener
     useEffect(() => {
         const handleKeyDown = (event) => {
             if (event.key === 'F1' || event.keyCode === 112) { event.preventDefault(); return false; }
             if ((event.key === 'F4' || event.keyCode === 115) && supplierDetails.length > 0 && !isDetailsLoading) {
                 event.preventDefault();
-                // 🚀 MODIFIED: Open modal instead of printing directly
-                setPaymentAmount(totalsupplierSales.toString()); // Default value
+                setPaymentAmount(totalsupplierSales.toString());
                 setIsPaymentModalOpen(true);
             }
         };
@@ -786,11 +1046,70 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [supplierDetails, totalsupplierSales, isDetailsLoading]);
 
-    //new profile pic view modal
+    // Render Payment History Modal
+    const renderPaymentHistoryModal = () => {
+        if (!isPaymentHistoryModalOpen || !paymentHistory) return null;
+        
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 3000 }}>
+                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+                    <h2 style={{ color: '#091d3d', marginBottom: '20px' }}>ගෙවීම් ඉතිහාසය</h2>
+                    
+                    <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
+                        <p><strong>මුළු ගෙවූ මුදල:</strong> රු. {paymentHistory.total_paid?.toFixed(2)}</p>
+                        <p><strong>ඉතිරි ශේෂය:</strong> රු. {paymentHistory.remaining_balance?.toFixed(2)}</p>
+                        <p><strong>ගෙවීම් ක්‍රම:</strong> {paymentHistory.payment_methods}</p>
+                    </div>
+                    
+                    <h3>ගෙවීම් විස්තර</h3>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ backgroundColor: '#007bff', color: 'white' }}>
+                                <th style={{ padding: '10px', textAlign: 'left' }}>දිනය</th>
+                                <th style={{ padding: '10px', textAlign: 'left' }}>ක්‍රමය</th>
+                                <th style={{ padding: '10px', textAlign: 'right' }}>මුදල</th>
+                                <th style={{ padding: '10px', textAlign: 'left' }}>විස්තර</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paymentHistory.payments?.map((payment, index) => (
+                                <tr key={index} style={{ borderBottom: '1px solid #ddd' }}>
+                                    <td style={{ padding: '10px' }}>{new Date(payment.date).toLocaleDateString()}</td>
+                                    <td style={{ padding: '10px' }}>
+                                        {payment.method === 'cash' && '💰 මුදල්'}
+                                        {payment.method === 'cheque' && '💳 චෙක්පත්'}
+                                        {payment.method === 'bank_transfer' && '🏦 බැංකු හුවමාරුව'}
+                                        {payment.method === 'bag_to_box' && '📦 බෑග් සිට බොක්ස්'}
+                                        {payment.method === 'bill_to_bill' && '📄 බිල්පත් හුවමාරුව'}
+                                        {payment.method === 'bad_debt' && '⚠️ නරක ණය'}
+                                    </td>
+                                    <td style={{ padding: '10px', textAlign: 'right' }}>රු. {payment.amount?.toFixed(2)}</td>
+                                    <td style={{ padding: '10px', fontSize: '0.9rem', color: '#666' }}>
+                                        {payment.method === 'cheque' && `${payment.bank_name} - ${payment.cheque_no}`}
+                                        {payment.method === 'bank_transfer' && `${payment.bank_name} - ${payment.reference_no}`}
+                                        {payment.method === 'bag_to_box' && `${payment.bag_count} බෑග් → ${payment.box_count} බොක්ස්`}
+                                        {payment.method === 'bill_to_bill' && `${payment.customer_code}/${payment.farmer_code}`}
+                                        {payment.method === 'bad_debt' && payment.name}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    
+                    <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                        <button onClick={() => setIsPaymentHistoryModalOpen(false)} style={{ padding: '10px 30px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+                            වසන්න
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // Render Image Modal
     const renderImageModal = () => {
         if (!isImageModalOpen) return null;
 
-        // Helper to format URLs correctly
         const formatUrl = (path) => {
             if (!path) return null;
             return path.startsWith('http') ? path : `https://goviraju.lk/sms_new_backend_50500/application/public/storage/${path}`;
@@ -807,20 +1126,14 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                     style={{ backgroundColor: '#1f2937', borderRadius: '20px', width: '95%', maxWidth: '1000px', maxHeight: '95vh', padding: '25px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)', border: '1px solid #4b5563', display: 'flex', flexDirection: 'column' }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    {/* Header Area */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #374151', paddingBottom: '15px' }}>
                         <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'white', margin: 0 }}>
                             {supplierDocs.title} - ලේඛන පරීක්ෂාව
                         </h2>
-                        <button
-                            onClick={onClose}
-                            style={{ background: '#374151', border: 'none', color: 'white', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}
-                        > ✕ </button>
+                        <button onClick={onClose} style={{ background: '#374151', border: 'none', color: 'white', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}> ✕ </button>
                     </div>
 
-                    {/* Larger Images Grid */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '20px', overflowY: 'auto', padding: '5px' }}>
-                        {/* Profile Picture */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <span style={{ color: '#60a5fa', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>ප්‍රධාන රූපය</span>
                             <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #3b82f6', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
@@ -828,7 +1141,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                             </div>
                         </div>
 
-                        {/* NIC Front */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC ඉදිරිපස</span>
                             <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
@@ -840,7 +1152,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                             </div>
                         </div>
 
-                        {/* NIC Back */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC පසුපස</span>
                             <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
@@ -853,19 +1164,15 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                         </div>
                     </div>
 
-                    {/* Action Area */}
                     <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '15px' }}>
-                        <button
-                            onClick={onClose}
-                            style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '12px 30px', borderRadius: '10px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}
-                        >Close </button>
+                        <button onClick={onClose} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '12px 30px', borderRadius: '10px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>Close</button>
                     </div>
                 </div>
             </div>
         );
     };
 
-    // 🚀 NEW: Edit Modal UI
+    // Render Edit Modal
     const renderEditModal = () => {
         if (!editingRecord) return null;
         return (
@@ -878,12 +1185,11 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                         <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
                     </div>
 
-                    {/* Supplier Code Input */}
                     <div style={{ marginTop: '15px' }}>
                         <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
                         <input
                             type="text"
-                            placeholder={editingRecord.supplier_code} // Show current code as placeholder
+                            placeholder={editingRecord.supplier_code}
                             value={newFarmerCode}
                             onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
                             style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
@@ -891,12 +1197,11 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                         />
                     </div>
 
-                    {/* Customer Code Input */}
                     <div style={{ marginTop: '15px' }}>
                         <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
                         <input
                             type="text"
-                            placeholder={editingRecord.customer_code} // Show current code as placeholder
+                            placeholder={editingRecord.customer_code}
                             value={newCustomerCode}
                             onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
                             style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
@@ -912,93 +1217,178 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         );
     };
 
-    // 🚀 NEW: Payment Confirm Modal with Cheque Logic
+    // Render Payment Modal
     const renderPaymentModal = () => {
         if (!isPaymentModalOpen) return null;
 
         return (
-            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 3000 }}>
-                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '450px', textAlign: 'center' }}>
-                    <h2 style={{ color: '#091d3d', marginBottom: '20px' }}>ගෙවීම් තහවුරු කිරීම</h2>
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 3000, overflowY: 'auto' }}>
+                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', width: '550px', maxHeight: '90vh', overflowY: 'auto' }}>
+                    <h2 style={{ color: '#091d3d', marginBottom: '20px', textAlign: 'center' }}>ගෙවීම් තහවුරු කිරීම</h2>
                     
-                    <div style={{ marginBottom: '15px', textAlign: 'left' }}>
-                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>ගෙවීම් ක්‍රමය:</label>
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>ගෙවීම් ක්‍රමය:</label>
                         <select 
                             value={paymentType} 
                             onChange={(e) => setPaymentType(e.target.value)}
-                            style={{ width: '100%', padding: '10px', fontSize: '1.1rem', borderRadius: '6px' }}
+                            style={{ width: '100%', padding: '12px', fontSize: '1rem', borderRadius: '8px', border: '1px solid #ccc' }}
                         >
-                            <option value="Cash">මුදල් (Cash)</option>
-                            <option value="Cheque">චෙක්පත් (Cheque)</option>
+                            <option value="Cash">💰 මුදල් (Cash)</option>
+                            <option value="Cheque">💳 චෙක්පත් (Cheque)</option>
+                            <option value="Bank Transfer">🏦 බැංකු හුවමාරුව (Bank Transfer)</option>
+                            <option value="Bag to Box">📦 බෑග් සිට බොක්ස් (Bag to Box)</option>
+                            <option value="Bill to Bill">📄 බිල්පත් හුවමාරුව (Bill to Bill)</option>
+                            <option value="Bad Debt">⚠️ නරක ණය (Bad Debt)</option>
                         </select>
                     </div>
 
-                    <div style={{ marginBottom: '15px', textAlign: 'left' }}>
-                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>මුදල (Amount):</label>
-                        <input 
-                            type="number" 
-                            autoFocus
-                            value={paymentAmount}
-                            onChange={(e) => setPaymentAmount(e.target.value)}
-                            onKeyDown={handlePaymentSubmit}
-                            style={{ width: '100%', padding: '10px', fontSize: '1.3rem', fontWeight: 'bold', borderRadius: '6px', border: '2px solid #28a745', boxSizing: 'border-box' }}
-                        />
-                    </div>
+                    {paymentType === 'Cash' && (
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>මුදල (Amount):</label>
+                            <input 
+                                type="number" 
+                                value={paymentAmount}
+                                onChange={(e) => setPaymentAmount(e.target.value)}
+                                placeholder="ගෙවන මුදල ඇතුළත් කරන්න"
+                                style={{ width: '100%', padding: '12px', fontSize: '1.2rem', fontWeight: 'bold', borderRadius: '8px', border: '2px solid #10b981' }}
+                            />
+                        </div>
+                    )}
 
-                    {/* 🚀 ADDED: Cheque Specific Section */}
                     {paymentType === 'Cheque' && (
-                        <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', backgroundColor: '#f9f9f9', marginBottom: '20px' }}>
-                            <h4 style={{ margin: '0 0 10px 0', color: '#1E88E5' }}>චෙක්පත් විස්තර</h4>
-                            
-                            <div style={{ marginBottom: '10px', textAlign: 'left' }}>
-                                <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>බැංකුවේ නම:</label>
-                                <input 
-                                    type="text" 
-                                    value={bankName}
-                                    onChange={(e) => setBankName(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                                    placeholder="උදා: BOC, NSB..."
-                                />
+                        <>
+                            <div style={{ marginBottom: '15px' }}>
+                                <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>මුදල (Amount):</label>
+                                <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }} />
                             </div>
-
-                            <div style={{ marginBottom: '10px', textAlign: 'left' }}>
-                                <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>චෙක්පත් අංකය:</label>
-                                <input 
-                                    type="text" 
-                                    value={chequeNo}
-                                    onChange={(e) => setChequeNo(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                                />
+                            <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
+                                <h4 style={{ margin: '0 0 10px 0', color: '#8b5cf6' }}>චෙක්පත් විස්තර</h4>
+                                <div style={{ marginBottom: '10px' }}>
+                                    <label>බැංකුවේ නම:</label>
+                                    <input type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                </div>
+                                <div style={{ marginBottom: '10px' }}>
+                                    <label>චෙක්පත් අංකය:</label>
+                                    <input type="text" value={chequeNo} onChange={(e) => setChequeNo(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                </div>
+                                <div>
+                                    <label>දිනය:</label>
+                                    <input type="date" value={realizedDate} onChange={(e) => setRealizedDate(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                </div>
                             </div>
+                        </>
+                    )}
 
-                            <div style={{ textAlign: 'left' }}>
-                                <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>මාරු කළ යුතු දිනය (Realized Date):</label>
-                                <input 
-                                    type="date" 
-                                    value={realizedDate}
-                                    onChange={(e) => setRealizedDate(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                                />
+                    {paymentType === 'Bank Transfer' && (
+                        <>
+                            <div style={{ marginBottom: '15px' }}>
+                                <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>මුදල (Amount):</label>
+                                <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }} />
+                            </div>
+                            <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
+                                <h4 style={{ margin: '0 0 10px 0', color: '#ec489a' }}>බැංකු හුවමාරු විස්තර</h4>
+                                <div style={{ marginBottom: '10px' }}>
+                                    <label>බැංකු ගිණුම:</label>
+                                    <select value={bankTransferDetails.bank_account_id || ''} onChange={(e) => {
+                                        const bank = banks.find(b => b.id === parseInt(e.target.value));
+                                        setBankTransferDetails({...bankTransferDetails, bank_account_id: e.target.value ? parseInt(e.target.value) : null, bank_name: bank?.bank_name || ''});
+                                    }} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                                        <option value="">-- තෝරන්න --</option>
+                                        {banks.map(bank => <option key={bank.id} value={bank.id}>{bank.bank_name} - {bank.branch}</option>)}
+                                    </select>
+                                </div>
+                                <div style={{ marginBottom: '10px' }}>
+                                    <label>යොමු අංකය:</label>
+                                    <input type="text" value={bankTransferDetails.reference_no} onChange={(e) => setBankTransferDetails({...bankTransferDetails, reference_no: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                </div>
+                                <div style={{ marginBottom: '10px' }}>
+                                    <label>හුවමාරු දිනය:</label>
+                                    <input type="date" value={bankTransferDetails.transfer_date} onChange={(e) => setBankTransferDetails({...bankTransferDetails, transfer_date: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                </div>
+                                <div>
+                                    <label>සටහන්:</label>
+                                    <textarea value={bankTransferDetails.notes} onChange={(e) => setBankTransferDetails({...bankTransferDetails, notes: e.target.value})} rows="2" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {paymentType === 'Bag to Box' && (
+                        <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
+                            <h4 style={{ margin: '0 0 10px 0', color: '#f59e0b' }}>බෑග් සිට බොක්ස් පරිවර්තනය</h4>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                <div><label>බෑග් ගණන:</label><input type="number" value={bagToBoxDetails.bag_count} onChange={(e) => setBagToBoxDetails({...bagToBoxDetails, bag_count: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} /></div>
+                                <div><label>බෑග් අගය (Rs.):</label><input type="number" value={bagToBoxDetails.bag_value} onChange={(e) => setBagToBoxDetails({...bagToBoxDetails, bag_value: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} /></div>
+                                <div><label>බොක්ස් ගණන:</label><input type="number" value={bagToBoxDetails.box_count} onChange={(e) => setBagToBoxDetails({...bagToBoxDetails, box_count: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} /></div>
+                                <div><label>බොක්ස් අගය (Rs.):</label><input type="number" value={bagToBoxDetails.box_value} onChange={(e) => setBagToBoxDetails({...bagToBoxDetails, box_value: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} /></div>
                             </div>
                         </div>
                     )}
 
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        <button 
-                            onClick={handlePaymentSubmit}
-                            style={{ flex: 1, padding: '15px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
-                        >තහවුරු කරන්න (Enter)</button>
-                        <button 
-                            onClick={() => setIsPaymentModalOpen(false)}
-                            style={{ flex: 1, padding: '15px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
-                        >අවලංගු කරන්න</button>
+                    {paymentType === 'Bill to Bill' && (
+                        <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
+                            <h4 style={{ margin: '0 0 10px 0', color: '#3b82f6' }}>බිල්පත් හුවමාරුව</h4>
+                            
+                            <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#eff6ff', borderRadius: '6px' }}>
+                                <label><strong>ගනුදෙනුකරු කේතය:</strong></label>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '5px' }}>
+                                    <input type="text" value={billToBillDetails.customer_code} onChange={(e) => setBillToBillDetails({...billToBillDetails, customer_code: e.target.value.toUpperCase()})} style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                    <button onClick={fetchCustomerBills} style={{ padding: '8px 15px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>සෙවීම</button>
+                                </div>
+                                {pendingCustomerBills.length > 0 && (
+                                    <select size="3" style={{ width: '100%', marginTop: '10px' }} onChange={(e) => {
+                                        const bill = pendingCustomerBills.find(b => b.bill_no == e.target.value);
+                                        if (bill) setBillToBillDetails({...billToBillDetails, customer_bill_no: bill.bill_no, customer_bill_value: bill.total_amount});
+                                    }}>
+                                        <option value="">-- බිල්පත තෝරන්න --</option>
+                                        {pendingCustomerBills.map(bill => <option key={bill.bill_no} value={bill.bill_no}>Bill #{bill.bill_no} - Rs.{parseFloat(bill.total_amount).toLocaleString()}</option>)}
+                                    </select>
+                                )}
+                            </div>
+
+                            <div style={{ padding: '10px', backgroundColor: '#d1fae5', borderRadius: '6px' }}>
+                                <label><strong>ගොවි කේතය:</strong></label>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '5px' }}>
+                                    <input type="text" value={billToBillDetails.farmer_code} onChange={(e) => setBillToBillDetails({...billToBillDetails, farmer_code: e.target.value.toUpperCase()})} style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                    <button onClick={fetchFarmerBills} style={{ padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>සෙවීම</button>
+                                </div>
+                                {pendingFarmerBills.length > 0 && (
+                                    <select size="3" style={{ width: '100%', marginTop: '10px' }} onChange={(e) => {
+                                        const bill = pendingFarmerBills.find(b => b.supplier_bill_no == e.target.value);
+                                        if (bill) setBillToBillDetails({...billToBillDetails, farmer_bill_no: bill.supplier_bill_no, farmer_bill_value: bill.total_amount});
+                                    }}>
+                                        <option value="">-- බිල්පත තෝරන්න --</option>
+                                        {pendingFarmerBills.map(bill => <option key={bill.supplier_bill_no} value={bill.supplier_bill_no}>Bill #{bill.supplier_bill_no} - Rs.{parseFloat(bill.total_amount).toLocaleString()}</option>)}
+                                    </select>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {paymentType === 'Bad Debt' && (
+                        <div style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', backgroundColor: '#fee2e2' }}>
+                            <h4 style={{ margin: '0 0 10px 0', color: '#dc2626' }}>⚠️ නරක ණය ලෙස ලිවීම</h4>
+                            <div style={{ marginBottom: '10px' }}>
+                                <label>නම / යොමුව:</label>
+                                <input type="text" value={badDebtDetails.name} onChange={(e) => setBadDebtDetails({...badDebtDetails, name: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                            <div>
+                                <label>මුදල (Rs.):</label>
+                                <input type="number" value={badDebtDetails.amount} onChange={(e) => setBadDebtDetails({...badDebtDetails, amount: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                        <button onClick={handlePaymentConfirm} style={{ flex: 1, padding: '15px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>තහවුරු කරන්න</button>
+                        <button onClick={() => { setIsPaymentModalOpen(false); resetPaymentDetails(); }} style={{ flex: 1, padding: '15px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>අවලංගු කරන්න</button>
                     </div>
                 </div>
             </div>
         );
     };
 
-    // 🚀 NEW: Selection Modal
+    // Render Farmer Selector Modal
     const renderFarmerSelectorModal = () => {
         if (!isFarmerModalOpen) return null;
         return (
@@ -1006,11 +1396,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                 <div style={selectionModalContainer}>
                     <h3 style={{ margin: '0 0 15px 0', color: '#1a2a6c' }}>සැපයුම්කරු වාර්තාව</h3>
                     <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '15px' }}>වාර්තාව බැලීම සඳහා සැපයුම්කරු තෝරන්න</p>
-                    <select 
-                        style={modernSelect} 
-                        value={selectedFarmerForReport} 
-                        onChange={(e) => setSelectedFarmerForReport(e.target.value)}
-                    >
+                    <select style={modernSelect} value={selectedFarmerForReport} onChange={(e) => setSelectedFarmerForReport(e.target.value)}>
                         <option value="">ගොවි කේතය තෝරන්න...</option>
                         {allSuppliers.map(s => (
                             <option key={s.id} value={s.code}>{s.code} - {s.name}</option>
@@ -1025,7 +1411,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         );
     };
 
-    // 🚀 NEW: Interactive Full Report View
+    // Render Full Report View
     const renderFullReportView = () => {
         if (!fullReportData) return null;
         const { profile, loans, sales } = fullReportData;
@@ -1037,11 +1423,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                     <button onClick={() => setFullReportData(null)} style={closeReportFloatingBtn}>✕ වසන්න</button>
                     
                     <div style={reportProfileHeader}>
-                        <img 
-                            src={profile.profile_pic ? `${storageUrl}${profile.profile_pic}` : 'https://via.placeholder.com/150'} 
-                            style={reportHeaderPic} 
-                            alt="Farmer" 
-                        />
+                        <img src={profile.profile_pic ? `${storageUrl}${profile.profile_pic}` : 'https://via.placeholder.com/150'} style={reportHeaderPic} alt="Farmer" />
                         <div style={{ flex: 1 }}>
                             <h1 style={{ margin: 0, color: '#1a2a6c' }}>{profile.name}</h1>
                             <p style={{ margin: '5px 0', fontSize: '1.2rem', color: '#555' }}>ගොවි කේතය: <strong>{profile.code}</strong></p>
@@ -1101,7 +1483,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         );
     };
 
-    // Helper component for rendering supplier codes
+    // Supplier Code List Component
     const SupplierCodeList = ({ items, type, searchTerm }) => {
         const groupedItems = useMemo(() => {
             return items.reduce((acc, item) => {
@@ -1135,7 +1517,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         );
     };
 
-    // --- ALWAYS DISPLAYED DETAILS PANEL ---
+    // Render Details Panel
     const renderDetailsPanel = () => {
         const panelContainerStyle = { backgroundColor: '#091d3d', padding: '30px', borderRadius: '12px', maxWidth: '100%', maxHeight: 'calc(100vh - 60px)', overflowY: 'auto', position: 'relative', boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)', fontFamily: 'Roboto, Arial, sans-serif', marginTop: '-10px', width: '850px', minHeight: '550px', marginLeft: '0' };
         const headerStyle = { color: '#007bff', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginTop: '0', marginBottom: '20px', fontSize: '1.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
@@ -1173,14 +1555,12 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
         return (
             <div style={panelContainerStyle}>
                 <div style={headerStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
                         <h2 style={{ fontSize: "1.5rem", color: "white", margin: 0 }}>
                             ගනුදෙනු විස්තර (බිල් අංකය: <strong>{selectedBillNo || 'N/A'}</strong>)
                         </h2>
-                        {/* TELEPHONE INPUT - DISABLED FOR PRINTED BILLS */}
                         {selectedSupplier && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {/* 🚀 NEW: Paying Amount Input */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                 <input
                                     type="number"
                                     placeholder="ගෙවන මුදල..."
@@ -1199,8 +1579,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                                         fontWeight: 'bold',
                                         outline: 'none',
                                         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-                                        cursor: !selectedSupplier ? 'not-allowed' : 'text',
-                                        marginLeft: '10px'
+                                        cursor: !selectedSupplier ? 'not-allowed' : 'text'
                                     }}
                                 />
                                 {loanStatus && (
@@ -1208,18 +1587,30 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                                         {loanStatus}
                                     </span>
                                 )}
-
-                                {/* Optional: Show the current SupplierTotal value for reference */}
                                 {totalsupplierSales > 0 && (
-                                    <span style={{ fontSize: '1rem', color: '#ffffff', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px 15px', borderRadius: '8px', marginLeft: '10px' }}>
+                                    <span style={{ fontSize: '1rem', color: '#ffffff', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px 15px', borderRadius: '8px' }}>
                                         ගෙවිය යුතු: රු. {totalsupplierSales.toFixed(2)}
                                     </span>
+                                )}
+                                {selectedLoanRecord && selectedLoanRecord.total_amount > 0 && (
+                                    <button
+                                        onClick={handleShowPaymentHistory}
+                                        style={{
+                                            padding: '8px 15px',
+                                            backgroundColor: '#17a2b8',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        📜 ගෙවීම් ඉතිහාසය
+                                    </button>
                                 )}
                             </div>
                         )}
                     </div>
 
-                    {/* 🚀 DISPLAY PROFILE PIC ON THE RIGHT */}
                     {profilePic && (
                         <div style={{ marginLeft: '20px' }}>
                             <img
@@ -1265,7 +1656,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                             </tbody>
                         </table>
 
-                        {/* 🚀 NEW: DISPLAY PAID AND REMAINING AMOUNTS FETCHED FROM DATABASE */}
                         {selectedLoanRecord && (
                             <div style={{ 
                                 marginTop: '15px', 
@@ -1303,6 +1693,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             </div>
         );
     };
+
     const navBarStyle = { backgroundColor: '#343a40', padding: '15px 50px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' };
     const reportContainerStyle = { minHeight: '100vh', padding: '90px 50px 50px 50px', fontFamily: 'Roboto, Arial, sans-serif', boxSizing: 'border-box', backgroundColor: '#1ec139ff' };
 
@@ -1310,7 +1701,6 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
 
     return (
         <>
-            {/* 🚀 NEW: Context Menu UI */}
             {contextMenu.visible && (
                 <div 
                     style={{ 
@@ -1356,7 +1746,7 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                             padding: '8px 15px', 
                             fontSize: '1rem', 
                             fontWeight: 'bold', 
-                            backgroundColor: '#6f42c1', // Purple color for Farmer Report
+                            backgroundColor: '#6f42c1',
                             color: 'white', 
                             border: 'none', 
                             borderRadius: '5px', 
@@ -1367,9 +1757,9 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                     >
                         📊 ගොවි වාර්තාව (Farmer Report)
                     </button>
-                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/supplier-loan-report')}>ගොවි ණය වාර්තාව</button>
+                    <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/supplier-loan-report')}>ගොවි ණය වාර්තාව</button>
                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => setBillSize(billSize === '3mm' ? '4mm' : '3mm')}>බිල්පත් ප්‍රමාණය: {billSize}</button>
-                    <button style={{ padding: '10px 20px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={goToSalesEntry}>මුල් පිටුව</button>
+                    <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/supplierreport')}>මුල් පිටුව</button>
                 </div>
             </nav>
 
@@ -1385,14 +1775,14 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
                     <div style={centerPanelContainerStyle}>{renderDetailsPanel()}</div>
                     <div style={unprintedContainerStyle}>
                         <div style={unprintedSectionStyle}>
-                       <h2 style={{ ...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px', whiteSpace: 'nowrap' }}>ණය ලබාගත්</h2>
+                            <h2 style={{ ...unprintedHeaderStyle, padding: '0 25px 10px 25px', marginBottom: '15px', whiteSpace: 'nowrap' }}>ණය ලබාගත්</h2>
                             <div style={listContainerStyle}>
                                 {loanSummary.length > 0 ? (
                                     loanSummary.map((loan, index) => (
                                         <button
                                             key={index}
                                             onClick={() => handleUnprintedBillClick(loan.supplier_code, loan.supplier_bill_no)}
-                                            onContextMenu={(e) => handleContextMenu(e, loan)} // 🚀 Trigger Context Menu
+                                            onContextMenu={(e) => handleContextMenu(e, loan)}
                                             style={{
                                                 width: '100%',
                                                 padding: '10px',
@@ -1422,11 +1812,12 @@ const handleUnprintedBillClick = async (supplierCode, billNo) => {
             {renderImageModal()}
             {renderEditModal()}
             {renderPaymentModal()}
+            {renderPaymentHistoryModal()}
         </>
     );
 };
 
-// --- STYLES ---
+// STYLES
 const modalOverlayStyle = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 12000 };
 const selectionModalContainer = { backgroundColor: 'white', padding: '40px', borderRadius: '16px', width: '450px', textAlign: 'center' };
 const modernSelect = { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '1rem', marginTop: '10px' };

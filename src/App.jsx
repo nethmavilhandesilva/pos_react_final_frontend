@@ -1,6 +1,6 @@
-// src/App.jsx 
+// src/App.jsx - ULTIMATE FIX FOR MANUAL URL BLOCKING
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Outlet } from 'react-router-dom';
 import api from './api';
 
 // Import All Components
@@ -41,8 +41,19 @@ import SupplierFinalReport from './components/Reports/SupplierFullReport';
 import PrintedBills from './components/SalesEntry/PrintedBills';
 import Banks from './components/Banks/Banks';
 import BankDashboard from './components/Banks/BankDashboard';
+import PaymentCollectionReport from './components/SalesEntry/PaymentCollectionReport';
+import PaymentCollectionReport2 from './components/Suppliers/PaymentCollectionReport2';
+import UtilityTypeManager from './components/UtilityTypes/UtilityTypeManager';
 
-// Loading component
+const getBasePath = () => {
+    if (window.location.hostname === 'goviraju.lk') {
+        return '/sms_new_frontend_50500';
+    }
+    return '';
+};
+
+const basePath = getBasePath();
+
 const LoadingSpinner = () => (
     <div style={{
         display: 'flex',
@@ -56,557 +67,275 @@ const LoadingSpinner = () => (
     </div>
 );
 
-// ✅ Enhanced ProtectedRoute component with role checking and debugging
-const ProtectedRoute = ({ children, allowedRoles = null }) => {
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const token = localStorage.getItem('token');
+// ✅ FIXED: Auth Provider as a Layout Route
+const AuthLayout = () => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [isLoading, setIsLoading] = useState(true);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
 
     useEffect(() => {
-        const fetchUser = async () => {
-            if (!token) {
-                setLoading(false);
+        const checkAuth = async () => {
+            const currentPath = location.pathname;
+            const token = localStorage.getItem('token');
+            
+            console.log('🔐 AuthLayout - Checking path:', currentPath);
+            
+            // PUBLIC PATHS - These are the ONLY ones accessible without authentication
+            const publicPaths = ['/login', '/register', '/unauthorized'];
+            const isPublicPath = publicPaths.includes(currentPath);
+            
+            // Bill view paths (public with token in URL)
+            const isBillView = currentPath.startsWith('/view-bill') || 
+                              currentPath.startsWith('/view-supplier-bill');
+            
+            // If it's a public path or bill view, allow access immediately
+            if (isPublicPath || isBillView) {
+                console.log('✅ AuthLayout - Public path allowed:', currentPath);
+                setIsAuthenticated(true);
+                setIsLoading(false);
                 return;
             }
             
-            // First check if user data exists in localStorage
-            const storedUser = localStorage.getItem('userData');
-            if (storedUser) {
-                try {
-                    const parsedUser = JSON.parse(storedUser);
-                    console.log('User from localStorage:', parsedUser);
-                    setUser(parsedUser);
-                    setLoading(false);
-                    return;
-                } catch (e) {
-                    console.error('Error parsing stored user:', e);
-                }
+            // For ALL OTHER PATHS, require authentication
+            if (!token) {
+                console.log('❌ AuthLayout - No token, redirecting to login from:', currentPath);
+                sessionStorage.setItem('redirectAfterLogin', currentPath);
+                navigate('/login', { replace: true });
+                setIsLoading(false);
+                return;
             }
             
+            // Validate token with backend
             try {
-                // Set auth header
+                console.log('🔍 AuthLayout - Validating token...');
                 api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-                
                 const response = await api.get('/user');
-                console.log('User API Response:', response.data);
                 
                 if (response.data.success && response.data.user) {
-                    console.log('User role from API:', response.data.user.role);
-                    setUser(response.data.user);
+                    console.log('✅ AuthLayout - Token valid for:', response.data.user.role);
                     localStorage.setItem('userData', JSON.stringify(response.data.user));
+                    setIsAuthenticated(true);
                 } else {
-                    // Invalid user data, clear token
-                    console.error('Invalid user data received');
+                    console.log('❌ AuthLayout - Invalid token');
                     localStorage.removeItem('token');
                     localStorage.removeItem('userData');
+                    navigate('/login', { replace: true });
                 }
             } catch (error) {
-                console.error('Failed to fetch user:', error);
-                if (error.response?.status === 401) {
-                    // Token invalid or expired
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('userData');
-                }
+                console.error('❌ AuthLayout - Token validation failed:', error);
+                localStorage.removeItem('token');
+                localStorage.removeItem('userData');
+                navigate('/login', { replace: true });
             } finally {
-                setLoading(false);
+                setIsLoading(false);
             }
         };
+        
+        checkAuth();
+    }, [location.pathname, navigate]);
 
-        fetchUser();
-    }, [token]);
-
-    if (loading) {
+    if (isLoading) {
         return <LoadingSpinner />;
     }
 
-    if (!token) {
-        console.log('No token found, redirecting to login');
+    return isAuthenticated ? <Outlet /> : null;
+};
+
+// ✅ Role-based protection
+const RequireRole = ({ children, allowedRoles }) => {
+    const userData = localStorage.getItem('userData');
+    const [isAuthorized, setIsAuthorized] = useState(false);
+    const [isChecking, setIsChecking] = useState(true);
+
+    useEffect(() => {
+        if (!userData) {
+            setIsAuthorized(false);
+            setIsChecking(false);
+            return;
+        }
+        
+        try {
+            const user = JSON.parse(userData);
+            if (allowedRoles.includes(user.role)) {
+                setIsAuthorized(true);
+            } else {
+                setIsAuthorized(false);
+            }
+        } catch (error) {
+            setIsAuthorized(false);
+        } finally {
+            setIsChecking(false);
+        }
+    }, [userData, allowedRoles]);
+
+    if (isChecking) {
+        return <LoadingSpinner />;
+    }
+
+    return isAuthorized ? children : <Navigate to="/unauthorized" replace />;
+};
+
+// ✅ Root redirect based on role
+const RootRedirect = () => {
+    const userData = localStorage.getItem('userData');
+    
+    if (!userData) {
         return <Navigate to="/login" replace />;
     }
-
-    // If no specific roles required, just check authentication
-    if (!allowedRoles) {
-        console.log('No role restrictions, access granted');
-        return children;
+    
+    try {
+        const user = JSON.parse(userData);
+        const role = user.role;
+        
+        if (role === 'level2') {
+            return <Navigate to="/printed-bills" replace />;
+        } else if (role === 'level3') {
+            return <Navigate to="/bank-dashboard" replace />;
+        } else if (role === 'level4') {
+            return <Navigate to="/supplierreport" replace />;
+        } else {
+            return <Navigate to="/dashboard" replace />;
+        }
+    } catch (error) {
+        return <Navigate to="/login" replace />;
     }
-
-    // Check if user has required role
-    if (user && allowedRoles.includes(user.role)) {
-        console.log(`Access granted. User role: ${user.role} matches allowed roles:`, allowedRoles);
-        return children;
-    }
-
-    // Access denied
-    console.log(`Access denied. User role: ${user?.role}, Required roles:`, allowedRoles);
-    return <Navigate to="/unauthorized" replace />;
 };
 
-// ✅ Enhanced Role-based redirect component with level4 support
-const RootRedirect = () => {
-    const [userRole, setUserRole] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const getUserRole = async () => {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                setLoading(false);
-                return;
-            }
-            
-            try {
-                // First check localStorage
-                const storedUser = localStorage.getItem('userData');
-                if (storedUser) {
-                    const user = JSON.parse(storedUser);
-                    console.log('RootRedirect - User from localStorage:', user);
-                    setUserRole(user.role);
-                    setLoading(false);
-                    return;
-                }
-                
-                // Set auth header
-                api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-                
-                const response = await api.get('/user');
-                console.log('RootRedirect - User API Response:', response.data);
-                
-                if (response.data.success && response.data.user) {
-                    const role = response.data.user.role;
-                    console.log('RootRedirect - User role:', role);
-                    setUserRole(role);
-                    localStorage.setItem('userData', JSON.stringify(response.data.user));
-                }
-            } catch (error) {
-                console.error('Failed to get user role:', error);
-                if (error.response?.status === 401) {
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('userData');
-                }
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        getUserRole();
-    }, []);
-
-    if (loading) {
-        return <LoadingSpinner />;
-    }
-
-    console.log('RootRedirect - Redirecting based on role:', userRole);
-
-    // Redirect based on user role
-    if (userRole === 'level2') {
-        console.log('Redirecting level2 user to /printed-bills');
-        return <Navigate to="/printed-bills" replace />;
-    }
-    
-    if (userRole === 'level3') {
-        console.log('Redirecting level3 user to /bank-dashboard');
-        return <Navigate to="/bank-dashboard" replace />;
-    }
-    
-    if (userRole === 'level4') {
-        console.log('Redirecting level4 user to /supplierreport');
-        return <Navigate to="/supplierreport" replace />;
-    }
-    
-    // Default redirect for other roles to dashboard
-    console.log('Redirecting to dashboard for role:', userRole);
-    return <Navigate to="/dashboard" replace />;
-};
-
-export default function App() {
-    return (
-        <BrowserRouter>
-            <Routes>
-                {/* 🔒 Auth Routes: Login and Register are public */}
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
-                <Route path="/unauthorized" element={<UnAuthorizedPage />} />
-
-                {/* 🏠 Root Route with role-based redirection */}
-                <Route path="/" element={<RootRedirect />} />
-
-                {/* DASHBOARD - For non-level2, non-level3, non-level4 users */}
-                <Route
-                    path="/dashboard"
-                    element={
-                        <ProtectedRoute allowedRoles={['admin', 'level1', 'User']}>
-                            <Dashboard />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* CUSTOMERS */}
-                <Route
-                    path="/customers"
-                    element={
-                        <ProtectedRoute>
-                            <CustomerList />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/customers/create"
-                    element={
-                        <ProtectedRoute>
-                            <CustomerForm mode="create" />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/customers/:id/edit"
-                    element={
-                        <ProtectedRoute>
-                            <CustomerForm mode="edit" />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* ITEMS */}
-                <Route
-                    path="/items"
-                    element={
-                        <ProtectedRoute>
-                            <ItemList />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/items/create"
-                    element={
-                        <ProtectedRoute>
-                            <CreateItem />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/items/edit/:id"
-                    element={
-                        <ProtectedRoute>
-                            <EditItem />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* SUPPLIERS */}
-                <Route
-                    path="/suppliers"
-                    element={
-                        <ProtectedRoute>
-                            <SupplierList />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/suppliers/create"
-                    element={
-                        <ProtectedRoute>
-                            <CreateSupplier />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/suppliers/edit/:id"
-                    element={
-                        <ProtectedRoute>
-                            <EditSupplier />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* GRN Routes */}
-                <Route
-                    path="/grn"
-                    element={
-                        <ProtectedRoute>
-                            <GrnList />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/grn/create"
-                    element={
-                        <ProtectedRoute>
-                            <CreateGrn />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/grn/edit/:id"
-                    element={
-                        <ProtectedRoute>
-                            <EditGrn />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/grn/entries"
-                    element={
-                        <ProtectedRoute>
-                            <GrnEntryForm />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* CUSTOMERS LOANS & SALES */}
-                <Route
-                    path="/customers-loans"
-                    element={
-                        <ProtectedRoute>
-                            <LoanManager />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/customers-loans/report"
-                    element={
-                        <ProtectedRoute>
-                            <LoanReportView />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* SALES ENTRY */}
-                <Route
-                    path="/sales"
-                    element={
-                        <ProtectedRoute>
-                            <SalesEntry />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* REPORTING & COMMISSIONS */}
-                <Route
-                    path="/commissions"
-                    element={
-                        <ProtectedRoute>
-                            <CommissionPage />
-                        </ProtectedRoute>
-                    }
-                />
-                
-                {/* SUPPLIER REPORT - Only accessible by level4 role */}
-                <Route
-                    path="/supplierreport"
-                    element={
-                        <ProtectedRoute allowedRoles={['level4']}>
-                            <SupplierReport />
-                        </ProtectedRoute>
-                    }
-                />
-                
-                <Route
-                    path="/suppliermodal"
-                    element={
-                        <ProtectedRoute>
-                            <SupplierDetailsModal />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/supplier-profit"
-                    element={
-                        <ProtectedRoute>
-                            <SupplierProfitReport />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/financial-report"
-                    element={
-                        <ProtectedRoute>
-                            <FinancialReport />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/loan-report"
-                    element={
-                        <ProtectedRoute>
-                            <LoanReportManager />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route 
-                    path="/reports/supplier" 
-                    element={
-                        <ProtectedRoute>
-                            <SupplierReport2 />
-                        </ProtectedRoute>
-                    } 
-                />
-                <Route 
-                    path="/reports/printed-sales" 
-                    element={
-                        <ProtectedRoute>
-                            <PrintedSalesReport />
-                        </ProtectedRoute>
-                    } 
-                />
-                <Route
-                    path="/reports/newsales"
-                    element={
-                        <ProtectedRoute>
-                            <SalesReport />
-                        </ProtectedRoute>
-                    }
-                />
-                
-                {/* PUBLIC BILL VIEWS */}
-                <Route path="/view-bill/:token" element={<PublicBill />} />
-                <Route path="/suppliers/dobreport" element={<SupplierdobReport />} />
-                <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
-                
-                {/* LOAN MANAGERS */}
-                <Route 
-                    path="/farmer-loans" 
-                    element={
-                        <ProtectedRoute>
-                            <FarmerLoanManager />
-                        </ProtectedRoute>
-                    } 
-                />
-                <Route 
-                    path="/suppliers/printed-report" 
-                    element={
-                        <ProtectedRoute>
-                            <SupplierReportPrinted />
-                        </ProtectedRoute>
-                    } 
-                />
-                <Route 
-                    path="/supplier-loan-report" 
-                    element={
-                        <ProtectedRoute>
-                            <SupplierLoanReport />
-                        </ProtectedRoute>
-                    } 
-                />
-                <Route 
-                    path="/supplier-finalreport" 
-                    element={
-                        <ProtectedRoute>
-                            <SupplierFinalReport />
-                        </ProtectedRoute>
-                    } 
-                />
-                
-                {/* PRINTED BILLS - For level2 users (cashiers) */}
-                <Route
-                    path="/printed-bills"
-                    element={
-                        <ProtectedRoute allowedRoles={['level2']}>
-                            <PrintedBills />
-                        </ProtectedRoute>
-                    }
-                />
-                
-                {/* BANK DASHBOARD - For level3 users (bank managers) */}
-                <Route 
-                    path="/bank-dashboard" 
-                    element={
-                        <ProtectedRoute allowedRoles={['level3']}>
-                            <BankDashboard />
-                        </ProtectedRoute>
-                    } 
-                />
-                
-                {/* BANKS - For level3 users */}
-                <Route 
-                    path="/banks" 
-                    element={
-                        <ProtectedRoute allowedRoles={['level3']}>
-                            <Banks />
-                        </ProtectedRoute>
-                    } 
-                />
-                
-                {/* ❌ Fallback route: Redirect all unknown paths to root (which will handle role-based redirect) */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-        </BrowserRouter>
-    );
-}
-
-// Enhanced Unauthorized Page Component
+// ✅ UnAuthorizedPage component
 const UnAuthorizedPage = () => {
     const navigate = useNavigate();
-    
-    const styles = {
-        container: {
+
+    return (
+        <div style={{
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
             minHeight: '100vh',
             backgroundColor: '#f8fafc',
             fontFamily: "'Inter', sans-serif",
-        },
-        card: {
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            padding: '40px',
-            textAlign: 'center',
-            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-            maxWidth: '400px',
-            width: '90%',
-        },
-        icon: {
-            fontSize: '64px',
-            marginBottom: '20px',
-        },
-        title: {
-            fontSize: '24px',
-            fontWeight: '600',
-            color: '#ef4444',
-            marginBottom: '12px',
-        },
-        message: {
-            fontSize: '14px',
-            color: '#64748b',
-            marginBottom: '24px',
-            lineHeight: '1.5',
-        },
-        button: {
-            padding: '10px 24px',
-            backgroundColor: '#4F46E5',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            transition: 'all 0.3s ease',
-        }
-    };
-
-    return (
-        <div style={styles.container}>
-            <div style={styles.card}>
-                <div style={styles.icon}>🔒</div>
-                <h2 style={styles.title}>Unauthorized Access</h2>
-                <p style={styles.message}>
-                    You don't have permission to access this page. This area is restricted to authorized personnel only.
+        }}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '16px',
+                padding: '40px',
+                textAlign: 'center',
+                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                maxWidth: '400px',
+                width: '90%',
+            }}>
+                <div style={{ fontSize: '64px', marginBottom: '20px' }}>🔒</div>
+                <h2 style={{ fontSize: '24px', fontWeight: '600', color: '#ef4444', marginBottom: '12px' }}>Access Denied</h2>
+                <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '24px', lineHeight: '1.5' }}>
+                    You don't have permission to access this page.
+                    <br /><br />
+                    Please contact your administrator if you believe this is an error.
                 </p>
                 <button 
-                    style={styles.button}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#4338CA';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
+                    onClick={() => navigate('/login')}
+                    style={{
+                        padding: '10px 24px',
+                        backgroundColor: '#4F46E5',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
                     }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#4F46E5';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                    }}
-                    onClick={() => navigate('/')}
                 >
-                    Go to Home
+                    Go to Login
                 </button>
             </div>
         </div>
     );
 };
+
+// ✅ Main App Routes - IMPROVED STRUCTURE
+const AppRoutes = () => {
+    return (
+        <Routes>
+            {/* Public Routes - These are accessible without login */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/unauthorized" element={<UnAuthorizedPage />} />
+            <Route path="/view-bill/:token" element={<PublicBill />} />
+            <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
+
+            {/* Protected Routes - All wrapped with AuthLayout */}
+            <Route element={<AuthLayout />}>
+                <Route path="/" element={<RootRedirect />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/customers" element={<CustomerList />} />
+                <Route path="/customers/create" element={<CustomerForm mode="create" />} />
+                <Route path="/customers/:id/edit" element={<CustomerForm mode="edit" />} />
+                <Route path="/items" element={<ItemList />} />
+                <Route path="/items/create" element={<CreateItem />} />
+                <Route path="/items/edit/:id" element={<EditItem />} />
+                <Route path="/suppliers" element={<SupplierList />} />
+                <Route path="/suppliers/create" element={<CreateSupplier />} />
+                <Route path="/suppliers/edit/:id" element={<EditSupplier />} />
+                <Route path="/grn" element={<GrnList />} />
+                <Route path="/grn/create" element={<CreateGrn />} />
+                <Route path="/grn/edit/:id" element={<EditGrn />} />
+                <Route path="/grn/entries" element={<GrnEntryForm />} />
+                <Route path="/customers-loans" element={<LoanManager />} />
+                <Route path="/customers-loans/report" element={<LoanReportView />} />
+                <Route path="/sales" element={<SalesEntry />} />
+                <Route path="/commissions" element={<CommissionPage />} />
+                
+                {/* Supplier Reports with Role Protection */}
+                <Route path="/supplierreport" element={
+                    <RequireRole allowedRoles={['level4']}>
+                        <SupplierReport />
+                    </RequireRole>
+                } />
+                
+                <Route path="/suppliermodal" element={<SupplierDetailsModal />} />
+                <Route path="/supplier-profit" element={<SupplierProfitReport />} />
+                <Route path="/financial-report" element={<FinancialReport />} />
+                <Route path="/loan-report" element={<LoanReportManager />} />
+                <Route path="/reports/supplier" element={<SupplierReport2 />} />
+                <Route path="/reports/printed-sales" element={<PrintedSalesReport />} />
+                <Route path="/reports/newsales" element={<SalesReport />} />
+                <Route path="/farmer-loans" element={<FarmerLoanManager />} />
+                <Route path="/suppliers/printed-report" element={<SupplierReportPrinted />} />
+                <Route path="/supplier-loan-report" element={<SupplierLoanReport />} />
+                <Route path="/supplier-finalreport" element={<SupplierFinalReport />} />
+                <Route path="/suppliers/dobreport" element={<SupplierdobReport />} />
+                
+                {/* Role-specific Routes */}
+                <Route path="/printed-bills" element={
+                    <RequireRole allowedRoles={['level2']}>
+                        <PrintedBills />
+                    </RequireRole>
+                } />
+                
+                <Route path="/bank-dashboard" element={
+                    <RequireRole allowedRoles={['level3']}>
+                        <BankDashboard />
+                    </RequireRole>
+                } />
+                
+                <Route path="/banks" element={<Banks />} />
+                <Route path="/payment-collection-report" element={<PaymentCollectionReport />} />
+                <Route path="/payment-collection-report2" element={<PaymentCollectionReport2 />} />
+                <Route path="/utility-types" element={<UtilityTypeManager />} />
+            </Route>
+
+            {/* Catch all - redirect to login */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+    );
+};
+
+// ✅ Main App Component
+export default function App() {
+    console.log('App - Base Path:', basePath);
+    
+    return (
+        <BrowserRouter basename={basePath}>
+            <AppRoutes />
+        </BrowserRouter>
+    );
+}

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import api from '../../api';
 import {
   ChevronDown,
   ChevronUp,
@@ -20,20 +21,20 @@ import {
   X,
   Upload,
   CreditCard,
-  Bell,
-  BellOff,
   RefreshCcw,
   Package,
   Send,
   AlertTriangle,
   DollarSign as DollarIcon,
-  Building2
+  Building2,
+  FileText,
+  Truck,
+  History
 } from 'lucide-react';
 
-// Set base URL from environment variable
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
 const BankStatement = () => {
+  const navigate = useNavigate();
+  
   const [statementData, setStatementData] = useState({
     bank: null,
     transactions: [],
@@ -44,7 +45,7 @@ const BankStatement = () => {
     summary: { total_debit: 0, total_credit: 0 }
   });
   const [loading, setLoading] = useState(true);
-  const [selectedBank, setSelectedBank] = useState('all'); // Changed default to 'all'
+  const [selectedBank, setSelectedBank] = useState('all');
   const [banks, setBanks] = useState([]);
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -61,25 +62,22 @@ const BankStatement = () => {
   // Auto-refresh states
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
-  const [refreshInterval] = useState(3000); // 3 seconds
+  const [refreshInterval] = useState(3000);
   const intervalRef = useRef(null);
   const isRefreshingRef = useRef(false);
 
-  // Create axios instance with base URL
-  const api = axios.create({
-    baseURL: API_URL,
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest'
-    },
-    withCredentials: true
-  });
+  // Navigate to Payment Collection Report
+  const handleAllTransactionsReport = () => {
+    navigate('/payment-collection-report');
+  };
 
-  const token = localStorage.getItem('token');
-  if (token) {
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-  }
+  // Clear date range
+  const handleClearDates = () => {
+    setDateRange({
+      start: '',
+      end: ''
+    });
+  };
 
   // Fetch banks on component mount
   useEffect(() => {
@@ -91,22 +89,19 @@ const BankStatement = () => {
     fetchStatement();
   }, [selectedBank, dateRange, filterType, searchTerm]);
 
-  // Setup auto-refresh interval (silent - no loading indicator)
+  // Setup auto-refresh interval
   useEffect(() => {
     if (autoRefresh) {
-      // Clear existing interval
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
       
-      // Set new interval
       intervalRef.current = setInterval(() => {
         if (!isRefreshingRef.current) {
           refreshDataSilently();
         }
       }, refreshInterval);
       
-      // Cleanup on unmount or when autoRefresh changes
       return () => {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
@@ -120,7 +115,7 @@ const BankStatement = () => {
 
   const fetchBanks = async () => {
     try {
-      const response = await api.get('/api/banks/list');
+      const response = await api.get('/banks/list');
       if (response.data.success) {
         setBanks(response.data.data);
       }
@@ -135,20 +130,22 @@ const BankStatement = () => {
     }
     
     try {
-      // Build URL based on selected bank
       let url;
       if (selectedBank === 'all') {
-        url = `/api/bank-accounts/statement/all`;
+        url = '/bank-accounts/statement/all';
       } else {
-        url = `/api/bank-accounts/statement/${selectedBank}`;
+        url = `/bank-accounts/statement/${selectedBank}`;
       }
       
-      const response = await api.get(url, {
-        params: {
-          start_date: dateRange.start.toISOString().split('T')[0],
-          end_date: dateRange.end.toISOString().split('T')[0]
-        }
-      });
+      const params = {};
+      if (dateRange.start && dateRange.start instanceof Date && !isNaN(dateRange.start)) {
+        params.start_date = dateRange.start.toISOString().split('T')[0];
+      }
+      if (dateRange.end && dateRange.end instanceof Date && !isNaN(dateRange.end)) {
+        params.end_date = dateRange.end.toISOString().split('T')[0];
+      }
+      
+      const response = await api.get(url, { params });
       
       if (response.data.success) {
         let transactions = response.data.data.transactions;
@@ -165,7 +162,9 @@ const BankStatement = () => {
             (t.cheq_no && t.cheq_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.transfer_reference_no && t.transfer_reference_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.adjustment_type && t.adjustment_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase()))
+            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.transaction_type && t.transaction_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.source_table && t.source_table.toLowerCase().includes(searchTerm.toLowerCase()))
           );
         }
         
@@ -186,26 +185,27 @@ const BankStatement = () => {
     }
   };
 
-  // Silent refresh function (without loading spinner - user sees no change)
   const refreshDataSilently = useCallback(async () => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
     
     try {
-      // Build URL based on selected bank
       let url;
       if (selectedBank === 'all') {
-        url = `/api/bank-accounts/statement/all`;
+        url = '/bank-accounts/statement/all';
       } else {
-        url = `/api/bank-accounts/statement/${selectedBank}`;
+        url = `/bank-accounts/statement/${selectedBank}`;
       }
       
-      const response = await api.get(url, {
-        params: {
-          start_date: dateRange.start.toISOString().split('T')[0],
-          end_date: dateRange.end.toISOString().split('T')[0]
-        }
-      });
+      const params = {};
+      if (dateRange.start && dateRange.start instanceof Date && !isNaN(dateRange.start)) {
+        params.start_date = dateRange.start.toISOString().split('T')[0];
+      }
+      if (dateRange.end && dateRange.end instanceof Date && !isNaN(dateRange.end)) {
+        params.end_date = dateRange.end.toISOString().split('T')[0];
+      }
+      
+      const response = await api.get(url, { params });
       
       if (response.data.success) {
         let transactions = response.data.data.transactions;
@@ -222,7 +222,8 @@ const BankStatement = () => {
             (t.cheq_no && t.cheq_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.transfer_reference_no && t.transfer_reference_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.adjustment_type && t.adjustment_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase()))
+            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.transaction_type && t.transaction_type.toLowerCase().includes(searchTerm.toLowerCase()))
           );
         }
         
@@ -239,25 +240,24 @@ const BankStatement = () => {
     }
   }, [selectedBank, dateRange, filterType, searchTerm]);
 
-  // Manual refresh with loading indicator
   const handleManualRefresh = async () => {
     await fetchStatement(true);
   };
 
-  // Toggle auto-refresh
   const toggleAutoRefresh = () => {
     setAutoRefresh(prev => !prev);
   };
 
   const exportToCSV = () => {
     const csvData = [
-      ['Date', 'Description', 'Bank Account', 'Payment Method', 'Adjustment Type', 'Reference No', 'Debit (Dr)', 'Credit (Cr)', 'Balance'],
+      ['Date', 'Description', 'Bank Account', 'Payment Method', 'Transaction Type', 'Source', 'Reference No', 'Debit (Dr)', 'Credit (Cr)', 'Balance'],
       ...statementData.transactions.map(t => [
         t.date,
         t.description,
         t.bank_name || 'N/A',
         t.payment_method || (t.cheq_no ? 'Cheque' : (t.transfer_reference_no ? 'Bank Transfer' : 'Cash')),
-        t.adjustment_type || 'none',
+        t.transaction_type || 'customer_sale',
+        t.source_table || 'N/A',
         t.cheq_no || t.transfer_reference_no || '-',
         t.debit > 0 ? t.debit : '-',
         t.credit > 0 ? t.credit : '-',
@@ -278,6 +278,7 @@ const BankStatement = () => {
   const printStatement = () => {
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
+      <!DOCTYPE html>
       <html>
         <head>
           <title>Bank Statement - ${selectedBank === 'all' ? 'All Accounts' : statementData.bank?.bank_name}</title>
@@ -302,13 +303,14 @@ const BankStatement = () => {
             .badge-cash { background: #10B981; color: white; }
             .badge-cheque { background: #8B5CF6; color: white; }
             .badge-transfer { background: #EC489A; color: white; }
-            .badge-bag-box { background: #F59E0B; color: white; }
-            .badge-bill-bill { background: #3B82F6; color: white; }
-            .badge-bad-debt { background: #EF4444; color: white; }
+            .badge-supplier { background: #F59E0B; color: white; }
+            .badge-customer { background: #3B82F6; color: white; }
+            .badge-supplier-history { background: #EF4444; color: white; }
             .badge-none { background: #6B7280; color: white; }
             .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #6B7280; }
             @media print {
               body { margin: 0; }
+              .no-print { display: none; }
             }
           </style>
         </head>
@@ -316,24 +318,24 @@ const BankStatement = () => {
           <div class="header">
             <h1>Bank Statement</h1>
             <h2>${selectedBank === 'all' ? 'ALL BANK ACCOUNTS' : `${statementData.bank?.bank_name} - ${statementData.bank?.account_no}`}</h2>
-            <p class="period">Period: ${statementData.start_date} to ${statementData.end_date}</p>
+            <p class="period">Period: ${statementData.start_date || 'All time'} to ${statementData.end_date || 'All time'}</p>
           </div>
           <div class="summary">
             <div class="summary-card">
               <div class="summary-label">Opening Balance</div>
-              <div class="summary-value">Rs${statementData.opening_balance.toLocaleString()}</div>
+              <div class="summary-value">Rs${(statementData.opening_balance || 0).toLocaleString()}</div>
             </div>
             <div class="summary-card">
               <div class="summary-label">Total Debit (Dr)</div>
-              <div class="summary-value" style="color:#DC2626">Rs${statementData.summary.total_debit.toLocaleString()}</div>
+              <div class="summary-value" style="color:#DC2626">Rs${(statementData.summary?.total_debit || 0).toLocaleString()}</div>
             </div>
             <div class="summary-card">
               <div class="summary-label">Total Credit (Cr)</div>
-              <div class="summary-value" style="color:#10B981">Rs${statementData.summary.total_credit.toLocaleString()}</div>
+              <div class="summary-value" style="color:#10B981">Rs${(statementData.summary?.total_credit || 0).toLocaleString()}</div>
             </div>
             <div class="summary-card">
               <div class="summary-label">Closing Balance</div>
-              <div class="summary-value">Rs${statementData.closing_balance.toLocaleString()}</div>
+              <div class="summary-value">Rs${(statementData.closing_balance || 0).toLocaleString()}</div>
             </div>
           </div>
           <table>
@@ -343,7 +345,7 @@ const BankStatement = () => {
                 <th>Description</th>
                 <th>Bank Account</th>
                 <th>Payment Method</th>
-                <th>Adjustment Type</th>
+                <th>Transaction Type</th>
                 <th>Reference No</th>
                 <th class="text-right">Debit (Dr)</th>
                 <th class="text-right">Credit (Cr)</th>
@@ -353,58 +355,51 @@ const BankStatement = () => {
             <tbody>
               <tr style="background:#FEF3C7">
                 <td colspan="8"><strong>Opening Balance</strong></td>
-                <td class="text-right"><strong>Rs${statementData.opening_balance.toLocaleString()}</strong></td>
+                <td class="text-right"><strong>Rs${(statementData.opening_balance || 0).toLocaleString()}</strong></td>
               </tr>
               ${statementData.transactions.map(t => {
-                const getBadgeClass = () => {
-                  switch(t.adjustment_type) {
-                    case 'cash': return 'badge-cash';
-                    case 'cheque': return 'badge-cheque';
-                    case 'Bank Transfer': return 'badge-transfer';
-                    case 'bag_to_box': return 'badge-bag-box';
-                    case 'bill_to_bill': return 'badge-bill-bill';
-                    case 'bad_debt': return 'badge-bad-debt';
-                    default: return 'badge-none';
+                const getTransactionBadge = () => {
+                  if (t.transaction_type === 'supplier_payment') {
+                    if (t.source_table === 'supplier_loan_history') {
+                      return '<span class="badge badge-supplier-history">🏦 Supplier Payment (Archived)</span>';
+                    }
+                    return '<span class="badge badge-supplier">🏭 Supplier Payment</span>';
                   }
+                  return '<span class="badge badge-customer">👤 Customer Sale</span>';
                 };
-                const getBadgeText = () => {
-                  switch(t.adjustment_type) {
-                    case 'cash': return '💰 Cash';
-                    case 'cheque': return '💳 Cheque';
-                    case 'Bank Transfer': return '🏦 Bank Transfer';
-                    case 'bag_to_box': return '📦 Bag to Box';
-                    case 'bill_to_bill': return '📄 Bill to Bill';
-                    case 'bad_debt': return '⚠️ Bad Debt';
-                    default: return 'None';
+                
+                const getPaymentBadge = () => {
+                  if (t.payment_method === 'Bank Transfer') {
+                    return '<span class="badge badge-transfer">🏦 Bank Transfer</span>';
+                  } else if (t.payment_method === 'Cheque') {
+                    return '<span class="badge badge-cheque">💳 Cheque</span>';
                   }
+                  return '<span class="badge badge-cash">💰 Cash</span>';
                 };
+                
                 return `
                 <tr>
-                  <td>${t.date}</td>
-                  <td>${t.description}</td>
+                  <td>${t.date || '-'}</td>
+                  <td>${t.description || '-'}</td>
                   <td>${t.bank_name || '-'}</td>
-                  <td>
-                    ${t.payment_method === 'Bank Transfer' ? 
-                      '<span class="badge badge-transfer">🏦 Bank Transfer</span>' : 
-                      (t.payment_method === 'Cheque' ? '<span class="badge badge-cheque">💳 Cheque</span>' : 
-                      (t.payment_method === 'Cash' ? '<span class="badge badge-cash">💰 Cash</span>' : '💰 Cash'))}
-                  </td>
-                  <td><span class="badge ${getBadgeClass()}">${getBadgeText()}</span></td>
+                  <td>${getPaymentBadge()}</td>
+                  <td>${getTransactionBadge()}</td>
                   <td>${t.cheq_no || t.transfer_reference_no || '-'}</td>
                   <td class="text-right debit">${t.debit > 0 ? `Rs${t.debit.toLocaleString()}` : '-'}</td>
                   <td class="text-right credit">${t.credit > 0 ? `Rs${t.credit.toLocaleString()}` : '-'}</td>
-                  <td class="text-right">Rs${t.balance.toLocaleString()}</td>
+                  <td class="text-right">Rs${(t.balance || 0).toLocaleString()}</td>
                 </tr>`;
               }).join('')}
               <tr style="background:#E0E7FF">
                 <td colspan="8"><strong>Closing Balance</strong></td>
-                <td class="text-right"><strong>Rs${statementData.closing_balance.toLocaleString()}</strong></td>
+                <td class="text-right"><strong>Rs${(statementData.closing_balance || 0).toLocaleString()}</strong></td>
               </tr>
             </tbody>
           </table>
           <div class="footer">
             <p>Generated on: ${new Date().toLocaleString()}</p>
             <p>This is a computer generated statement</p>
+            <p><strong>Note:</strong> Supplier payments are shown as Credit (Cr) transactions</p>
           </div>
         </body>
       </html>
@@ -425,6 +420,16 @@ const BankStatement = () => {
       return <CreditCard size={14} style={{ marginRight: '5px' }} />;
     }
     return <DollarIcon size={14} style={{ marginRight: '5px' }} />;
+  };
+
+  const getTransactionTypeIcon = (transaction) => {
+    if (transaction.transaction_type === 'supplier_payment') {
+      if (transaction.source_table === 'supplier_loan_history') {
+        return <History size={14} style={{ marginRight: '4px' }} />;
+      }
+      return <Truck size={14} style={{ marginRight: '4px' }} />;
+    }
+    return null;
   };
 
   const getAdjustmentTypeIcon = (adjustmentType) => {
@@ -458,6 +463,25 @@ const BankStatement = () => {
     };
   };
 
+  const getTransactionTypeBadge = (transaction) => {
+    if (transaction.transaction_type === 'supplier_payment') {
+      if (transaction.source_table === 'supplier_loan_history') {
+        return {
+          text: 'Supplier Payment (Archived)',
+          style: { backgroundColor: '#EF4444', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+        };
+      }
+      return {
+        text: 'Supplier Payment',
+        style: { backgroundColor: '#F59E0B', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+      };
+    }
+    return {
+      text: 'Customer Sale',
+      style: { backgroundColor: '#3B82F6', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+    };
+  };
+
   const getAdjustmentTypeBadge = (adjustmentType) => {
     const badges = {
       'cash': { text: 'Cash', style: { backgroundColor: '#10B981', color: 'white' } },
@@ -466,17 +490,16 @@ const BankStatement = () => {
       'bag_to_box': { text: 'Bag to Box', style: { backgroundColor: '#F59E0B', color: 'white' } },
       'bill_to_bill': { text: 'Bill to Bill', style: { backgroundColor: '#3B82F6', color: 'white' } },
       'bad_debt': { text: 'Bad Debt', style: { backgroundColor: '#EF4444', color: 'white' } },
+      'supplier_loan': { text: 'Supplier Payment', style: { backgroundColor: '#F59E0B', color: 'white' } },
       'none': { text: 'None', style: { backgroundColor: '#6B7280', color: 'white' } }
     };
     return badges[adjustmentType] || badges['none'];
   };
 
-  // Format time for last refresh display
   const formatLastRefreshTime = () => {
     return lastRefreshTime.toLocaleTimeString();
   };
 
-  // Get selected bank name for display
   const getSelectedBankName = () => {
     if (selectedBank === 'all') return 'All Bank Accounts';
     const bank = banks.find(b => b.id === parseInt(selectedBank));
@@ -489,7 +512,7 @@ const BankStatement = () => {
   const currentTransactions = statementData.transactions.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(statementData.transactions.length / itemsPerPage);
 
-  // Full-screen styles
+  // Styles
   const styles = {
     container: {
       width: '100vw',
@@ -538,6 +561,20 @@ const BankStatement = () => {
       gap: '10px',
       alignItems: 'center',
       flexWrap: 'wrap'
+    },
+    reportBtn: {
+      padding: '10px 20px',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: '600',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      transition: 'all 0.3s',
+      backgroundColor: '#F59E0B',
+      color: 'white'
     },
     actionBtn: {
       padding: '10px 20px',
@@ -635,6 +672,26 @@ const BankStatement = () => {
       border: '1px solid #D1D5DB',
       borderRadius: '8px',
       fontSize: '14px'
+    },
+    dateInputGroup: {
+      display: 'flex',
+      gap: '10px',
+      alignItems: 'center'
+    },
+    clearDateBtn: {
+      padding: '8px 12px',
+      backgroundColor: '#EF4444',
+      color: 'white',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '12px',
+      fontWeight: '600',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      transition: 'all 0.2s',
+      whiteSpace: 'nowrap'
     },
     searchBox: {
       display: 'flex',
@@ -833,7 +890,6 @@ const BankStatement = () => {
     }
   };
 
-  // Add global styles for animations and datepicker
   const globalStyles = `
     @keyframes spin {
       from { transform: rotate(0deg); }
@@ -849,7 +905,7 @@ const BankStatement = () => {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #D1D5DB;
-      border-radius: 8px;
+      borderRadius: 8px;
       font-size: 14px;
       font-family: inherit;
     }
@@ -889,9 +945,19 @@ const BankStatement = () => {
           <div style={styles.headerContent}>
             <div style={styles.titleSection}>
               <h1 style={styles.title}>Bank Statement</h1>
-              <p style={styles.subtitle}>Complete transaction history including all payment and adjustment types</p>
+              <p style={styles.subtitle}>Complete transaction history including customer sales and supplier payments</p>
             </div>
             <div style={styles.actionButtons}>
+              <button
+                onClick={handleAllTransactionsReport}
+                style={styles.reportBtn}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#D97706'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#F59E0B'}
+              >
+                <FileText size={16} />
+                All Transactions Report
+              </button>
+              
               <button
                 onClick={toggleAutoRefresh}
                 style={{...styles.autoRefreshBtn, backgroundColor: autoRefresh ? '#10B981' : '#6B7280'}}
@@ -904,16 +970,16 @@ const BankStatement = () => {
               <button
                 onClick={exportToCSV}
                 style={{...styles.actionBtn, backgroundColor: '#10B981', color: 'white'}}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#059669'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = '#10B981'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10B981'}
               >
                 <Download size={16} /> Export
               </button>
               <button
                 onClick={printStatement}
                 style={{...styles.actionBtn, backgroundColor: '#6B7280', color: 'white'}}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#4B5563'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = '#6B7280'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#4B5563'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#6B7280'}
               >
                 <Printer size={16} /> Print
               </button>
@@ -921,8 +987,8 @@ const BankStatement = () => {
                 onClick={handleManualRefresh}
                 disabled={loading}
                 style={{...styles.actionBtn, backgroundColor: '#4F46E5', color: 'white', opacity: loading ? 0.6 : 1}}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#4338CA'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = '#4F46E5'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#4338CA'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#4F46E5'}
               >
                 <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
                 Refresh
@@ -976,16 +1042,31 @@ const BankStatement = () => {
                     onChange={(date) => setDateRange({ ...dateRange, start: date })}
                     dateFormat="yyyy-MM-dd"
                     className="custom-datepicker"
+                    placeholderText="Select start date"
+                    isClearable={true}
                   />
                 </div>
                 <div style={styles.filterGroup}>
                   <label style={styles.label}>End Date</label>
-                  <DatePicker
-                    selected={dateRange.end}
-                    onChange={(date) => setDateRange({ ...dateRange, end: date })}
-                    dateFormat="yyyy-MM-dd"
-                    className="custom-datepicker"
-                  />
+                  <div style={styles.dateInputGroup}>
+                    <DatePicker
+                      selected={dateRange.end}
+                      onChange={(date) => setDateRange({ ...dateRange, end: date })}
+                      dateFormat="yyyy-MM-dd"
+                      className="custom-datepicker"
+                      placeholderText="Select end date"
+                      isClearable={true}
+                    />
+                    <button
+                      onClick={handleClearDates}
+                      style={styles.clearDateBtn}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#DC2626'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#EF4444'}
+                    >
+                      <X size={14} />
+                      Clear
+                    </button>
+                  </div>
                 </div>
               </div>
               
@@ -993,7 +1074,7 @@ const BankStatement = () => {
                 <Search size={18} style={{ alignSelf: 'center', color: '#9CA3AF' }} />
                 <input
                   type="text"
-                  placeholder="Search by description, bill number, cheque number, transfer reference, bank name, or adjustment type..."
+                  placeholder="Search by description, bill number, cheque number, transfer reference, bank name, supplier code, or transaction type..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   style={styles.searchInput}
@@ -1017,7 +1098,7 @@ const BankStatement = () => {
                     ...(filterType === 'debit' ? styles.activeFilterBtn : {})
                   }}
                 >
-                  Debit Only (Dr)
+                  Debit Only (Dr) - Money In
                 </button>
                 <button
                   onClick={() => setFilterType('credit')}
@@ -1026,69 +1107,73 @@ const BankStatement = () => {
                     ...(filterType === 'credit' ? styles.activeFilterBtn : {})
                   }}
                 >
-                  Credit Only (Cr)
+                  Credit Only (Cr) - Money Out
                 </button>
               </div>
             </div>
           </div>
 
           {/* Summary Cards */}
-          {statementData.bank && (
-            <div style={styles.summaryCards}>
-              <div 
-                style={styles.summaryCard}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-              >
-                <div style={styles.summaryHeader}>
-                  <span style={styles.summaryLabel}>Opening Balance</span>
-                  <DollarSign size={20} color="#4F46E5" />
-                </div>
-                <div style={{...styles.summaryValue, color: '#4F46E5'}}>
-                  Rs{statementData.opening_balance.toLocaleString()}
-                </div>
+          <div style={styles.summaryCards}>
+            <div 
+              style={styles.summaryCard}
+              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <div style={styles.summaryHeader}>
+                <span style={styles.summaryLabel}>Opening Balance</span>
+                <DollarSign size={20} color="#4F46E5" />
               </div>
-              <div 
-                style={styles.summaryCard}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-              >
-                <div style={styles.summaryHeader}>
-                  <span style={styles.summaryLabel}>Total Debit (Dr)</span>
-                  <TrendingDown size={20} color="#DC2626" />
-                </div>
-                <div style={{...styles.summaryValue, color: '#DC2626'}}>
-                  Rs{statementData.summary.total_debit.toLocaleString()}
-                </div>
-              </div>
-              <div 
-                style={styles.summaryCard}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-              >
-                <div style={styles.summaryHeader}>
-                  <span style={styles.summaryLabel}>Total Credit (Cr)</span>
-                  <TrendingUp size={20} color="#10B981" />
-                </div>
-                <div style={{...styles.summaryValue, color: '#10B981'}}>
-                  Rs{statementData.summary.total_credit.toLocaleString()}
-                </div>
-              </div>
-              <div 
-                style={styles.summaryCard}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-              >
-                <div style={styles.summaryHeader}>
-                  <span style={styles.summaryLabel}>Closing Balance</span>
-                  <Banknote size={20} color="#4F46E5" />
-                </div>
-                <div style={{...styles.summaryValue, color: '#4F46E5'}}>
-                  Rs{statementData.closing_balance.toLocaleString()}
-                </div>
+              <div style={{...styles.summaryValue, color: '#4F46E5'}}>
+                Rs{(statementData.opening_balance || 0).toLocaleString()}
               </div>
             </div>
-          )}
+            <div 
+              style={styles.summaryCard}
+              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <div style={styles.summaryHeader}>
+                <span style={styles.summaryLabel}>Total Debit (Dr)</span>
+                <TrendingDown size={20} color="#DC2626" />
+              </div>
+              <div style={{...styles.summaryValue, color: '#DC2626'}}>
+                Rs{(statementData.summary?.total_debit || 0).toLocaleString()}
+              </div>
+              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '5px' }}>
+                Money Received (Customer Payments)
+              </div>
+            </div>
+            <div 
+              style={styles.summaryCard}
+              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <div style={styles.summaryHeader}>
+                <span style={styles.summaryLabel}>Total Credit (Cr)</span>
+                <TrendingUp size={20} color="#10B981" />
+              </div>
+              <div style={{...styles.summaryValue, color: '#10B981'}}>
+                Rs{(statementData.summary?.total_credit || 0).toLocaleString()}
+              </div>
+              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '5px' }}>
+                Money Paid Out (Customer Sales + Supplier Payments)
+              </div>
+            </div>
+            <div 
+              style={styles.summaryCard}
+              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <div style={styles.summaryHeader}>
+                <span style={styles.summaryLabel}>Closing Balance</span>
+                <Banknote size={20} color="#4F46E5" />
+              </div>
+              <div style={{...styles.summaryValue, color: '#4F46E5'}}>
+                Rs{(statementData.closing_balance || 0).toLocaleString()}
+              </div>
+            </div>
+          </div>
 
           {/* Statement Table */}
           <div style={styles.statementTable}>
@@ -1099,7 +1184,7 @@ const BankStatement = () => {
                 </strong>
                 <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '5px' }}>
                   <Calendar size={12} style={{ display: 'inline', marginRight: '5px' }} />
-                  Period: {statementData.start_date} to {statementData.end_date}
+                  Period: {statementData.start_date || 'All time'} to {statementData.end_date || 'All time'}
                 </div>
               </div>
               <div style={{ fontSize: '13px', color: '#6B7280' }}>
@@ -1122,7 +1207,7 @@ const BankStatement = () => {
                         <th style={styles.th}>Description</th>
                         <th style={styles.th}>Bank Account</th>
                         <th style={styles.th}>Payment Method</th>
-                        <th style={styles.th}>Adjustment Type</th>
+                        <th style={styles.th}>Transaction Type</th>
                         <th style={styles.th}>Reference No</th>
                         <th style={{...styles.th, textAlign: 'right'}}>Debit (Dr)</th>
                         <th style={{...styles.th, textAlign: 'right'}}>Credit (Cr)</th>
@@ -1135,7 +1220,7 @@ const BankStatement = () => {
                           <strong>Opening Balance</strong>
                         </td>
                         <td style={{...styles.td, textAlign: 'right'}}>
-                          <strong>Rs{statementData.opening_balance.toLocaleString()}</strong>
+                          <strong>Rs{(statementData.opening_balance || 0).toLocaleString()}</strong>
                         </td>
                       </tr>
                       
@@ -1148,6 +1233,7 @@ const BankStatement = () => {
                       ) : (
                         currentTransactions.map((transaction, index) => {
                           const paymentBadge = getPaymentMethodBadge(transaction);
+                          const transactionTypeBadge = getTransactionTypeBadge(transaction);
                           const adjustmentBadge = getAdjustmentTypeBadge(transaction.adjustment_type);
                           return (
                             <tr 
@@ -1157,12 +1243,17 @@ const BankStatement = () => {
                               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
                               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? 'white' : '#F9FAFB'}
                             >
-                              <td style={styles.td}>{transaction.date}</td>
+                              <td style={styles.td}>{transaction.date || '-'}</td>
                               <td style={styles.td}>
                                 {transaction.description}
                                 {transaction.transfer_notes && (
                                   <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '3px' }}>
                                     Notes: {transaction.transfer_notes}
+                                  </div>
+                                )}
+                                {transaction.source_table && (
+                                  <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '3px' }}>
+                                    Source: {transaction.source_table}
                                   </div>
                                 )}
                               </td>
@@ -1176,9 +1267,9 @@ const BankStatement = () => {
                                 </span>
                               </td>
                               <td style={styles.td}>
-                                <span style={{...styles.adjustmentTypeBadge, ...adjustmentBadge.style}}>
-                                  {getAdjustmentTypeIcon(transaction.adjustment_type)}
-                                  {adjustmentBadge.text}
+                                <span style={transactionTypeBadge.style}>
+                                  {getTransactionTypeIcon(transaction)}
+                                  {transactionTypeBadge.text}
                                 </span>
                               </td>
                               <td style={styles.td}>
@@ -1195,7 +1286,7 @@ const BankStatement = () => {
                                 ) : '-'}
                               </td>
                               <td style={{...styles.td, textAlign: 'right'}}>
-                                <span style={{ fontWeight: '600' }}>Rs{transaction.balance.toLocaleString()}</span>
+                                <span style={{ fontWeight: '600' }}>Rs{(transaction.balance || 0).toLocaleString()}</span>
                               </td>
                             </tr>
                           );
@@ -1207,7 +1298,7 @@ const BankStatement = () => {
                           <strong>Closing Balance</strong>
                         </td>
                         <td style={{...styles.td, textAlign: 'right'}}>
-                          <strong>Rs{statementData.closing_balance.toLocaleString()}</strong>
+                          <strong>Rs{(statementData.closing_balance || 0).toLocaleString()}</strong>
                         </td>
                       </tr>
                     </tbody>
@@ -1243,6 +1334,7 @@ const BankStatement = () => {
           <div style={styles.footer}>
             <p>Generated on: {new Date().toLocaleString()}</p>
             <p>This is a computer generated statement</p>
+            <p><strong>Note:</strong> Debit (Dr) = Money Received, Credit (Cr) = Money Paid Out (Customer Sales + Supplier Payments)</p>
           </div>
         </div>
 
@@ -1259,15 +1351,30 @@ const BankStatement = () => {
               <div style={styles.modalBody}>
                 <div style={styles.detailRow}>
                   <strong>Date:</strong>
-                  <span>{selectedTransaction.date}</span>
+                  <span>{selectedTransaction.date || '-'}</span>
                 </div>
                 <div style={styles.detailRow}>
                   <strong>Description:</strong>
-                  <span>{selectedTransaction.description}</span>
+                  <span>{selectedTransaction.description || '-'}</span>
                 </div>
                 <div style={styles.detailRow}>
                   <strong>Bank Account:</strong>
                   <span><strong>{selectedTransaction.bank_name || 'N/A'}</strong></span>
+                </div>
+                <div style={styles.detailRow}>
+                  <strong>Transaction Type:</strong>
+                  <span>
+                    {selectedTransaction.transaction_type === 'supplier_payment' ? '🏭 Supplier Payment' : '👤 Customer Sale'}
+                  </span>
+                </div>
+                <div style={styles.detailRow}>
+                  <strong>Source:</strong>
+                  <span>
+                    {selectedTransaction.source_table === 'supplier_loan' ? 'Current Supplier Loan' :
+                     selectedTransaction.source_table === 'supplier_loan_history' ? 'Archived Supplier Loan' :
+                     selectedTransaction.source_table === 'sales' ? 'Current Sale' :
+                     selectedTransaction.source_table === 'sales_history' ? 'Archived Sale' : 'N/A'}
+                  </span>
                 </div>
                 <div style={styles.detailRow}>
                   <strong>Payment Method:</strong>
@@ -1284,7 +1391,8 @@ const BankStatement = () => {
                      selectedTransaction.adjustment_type === 'bad_debt' ? '⚠️ Bad Debt Write-off' :
                      selectedTransaction.adjustment_type === 'cheque' ? '💳 Cheque Payment' :
                      selectedTransaction.adjustment_type === 'Bank Transfer' ? '🏦 Bank Transfer' :
-                     selectedTransaction.adjustment_type === 'cash' ? '💰 Cash Payment' : 'None'}
+                     selectedTransaction.adjustment_type === 'cash' ? '💰 Cash Payment' :
+                     selectedTransaction.adjustment_type === 'supplier_loan' ? '🏭 Supplier Payment' : 'None'}
                   </span>
                 </div>
                 {selectedTransaction.cheq_no && (
@@ -1327,7 +1435,7 @@ const BankStatement = () => {
                 </div>
                 <div style={styles.detailRow}>
                   <strong>Balance:</strong>
-                  <span style={{ fontWeight: 'bold' }}>Rs{selectedTransaction.balance.toLocaleString()}</span>
+                  <span style={{ fontWeight: 'bold' }}>Rs{(selectedTransaction.balance || 0).toLocaleString()}</span>
                 </div>
                 {selectedTransaction.bill_no && (
                   <div style={styles.detailRow}>
@@ -1337,7 +1445,7 @@ const BankStatement = () => {
                 )}
                 {selectedTransaction.customer_name && (
                   <div style={styles.detailRow}>
-                    <strong>Customer:</strong>
+                    <strong>{selectedTransaction.transaction_type === 'supplier_payment' ? 'Supplier Code:' : 'Customer:'}</strong>
                     <span>{selectedTransaction.customer_name}</span>
                   </div>
                 )}

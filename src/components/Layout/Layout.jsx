@@ -34,7 +34,16 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const [bottomPassword, setBottomPassword] = useState('');
     const [isBottomUnlocked, setIsBottomUnlocked] = useState(true);
 
-    const HOSTED_SYSTEM_URL = 'https://goviraju.lk/sms_new_frontend_50500/';
+    // Get base path for routing
+    const getBasePath = () => {
+        // Check if running in production (hosted) or local
+        if (window.location.hostname === 'goviraju.lk') {
+            return '/sms_new_frontend_50500';
+        }
+        return ''; // Local development
+    };
+
+    const basePath = getBasePath();
 
     useEffect(() => {
         // 1. Handle User Session
@@ -42,8 +51,8 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         if (storedUser) {
             setUser(JSON.parse(storedUser));
         } else {
-            // Redirect to hosted system login
-            window.location.href = `${HOSTED_SYSTEM_URL}login`;
+            // Redirect to login with base path
+            window.location.href = `${basePath}/login`;
         }
 
         // 2. Fetch Setting Value
@@ -59,13 +68,13 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
         };
 
         fetchSettings();
-    }, []);
+    }, [basePath]);
 
     const handleLogout = () => {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
-        // Redirect to hosted system login
-        window.location.href = `${HOSTED_SYSTEM_URL}login`;
+        // Redirect to login with base path
+        window.location.href = `${basePath}/login`;
     };
 
     // === Modal Handlers ===
@@ -89,14 +98,18 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const closeDayProcessModal = () => setIsDayProcessModalOpen(false);
 
     const handleProfitReportClick = () => {
-        window.location.href = '/sms_new_frontend_50500/supplier-profit';
+        window.location.href = `${basePath}/supplier-profit`;
     };
 
     const handleSupplierReportClick = () => {
-        navigate('/reports/supplier');
+        navigate(`${basePath}/reports/supplier`);
     };
 
-    const isSalesEntryPage = location.pathname === '/sales' || location.pathname === '/sales-entry';
+    const isSalesEntryPage = location.pathname === `${basePath}/sales` || 
+                            location.pathname === '/sales' || 
+                            location.pathname === `${basePath}/sales-entry` || 
+                            location.pathname === '/sales-entry';
+    
     const navTextBtn = {
         background: "none",
         border: "none",
@@ -119,7 +132,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             <nav className="navbar navbar-expand-lg navbar-dark fixed-top" style={{ backgroundColor: '#004d00', width: '100%' }}>
                 <div className="container-fluid d-flex align-items-center justify-content-between">
                     <div className="d-flex align-items-center">
-                        <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to="/">
+                        <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to={basePath || "/"}>
                             <i className="material-icons align-middle me-2">warehouse</i>
                             මුල් පිටුව
                         </Link>
@@ -130,15 +143,16 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                                     <i className="material-icons align-middle me-1">menu_book</i> ප්‍රධාන ගොනුව
                                 </button>
                                 <ul className="dropdown-menu dropdown-menu-dark" aria-labelledby="masterDropdown">
-                                    <li><Link to="/customers" className="dropdown-item"><i className="material-icons align-middle me-1">people</i> පාරිභෝගිකයින්</Link></li>
-                                    <li><Link to="/items" className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i> භාණ්ඩ</Link></li>
-                                    <li><Link to="/suppliers" className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
-                                    <li><Link to="/commissions" className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
-                                    <li><Link to="/reports/printed-sales" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා</Link></li>
-                                    <li><Link to="/reports/printed-sales2" className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා 2</Link></li>
+                                    <li><Link to={`${basePath}/customers`} className="dropdown-item"><i className="material-icons align-middle me-1">people</i> පාරිභෝගිකයින්</Link></li>
+                                    <li><Link to={`${basePath}/items`} className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i> භාණ්ඩ</Link></li>
+                                    <li><Link to={`${basePath}/suppliers`} className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
+                                    <li><Link to={`${basePath}/commissions`} className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
+                                     <li><Link to="/banks" className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i>Banks</Link></li>
+                                    <li><Link to={`${basePath}/reports/printed-sales`} className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා</Link></li>
+                                    <li><Link to={`${basePath}/reports/printed-sales2`} className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා 2</Link></li>
                                     <li><hr className="dropdown-divider" /></li>
                                     <li>
-                                        <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = '/customers-loans/report'}>
+                                        <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = `${basePath}/customers-loans/report`}>
                                             <i className="material-icons align-middle me-1 text-warning">account_balance</i> ණය වාර්තාව
                                         </button>
                                     </li>
@@ -148,7 +162,8 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                             {/* 🛡️ Conditional: Hide for Admin */}
                             {user?.role !== 'Admin' && (
                                 <>
-                                    <Link to="/customers-loans" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }}>ණය දීම/ගැනීම</Link>
+                                    <Link to={`${basePath}/customers-loans`} className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }}>ණය දීම/ගැනීම</Link>
+                                    
                                     <button type="button" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }} onClick={openDayProcessModal}>දින අවසාන ක්‍රියාවලිය</button>
                                 </>
                             )}
@@ -197,7 +212,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                         { label: 'එළවළු', onClick: openItemReportModal },
                         { label: 'බර මත', onClick: openWeightReportModal },
                         { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
-                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = '/sms_new_frontend_50500/financial-report' },
+                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = `${basePath}/financial-report` },
                         { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
                         { label: 'සැපයුම් ලාභ ', onClick: handleProfitReportClick },
                         { label: 'සැපයුම් වාර්තාව', onClick: handleSupplierReportClick }

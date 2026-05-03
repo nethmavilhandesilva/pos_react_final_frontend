@@ -118,6 +118,17 @@ const Sidebar = () => {
             <i className="material-icons me-2">attach_money</i>
             කොමිෂන්
         </Link>
+         <Link
+            to="/utility-types"
+            style={{
+                ...linkStyle('/utility-types'),
+                justifyContent: 'flex-start',
+                textAlign: 'left'
+            }}
+        >
+            <i className="material-icons me-2">inventory_2</i>
+           Add IC
+        </Link>
     </nav>
 
     {/* Logout */}

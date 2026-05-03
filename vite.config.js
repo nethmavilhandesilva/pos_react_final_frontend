@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
 
   // 🔥 Ensure assets load correctly under subfolder in production
-  base: mode === 'production' ? '/sms_new_frontend/' : '/',
+  base: mode === 'production' ? '/sms_new_frontend_50500/' : '/',
 
   server: {
     // Local development proxy to Laravel backend

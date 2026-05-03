@@ -3392,40 +3392,41 @@ useEffect(() => {
 
                 <div style={styles.threeColumns}>
                     {/* LEFT: Pending Bills */}
+                     {/* RIGHT: Completed Bills */}
                     <div style={styles.panel}>
                         <div style={styles.panelHeader}>
                             <h2 style={styles.panelTitle}>
-                                <span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%', display: 'inline-block' }}></span>
-                                Pending Payment
+                                <span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', display: 'inline-block' }}></span>
+                                Completed Payments
                             </h2>
                         </div>
                         <div style={{ padding: '12px 16px 0 16px' }}>
                             <input
                                 type="text"
-                                placeholder="🔍 Search pending bills..."
-                                value={state.pendingSearchQuery}
+                                placeholder="🔍 Search completed bills..."
+                                value={state.appliedSearchQuery}
                                 onChange={(e) =>
                                     setState(prev => ({
                                         ...prev,
-                                        pendingSearchQuery: e.target.value.toUpperCase()
+                                        appliedSearchQuery: e.target.value.toUpperCase()
                                     }))
                                 }
                                 style={styles.searchInput}
                             />
                         </div>
                         <div style={styles.panelContent}>
-                            {filterPendingBills.length === 0 ? (
-                                <EmptyState message="No pending bills" />
+                            {filterAppliedBills.length === 0 ? (
+                                <EmptyState message="No completed bills" />
                             ) : (
-                                filterPendingBills.map(bill => {
+                                filterAppliedBills.map(bill => {
                                     const paymentBadge = getPaymentTypeBadge(bill.paymentAdjustmentType);
                                     return (
                                         <div
                                             key={bill.billNo}
                                             style={{
                                                 ...styles.billItem,
-                                                ...styles.billPending,
-                                                ...(state.selectedBill?.billNo === bill.billNo && !state.isUpdatingCompletedBill ? styles.billSelected : {})
+                                                ...styles.billApplied,
+                                                ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {})
                                             }}
                                             onClick={() => handleBillClick(bill)}
                                         >
@@ -3895,37 +3896,37 @@ useEffect(() => {
                     <div style={styles.panel}>
                         <div style={styles.panelHeader}>
                             <h2 style={styles.panelTitle}>
-                                <span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', display: 'inline-block' }}></span>
-                                Completed Payments
+                                <span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%', display: 'inline-block' }}></span>
+                                Pending Payment
                             </h2>
                         </div>
                         <div style={{ padding: '12px 16px 0 16px' }}>
                             <input
                                 type="text"
-                                placeholder="🔍 Search completed bills..."
-                                value={state.appliedSearchQuery}
+                                placeholder="🔍 Search pending bills..."
+                                value={state.pendingSearchQuery}
                                 onChange={(e) =>
                                     setState(prev => ({
                                         ...prev,
-                                        appliedSearchQuery: e.target.value.toUpperCase()
+                                        pendingSearchQuery: e.target.value.toUpperCase()
                                     }))
                                 }
                                 style={styles.searchInput}
                             />
                         </div>
                         <div style={styles.panelContent}>
-                            {filterAppliedBills.length === 0 ? (
-                                <EmptyState message="No completed bills" />
+                            {filterPendingBills.length === 0 ? (
+                                <EmptyState message="No pending bills" />
                             ) : (
-                                filterAppliedBills.map(bill => {
+                                filterPendingBills.map(bill => {
                                     const paymentBadge = getPaymentTypeBadge(bill.paymentAdjustmentType);
                                     return (
                                         <div
                                             key={bill.billNo}
                                             style={{
                                                 ...styles.billItem,
-                                                ...styles.billApplied,
-                                                ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {})
+                                                ...styles.billPending,
+                                                ...(state.selectedBill?.billNo === bill.billNo && !state.isUpdatingCompletedBill ? styles.billSelected : {})
                                             }}
                                             onClick={() => handleBillClick(bill)}
                                         >
