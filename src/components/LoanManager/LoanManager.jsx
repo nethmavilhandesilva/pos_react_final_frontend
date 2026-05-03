@@ -11,12 +11,6 @@ const formatCustomerOptions = (customers) => customers.map(c => ({
     creditLimit: c.credit_limit
 }));
 
-const expenseOptions = [
-    { value: 'petro', label: 'Petrol' },
-    { value: 'diesel', label: 'Diesel' },
-    { value: 'other', label: 'වෙනත් වියදම්' }
-];
-
 const getInitialFormState = () => ({
     loan_id: '',
     _method: 'POST',
@@ -50,6 +44,10 @@ const LoanManager = () => {
     const [creditLimitMessage, setCreditLimitMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [isEditMode, setIsEditMode] = useState(false);
+    
+    // State for utility types dropdowns
+    const [incomeTypes, setIncomeTypes] = useState([]);
+    const [expenseTypes, setExpenseTypes] = useState([]);
 
     const isCustomerRelated = form.loan_type === 'old' || form.loan_type === 'today';
     const isSettlingWayVisible = form.loan_type === 'old';
@@ -57,6 +55,25 @@ const LoanManager = () => {
     const isReturns = form.loan_type === 'returns';
     const isIncomeOrExpense = form.loan_type === 'ingoing' || form.loan_type === 'outgoing';
     const isExpense = form.loan_type === 'outgoing';
+
+    // Fetch utility types for dropdowns
+    const fetchUtilityTypes = useCallback(async () => {
+        try {
+            // Fetch income types
+            const incomeResponse = await api.get('/utility-types/income');
+            if (incomeResponse.data.success) {
+                setIncomeTypes(incomeResponse.data.data);
+            }
+            
+            // Fetch expense types
+            const expenseResponse = await api.get('/utility-types/expense');
+            if (expenseResponse.data.success) {
+                setExpenseTypes(expenseResponse.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching utility types:', error);
+        }
+    }, []);
 
     const fetchCustomers = useCallback(async () => {
         try {
@@ -92,7 +109,8 @@ const LoanManager = () => {
         fetchCustomers();
         fetchData();
         fetchBillNos();
-    }, [fetchCustomers, fetchData, fetchBillNos]);
+        fetchUtilityTypes();
+    }, [fetchCustomers, fetchData, fetchBillNos, fetchUtilityTypes]);
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -106,10 +124,11 @@ const LoanManager = () => {
         }));
     };
 
-    const handleDescriptionChange = (selectedOption) => {
+    // Handle description change for income/expense dropdowns
+    const handleDescriptionSelect = (selectedOption, isIncome = true) => {
         setForm(prev => ({ 
             ...prev, 
-            description: selectedOption ? (selectedOption.label || selectedOption.value) : '' 
+            description: selectedOption ? selectedOption.label : '' 
         }));
     };
 
@@ -120,6 +139,11 @@ const LoanManager = () => {
             : {};
 
         if (value === 'returns') setIsEditMode(false);
+
+        // Clear description when switching between income/expense
+        if (value === 'ingoing' || value === 'outgoing') {
+            resetFields.description = '';
+        }
 
         setForm(prev => ({
             ...prev,
@@ -153,13 +177,15 @@ const LoanManager = () => {
         } else if (loan_type === 'today') {
             newDescription = "වෙළෙන්දාගේ අද දින නය ගැනීම";
         } else if (loan_type === 'ingoing') {
-            newDescription = "වෙනත් ලාභීම/ආදායම්";
+            newDescription = ""; // Will be selected from dropdown
+        } else if (loan_type === 'outgoing') {
+            newDescription = ""; // Will be selected from dropdown
         }
 
-        if (newDescription) {
+        if (newDescription && !isIncomeOrExpense) {
             setForm(prev => ({ ...prev, description: newDescription }));
         }
-    }, [form.loan_type, form.settling_way, form.bank, isEditMode]);
+    }, [form.loan_type, form.settling_way, form.bank, isEditMode, isIncomeOrExpense]);
 
     useEffect(() => {
         fetchLoanTotal(form.customer_id, isCustomerRelated);
@@ -182,13 +208,12 @@ const LoanManager = () => {
         }
     }, [form.customer_id, form.amount, customersRaw, isCustomerRelated]);
 
-    // ⭐ Modified to accept a description to keep
     const handleCancelEdit = (preservedDescription = '') => {
         setIsEditMode(false);
         setForm({
             ...getInitialFormState(),
             description: preservedDescription || form.description,
-            loan_type: form.loan_type, // Also keeping loan type for convenience
+            loan_type: form.loan_type,
             settling_way: form.settling_way
         });
     };
@@ -197,7 +222,6 @@ const LoanManager = () => {
         e.preventDefault();
         setLoading(true);
 
-        // ⭐ Store the description before the reset happens
         const currentDescription = form.description;
 
         let formData = { ...form };
@@ -212,7 +236,6 @@ const LoanManager = () => {
             const payload = isEditMode ? { ...formData, _method: 'PUT' } : formData;
             await api({ url, method: 'POST', data: payload });
             
-            // ⭐ Pass the current description back into the reset function
             handleCancelEdit(currentDescription);
             
             fetchData();
@@ -255,6 +278,15 @@ const LoanManager = () => {
     };
 
     const customerOptions = useMemo(() => formatCustomerOptions(customersRaw), [customersRaw]);
+
+    // Format options for income/expense dropdowns
+    const incomeOptions = useMemo(() => 
+        incomeTypes.map(type => ({ value: type.id, label: type.name }))
+    , [incomeTypes]);
+
+    const expenseOptions = useMemo(() => 
+        expenseTypes.map(type => ({ value: type.id, label: type.name }))
+    , [expenseTypes]);
 
     const customFilter = (option, searchText) => {
         const term = searchText.toLowerCase().trim();
@@ -348,26 +380,67 @@ const LoanManager = () => {
                                     </div>
                                     <div className={`col-md-${isIncomeOrExpense ? 8 : 5}`}>
                                         <label className="text-form-label">විස්තරය</label>
-                                        <CreatableSelect
-                                            options={isExpense ? expenseOptions : []}
-                                            onChange={handleDescriptionChange}
-                                            onCreateOption={(inputValue) => {
-                                                setForm(prev => ({ ...prev, description: inputValue }));
-                                            }}
-                                            value={
-                                                (isExpense && expenseOptions.find(opt => opt.label === form.description)) || 
-                                                (form.description ? { value: form.description, label: form.description } : null)
-                                            }
-                                            placeholder="Type or select..."
-                                            isClearable
-                                            classNamePrefix="creatable-select"
-                                            styles={{
-                                                control: (provided) => ({ ...provided, minHeight: '25px', borderColor: 'black' }),
-                                                option: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
-                                                singleValue: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
-                                                input: (provided) => ({ ...provided, color: '#000' }),
-                                            }}
-                                        />
+                                        
+                                        {/* For Income (Ingoing) - Dropdown from ic_utilitytypes where type = 'income' */}
+                                        {form.loan_type === 'ingoing' && (
+                                            <Select
+                                                options={incomeOptions}
+                                                onChange={(selected) => handleDescriptionSelect(selected, true)}
+                                                value={incomeOptions.find(opt => opt.label === form.description)}
+                                                placeholder="Select income type..."
+                                                isClearable
+                                                classNamePrefix="income-select"
+                                                styles={{
+                                                    control: (provided) => ({ ...provided, minHeight: '25px', borderColor: 'black' }),
+                                                    option: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                    singleValue: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                    input: (provided) => ({ ...provided, color: '#000' }),
+                                                }}
+                                            />
+                                        )}
+                                        
+                                        {/* For Expense (Outgoing) - Dropdown from ic_utilitytypes where type = 'expense' */}
+                                        {form.loan_type === 'outgoing' && (
+                                            <Select
+                                                options={expenseOptions}
+                                                onChange={(selected) => handleDescriptionSelect(selected, false)}
+                                                value={expenseOptions.find(opt => opt.label === form.description)}
+                                                placeholder="Select expense type..."
+                                                isClearable
+                                                classNamePrefix="expense-select"
+                                                styles={{
+                                                    control: (provided) => ({ ...provided, minHeight: '25px', borderColor: 'black' }),
+                                                    option: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                    singleValue: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                    input: (provided) => ({ ...provided, color: '#000' }),
+                                                }}
+                                            />
+                                        )}
+                                        
+                                        {/* For other loan types - CreatableSelect */}
+                                        {!isIncomeOrExpense && (
+                                            <CreatableSelect
+                                                options={isExpense ? expenseOptions : []}
+                                                onChange={handleDescriptionSelect}
+                                                onCreateOption={(inputValue) => {
+                                                    setForm(prev => ({ ...prev, description: inputValue }));
+                                                }}
+                                                value={
+                                                    (isExpense && expenseOptions.find(opt => opt.label === form.description)) || 
+                                                    (form.description ? { value: form.description, label: form.description } : null)
+                                                }
+                                                placeholder="Type or select..."
+                                                isClearable
+                                                classNamePrefix="creatable-select"
+                                                styles={{
+                                                    control: (provided) => ({ ...provided, minHeight: '25px', borderColor: 'black' }),
+                                                    option: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                    singleValue: (provided) => ({ ...provided, fontWeight: 'bold', color: '#000' }),
+                                                    input: (provided) => ({ ...provided, color: '#000' }),
+                                                }}
+                                            />
+                                        )}
+                                        
                                         {isCustomerRelated && <span className="text-white-50 small fw-bold">{totalLoanDisplay}</span>}
                                     </div>
                                 </div>
@@ -441,6 +514,7 @@ const LoanManager = () => {
                         </table>
                         <div className="d-flex flex-wrap gap-2 mt-3">
                             <a href="/sms_new_frontend_50500/loan-report" className="btn btn-sm btn-dark">ණය වාර්තාව</a>
+                            <a href="/income-expense-report2" className="btn btn-sm btn-dark">IC Report</a>
                         </div>
                     </div>
                 </div>

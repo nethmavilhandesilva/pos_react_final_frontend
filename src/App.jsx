@@ -44,6 +44,7 @@ import BankDashboard from './components/Banks/BankDashboard';
 import PaymentCollectionReport from './components/SalesEntry/PaymentCollectionReport';
 import PaymentCollectionReport2 from './components/Suppliers/PaymentCollectionReport2';
 import UtilityTypeManager from './components/UtilityTypes/UtilityTypeManager';
+import IncomeExpenseReport2 from './components/CustomersLoans/IncomeExpenseReport2';
 
 const getBasePath = () => {
     if (window.location.hostname === 'goviraju.lk') {
@@ -283,7 +284,7 @@ const AppRoutes = () => {
                 <Route path="/customers-loans/report" element={<LoanReportView />} />
                 <Route path="/sales" element={<SalesEntry />} />
                 <Route path="/commissions" element={<CommissionPage />} />
-                
+                <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
                 {/* Supplier Reports with Role Protection */}
                 <Route path="/supplierreport" element={
                     <RequireRole allowedRoles={['level4']}>
@@ -321,6 +322,7 @@ const AppRoutes = () => {
                 <Route path="/payment-collection-report" element={<PaymentCollectionReport />} />
                 <Route path="/payment-collection-report2" element={<PaymentCollectionReport2 />} />
                 <Route path="/utility-types" element={<UtilityTypeManager />} />
+                <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
             </Route>
 
             {/* Catch all - redirect to login */}
