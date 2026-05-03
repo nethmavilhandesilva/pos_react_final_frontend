@@ -29,7 +29,9 @@ import {
   Building2,
   FileText,
   Truck,
-  History
+  History,
+  Plus,
+  Minus
 } from 'lucide-react';
 
 const BankStatement = () => {
@@ -58,6 +60,7 @@ const BankStatement = () => {
   const [showModal, setShowModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
+  const [showIncomeExpense, setShowIncomeExpense] = useState(true);
   
   // Auto-refresh states
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -148,29 +151,100 @@ const BankStatement = () => {
       const response = await api.get(url, { params });
       
       if (response.data.success) {
-        let transactions = response.data.data.transactions;
+        let transactions = response.data.data.transactions || [];
         
+        // Fetch income and expenses from income_expenses table
+        let incomeExpenseTransactions = [];
+        if (showIncomeExpense) {
+          try {
+            const ieResponse = await api.get('/income-expense-report', { params });
+            if (ieResponse.data.success && ieResponse.data.data) {
+              incomeExpenseTransactions = ieResponse.data.data
+                .filter(t => t.loan_type === 'ingoing' || t.loan_type === 'outgoing')
+                .map(t => ({
+                  ...t,
+                  is_income_expense: true,
+                  date: t.Date,
+                  description: t.description,
+                  bank_name: 'Income/Expense',
+                  payment_method: t.settling_way === 'cheque' ? 'Cheque' : (t.settling_way === 'bank_transfer' ? 'Bank Transfer' : 'Cash'),
+                  adjustment_type: t.loan_type === 'ingoing' ? 'income' : 'expense',
+                  debit: t.loan_type === 'ingoing' ? Math.abs(t.amount) : 0,
+                  credit: t.loan_type === 'outgoing' ? Math.abs(t.amount) : 0,
+                  balance: 0,
+                  transaction_id: t.id,
+                  source_table: 'income_expenses',
+                  transaction_type: t.loan_type === 'ingoing' ? 'income' : 'expense',
+                  user_id: t.user_id
+                }));
+            }
+          } catch (ieError) {
+            console.error('Error fetching income/expense data:', ieError);
+          }
+        }
+        
+        // Combine bank transactions with income/expense transactions
+        let allTransactions = [...transactions, ...incomeExpenseTransactions];
+        
+        // Sort by date
+        allTransactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+        
+        // Calculate running balance including income/expense
+        let runningBalance = response.data.data.opening_balance || 0;
+        allTransactions = allTransactions.map(t => {
+          if (t.is_income_expense) {
+            if (t.loan_type === 'ingoing') {
+              runningBalance += Math.abs(t.amount);
+            } else if (t.loan_type === 'outgoing') {
+              runningBalance -= Math.abs(t.amount);
+            }
+            t.balance = runningBalance;
+          } else {
+            if (t.debit > 0) runningBalance += t.debit;
+            if (t.credit > 0) runningBalance -= t.credit;
+            t.balance = runningBalance;
+          }
+          return t;
+        });
+        
+        // Apply filters
         if (filterType === 'debit') {
-          transactions = transactions.filter(t => t.debit > 0);
+          allTransactions = allTransactions.filter(t => t.debit > 0 || (t.loan_type === 'ingoing'));
         } else if (filterType === 'credit') {
-          transactions = transactions.filter(t => t.credit > 0);
+          allTransactions = allTransactions.filter(t => t.credit > 0 || (t.loan_type === 'outgoing'));
         }
         
         if (searchTerm) {
-          transactions = transactions.filter(t => 
-            t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          allTransactions = allTransactions.filter(t => 
+            (t.description && t.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.bill_no && t.bill_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.cheq_no && t.cheq_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.transfer_reference_no && t.transfer_reference_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.adjustment_type && t.adjustment_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.transaction_type && t.transaction_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.source_table && t.source_table.toLowerCase().includes(searchTerm.toLowerCase()))
+            (t.customer_name && t.customer_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.customer_code && t.customer_code.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.user_id && t.user_id.toLowerCase().includes(searchTerm.toLowerCase()))
           );
         }
         
+        // Calculate totals including income/expense
+        let totalDebit = (response.data.data.summary?.total_debit || 0);
+        let totalCredit = (response.data.data.summary?.total_credit || 0);
+        
+        incomeExpenseTransactions.forEach(t => {
+          if (t.loan_type === 'ingoing') totalDebit += Math.abs(t.amount);
+          if (t.loan_type === 'outgoing') totalCredit += Math.abs(t.amount);
+        });
+        
+        const closingBalance = runningBalance;
+        
         setStatementData({
           ...response.data.data,
-          transactions: transactions
+          transactions: allTransactions,
+          closing_balance: closingBalance,
+          summary: {
+            total_debit: totalDebit,
+            total_credit: totalCredit
+          }
         });
         setLastRefreshTime(new Date());
         setCurrentPage(1);
@@ -208,28 +282,90 @@ const BankStatement = () => {
       const response = await api.get(url, { params });
       
       if (response.data.success) {
-        let transactions = response.data.data.transactions;
+        let transactions = response.data.data.transactions || [];
+        
+        let incomeExpenseTransactions = [];
+        if (showIncomeExpense) {
+          try {
+            const ieResponse = await api.get('/income-expense-report', { params });
+            if (ieResponse.data.success && ieResponse.data.data) {
+              incomeExpenseTransactions = ieResponse.data.data
+                .filter(t => t.loan_type === 'ingoing' || t.loan_type === 'outgoing')
+                .map(t => ({
+                  ...t,
+                  is_income_expense: true,
+                  date: t.Date,
+                  description: t.description,
+                  bank_name: 'Income/Expense',
+                  payment_method: t.settling_way === 'cheque' ? 'Cheque' : (t.settling_way === 'bank_transfer' ? 'Bank Transfer' : 'Cash'),
+                  adjustment_type: t.loan_type === 'ingoing' ? 'income' : 'expense',
+                  debit: t.loan_type === 'ingoing' ? Math.abs(t.amount) : 0,
+                  credit: t.loan_type === 'outgoing' ? Math.abs(t.amount) : 0,
+                  balance: 0,
+                  transaction_id: t.id,
+                  source_table: 'income_expenses',
+                  transaction_type: t.loan_type === 'ingoing' ? 'income' : 'expense',
+                  user_id: t.user_id
+                }));
+            }
+          } catch (ieError) {
+            console.error('Error fetching income/expense data:', ieError);
+          }
+        }
+        
+        let allTransactions = [...transactions, ...incomeExpenseTransactions];
+        allTransactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+        
+        let runningBalance = response.data.data.opening_balance || 0;
+        allTransactions = allTransactions.map(t => {
+          if (t.is_income_expense) {
+            if (t.loan_type === 'ingoing') {
+              runningBalance += Math.abs(t.amount);
+            } else if (t.loan_type === 'outgoing') {
+              runningBalance -= Math.abs(t.amount);
+            }
+            t.balance = runningBalance;
+          } else {
+            if (t.debit > 0) runningBalance += t.debit;
+            if (t.credit > 0) runningBalance -= t.credit;
+            t.balance = runningBalance;
+          }
+          return t;
+        });
         
         if (filterType === 'debit') {
-          transactions = transactions.filter(t => t.debit > 0);
+          allTransactions = allTransactions.filter(t => t.debit > 0 || (t.loan_type === 'ingoing'));
         } else if (filterType === 'credit') {
-          transactions = transactions.filter(t => t.credit > 0);
+          allTransactions = allTransactions.filter(t => t.credit > 0 || (t.loan_type === 'outgoing'));
         }
         
         if (searchTerm) {
-          transactions = transactions.filter(t => 
-            t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          allTransactions = allTransactions.filter(t => 
+            (t.description && t.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.bill_no && t.bill_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.cheq_no && t.cheq_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (t.transfer_reference_no && t.transfer_reference_no.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.adjustment_type && t.adjustment_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.bank_name && t.bank_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (t.transaction_type && t.transaction_type.toLowerCase().includes(searchTerm.toLowerCase()))
+            (t.customer_name && t.customer_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (t.customer_code && t.customer_code.toLowerCase().includes(searchTerm.toLowerCase()))
           );
         }
         
+        let totalDebit = (response.data.data.summary?.total_debit || 0);
+        let totalCredit = (response.data.data.summary?.total_credit || 0);
+        
+        incomeExpenseTransactions.forEach(t => {
+          if (t.loan_type === 'ingoing') totalDebit += Math.abs(t.amount);
+          if (t.loan_type === 'outgoing') totalCredit += Math.abs(t.amount);
+        });
+        
         setStatementData(prev => ({
           ...response.data.data,
-          transactions: transactions
+          transactions: allTransactions,
+          closing_balance: runningBalance,
+          summary: {
+            total_debit: totalDebit,
+            total_credit: totalCredit
+          }
         }));
         setLastRefreshTime(new Date());
       }
@@ -238,7 +374,7 @@ const BankStatement = () => {
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [selectedBank, dateRange, filterType, searchTerm]);
+  }, [selectedBank, dateRange, filterType, searchTerm, showIncomeExpense]);
 
   const handleManualRefresh = async () => {
     await fetchStatement(true);
@@ -248,20 +384,26 @@ const BankStatement = () => {
     setAutoRefresh(prev => !prev);
   };
 
+  const toggleIncomeExpense = () => {
+    setShowIncomeExpense(prev => !prev);
+    setTimeout(() => fetchStatement(true), 100);
+  };
+
   const exportToCSV = () => {
     const csvData = [
-      ['Date', 'Description', 'Bank Account', 'Payment Method', 'Transaction Type', 'Source', 'Reference No', 'Debit (Dr)', 'Credit (Cr)', 'Balance'],
+      ['Date', 'Description', 'Bank Account', 'Payment Method', 'Transaction Type', 'Source', 'Reference No', 'Debit (Dr)', 'Credit (Cr)', 'Balance', 'User ID'],
       ...statementData.transactions.map(t => [
         t.date,
         t.description,
         t.bank_name || 'N/A',
         t.payment_method || (t.cheq_no ? 'Cheque' : (t.transfer_reference_no ? 'Bank Transfer' : 'Cash')),
-        t.transaction_type || 'customer_sale',
+        t.transaction_type === 'income' ? '💰 Income' : (t.transaction_type === 'expense' ? '📉 Expense' : (t.transaction_type === 'supplier_payment' ? '🏭 Supplier Payment' : '👤 Customer Sale')),
         t.source_table || 'N/A',
         t.cheq_no || t.transfer_reference_no || '-',
-        t.debit > 0 ? t.debit : '-',
-        t.credit > 0 ? t.credit : '-',
-        t.balance
+        t.debit > 0 ? t.debit : (t.loan_type === 'ingoing' ? Math.abs(t.amount) : '-'),
+        t.credit > 0 ? t.credit : (t.loan_type === 'outgoing' ? Math.abs(t.amount) : '-'),
+        t.balance,
+        t.user_id || '-'
       ])
     ];
     
@@ -305,8 +447,8 @@ const BankStatement = () => {
             .badge-transfer { background: #EC489A; color: white; }
             .badge-supplier { background: #F59E0B; color: white; }
             .badge-customer { background: #3B82F6; color: white; }
-            .badge-supplier-history { background: #EF4444; color: white; }
-            .badge-none { background: #6B7280; color: white; }
+            .badge-income { background: #10B981; color: white; }
+            .badge-expense { background: #EF4444; color: white; }
             .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #6B7280; }
             @media print {
               body { margin: 0; }
@@ -316,7 +458,7 @@ const BankStatement = () => {
         </head>
         <body>
           <div class="header">
-            <h1>Bank Statement</h1>
+            <h1>Bank Statement with Income & Expenses</h1>
             <h2>${selectedBank === 'all' ? 'ALL BANK ACCOUNTS' : `${statementData.bank?.bank_name} - ${statementData.bank?.account_no}`}</h2>
             <p class="period">Period: ${statementData.start_date || 'All time'} to ${statementData.end_date || 'All time'}</p>
           </div>
@@ -358,35 +500,30 @@ const BankStatement = () => {
                 <td class="text-right"><strong>Rs${(statementData.opening_balance || 0).toLocaleString()}</strong></td>
               </tr>
               ${statementData.transactions.map(t => {
-                const getTransactionBadge = () => {
-                  if (t.transaction_type === 'supplier_payment') {
-                    if (t.source_table === 'supplier_loan_history') {
-                      return '<span class="badge badge-supplier-history">🏦 Supplier Payment (Archived)</span>';
-                    }
-                    return '<span class="badge badge-supplier">🏭 Supplier Payment</span>';
-                  }
-                  return '<span class="badge badge-customer">👤 Customer Sale</span>';
-                };
+                let badgeClass = '';
+                if (t.transaction_type === 'supplier_payment') badgeClass = 'badge-supplier';
+                else if (t.transaction_type === 'customer_sale') badgeClass = 'badge-customer';
+                else if (t.transaction_type === 'income') badgeClass = 'badge-income';
+                else if (t.transaction_type === 'expense') badgeClass = 'badge-expense';
                 
-                const getPaymentBadge = () => {
-                  if (t.payment_method === 'Bank Transfer') {
-                    return '<span class="badge badge-transfer">🏦 Bank Transfer</span>';
-                  } else if (t.payment_method === 'Cheque') {
-                    return '<span class="badge badge-cheque">💳 Cheque</span>';
-                  }
-                  return '<span class="badge badge-cash">💰 Cash</span>';
-                };
+                let paymentBadge = '';
+                if (t.payment_method === 'Bank Transfer') paymentBadge = 'badge-transfer';
+                else if (t.payment_method === 'Cheque') paymentBadge = 'badge-cheque';
+                else paymentBadge = 'badge-cash';
+                
+                const displayDebit = t.debit > 0 ? t.debit : (t.loan_type === 'ingoing' ? Math.abs(t.amount) : 0);
+                const displayCredit = t.credit > 0 ? t.credit : (t.loan_type === 'outgoing' ? Math.abs(t.amount) : 0);
                 
                 return `
                 <tr>
                   <td>${t.date || '-'}</td>
                   <td>${t.description || '-'}</td>
                   <td>${t.bank_name || '-'}</td>
-                  <td>${getPaymentBadge()}</td>
-                  <td>${getTransactionBadge()}</td>
+                  <td><span class="badge ${paymentBadge}">${t.payment_method || 'Cash'}</span></td>
+                  <td><span class="badge ${badgeClass}">${t.transaction_type === 'income' ? '💰 Income' : (t.transaction_type === 'expense' ? '📉 Expense' : (t.transaction_type === 'supplier_payment' ? '🏭 Supplier Payment' : '👤 Customer Sale'))}</span></td>
                   <td>${t.cheq_no || t.transfer_reference_no || '-'}</td>
-                  <td class="text-right debit">${t.debit > 0 ? `Rs${t.debit.toLocaleString()}` : '-'}</td>
-                  <td class="text-right credit">${t.credit > 0 ? `Rs${t.credit.toLocaleString()}` : '-'}</td>
+                  <td class="text-right debit">${displayDebit > 0 ? `Rs${displayDebit.toLocaleString()}` : '-'}</td>
+                  <td class="text-right credit">${displayCredit > 0 ? `Rs${displayCredit.toLocaleString()}` : '-'}</td>
                   <td class="text-right">Rs${(t.balance || 0).toLocaleString()}</td>
                 </tr>`;
               }).join('')}
@@ -399,7 +536,7 @@ const BankStatement = () => {
           <div class="footer">
             <p>Generated on: ${new Date().toLocaleString()}</p>
             <p>This is a computer generated statement</p>
-            <p><strong>Note:</strong> Supplier payments are shown as Credit (Cr) transactions</p>
+            <p><strong>Note:</strong> Debit (Dr) = Money Received (Customer Payments + Income), Credit (Cr) = Money Paid Out (Customer Sales + Supplier Payments + Expenses)</p>
           </div>
         </body>
       </html>
@@ -424,25 +561,13 @@ const BankStatement = () => {
 
   const getTransactionTypeIcon = (transaction) => {
     if (transaction.transaction_type === 'supplier_payment') {
-      if (transaction.source_table === 'supplier_loan_history') {
-        return <History size={14} style={{ marginRight: '4px' }} />;
-      }
       return <Truck size={14} style={{ marginRight: '4px' }} />;
+    } else if (transaction.transaction_type === 'income') {
+      return <TrendingUp size={14} style={{ marginRight: '4px' }} />;
+    } else if (transaction.transaction_type === 'expense') {
+      return <TrendingDown size={14} style={{ marginRight: '4px' }} />;
     }
     return null;
-  };
-
-  const getAdjustmentTypeIcon = (adjustmentType) => {
-    switch(adjustmentType) {
-      case 'bag_to_box':
-        return <Package size={14} style={{ marginRight: '4px' }} />;
-      case 'bill_to_bill':
-        return <Send size={14} style={{ marginRight: '4px' }} />;
-      case 'bad_debt':
-        return <AlertTriangle size={14} style={{ marginRight: '4px' }} />;
-      default:
-        return null;
-    }
   };
 
   const getPaymentMethodBadge = (transaction) => {
@@ -465,35 +590,25 @@ const BankStatement = () => {
 
   const getTransactionTypeBadge = (transaction) => {
     if (transaction.transaction_type === 'supplier_payment') {
-      if (transaction.source_table === 'supplier_loan_history') {
-        return {
-          text: 'Supplier Payment (Archived)',
-          style: { backgroundColor: '#EF4444', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
-        };
-      }
       return {
-        text: 'Supplier Payment',
+        text: '🏭 Supplier Payment',
         style: { backgroundColor: '#F59E0B', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+      };
+    } else if (transaction.transaction_type === 'income') {
+      return {
+        text: '💰 Income',
+        style: { backgroundColor: '#10B981', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
+      };
+    } else if (transaction.transaction_type === 'expense') {
+      return {
+        text: '📉 Expense',
+        style: { backgroundColor: '#EF4444', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
       };
     }
     return {
-      text: 'Customer Sale',
+      text: '👤 Customer Sale',
       style: { backgroundColor: '#3B82F6', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }
     };
-  };
-
-  const getAdjustmentTypeBadge = (adjustmentType) => {
-    const badges = {
-      'cash': { text: 'Cash', style: { backgroundColor: '#10B981', color: 'white' } },
-      'cheque': { text: 'Cheque', style: { backgroundColor: '#8B5CF6', color: 'white' } },
-      'Bank Transfer': { text: 'Bank Transfer', style: { backgroundColor: '#EC489A', color: 'white' } },
-      'bag_to_box': { text: 'Bag to Box', style: { backgroundColor: '#F59E0B', color: 'white' } },
-      'bill_to_bill': { text: 'Bill to Bill', style: { backgroundColor: '#3B82F6', color: 'white' } },
-      'bad_debt': { text: 'Bad Debt', style: { backgroundColor: '#EF4444', color: 'white' } },
-      'supplier_loan': { text: 'Supplier Payment', style: { backgroundColor: '#F59E0B', color: 'white' } },
-      'none': { text: 'None', style: { backgroundColor: '#6B7280', color: 'white' } }
-    };
-    return badges[adjustmentType] || badges['none'];
   };
 
   const formatLastRefreshTime = () => {
@@ -600,6 +715,20 @@ const BankStatement = () => {
       gap: '8px',
       transition: 'all 0.3s',
       backgroundColor: '#EC489A',
+      color: 'white'
+    },
+    incomeExpenseBtn: {
+      padding: '10px 20px',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: '600',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      transition: 'all 0.3s',
+      backgroundColor: '#10B981',
       color: 'white'
     },
     refreshStatus: {
@@ -878,15 +1007,6 @@ const BankStatement = () => {
       fontSize: '12px',
       color: '#9CA3AF',
       width: '100%'
-    },
-    adjustmentTypeBadge: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '4px',
-      padding: '2px 8px',
-      borderRadius: '12px',
-      fontSize: '11px',
-      fontWeight: '500'
     }
   };
 
@@ -896,16 +1016,11 @@ const BankStatement = () => {
       to { transform: rotate(360deg); }
     }
     
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    
     .custom-datepicker {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #D1D5DB;
-      borderRadius: 8px;
+      border-radius: 8px;
       font-size: 14px;
       font-family: inherit;
     }
@@ -913,7 +1028,7 @@ const BankStatement = () => {
     .custom-datepicker:focus {
       outline: none;
       border-color: #4F46E5;
-      ring: 2px solid #4F46E5;
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
     }
     
     .react-datepicker-wrapper {
@@ -944,8 +1059,8 @@ const BankStatement = () => {
         <div style={styles.header}>
           <div style={styles.headerContent}>
             <div style={styles.titleSection}>
-              <h1 style={styles.title}>Bank Statement</h1>
-              <p style={styles.subtitle}>Complete transaction history including customer sales and supplier payments</p>
+              <h1 style={styles.title}>Bank Statement with Income & Expenses</h1>
+              <p style={styles.subtitle}>Complete transaction history including bank transactions, income & expenses</p>
             </div>
             <div style={styles.actionButtons}>
               <button
@@ -956,6 +1071,15 @@ const BankStatement = () => {
               >
                 <FileText size={16} />
                 All Transactions Report
+              </button>
+              
+              <button
+                onClick={toggleIncomeExpense}
+                style={{...styles.incomeExpenseBtn, backgroundColor: showIncomeExpense ? '#10B981' : '#6B7280'}}
+                title={showIncomeExpense ? 'Showing Income & Expenses' : 'Hide Income & Expenses'}
+              >
+                {showIncomeExpense ? <Plus size={16} /> : <Minus size={16} />}
+                {showIncomeExpense ? 'Hide Income/Expense' : 'Show Income/Expense'}
               </button>
               
               <button
@@ -1098,7 +1222,7 @@ const BankStatement = () => {
                     ...(filterType === 'debit' ? styles.activeFilterBtn : {})
                   }}
                 >
-                  Debit Only (Dr) - Money In
+                  Debit Only (Dr) - Money In (Income + Customer Payments)
                 </button>
                 <button
                   onClick={() => setFilterType('credit')}
@@ -1107,7 +1231,7 @@ const BankStatement = () => {
                     ...(filterType === 'credit' ? styles.activeFilterBtn : {})
                   }}
                 >
-                  Credit Only (Cr) - Money Out
+                  Credit Only (Cr) - Money Out (Expenses + Supplier Payments)
                 </button>
               </div>
             </div>
@@ -1141,7 +1265,7 @@ const BankStatement = () => {
                 Rs{(statementData.summary?.total_debit || 0).toLocaleString()}
               </div>
               <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '5px' }}>
-                Money Received (Customer Payments)
+                Money Received (Customer Payments + Income)
               </div>
             </div>
             <div 
@@ -1157,7 +1281,7 @@ const BankStatement = () => {
                 Rs{(statementData.summary?.total_credit || 0).toLocaleString()}
               </div>
               <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '5px' }}>
-                Money Paid Out (Customer Sales + Supplier Payments)
+                Money Paid Out (Supplier Payments + Expenses)
               </div>
             </div>
             <div 
@@ -1234,7 +1358,8 @@ const BankStatement = () => {
                         currentTransactions.map((transaction, index) => {
                           const paymentBadge = getPaymentMethodBadge(transaction);
                           const transactionTypeBadge = getTransactionTypeBadge(transaction);
-                          const adjustmentBadge = getAdjustmentTypeBadge(transaction.adjustment_type);
+                          const displayDebit = transaction.debit > 0 ? transaction.debit : (transaction.loan_type === 'ingoing' ? Math.abs(transaction.amount) : 0);
+                          const displayCredit = transaction.credit > 0 ? transaction.credit : (transaction.loan_type === 'outgoing' ? Math.abs(transaction.amount) : 0);
                           return (
                             <tr 
                               key={index} 
@@ -1254,6 +1379,11 @@ const BankStatement = () => {
                                 {transaction.source_table && (
                                   <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '3px' }}>
                                     Source: {transaction.source_table}
+                                  </div>
+                                )}
+                                {transaction.user_id && (
+                                  <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '3px' }}>
+                                    User: {transaction.user_id}
                                   </div>
                                 )}
                               </td>
@@ -1276,13 +1406,13 @@ const BankStatement = () => {
                                 {transaction.cheq_no || transaction.transfer_reference_no || '-'}
                               </td>
                               <td style={{...styles.td, textAlign: 'right'}}>
-                                {transaction.debit > 0 ? (
-                                  <span style={styles.debitAmount}>Rs{transaction.debit.toLocaleString()}</span>
+                                {displayDebit > 0 ? (
+                                  <span style={styles.debitAmount}>Rs{displayDebit.toLocaleString()}</span>
                                 ) : '-'}
                               </td>
                               <td style={{...styles.td, textAlign: 'right'}}>
-                                {transaction.credit > 0 ? (
-                                  <span style={styles.creditAmount}>Rs{transaction.credit.toLocaleString()}</span>
+                                {displayCredit > 0 ? (
+                                  <span style={styles.creditAmount}>Rs{displayCredit.toLocaleString()}</span>
                                 ) : '-'}
                               </td>
                               <td style={{...styles.td, textAlign: 'right'}}>
@@ -1334,7 +1464,7 @@ const BankStatement = () => {
           <div style={styles.footer}>
             <p>Generated on: {new Date().toLocaleString()}</p>
             <p>This is a computer generated statement</p>
-            <p><strong>Note:</strong> Debit (Dr) = Money Received, Credit (Cr) = Money Paid Out (Customer Sales + Supplier Payments)</p>
+            <p><strong>Note:</strong> Debit (Dr) = Money Received (Customer Payments + Income), Credit (Cr) = Money Paid Out (Supplier Payments + Expenses)</p>
           </div>
         </div>
 
@@ -1364,7 +1494,9 @@ const BankStatement = () => {
                 <div style={styles.detailRow}>
                   <strong>Transaction Type:</strong>
                   <span>
-                    {selectedTransaction.transaction_type === 'supplier_payment' ? '🏭 Supplier Payment' : '👤 Customer Sale'}
+                    {selectedTransaction.transaction_type === 'supplier_payment' ? '🏭 Supplier Payment' : 
+                     selectedTransaction.transaction_type === 'income' ? '💰 Income' :
+                     selectedTransaction.transaction_type === 'expense' ? '📉 Expense' : '👤 Customer Sale'}
                   </span>
                 </div>
                 <div style={styles.detailRow}>
@@ -1373,7 +1505,8 @@ const BankStatement = () => {
                     {selectedTransaction.source_table === 'supplier_loan' ? 'Current Supplier Loan' :
                      selectedTransaction.source_table === 'supplier_loan_history' ? 'Archived Supplier Loan' :
                      selectedTransaction.source_table === 'sales' ? 'Current Sale' :
-                     selectedTransaction.source_table === 'sales_history' ? 'Archived Sale' : 'N/A'}
+                     selectedTransaction.source_table === 'sales_history' ? 'Archived Sale' :
+                     selectedTransaction.source_table === 'income_expenses' ? 'Income/Expense Entry' : 'N/A'}
                   </span>
                 </div>
                 <div style={styles.detailRow}>
@@ -1381,18 +1514,6 @@ const BankStatement = () => {
                   <span>
                     {selectedTransaction.payment_method === 'Bank Transfer' ? '🏦 Bank Transfer' : 
                      (selectedTransaction.payment_method === 'Cheque' ? '💳 Cheque' : '💰 Cash')}
-                  </span>
-                </div>
-                <div style={styles.detailRow}>
-                  <strong>Adjustment Type:</strong>
-                  <span>
-                    {selectedTransaction.adjustment_type === 'bag_to_box' ? '📦 Bag to Box Conversion' :
-                     selectedTransaction.adjustment_type === 'bill_to_bill' ? '📄 Bill to Bill Transfer' :
-                     selectedTransaction.adjustment_type === 'bad_debt' ? '⚠️ Bad Debt Write-off' :
-                     selectedTransaction.adjustment_type === 'cheque' ? '💳 Cheque Payment' :
-                     selectedTransaction.adjustment_type === 'Bank Transfer' ? '🏦 Bank Transfer' :
-                     selectedTransaction.adjustment_type === 'cash' ? '💰 Cash Payment' :
-                     selectedTransaction.adjustment_type === 'supplier_loan' ? '🏭 Supplier Payment' : 'None'}
                   </span>
                 </div>
                 {selectedTransaction.cheq_no && (
@@ -1424,13 +1545,15 @@ const BankStatement = () => {
                 <div style={styles.detailRow}>
                   <strong>Debit (Dr):</strong>
                   <span style={{ color: '#DC2626', fontWeight: 'bold' }}>
-                    {selectedTransaction.debit > 0 ? `Rs${selectedTransaction.debit.toLocaleString()}` : '-'}
+                    {selectedTransaction.debit > 0 ? `Rs${selectedTransaction.debit.toLocaleString()}` : 
+                     (selectedTransaction.loan_type === 'ingoing' ? `Rs${Math.abs(selectedTransaction.amount).toLocaleString()}` : '-')}
                   </span>
                 </div>
                 <div style={styles.detailRow}>
                   <strong>Credit (Cr):</strong>
                   <span style={{ color: '#10B981', fontWeight: 'bold' }}>
-                    {selectedTransaction.credit > 0 ? `Rs${selectedTransaction.credit.toLocaleString()}` : '-'}
+                    {selectedTransaction.credit > 0 ? `Rs${selectedTransaction.credit.toLocaleString()}` : 
+                     (selectedTransaction.loan_type === 'outgoing' ? `Rs${Math.abs(selectedTransaction.amount).toLocaleString()}` : '-')}
                   </span>
                 </div>
                 <div style={styles.detailRow}>
@@ -1447,6 +1570,12 @@ const BankStatement = () => {
                   <div style={styles.detailRow}>
                     <strong>{selectedTransaction.transaction_type === 'supplier_payment' ? 'Supplier Code:' : 'Customer:'}</strong>
                     <span>{selectedTransaction.customer_name}</span>
+                  </div>
+                )}
+                {selectedTransaction.user_id && (
+                  <div style={styles.detailRow}>
+                    <strong>User ID:</strong>
+                    <span>{selectedTransaction.user_id}</span>
                   </div>
                 )}
               </div>
