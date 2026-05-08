@@ -10,7 +10,431 @@ const routes = {
     applyAdjustment: "/adjustments/apply",
     pendingCustomerBills: "/adjustments/pending-customer-bills",
     pendingFarmerBills: "/adjustments/pending-farmer-bills",
-    paymentHistory: "/sales/payment-history"
+    paymentHistory: "/sales/payment-history",
+    checkCustomer: "/customers/check-short-name",
+    updateDebtorStatus: "/customers/update-debtor-status",
+    paymentReport: "/sales/payment-report",
+    dashboardStats: "/sales/dashboard-stats"
+};
+// ==================== CUSTOMER TYPE SELECTOR ====================
+const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick }) => {
+    const [showDebtorConfirm, setShowDebtorConfirm] = useState(false);
+    const [customerCode, setCustomerCode] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [customerExists, setCustomerExists] = useState(false);
+    const [existingCustomer, setExistingCustomer] = useState(null);
+
+    const handleDebtorClick = () => {
+        if (selectedType === 'debtor') {
+            // If already debtor mode, just return
+            return;
+        }
+        // Show the customer code input modal
+        setShowDebtorConfirm(true);
+    };
+
+    const handleWalkingClick = () => {
+        onSelect('walking');
+    };
+
+    const handleCheckCustomer = async () => {
+        if (!customerCode.trim()) {
+            alert('Please enter a customer code');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await api.get(`${routes.checkCustomer}/${customerCode.toUpperCase()}`);
+            const data = response.data;
+
+            if (data.exists) {
+                setCustomerExists(true);
+                setExistingCustomer(data.customer);
+                alert(`Customer "${customerCode.toUpperCase()}" found! They will be registered as a Debtor.`);
+                // Update debtor status
+                if (data.customer && data.customer.Debtor !== 'Y') {
+                    await api.put(routes.updateDebtorStatus, {
+                        short_name: customerCode.toUpperCase(),
+                        Debtor: 'Y'
+                    });
+                }
+                // Close modal and set debtor mode
+                setShowDebtorConfirm(false);
+                onSelect('debtor');
+                setCustomerCode('');
+                setCustomerExists(false);
+                setExistingCustomer(null);
+            } else {
+                // Customer doesn't exist, open the debtor form modal
+                setShowDebtorConfirm(false);
+                // Open the debtor form modal with the customer code
+                onDebtorClick(customerCode.toUpperCase());
+                setCustomerCode('');
+            }
+        } catch (error) {
+            console.error('Error checking customer:', error);
+            alert('Failed to check customer. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSkip = () => {
+        setShowDebtorConfirm(false);
+        setCustomerCode('');
+        setCustomerExists(false);
+        setExistingCustomer(null);
+    };
+
+    const handleDirectDebtor = () => {
+        // Directly open debtor form without checking
+        setShowDebtorConfirm(false);
+        onDebtorClick(null);
+    };
+
+    return (
+        <>
+            <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)', borderRadius: '12px', border: '2px solid #bae6fd' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '700', fontSize: '12px', color: '#0369a1' }}>
+                    👤 Customer Type
+                </label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={handleWalkingClick}
+                        disabled={disabled}
+                        style={{
+                            flex: 1,
+                            padding: '10px',
+                            background: selectedType === 'walking' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white',
+                            color: selectedType === 'walking' ? 'white' : '#475569',
+                            border: selectedType === 'walking' ? 'none' : '2px solid #e2e8f0',
+                            borderRadius: '10px',
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                            opacity: disabled ? 0.6 : 1
+                        }}
+                    >
+                        🚶 Walking Customer
+                    </button>
+                    <button
+                        onClick={handleDebtorClick}
+                        disabled={disabled}
+                        style={{
+                            flex: 1,
+                            padding: '10px',
+                            background: selectedType === 'debtor' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'white',
+                            color: selectedType === 'debtor' ? 'white' : '#475569',
+                            border: selectedType === 'debtor' ? 'none' : '2px solid #e2e8f0',
+                            borderRadius: '10px',
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                            opacity: disabled ? 0.6 : 1
+                        }}
+                    >
+                        📋 Debtor
+                    </button>
+                </div>
+            </div>
+
+            {/* Customer Code Input Modal */}
+            {showDebtorConfirm && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    zIndex: 20000,
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        borderRadius: '20px',
+                        width: '450px',
+                        maxWidth: '90%',
+                        padding: '24px',
+                        boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                    }}>
+                        <div style={{ marginBottom: '16px', textAlign: 'center' }}>
+                            <span style={{ fontSize: '48px' }}>📋</span>
+                            <h3 style={{ margin: '10px 0 5px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Enter Customer Code</h3>
+                            <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Please enter the customer code to register as Debtor</p>
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>Customer Code</label>
+                            <input
+                                type="text"
+                                value={customerCode}
+                                onChange={(e) => setCustomerCode(e.target.value.toUpperCase())}
+                                placeholder="Enter customer code (e.g., RTY)"
+                                autoFocus
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 14px',
+                                    border: '2px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    fontSize: '14px',
+                                    outline: 'none',
+                                    fontFamily: 'monospace',
+                                    fontWeight: 'bold'
+                                }}
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleCheckCustomer();
+                                    }
+                                }}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                            <button
+                                onClick={handleSkip}
+                                style={{
+                                    padding: '10px 20px',
+                                    background: '#f1f5f9',
+                                    color: '#475569',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    fontWeight: '600',
+                                    fontSize: '13px'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleCheckCustomer}
+                                disabled={loading}
+                                style={{
+                                    padding: '10px 20px',
+                                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: loading ? 'not-allowed' : 'pointer',
+                                    fontWeight: '600',
+                                    fontSize: '13px',
+                                    opacity: loading ? 0.6 : 1
+                                }}
+                            >
+                                {loading ? 'Checking...' : 'Continue'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+// ==================== DEBTOR FORM MODAL ====================
+const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode }) => {
+    const [formData, setFormData] = useState({
+        name: '',
+        ID_NO: '',
+        telephone_no: '',
+        address: '',
+        credit_limit: '',
+        profile_pic: null,
+        nic_front: null,
+        nic_back: null
+    });
+    const [loading, setLoading] = useState(false);
+    const [previewImages, setPreviewImages] = useState({
+        profile_pic: null,
+        nic_front: null,
+        nic_back: null
+    });
+
+    useEffect(() => {
+        if (isOpen && customerCode) {
+            setFormData(prev => ({ ...prev, short_name: customerCode.toUpperCase() }));
+        }
+    }, [isOpen, customerCode]);
+
+    if (!isOpen) return null;
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleFileChange = (e) => {
+        const { name, files } = e.target;
+        const file = files[0];
+        if (file) {
+            setFormData(prev => ({ ...prev, [name]: file }));
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setPreviewImages(prev => ({ ...prev, [name]: reader.result }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleSubmit = async () => {
+        setLoading(true);
+        try {
+            const formDataToSend = new FormData();
+            formDataToSend.append('short_name', customerCode.toUpperCase());
+            if (formData.name) formDataToSend.append('name', formData.name);
+            if (formData.ID_NO) formDataToSend.append('ID_NO', formData.ID_NO);
+            if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
+            if (formData.address) formDataToSend.append('address', formData.address);
+            if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
+            formDataToSend.append('Debtor', 'Y');
+
+            if (formData.profile_pic) formDataToSend.append('profile_pic', formData.profile_pic);
+            if (formData.nic_front) formDataToSend.append('nic_front', formData.nic_front);
+            if (formData.nic_back) formDataToSend.append('nic_back', formData.nic_back);
+
+            const response = await api.post('/customers', formDataToSend, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (response.status === 200 || response.status === 201) {
+                alert('Customer registered as Debtor successfully!');
+                onSave(true);
+                onClose();
+            }
+        } catch (error) {
+            console.error('Error saving debtor:', error);
+            alert('Failed to save debtor information. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10001,
+        }} onClick={onClose}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '20px',
+                width: '500px',
+                maxWidth: '90%',
+                maxHeight: '85vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            }} onClick={(e) => e.stopPropagation()}>
+                <div style={{
+                    padding: '16px 20px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '20px 20px 0 0',
+                }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>📝</span> Register Debtor: {customerCode}
+                    </h3>
+                </div>
+
+                <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+                    <div style={{
+                        background: '#fef3c7',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        marginBottom: '16px',
+                        fontSize: '12px',
+                        color: '#92400e',
+                        border: '1px solid #fde68a',
+                    }}>
+                        ⚠️ Customer "{customerCode}" not found. Please provide information to register as Debtor.
+                        <br /><small>All fields are optional</small>
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Full Name</label>
+                        <input type="text" name="name" value={formData.name} onChange={handleChange}
+                            placeholder="Enter full name"
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>ID Number</label>
+                        <input type="text" name="ID_NO" value={formData.ID_NO} onChange={handleChange}
+                            placeholder="Enter NIC/ID number"
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Telephone Number</label>
+                        <input type="tel" name="telephone_no" value={formData.telephone_no} onChange={handleChange}
+                            placeholder="Enter phone number"
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Address</label>
+                        <textarea name="address" value={formData.address} onChange={handleChange}
+                            placeholder="Enter address" rows="2"
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', resize: 'vertical', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Credit Limit (Rs.)</label>
+                        <input type="number" name="credit_limit" value={formData.credit_limit} onChange={handleChange}
+                            placeholder="Enter credit limit"
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Profile Picture</label>
+                        <input type="file" name="profile_pic" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png"
+                            style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                        {previewImages.profile_pic && <img src={previewImages.profile_pic} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ marginBottom: '12px' }}>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>NIC Front</label>
+                            <input type="file" name="nic_front" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png"
+                                style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                            {previewImages.nic_front && <img src={previewImages.nic_front} alt="NIC Front" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                        </div>
+                        <div style={{ marginBottom: '12px' }}>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>NIC Back</label>
+                            <input type="file" name="nic_back" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png"
+                                style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                            {previewImages.nic_back && <img src={previewImages.nic_back} alt="NIC Back" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc', borderRadius: '0 0 20px 20px' }}>
+                    <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Skip</button>
+                    <button onClick={handleSubmit} disabled={loading} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>{loading ? 'Saving...' : 'Save & Continue'}</button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 // ==================== BANK ACCOUNT SELECTOR COMPONENT ====================
@@ -2245,8 +2669,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
     );
 };
 
-// ==================== RECEIPT HTML BUILDER ====================
-const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, givenAmount = 0, paymentMethod = 'cash', paymentDetails = null) => {
+const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, givenAmount = 0, paymentMethod = 'cash', paymentDetails = null, customerShortName = null) => {
     const formatNumber = (num) => {
         if (typeof num !== 'number' && typeof num !== 'string') return '0';
         const number = parseFloat(num);
@@ -2341,6 +2764,9 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         }
     }
 
+    // Use customerShortName if provided, otherwise fallback to customerName
+    const displayName = customerShortName ? customerShortName.toUpperCase() : customerName.toUpperCase();
+
     return `
     <div style="width:350px; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
@@ -2348,7 +2774,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
             <div style="font-size:20px; margin-bottom:5px; font-weight:bold;">colombage lanka (Pvt) Ltd</div>
             <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
                 <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">N66</span>
-                <span style="border:2.5px solid #000; padding:5px 12px; font-size:35px;">${customerName.toUpperCase()}</span>
+                <span style="border:2.5px solid #000; padding:5px 12px; font-size:35px;">${displayName}</span>
             </div>
             <div style="font-size:16px;">එළවළු,පළතුරු තොග වෙළෙන්දෝ</div>
             <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px; padding:0 5px;">
@@ -2415,7 +2841,6 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         </div>
     </div>`;
 };
-
 // ==================== STYLES ====================
 const styles = {
     app: {
@@ -2873,9 +3298,152 @@ export default function PrintedBills() {
         currentPayments: [],
         paymentHistoryTotalPaid: 0,
         paymentHistoryTotalBill: 0,
-        paymentHistoryRemaining: 0
+        paymentHistoryRemaining: 0,
+        customerType: 'walking',
+        showDebtorForm: false,
+        pendingDebtorBill: null,
+        showReportModal: false,
+        showDeleteModal: false,
+        deleteBillNo: null,
+        deleteCustomerCode: null
     });
+    // ==================== DELETE CONFIRMATION MODAL ====================
+    const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, billNo, customerCode }) => {
+        const [loading, setLoading] = useState(false);
 
+        if (!isOpen) return null;
+
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 20001,
+            }} onClick={onClose}>
+                <div style={{
+                    backgroundColor: 'white',
+                    borderRadius: '20px',
+                    width: '450px',
+                    maxWidth: '90%',
+                    padding: '24px',
+                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                        <span style={{ fontSize: '48px' }}>⚠️</span>
+                        <h3 style={{ margin: '10px 0 5px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Delete Payment Record</h3>
+                        <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
+                            Are you sure you want to delete all payment records for this bill?
+                        </p>
+                    </div>
+
+                    <div style={{
+                        background: '#fef3c7',
+                        padding: '12px',
+                        borderRadius: '10px',
+                        marginBottom: '20px',
+                        fontSize: '13px',
+                        color: '#92400e',
+                        border: '1px solid #fde68a',
+                    }}>
+                        <strong>Bill:</strong> {billNo}<br />
+                        <strong>Customer:</strong> {customerCode}<br />
+                        <strong>Warning:</strong> This will reverse all payments made and cannot be undone!
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 20px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '13px'
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={() => onConfirm(billNo)}
+                            disabled={loading}
+                            style={{
+                                padding: '10px 20px',
+                                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                fontWeight: '600',
+                                fontSize: '13px',
+                                opacity: loading ? 0.6 : 1
+                            }}
+                        >
+                            {loading ? 'Deleting...' : 'Yes, Delete'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+    // Add this function after handleViewPaymentHistory
+    const handleDeleteBillPayments = async (billNo) => {
+        setState(prev => ({ ...prev, isPrinting: true }));
+
+        try {
+            const response = await api.delete(`/sales/delete-bill-payments/${billNo}`);
+
+            if (response.data.success) {
+                alert(`All payments for Bill #${billNo} have been reversed successfully!`);
+
+                // Refresh the data
+                await fetchSalesData();
+
+                // Clear selected bill if it was the deleted one
+                if (state.selectedBill && state.selectedBill.billNo === billNo) {
+                    setState(prev => ({
+                        ...prev,
+                        selectedBill: null,
+                        givenAmountInput: "",
+                        isUpdatingCompletedBill: false
+                    }));
+                }
+            } else {
+                alert('Failed to delete payments: ' + (response.data.message || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error deleting payments:', error);
+            alert('Failed to reverse payments. Please try again.');
+        } finally {
+            setState(prev => ({
+                ...prev,
+                isPrinting: false,
+                showDeleteModal: false,
+                deleteBillNo: null,
+                deleteCustomerCode: null
+            }));
+        }
+    };
+
+    // Add right-click handler
+    const handleContextMenu = (e, bill) => {
+        e.preventDefault();
+        setState(prev => ({
+            ...prev,
+            showDeleteModal: true,
+            deleteBillNo: bill.billNo,
+            deleteCustomerCode: bill.customerCode
+        }));
+    };
     const formatDecimal = (value) => {
         return new Intl.NumberFormat('en-US', {
             minimumFractionDigits: 2,
@@ -2955,7 +3523,70 @@ export default function PrintedBills() {
             alert('Failed to fetch payment history');
         }
     };
+    // Add this function to check and handle debtor
+    const checkAndHandleDebtor = async (bill) => {
+        console.log('Checking debtor for:', bill.customerCode, 'Customer type:', state.customerType);
 
+        // If walking customer, proceed normally
+        if (state.customerType === 'walking') {
+            handleBillClick(bill);
+            return;
+        }
+
+        // For debtor, check if customer exists in the system
+        try {
+            const response = await api.get(`${routes.checkCustomer}/${bill.customerCode}`);
+            const data = response.data;
+            console.log('Customer check response:', data);
+
+            if (data.exists) {
+                // Customer exists, check if needs to be updated as Debtor
+                if (data.customer && data.customer.Debtor !== 'Y') {
+                    await api.put(routes.updateDebtorStatus, {
+                        short_name: bill.customerCode,
+                        Debtor: 'Y'
+                    });
+                    console.log('Updated customer as Debtor');
+                }
+                // Proceed with bill selection
+                handleBillClick(bill);
+            } else {
+                // Customer doesn't exist, show form
+                console.log('Customer not found, showing debtor form');
+                setState(prev => ({
+                    ...prev,
+                    showDebtorForm: true,
+                    pendingDebtorBill: bill
+                }));
+            }
+        } catch (error) {
+            console.error('Error checking debtor:', error);
+            // If error, default to showing the bill (fallback)
+            handleBillClick(bill);
+        }
+    };
+
+    // Add debtor save handler
+    // Add debtor save handler
+    const handleDebtorSave = async (saved) => {
+        console.log('Debtor save callback:', saved);
+        if (saved && state.pendingDebtorBill) {
+            // After saving, set customer type to debtor
+            setState(prev => ({
+                ...prev,
+                customerType: 'debtor',
+                showDebtorForm: false,
+                pendingDebtorBill: null
+            }));
+            alert(`Customer ${state.pendingDebtorBill.customerCode} has been registered as a Debtor!`);
+        } else {
+            setState(prev => ({
+                ...prev,
+                showDebtorForm: false,
+                pendingDebtorBill: null
+            }));
+        }
+    };
     useEffect(() => {
         fetchSalesData();
         const interval = setInterval(fetchSalesData, 30000);
@@ -3243,7 +3874,8 @@ export default function PrintedBills() {
                 0,
                 state.selectedBill.givenAmount || 0,
                 paymentMethod,
-                paymentDetails
+                paymentDetails,
+                state.selectedBill.customerCode 
             );
 
             const printWindow = window.open("", "_blank", "width=800,height=600");
@@ -3358,46 +3990,44 @@ export default function PrintedBills() {
         return badges[type] || badges['Cash'];
     };
 
-   
 
-  const selectedBillTotals = state.selectedBill ? state.selectedBill.sales.reduce((acc, s) => {
-    const weight = parseFloat(s.weight) || 0;
-    const price = parseFloat(s.price_per_kg) || 0;
-    const packs = parseFloat(s.packs) || 0;
-    const packCost = parseFloat(s.CustomerPackCost) || 0;
-    acc.billTotal += (weight * price);
-    acc.totalBagPrice += (packs * packCost);
-    return acc;
-}, { billTotal: 0, totalBagPrice: 0 }) : { billTotal: 0, totalBagPrice: 0 };
 
-const finalPayable = selectedBillTotals.billTotal + selectedBillTotals.totalBagPrice;
-const currentGiven = parseFloat(state.givenAmountInput) || 0;
+    const selectedBillTotals = state.selectedBill ? state.selectedBill.sales.reduce((acc, s) => {
+        const weight = parseFloat(s.weight) || 0;
+        const price = parseFloat(s.price_per_kg) || 0;
+        const packs = parseFloat(s.packs) || 0;
+        const packCost = parseFloat(s.CustomerPackCost) || 0;
+        acc.billTotal += (weight * price);
+        acc.totalBagPrice += (packs * packCost);
+        return acc;
+    }, { billTotal: 0, totalBagPrice: 0 }) : { billTotal: 0, totalBagPrice: 0 };
 
-// ✅ Auto-set the remaining amount when a bill is selected
-useEffect(() => {
-    if (state.selectedBill && !state.isUpdatingCompletedBill) {
-        const remainingAmount = Math.max(0, finalPayable - (state.selectedBill.givenAmount || 0));
-        // Only auto-set if the input is empty or zero
-        if (!state.givenAmountInput || parseFloat(state.givenAmountInput) === 0) {
-            setState(prev => ({ ...prev, givenAmountInput: remainingAmount.toString() }));
+    const finalPayable = selectedBillTotals.billTotal + selectedBillTotals.totalBagPrice;
+    const currentGiven = parseFloat(state.givenAmountInput) || 0;
+
+    // ✅ Auto-set the remaining amount when a bill is selected
+    useEffect(() => {
+        if (state.selectedBill && !state.isUpdatingCompletedBill) {
+            const remainingAmount = Math.max(0, finalPayable - (state.selectedBill.givenAmount || 0));
+            // Only auto-set if the input is empty or zero
+            if (!state.givenAmountInput || parseFloat(state.givenAmountInput) === 0) {
+                setState(prev => ({ ...prev, givenAmountInput: remainingAmount.toString() }));
+            }
         }
-    }
-}, [state.selectedBill, finalPayable, state.selectedBill?.givenAmount]);
- if (state.isLoading) return <LoadingSkeleton />;
+    }, [state.selectedBill, finalPayable, state.selectedBill?.givenAmount]);
+    if (state.isLoading) return <LoadingSkeleton />;
 
     return (
         <div style={styles.app}>
             <div style={styles.container}>
-
-
                 <div style={styles.threeColumns}>
-                    {/* LEFT: Pending Bills */}
-                     {/* RIGHT: Completed Bills */}
+                    {/* LEFT: Completed Payments */}
                     <div style={styles.panel}>
                         <div style={styles.panelHeader}>
                             <h2 style={styles.panelTitle}>
                                 <span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', display: 'inline-block' }}></span>
                                 Completed Payments
+                                <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '8px' }}>(Right-click to delete)</span>
                             </h2>
                         </div>
                         <div style={{ padding: '12px 16px 0 16px' }}>
@@ -3419,7 +4049,6 @@ useEffect(() => {
                                 <EmptyState message="No completed bills" />
                             ) : (
                                 filterAppliedBills.map(bill => {
-                                    const paymentBadge = getPaymentTypeBadge(bill.paymentAdjustmentType);
                                     return (
                                         <div
                                             key={bill.billNo}
@@ -3429,6 +4058,8 @@ useEffect(() => {
                                                 ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {})
                                             }}
                                             onClick={() => handleBillClick(bill)}
+                                            onContextMenu={(e) => handleContextMenu(e, bill)}
+                                            title="Right-click to delete payments"
                                         >
                                             <div style={styles.billRow}>
                                                 <div style={styles.billLeft}>
@@ -3457,14 +4088,30 @@ useEffect(() => {
                         flexDirection: 'column',
                         height: 'calc(100vh - 320px)',
                         minHeight: '500px',
-                        boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.02)',
-                        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
+                        boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.02)'
                     }}>
+
+                        {/* Customer Type Selector */}
+                        <div style={{ padding: '16px 20px 0 20px', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
+                            <CustomerTypeSelector
+                                selectedType={state.customerType}
+                                onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))}
+                                disabled={state.isPrinting}
+                                onDebtorClick={(customerCode) => {
+                                    // Open debtor form modal when Debtor button is clicked
+                                    setState(prev => ({
+                                        ...prev,
+                                        showDebtorForm: true,
+                                        pendingDebtorBill: customerCode ? { customerCode: customerCode } : null
+                                    }));
+                                }}
+                            />
+                        </div>
+
                         <div style={{
                             padding: '16px 20px',
                             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                             borderBottom: '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '20px 20px 0 0'
                         }}>
                             <h2 style={{
                                 fontSize: '16px',
@@ -3527,7 +4174,7 @@ useEffect(() => {
                                                 <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
                                                     Bill Number
                                                 </div>
-                                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a', background: 'linear-gradient(135deg, #667eea, #764ba2)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a' }}>
                                                     #{state.selectedBill.billNo}
                                                 </div>
                                             </div>
@@ -3651,10 +4298,7 @@ useEffect(() => {
                                             fontWeight: '700',
                                             fontSize: '16px',
                                             color: '#0f172a',
-                                            borderTop: '2px solid #e2e8f0',
-                                            background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                                            WebkitBackgroundClip: 'text',
-                                            WebkitTextFillColor: 'transparent'
+                                            borderTop: '2px solid #e2e8f0'
                                         }}>
                                             <span>Total Payable:</span>
                                             <span>Rs. {formatDecimal(finalPayable)}</span>
@@ -3703,8 +4347,6 @@ useEffect(() => {
                                                 outline: 'none',
                                                 transition: 'all 0.2s'
                                             }}
-                                            onFocus={(e) => e.target.style.borderColor = '#f59e0b'}
-                                            onBlur={(e) => e.target.style.borderColor = '#fbbf24'}
                                         />
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', padding: '10px 0', fontSize: '14px' }}>
                                             <span>After Payment:</span>
@@ -3713,186 +4355,27 @@ useEffect(() => {
                                             </span>
                                         </div>
 
-                                        {/* Payment Buttons */}
                                         <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
-                                            <button
-                                                onClick={handleCashPayment}
-                                                disabled={state.isPrinting || currentGiven === 0}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '12px',
-                                                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                                                    color: 'white',
-                                                    border: 'none',
-                                                    borderRadius: '12px',
-                                                    fontWeight: '600',
-                                                    fontSize: '13px',
-                                                    cursor: currentGiven === 0 ? 'not-allowed' : 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '8px',
-                                                    transition: 'all 0.2s',
-                                                    opacity: currentGiven === 0 ? 0.5 : 1
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    if (currentGiven !== 0) e.currentTarget.style.transform = 'translateY(-2px)';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    e.currentTarget.style.transform = 'translateY(0)';
-                                                }}
-                                            >
-                                                💵 Cash
-                                            </button>
-                                            <button
-                                                onClick={handleChequePayment}
-                                                disabled={state.isPrinting || currentGiven === 0}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '12px',
-                                                    background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
-                                                    color: 'white',
-                                                    border: 'none',
-                                                    borderRadius: '12px',
-                                                    fontWeight: '600',
-                                                    fontSize: '13px',
-                                                    cursor: currentGiven === 0 ? 'not-allowed' : 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '8px',
-                                                    transition: 'all 0.2s',
-                                                    opacity: currentGiven === 0 ? 0.5 : 1
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    if (currentGiven !== 0) e.currentTarget.style.transform = 'translateY(-2px)';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    e.currentTarget.style.transform = 'translateY(0)';
-                                                }}
-                                            >
-                                                💳 Cheque
-                                            </button>
-                                            <button
-                                                onClick={handleBankToBankPayment}
-                                                disabled={state.isPrinting || currentGiven === 0}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '12px',
-                                                    background: 'linear-gradient(135deg, #ec489a, #db2777)',
-                                                    color: 'white',
-                                                    border: 'none',
-                                                    borderRadius: '12px',
-                                                    fontWeight: '600',
-                                                    fontSize: '13px',
-                                                    cursor: currentGiven === 0 ? 'not-allowed' : 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '8px',
-                                                    transition: 'all 0.2s',
-                                                    opacity: currentGiven === 0 ? 0.5 : 1
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    if (currentGiven !== 0) e.currentTarget.style.transform = 'translateY(-2px)';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    e.currentTarget.style.transform = 'translateY(0)';
-                                                }}
-                                            >
-                                                🏦 Bank Transfer
-                                            </button>
+                                            <button onClick={handleCashPayment} disabled={state.isPrinting || currentGiven === 0} style={{ flex: 1, padding: '12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: currentGiven === 0 ? 'not-allowed' : 'pointer', opacity: currentGiven === 0 ? 0.5 : 1 }}>💵 Cash</button>
+                                            <button onClick={handleChequePayment} disabled={state.isPrinting || currentGiven === 0} style={{ flex: 1, padding: '12px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: currentGiven === 0 ? 'not-allowed' : 'pointer', opacity: currentGiven === 0 ? 0.5 : 1 }}>💳 Cheque</button>
+                                            <button onClick={handleBankToBankPayment} disabled={state.isPrinting || currentGiven === 0} style={{ flex: 1, padding: '12px', background: '#ec489a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: currentGiven === 0 ? 'not-allowed' : 'pointer', opacity: currentGiven === 0 ? 0.5 : 1 }}>🏦 Bank Transfer</button>
                                         </div>
                                     </div>
 
-                                    <button
-                                        onClick={handlePrintWithoutUpdate}
-                                        disabled={state.isPrinting}
-                                        style={{
-                                            width: 'calc(100% - 0px)',
-                                            marginBottom: '12px',
-                                            padding: '12px',
-                                            background: 'linear-gradient(135deg, #64748b, #475569)',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: '12px',
-                                            fontWeight: '600',
-                                            fontSize: '13px',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '8px',
-                                            transition: 'all 0.2s'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                                    >
-                                        🖨️ Re-print Bill
-                                    </button>
-
-                                    <button
-                                        onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))}
-                                        style={{
-                                            width: 'calc(100% - 0px)',
-                                            marginBottom: '12px',
-                                            padding: '12px',
-                                            background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: '12px',
-                                            fontWeight: '600',
-                                            fontSize: '13px',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '8px',
-                                            transition: 'all 0.2s',
-                                            boxShadow: '0 4px 6px -1px rgba(245,158,11,0.3)'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                                    >
-                                        🔧 Payment Adjustment
-                                    </button>
-
-                                    <button
-                                        onClick={handleViewPaymentHistory}
-                                        style={{
-                                            width: 'calc(100% - 0px)',
-                                            marginBottom: '0',
-                                            padding: '12px',
-                                            background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: '12px',
-                                            fontWeight: '600',
-                                            fontSize: '13px',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '8px',
-                                            transition: 'all 0.2s',
-                                            boxShadow: '0 4px 6px -1px rgba(99,102,241,0.3)'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                                    >
-                                        📜 View Payment History
-                                    </button>
+                                    <button onClick={handlePrintWithoutUpdate} disabled={state.isPrinting} style={{ width: '100%', marginBottom: '12px', padding: '12px', background: '#64748b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>🖨️ Re-print Bill</button>
+                                    <button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={{ width: '100%', marginBottom: '12px', padding: '12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>🔧 Payment Adjustment</button>
+                                    <button onClick={handleViewPaymentHistory} style={{ width: '100%', padding: '12px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>📜 View Payment History</button>
                                 </>
                             ) : (
                                 <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
                                     <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-                                    <p style={{ margin: 0, fontSize: '14px' }}>Click on any bill to view details and process payment</p>
+                                    <p>Click on any bill to view details and process payment</p>
                                 </div>
                             )}
                         </div>
                     </div>
 
-                    {/* RIGHT: Completed Bills */}
+                    {/* RIGHT: Pending Payment */}
                     <div style={styles.panel}>
                         <div style={styles.panelHeader}>
                             <h2 style={styles.panelTitle}>
@@ -3919,7 +4402,6 @@ useEffect(() => {
                                 <EmptyState message="No pending bills" />
                             ) : (
                                 filterPendingBills.map(bill => {
-                                    const paymentBadge = getPaymentTypeBadge(bill.paymentAdjustmentType);
                                     return (
                                         <div
                                             key={bill.billNo}
@@ -3928,7 +4410,7 @@ useEffect(() => {
                                                 ...styles.billPending,
                                                 ...(state.selectedBill?.billNo === bill.billNo && !state.isUpdatingCompletedBill ? styles.billSelected : {})
                                             }}
-                                            onClick={() => handleBillClick(bill)}
+                                            onClick={() => checkAndHandleDebtor(bill)}
                                         >
                                             <div style={styles.billRow}>
                                                 <div style={styles.billLeft}>
@@ -3973,7 +4455,7 @@ useEffect(() => {
                 </div>
             </div>
 
-            {/* Cheque Modal */}
+            {/* ALL MODALS GO HERE - OUTSIDE the container div */}
             <ChequeModal
                 isOpen={state.showChequeModal}
                 onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))}
@@ -3981,7 +4463,6 @@ useEffect(() => {
                 amount={state.pendingChequeAmount}
             />
 
-            {/* Bank to Bank Modal */}
             <BankToBankModal
                 isOpen={state.showBankToBankModal}
                 onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))}
@@ -3993,7 +4474,6 @@ useEffect(() => {
                 )?.name : ''}
             />
 
-            {/* Payment Adjustment Modal */}
             <PaymentAdjustmentModal
                 isOpen={state.showAdjustmentModal}
                 onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))}
@@ -4003,7 +4483,6 @@ useEffect(() => {
                 originalBillTotal={state.selectedBill?.totalAmount || 0}
             />
 
-            {/* Payment History Modal */}
             <PaymentHistoryModal
                 isOpen={state.showPaymentHistoryModal}
                 onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))}
@@ -4011,6 +4490,21 @@ useEffect(() => {
                 totalPaid={state.paymentHistoryTotalPaid}
                 totalBill={state.paymentHistoryTotalBill}
                 remaining={state.paymentHistoryRemaining}
+            />
+
+            <DebtorFormModal
+                isOpen={state.showDebtorForm}
+                onClose={() => setState(prev => ({ ...prev, showDebtorForm: false, pendingDebtorBill: null }))}
+                onSave={handleDebtorSave}
+                customerCode={state.pendingDebtorBill?.customerCode || ''}
+            />
+            {/* Delete Confirmation Modal */}
+            <DeleteConfirmationModal
+                isOpen={state.showDeleteModal}
+                onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null }))}
+                onConfirm={handleDeleteBillPayments}
+                billNo={state.deleteBillNo}
+                customerCode={state.deleteCustomerCode}
             />
         </div>
     );

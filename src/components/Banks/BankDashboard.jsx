@@ -62,6 +62,17 @@ const BankStatement = () => {
   const [itemsPerPage] = useState(10);
   const [showIncomeExpense, setShowIncomeExpense] = useState(true);
   
+  // Cheque Report Modal states
+  const [showChequeReportModal, setShowChequeReportModal] = useState(false);
+  const [chequeReportData, setChequeReportData] = useState([]);
+  const [chequeReportLoading, setChequeReportLoading] = useState(false);
+  const [chequeReportSummary, setChequeReportSummary] = useState({
+    total_amount: 0,
+    total_count: 0,
+    cleared_count: 0,
+    pending_count: 0
+  });
+  
   // Auto-refresh states
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
@@ -90,7 +101,7 @@ const BankStatement = () => {
   // Fetch statement when dependencies change
   useEffect(() => {
     fetchStatement();
-  }, [selectedBank, dateRange, filterType, searchTerm]);
+  }, [selectedBank, dateRange, filterType, searchTerm, showIncomeExpense]);
 
   // Setup auto-refresh interval
   useEffect(() => {
@@ -114,7 +125,7 @@ const BankStatement = () => {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-  }, [autoRefresh, selectedBank, dateRange, filterType, searchTerm]);
+  }, [autoRefresh, selectedBank, dateRange, filterType, searchTerm, showIncomeExpense]);
 
   const fetchBanks = async () => {
     try {
@@ -124,6 +135,43 @@ const BankStatement = () => {
       }
     } catch (error) {
       console.error('Error fetching banks:', error);
+    }
+  };
+
+  // Fetch cheque report
+  const fetchChequeReport = async () => {
+    setChequeReportLoading(true);
+    try {
+      let url = '/bank-accounts/cheques';
+      const params = {};
+      
+      if (selectedBank !== 'all') {
+        params.bank_account_id = selectedBank;
+      }
+      if (dateRange.start && dateRange.start instanceof Date && !isNaN(dateRange.start)) {
+        params.start_date = dateRange.start.toISOString().split('T')[0];
+      }
+      if (dateRange.end && dateRange.end instanceof Date && !isNaN(dateRange.end)) {
+        params.end_date = dateRange.end.toISOString().split('T')[0];
+      }
+      
+      const response = await api.get(url, { params });
+      
+      if (response.data.success) {
+        setChequeReportData(response.data.data.data || []);
+        setChequeReportSummary(response.data.data.summary || {
+          total_amount: 0,
+          total_count: 0,
+          cleared_count: 0,
+          pending_count: 0
+        });
+        setShowChequeReportModal(true);
+      }
+    } catch (error) {
+      console.error('Error fetching cheque report:', error);
+      alert('Failed to load cheque payment report');
+    } finally {
+      setChequeReportLoading(false);
     }
   };
 
@@ -525,7 +573,7 @@ const BankStatement = () => {
                   <td class="text-right debit">${displayDebit > 0 ? `Rs${displayDebit.toLocaleString()}` : '-'}</td>
                   <td class="text-right credit">${displayCredit > 0 ? `Rs${displayCredit.toLocaleString()}` : '-'}</td>
                   <td class="text-right">Rs${(t.balance || 0).toLocaleString()}</td>
-                </tr>`;
+                </table>`;
               }).join('')}
               <tr style="background:#E0E7FF">
                 <td colspan="8"><strong>Closing Balance</strong></td>
@@ -715,6 +763,20 @@ const BankStatement = () => {
       gap: '8px',
       transition: 'all 0.3s',
       backgroundColor: '#EC489A',
+      color: 'white'
+    },
+    chequeReportBtn: {
+      padding: '10px 20px',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: '600',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      transition: 'all 0.3s',
+      backgroundColor: '#8B5CF6',
       color: 'white'
     },
     incomeExpenseBtn: {
@@ -1020,7 +1082,7 @@ const BankStatement = () => {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #D1D5DB;
-      border-radius: 8px;
+      borderRadius: 8px;
       font-size: 14px;
       font-family: inherit;
     }
@@ -1071,6 +1133,18 @@ const BankStatement = () => {
               >
                 <FileText size={16} />
                 All Transactions Report
+              </button>
+              
+              {/* Cheque Payments Report Button */}
+              <button
+                onClick={fetchChequeReport}
+                disabled={chequeReportLoading}
+                style={{...styles.chequeReportBtn, opacity: chequeReportLoading ? 0.6 : 1}}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#7C3AED'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#8B5CF6'}
+              >
+                <CreditCard size={16} />
+                Cheque Payments
               </button>
               
               <button
@@ -1577,6 +1651,113 @@ const BankStatement = () => {
                     <strong>User ID:</strong>
                     <span>{selectedTransaction.user_id}</span>
                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cheque Report Modal */}
+        {showChequeReportModal && (
+          <div style={styles.modal} onClick={() => setShowChequeReportModal(false)}>
+            <div style={{...styles.modalContent, maxWidth: '900px', width: '90%'}} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.modalHeader}>
+                <h3 style={{ margin: 0 }}>
+                  💳 Cheque Payments Report
+                  {selectedBank !== 'all' && statementData.bank && (
+                    <span style={{ fontSize: '12px', color: '#6B7280', marginLeft: '10px' }}>
+                      ({statementData.bank.bank_name})
+                    </span>
+                  )}
+                </h3>
+                <button onClick={() => setShowChequeReportModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div style={styles.modalBody}>
+                {chequeReportLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <RefreshCw size={32} style={{ animation: 'spin 1s linear infinite' }} />
+                    <p>Loading cheque payments...</p>
+                  </div>
+                ) : chequeReportData.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
+                    No cheque payments found for the selected period
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ background: '#F9FAFB', borderBottom: '2px solid #E5E7EB' }}>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Date</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Cheque No</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Customer/Supplier</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Bill No</th>
+                            <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Amount (Rs)</th>
+                            <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {chequeReportData.map((cheque, index) => (
+                            <tr 
+                              key={index} 
+                              style={{ 
+                                borderBottom: '1px solid #F3F4F6',
+                                backgroundColor: index % 2 === 0 ? 'white' : '#F9FAFB',
+                                cursor: 'pointer'
+                              }}
+                              onClick={() => {
+                                // Find the transaction in statement data and show details
+                                const transaction = statementData.transactions.find(t => t.cheq_no === cheque.cheq_no);
+                                if (transaction) {
+                                  setSelectedTransaction(transaction);
+                                  setShowModal(true);
+                                  setShowChequeReportModal(false);
+                                }
+                              }}
+                            >
+                              <td style={{ padding: '10px 12px', fontSize: '13px' }}>{cheque.date || '-'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: '13px', fontWeight: '600', color: '#8B5CF6' }}>{cheque.cheq_no || '-'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: '13px' }}>{cheque.customer_name || '-'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: '13px' }}>{cheque.bill_no || '-'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#DC2626' }}>
+                                Rs{cheque.amount?.toLocaleString() || 0}
+                              </td>
+                              <td style={{ padding: '10px 12px', fontSize: '13px', textAlign: 'center' }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: '600',
+                                  backgroundColor: cheque.status === 'cleared' ? '#D1FAE5' : '#FEF3C7',
+                                  color: cheque.status === 'cleared' ? '#065F46' : '#92400E'
+                                }}>
+                                  {cheque.status === 'cleared' ? '✓ Cleared' : '⏳ Pending'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ marginTop: '16px', padding: '12px', background: '#F3F4F6', borderRadius: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '13px', fontWeight: '600' }}>Total Cheque Amount:</span>
+                        <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#DC2626' }}>
+                          Rs{chequeReportSummary.total_amount?.toLocaleString() || 0}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#6B7280' }}>
+                        <div>Total Transactions: {chequeReportSummary.total_count || 0}</div>
+                        <div>Cleared: {chequeReportSummary.cleared_count || 0} | Pending: {chequeReportSummary.pending_count || 0}</div>
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '11px', color: '#6B7280' }}>
+                        <strong>Note:</strong> Debit (Dr) entries represent money received via cheque. These amounts are added to your bank balance.
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
