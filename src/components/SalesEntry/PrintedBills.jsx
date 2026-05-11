@@ -35,62 +35,76 @@ const routes = {
 };
 
 // ==================== CUSTOMER TYPE SELECTOR ====================
-const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick }) => {
+// ==================== CUSTOMER TYPE SELECTOR ====================
+const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, billCustomerCode = null, billNo = null }) => {
     const [showDebtorConfirm, setShowDebtorConfirm] = useState(false);
     const [customerCode, setCustomerCode] = useState('');
     const [loading, setLoading] = useState(false);
     const [customerExists, setCustomerExists] = useState(false);
     const [existingCustomer, setExistingCustomer] = useState(null);
 
+    // Pre-fill customer code when modal opens with bill's customer code
+    useEffect(() => {
+        if (showDebtorConfirm && billCustomerCode) {
+            setCustomerCode(billCustomerCode);
+        }
+    }, [showDebtorConfirm, billCustomerCode]);
+
     const handleDebtorClick = () => {
         if (selectedType === 'debtor') {
             return;
         }
         setShowDebtorConfirm(true);
+        // Reset customer code to bill's customer code when opening
+        if (billCustomerCode) {
+            setCustomerCode(billCustomerCode);
+        }
     };
 
     const handleWalkingClick = () => {
         onSelect('walking');
     };
 
-    const handleCheckCustomer = async () => {
-        if (!customerCode.trim()) {
-            alert('Please enter a customer code');
-            return;
-        }
+ const handleCheckCustomer = async () => {
+    if (!customerCode.trim()) {
+        alert('Please enter a customer code');
+        return;
+    }
 
-        setLoading(true);
-        try {
-            const response = await api.get(`${routes.checkCustomer}/${customerCode.toUpperCase()}`);
-            const data = response.data;
+    setLoading(true);
+    try {
+        const response = await api.get(`${routes.checkCustomer}/${customerCode.toUpperCase()}`);
+        const data = response.data;
 
-            if (data.exists) {
-                setCustomerExists(true);
-                setExistingCustomer(data.customer);
-                alert(`Customer "${customerCode.toUpperCase()}" found! They will be registered as a Debtor.`);
-                if (data.customer && data.customer.Debtor !== 'Y') {
-                    await api.put(routes.updateDebtorStatus, {
-                        short_name: customerCode.toUpperCase(),
-                        Debtor: 'Y'
-                    });
-                }
-                setShowDebtorConfirm(false);
-                onSelect('debtor');
-                setCustomerCode('');
-                setCustomerExists(false);
-                setExistingCustomer(null);
-            } else {
-                setShowDebtorConfirm(false);
-                onDebtorClick(customerCode.toUpperCase());
-                setCustomerCode('');
+        if (data.exists) {
+            setCustomerExists(true);
+            setExistingCustomer(data.customer);
+            alert(`Customer "${customerCode.toUpperCase()}" found! They will be registered as a Debtor.`);
+            if (data.customer && data.customer.Debtor !== 'Y') {
+                // ✅ Pass billNo when updating debtor status
+                await api.put(routes.updateDebtorStatus, {
+                    short_name: customerCode.toUpperCase(),
+                    Debtor: 'Y',
+                    bill_no: billNo  // Add this line
+                });
             }
-        } catch (error) {
-            console.error('Error checking customer:', error);
-            alert('Failed to check customer. Please try again.');
-        } finally {
-            setLoading(false);
+            setShowDebtorConfirm(false);
+            onSelect('debtor');
+            setCustomerCode('');
+            setCustomerExists(false);
+            setExistingCustomer(null);
+        } else {
+            setShowDebtorConfirm(false);
+            onDebtorClick(customerCode.toUpperCase(), billNo);
+            setCustomerCode('');
         }
-    };
+    } catch (error) {
+        console.error('Error checking customer:', error);
+        alert('Failed to check customer. Please try again.');
+    } finally {
+        setLoading(false);
+    }
+};
 
     const handleSkip = () => {
         setShowDebtorConfirm(false);
@@ -184,8 +198,19 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     }}>
                         <div style={{ marginBottom: '16px', textAlign: 'center' }}>
                             <span style={{ fontSize: '48px' }}>📋</span>
-                            <h3 style={{ margin: '10px 0 5px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Enter Customer Code</h3>
-                            <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Please enter the customer code to register as Debtor</p>
+                            <h3 style={{ margin: '10px 0 5px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>
+                                {billCustomerCode ? `Register Debtor: ${billCustomerCode}` : 'Enter Customer Code'}
+                            </h3>
+                            <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
+                                {billCustomerCode
+                                    ? `Customer "${billCustomerCode}" not found. Please confirm to register as Debtor.`
+                                    : 'Please enter the customer code to register as Debtor'}
+                            </p>
+                            {billNo && (
+                                <p style={{ fontSize: '11px', color: '#92400e', marginTop: '5px' }}>
+                                    Bill Number: {billNo}
+                                </p>
+                            )}
                         </div>
 
                         <div style={{ marginBottom: '20px' }}>
@@ -254,9 +279,9 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         </>
     );
 };
-
 // ==================== DEBTOR FORM MODAL ====================
-const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode }) => {
+// ==================== DEBTOR FORM MODAL ====================
+const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null, existingDebtorNo = null }) => {
     const [formData, setFormData] = useState({
         name: '',
         ID_NO: '',
@@ -273,12 +298,19 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode }) => {
         nic_front: null,
         nic_back: null
     });
+    const [generatedDebtorNo, setGeneratedDebtorNo] = useState(null);
 
     useEffect(() => {
         if (isOpen && customerCode) {
             setFormData(prev => ({ ...prev, short_name: customerCode.toUpperCase() }));
+            // If existing debtor number exists, display it
+            if (existingDebtorNo) {
+                setGeneratedDebtorNo(existingDebtorNo);
+            } else {
+                setGeneratedDebtorNo(null);
+            }
         }
-    }, [isOpen, customerCode]);
+    }, [isOpen, customerCode, existingDebtorNo]);
 
     if (!isOpen) return null;
 
@@ -321,8 +353,27 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode }) => {
             });
 
             if (response.status === 200 || response.status === 201) {
-                alert('Customer registered as Debtor successfully!');
-                onSave(true);
+                const debtorNo = response.data.Debtor_no;
+                setGeneratedDebtorNo(debtorNo);
+
+                // If there's a bill number, create a debtor record with that bill number
+                if (billNo) {
+                    try {
+                        await api.post('/debtors/create-with-customer', {
+                            bill_no: billNo,
+                            customer_code: customerCode.toUpperCase(),
+                            credit_amount: 0,
+                            debtor_no: debtorNo
+                        });
+                        console.log('Debtor record created with bill number:', billNo);
+                    } catch (debtorError) {
+                        console.error('Error creating debtor record:', debtorError);
+                        // Continue anyway, the customer was created
+                    }
+                }
+
+                alert(`Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`);
+                onSave(true, debtorNo);
                 onClose();
             }
         } catch (error) {
@@ -334,114 +385,303 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode }) => {
     };
 
     return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 10001,
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                width: '500px',
-                maxWidth: '90%',
-                maxHeight: '85vh',
+        <div
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(4px)',
                 display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
-            }} onClick={(e) => e.stopPropagation()}>
-                <div style={{
-                    padding: '16px 20px',
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    borderRadius: '20px 20px 0 0',
-                }}>
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 10001,
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    backgroundColor: 'white',
+                    borderRadius: '20px',
+                    width: '500px',
+                    maxWidth: '90%',
+                    maxHeight: '85vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div
+                    style={{
+                        padding: '16px 20px',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        borderRadius: '20px 20px 0 0',
+                    }}
+                >
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span>📝</span> Register Debtor: {customerCode}
+                        {billNo && <span style={{ fontSize: '12px', marginLeft: '8px' }}>(Bill: {billNo})</span>}
                     </h3>
                 </div>
 
                 <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-                    <div style={{
-                        background: '#fef3c7',
-                        padding: '10px',
-                        borderRadius: '8px',
-                        marginBottom: '16px',
-                        fontSize: '12px',
-                        color: '#92400e',
-                        border: '1px solid #fde68a',
-                    }}>
+                    {/* Display generated debtor number if available */}
+                    {generatedDebtorNo && (
+                        <div
+                            style={{
+                                background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)',
+                                padding: '12px',
+                                borderRadius: '10px',
+                                marginBottom: '16px',
+                                border: '1px solid #10b981',
+                                textAlign: 'center',
+                            }}
+                        >
+                            <div style={{ fontSize: '12px', color: '#065f46', fontWeight: '500' }}>Debtor Number</div>
+                            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#047857' }}>{generatedDebtorNo}</div>
+                        </div>
+                    )}
+
+                    <div
+                        style={{
+                            background: '#fef3c7',
+                            padding: '10px',
+                            borderRadius: '8px',
+                            marginBottom: '16px',
+                            fontSize: '12px',
+                            color: '#92400e',
+                            border: '1px solid #fde68a',
+                        }}
+                    >
                         ⚠️ Customer "{customerCode}" not found. Please provide information to register as Debtor.
-                        <br /><small>All fields are optional</small>
+                        <br />
+                        <small>All fields are optional</small>
+                        <br />
+                        <small>A unique Debtor Number will be automatically generated.</small>
+                        {billNo && (
+                            <>
+                                <br />
+                                <small>This debtor will be linked to Bill No: {billNo}</small>
+                            </>
+                        )}
                     </div>
 
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Full Name</label>
-                        <input type="text" name="name" value={formData.name} onChange={handleChange}
+                        <input
+                            type="text"
+                            name="name"
+                            value={formData.name}
+                            onChange={handleChange}
                             placeholder="Enter full name"
-                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                outline: 'none',
+                            }}
+                        />
                     </div>
 
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>ID Number</label>
-                        <input type="text" name="ID_NO" value={formData.ID_NO} onChange={handleChange}
+                        <input
+                            type="text"
+                            name="ID_NO"
+                            value={formData.ID_NO}
+                            onChange={handleChange}
                             placeholder="Enter NIC/ID number"
-                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                outline: 'none',
+                            }}
+                        />
                     </div>
 
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Telephone Number</label>
-                        <input type="tel" name="telephone_no" value={formData.telephone_no} onChange={handleChange}
+                        <input
+                            type="tel"
+                            name="telephone_no"
+                            value={formData.telephone_no}
+                            onChange={handleChange}
                             placeholder="Enter phone number"
-                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                outline: 'none',
+                            }}
+                        />
                     </div>
 
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Address</label>
-                        <textarea name="address" value={formData.address} onChange={handleChange}
-                            placeholder="Enter address" rows="2"
-                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', resize: 'vertical', outline: 'none' }} />
+                        <textarea
+                            name="address"
+                            value={formData.address}
+                            onChange={handleChange}
+                            placeholder="Enter address"
+                            rows="2"
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                resize: 'vertical',
+                                outline: 'none',
+                            }}
+                        />
                     </div>
 
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Credit Limit (Rs.)</label>
-                        <input type="number" name="credit_limit" value={formData.credit_limit} onChange={handleChange}
+                        <input
+                            type="number"
+                            name="credit_limit"
+                            value={formData.credit_limit}
+                            onChange={handleChange}
                             placeholder="Enter credit limit"
-                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                outline: 'none',
+                            }}
+                        />
                     </div>
 
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Profile Picture</label>
-                        <input type="file" name="profile_pic" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png"
-                            style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
-                        {previewImages.profile_pic && <img src={previewImages.profile_pic} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                        <input
+                            type="file"
+                            name="profile_pic"
+                            onChange={handleFileChange}
+                            accept="image/jpeg,image/jpg,image/png"
+                            style={{
+                                width: '100%',
+                                padding: '6px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                            }}
+                        />
+                        {previewImages.profile_pic && (
+                            <img
+                                src={previewImages.profile_pic}
+                                alt="Preview"
+                                style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }}
+                            />
+                        )}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <div style={{ marginBottom: '12px' }}>
                             <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>NIC Front</label>
-                            <input type="file" name="nic_front" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png"
-                                style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
-                            {previewImages.nic_front && <img src={previewImages.nic_front} alt="NIC Front" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                            <input
+                                type="file"
+                                name="nic_front"
+                                onChange={handleFileChange}
+                                accept="image/jpeg,image/jpg,image/png"
+                                style={{
+                                    width: '100%',
+                                    padding: '6px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '8px',
+                                    fontSize: '12px',
+                                }}
+                            />
+                            {previewImages.nic_front && (
+                                <img
+                                    src={previewImages.nic_front}
+                                    alt="NIC Front"
+                                    style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }}
+                                />
+                            )}
                         </div>
                         <div style={{ marginBottom: '12px' }}>
                             <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>NIC Back</label>
-                            <input type="file" name="nic_back" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png"
-                                style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
-                            {previewImages.nic_back && <img src={previewImages.nic_back} alt="NIC Back" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                            <input
+                                type="file"
+                                name="nic_back"
+                                onChange={handleFileChange}
+                                accept="image/jpeg,image/jpg,image/png"
+                                style={{
+                                    width: '100%',
+                                    padding: '6px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '8px',
+                                    fontSize: '12px',
+                                }}
+                            />
+                            {previewImages.nic_back && (
+                                <img
+                                    src={previewImages.nic_back}
+                                    alt="NIC Back"
+                                    style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }}
+                                />
+                            )}
                         </div>
                     </div>
                 </div>
 
-                <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc', borderRadius: '0 0 20px 20px' }}>
-                    <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Skip</button>
-                    <button onClick={handleSubmit} disabled={loading} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>{loading ? 'Saving...' : 'Save & Continue'}</button>
+                <div
+                    style={{
+                        padding: '12px 20px',
+                        borderTop: '1px solid #e2e8f0',
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: '10px',
+                        background: '#f8fafc',
+                        borderRadius: '0 0 20px 20px',
+                    }}
+                >
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '8px 16px',
+                            background: '#f1f5f9',
+                            color: '#475569',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '12px',
+                        }}
+                    >
+                        Skip
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={loading}
+                        style={{
+                            padding: '8px 16px',
+                            background: 'linear-gradient(135deg, #4CAF50, #45a049)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            fontSize: '12px',
+                            opacity: loading ? 0.6 : 1,
+                        }}
+                    >
+                        {loading ? 'Saving...' : 'Save & Continue'}
+                    </button>
                 </div>
             </div>
         </div>
@@ -3504,8 +3744,8 @@ export default function PrintedBills() {
         }
     };
 
-    const handleDebtorSave = async (saved) => {
-        console.log('Debtor save callback:', saved);
+    const handleDebtorSave = async (saved, debtorNo = null) => {
+        console.log('Debtor save callback:', saved, 'Debtor No:', debtorNo);
         if (saved && state.pendingDebtorBill) {
             setState(prev => ({
                 ...prev,
@@ -3513,7 +3753,10 @@ export default function PrintedBills() {
                 showDebtorForm: false,
                 pendingDebtorBill: null
             }));
-            alert(`Customer ${state.pendingDebtorBill.customerCode} has been registered as a Debtor!`);
+            const message = `Customer ${state.pendingDebtorBill.customerCode} has been registered as a Debtor!`;
+            const debtorMessage = debtorNo ? `\nDebtor Number: ${debtorNo}` : '';
+            const billMessage = state.pendingDebtorBill.billNo ? `\nBill No: ${state.pendingDebtorBill.billNo}` : '';
+            alert(message + debtorMessage + billMessage);
         } else {
             setState(prev => ({
                 ...prev,
@@ -4529,13 +4772,15 @@ export default function PrintedBills() {
                                 selectedType={state.customerType}
                                 onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))}
                                 disabled={state.isPrinting}
-                                onDebtorClick={(customerCode) => {
+                                onDebtorClick={(customerCode, billNo) => {
                                     setState(prev => ({
                                         ...prev,
                                         showDebtorForm: true,
-                                        pendingDebtorBill: customerCode ? { customerCode: customerCode } : null
+                                        pendingDebtorBill: { customerCode: customerCode, billNo: billNo }
                                     }));
                                 }}
+                                billCustomerCode={state.selectedBill?.customerCode || null}
+                                billNo={state.selectedBill?.billNo || null}
                             />
                         </div>
 
@@ -5120,6 +5365,7 @@ export default function PrintedBills() {
                 onClose={() => setState(prev => ({ ...prev, showDebtorForm: false, pendingDebtorBill: null }))}
                 onSave={handleDebtorSave}
                 customerCode={state.pendingDebtorBill?.customerCode || ''}
+                billNo={state.pendingDebtorBill?.billNo || null}
             />
 
             <DeleteConfirmationModal

@@ -2535,11 +2535,7 @@ export default function SupplierReport() {
                                         </div>
                                     </div>
 
-                                    <div style={{ padding: '20px', background: 'white', borderRadius: '16px', marginBottom: '16px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}><span>Total Payable:</span><span>Rs. {formatDecimal(totalPayable)}</span></div>
-                                        {state.currentPaidAmount > 0 && (<div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', color: '#059669', fontWeight: 'bold' }}><span>Already Paid:</span><span>Rs. {formatDecimal(state.currentPaidAmount)}</span></div>)}
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', marginTop: '8px', fontWeight: '700', fontSize: '16px', borderTop: '2px solid #e2e8f0' }}><span>Remaining:</span><span>Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount))}</span></div>
-                                    </div>
+                                   
 
                                     {/* Payment section - Show for pending bills OR completed bills with pending credit */}
                                     {(state.selectedSupplier && (!state.isUpdatingCompletedBill || (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0))) && (
