@@ -4449,68 +4449,68 @@ export default function PrintedBills() {
         <div style={styles.app}>
             <div style={styles.container}>
                 <div style={styles.threeColumns}>
-                   {/* LEFT: Completed Payments */}
-<div style={styles.panel}>
-    <div style={styles.panelHeader}>
-        <h2 style={styles.panelTitle}>
-            <span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', display: 'inline-block' }}></span>
-            Completed Payments
-            <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '8px' }}>(Right-click to delete)</span>
-        </h2>
-    </div>
-    <div style={{ padding: '12px 16px 0 16px' }}>
-        <input
-            type="text"
-            placeholder="🔍 Search completed bills..."
-            value={state.appliedSearchQuery}
-            onChange={(e) =>
-                setState(prev => ({
-                    ...prev,
-                    appliedSearchQuery: e.target.value.toUpperCase()
-                }))
-            }
-            style={styles.searchInput}
-        />
-    </div>
-    <div style={styles.panelContent}>
-        {filterAppliedBills.length === 0 ? (
-            <EmptyState message="No completed bills" />
-        ) : (
-            filterAppliedBills.map(bill => {
-                return (
-                    <div
-                        key={bill.billNo}
-                        style={{
-                            ...styles.billItem,
-                            ...styles.billApplied,
-                            ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {})
-                        }}
-                        onClick={() => handleBillClick(bill)}
-                        onContextMenu={(e) => handleContextMenu(e, bill)}
-                        title="Right-click to delete payments"
-                    >
-                        <div style={styles.billRow}>
-                            <div style={styles.billLeft}>
-                                <div style={styles.billNo}>{bill.billNo}</div>
-                                <div style={styles.billCustomer}>{bill.customerCode}</div>
-                            </div>
-                            <div style={styles.billRight}>
-                                <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
-                                {/* FIXED: Use cashPayments instead of givenAmount */}
-                                {bill.cashPayments > 0 && <div style={styles.billGiven}>Given: {formatDecimal(bill.cashPayments)}</div>}
-                                {bill.creditAmount > 0 && (
-                                    <div style={{ fontSize: '10px', color: '#d97706', marginTop: '2px' }}>
-                                        💳 Credit: {formatDecimal(bill.creditAmount)}
-                                    </div>
-                                )}
-                            </div>
+                    {/* LEFT: Completed Payments */}
+                    <div style={styles.panel}>
+                        <div style={styles.panelHeader}>
+                            <h2 style={styles.panelTitle}>
+                                <span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', display: 'inline-block' }}></span>
+                                Completed Payments
+                                <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '8px' }}>(Right-click to delete)</span>
+                            </h2>
+                        </div>
+                        <div style={{ padding: '12px 16px 0 16px' }}>
+                            <input
+                                type="text"
+                                placeholder="🔍 Search completed bills..."
+                                value={state.appliedSearchQuery}
+                                onChange={(e) =>
+                                    setState(prev => ({
+                                        ...prev,
+                                        appliedSearchQuery: e.target.value.toUpperCase()
+                                    }))
+                                }
+                                style={styles.searchInput}
+                            />
+                        </div>
+                        <div style={styles.panelContent}>
+                            {filterAppliedBills.length === 0 ? (
+                                <EmptyState message="No completed bills" />
+                            ) : (
+                                filterAppliedBills.map(bill => {
+                                    return (
+                                        <div
+                                            key={bill.billNo}
+                                            style={{
+                                                ...styles.billItem,
+                                                ...styles.billApplied,
+                                                ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {})
+                                            }}
+                                            onClick={() => handleBillClick(bill)}
+                                            onContextMenu={(e) => handleContextMenu(e, bill)}
+                                            title="Right-click to delete payments"
+                                        >
+                                            <div style={styles.billRow}>
+                                                <div style={styles.billLeft}>
+                                                    <div style={styles.billNo}>{bill.billNo}</div>
+                                                    <div style={styles.billCustomer}>{bill.customerCode}</div>
+                                                </div>
+                                                <div style={styles.billRight}>
+                                                    <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
+                                                    {/* FIXED: Use cashPayments instead of givenAmount */}
+                                                    {bill.cashPayments > 0 && <div style={styles.billGiven}>Given: {formatDecimal(bill.cashPayments)}</div>}
+                                                    {bill.creditAmount > 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#d97706', marginTop: '2px' }}>
+                                                            💳 Credit: {formatDecimal(bill.creditAmount)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
                         </div>
                     </div>
-                );
-            })
-        )}
-    </div>
-</div>
                     {/* CENTER: Bill Details */}
                     <div style={{
                         background: 'white',

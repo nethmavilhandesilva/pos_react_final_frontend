@@ -1170,6 +1170,8 @@ const DetailedReportModal = ({ isOpen, onClose, data, supplierCode, isLoading })
 export default function SupplierReport() {
     const navigate = useNavigate();
     const [showFarmerModal, setShowFarmerModal] = useState(false);
+    // Add after other state declarations
+    const [selectedBillCreditor, setSelectedBillCreditor] = useState(null);
 
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
@@ -1438,6 +1440,19 @@ export default function SupplierReport() {
             setIsLoadingReport(false);
         }
     };
+    // Check creditor status for a bill
+    const checkBillCreditorStatus = async (billNo, supplierCode) => {
+        try {
+            const response = await api.get(`/creditors/${billNo}?supplier_code=${supplierCode}`);
+            if (response.data.success && response.data.data) {
+                return response.data.data;
+            }
+            return null;
+        } catch (error) {
+            console.log('No creditor record found');
+            return null;
+        }
+    };
 
     useEffect(() => {
         fetchSupplierData();
@@ -1461,6 +1476,7 @@ export default function SupplierReport() {
     const handleSupplierClick = async (supplierCode, billNo = null) => {
         if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
             setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [] }));
+            setSelectedBillCreditor(null);
             return;
         }
 
@@ -1484,8 +1500,6 @@ export default function SupplierReport() {
                     const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`);
                     if (loanRes.data) {
                         currentPaid = parseFloat(loanRes.data.loan_amount) || 0;
-                        // ✅ IMPORTANT FIX: Use the payment details from the loan record directly
-                        // Don't create new IDs or modify them
                         paymentBreakdown = loanRes.data.payment_details || [];
                         const isFullyPaid = (total - currentPaid) <= 0;
                         setState(prev => ({ ...prev, isUpdatingCompletedBill: isFullyPaid }));
@@ -1496,18 +1510,27 @@ export default function SupplierReport() {
                 }
             }
 
+            // Fetch creditor info for this bill
+            if (billNo) {
+                const creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+                setSelectedBillCreditor(creditorInfo);
+            } else {
+                setSelectedBillCreditor(null);
+            }
+
             setState(prev => ({
                 ...prev,
                 supplierDetails: response.data || [],
                 paymentAmount: (total - currentPaid).toString(),
                 currentPaidAmount: currentPaid,
-                paymentBreakdown: paymentBreakdown, // ✅ Use the fetched breakdown directly
+                paymentBreakdown: paymentBreakdown,
                 isPrinting: false
             }));
         } catch (error) {
             console.error("Error fetching supplier details:", error);
             alert(`Failed to load supplier details: ${error.response?.data?.message || error.message}`);
             setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
+            setSelectedBillCreditor(null);
         }
     };
 
@@ -1720,6 +1743,13 @@ export default function SupplierReport() {
 
         if (!state.selectedSupplier || state.isPrinting) return;
 
+        // NEW: Check if this is a completed bill with pending credit
+        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+            // This is a credit settlement payment
+            await processCreditSettlementPayment(paymentAmount, isCheque, chequeDetails, isBankTransfer, bankTransferDetails);
+            return;
+        }
+
         setIsProcessingPayment(true);
         setState(prev => ({ ...prev, isPrinting: true }));
 
@@ -1863,6 +1893,7 @@ export default function SupplierReport() {
                     showAdjustmentModal: false,
                     isPrinting: false
                 }));
+                setSelectedBillCreditor(null);
             }
         } catch (error) {
             console.error("Payment error:", error);
@@ -1873,6 +1904,207 @@ export default function SupplierReport() {
             setTimeout(() => {
                 setIsProcessingPayment(false);
             }, 2000);
+        }
+    };
+    // Process credit settlement payment (when paying off supplier credit)
+    const processCreditSettlementPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null) => {
+        if (!state.selectedSupplier || !selectedBillCreditor) {
+            alert("No credit record found to settle");
+            return;
+        }
+
+        setState(prev => ({ ...prev, isPrinting: true }));
+
+        try {
+            let paymentMethod = 'Cash';
+            let paymentMethodForCreditor = 'cash';
+
+            if (isBankTransfer) {
+                paymentMethod = 'Bank Transfer';
+                paymentMethodForCreditor = 'bank_transfer';
+            } else if (isCheque) {
+                paymentMethod = 'Cheque';
+                paymentMethodForCreditor = 'cheque';
+            }
+
+            // Validate amount doesn't exceed remaining credit
+            if (paymentAmount > selectedBillCreditor.remaining_amount) {
+                alert(`Amount exceeds remaining credit!\n\nRemaining Credit: Rs. ${formatDecimal(selectedBillCreditor.remaining_amount)}\nEntered: Rs. ${formatDecimal(paymentAmount)}`);
+                setState(prev => ({ ...prev, isPrinting: false }));
+                return;
+            }
+
+            // Update the creditor record
+            const updateResponse = await api.put('/creditors/update-payment', {
+                bill_no: state.selectedBillNo,
+                payment_amount: paymentAmount,
+                payment_method: paymentMethodForCreditor
+            });
+
+            if (updateResponse.data.success) {
+                // Get updated creditor info
+                const updatedCreditor = updateResponse.data.data;
+
+                // Create payment record for the loan/supplier record
+                const totalPayableAmt = totalPayable;
+                const currentPaid = state.currentPaidAmount;
+                const newTotalPaid = currentPaid + paymentAmount;
+                const newRemaining = Math.max(0, totalPayableAmt - newTotalPaid);
+
+                const paymentRecord = {
+                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    date: new Date().toISOString(),
+                    amount: paymentAmount,
+                    method: paymentMethod,
+                    running_balance: newRemaining,
+                    reference: paymentMethod === 'Cash' ? 'Cash Payment' : (chequeDetails?.cheq_no || bankTransferDetails?.reference_no || ''),
+                    details: {
+                        creditor_settlement: true,
+                        previous_credit_remaining: selectedBillCreditor.remaining_amount,
+                        new_credit_remaining: updatedCreditor.remaining_amount,
+                        payment_method_details: isCheque ? { cheque_no: chequeDetails?.cheq_no, cheque_date: chequeDetails?.cheq_date, bank_name: chequeDetails?.bank_name } :
+                            isBankTransfer ? { reference_no: bankTransferDetails?.reference_no, transfer_date: bankTransferDetails?.transfer_date, bank_name: bankTransferDetails?.bank_name } : {}
+                    }
+                };
+
+                const allPaymentDetails = [...state.paymentBreakdown, paymentRecord];
+
+                const payload = {
+                    code: state.selectedSupplier,
+                    bill_no: state.selectedBillNo,
+                    loan_amount: paymentAmount,
+                    total_amount: updatedCreditor.remaining_amount,
+                    type: paymentMethod,
+                    transaction_ids: state.supplierDetails.map(record => record.id),
+                    payment_details: allPaymentDetails
+                };
+
+                // Add bank details if applicable
+                if (isCheque && chequeDetails) {
+                    payload.bank_name = chequeDetails.bank_name;
+                    payload.cheque_no = chequeDetails.cheq_no;
+                    payload.realized_date = chequeDetails.cheq_date;
+                    payload.bank_account_id = chequeDetails.bank_account_id;
+                } else if (isBankTransfer && bankTransferDetails) {
+                    payload.bank_account_id = bankTransferDetails.bank_account_id;
+                    payload.transfer_reference_no = bankTransferDetails.reference_no;
+                    payload.transfer_date = bankTransferDetails.transfer_date;
+                    payload.transfer_notes = bankTransferDetails.notes;
+                }
+
+                const response = await api.post('/supplier-loan', payload);
+
+                if (response.data.success) {
+                    await fetchSupplierData();
+
+                    const newRemainingCredit = updatedCreditor.remaining_amount;
+                    const isFullySettled = newRemainingCredit <= 0;
+
+                    // Create receipt content for credit settlement
+                    const settlementReceipt = `
+                    <div style="width:350px; margin:0 auto; padding:10px; font-family:'Courier New', monospace;">
+                        <div style="text-align:center; font-weight:bold;">
+                            <div style="font-size:24px;">Manju</div>
+                            <div style="font-size:16px;">colombage lanka (Pvt) Ltd</div>
+                            <div style="font-size:16px;">CREDIT SETTLEMENT RECEIPT</div>
+                            <hr style="border-top:2px solid #000;">
+                        </div>
+                        <div style="margin-top:10px;">
+                            <div><strong>Supplier:</strong> ${state.selectedSupplier}</div>
+                            <div><strong>Bill No:</strong> ${state.selectedBillNo || 'N/A'}</div>
+                            <div><strong>Date:</strong> ${new Date().toLocaleString()}</div>
+                            <div><strong>Payment Method:</strong> ${paymentMethod}</div>
+                            ${isCheque && chequeDetails ? `<div><strong>Cheque No:</strong> ${chequeDetails.cheq_no}</div>` : ''}
+                            ${isBankTransfer && bankTransferDetails ? `<div><strong>Reference No:</strong> ${bankTransferDetails.reference_no}</div>` : ''}
+                            <hr style="border-top:1px dashed #000;">
+                            <div><strong>Amount Paid:</strong> Rs. ${formatDecimal(paymentAmount)}</div>
+                            <div><strong>Previous Credit:</strong> Rs. ${formatDecimal(selectedBillCreditor.remaining_amount + paymentAmount)}</div>
+                            <div><strong>Remaining Credit:</strong> Rs. ${formatDecimal(newRemainingCredit)}</div>
+                            <hr style="border-top:2px solid #000;">
+                            <div style="text-align:center; margin-top:10px;">
+                                <strong>${isFullySettled ? '✓ CREDIT FULLY SETTLED ✓' : '⏳ PARTIAL SETTLEMENT ⏳'}</strong>
+                            </div>
+                        </div>
+                        <div style="text-align:center; margin-top:20px; font-size:12px;">
+                            <p>Thank you for your payment!</p>
+                        </div>
+                    </div>
+                `;
+
+                    // Print receipt
+                    const printWindow = window.open("", "_blank", "width=400,height=500");
+                    if (printWindow) {
+                        printWindow.document.write(`
+                        <html>
+                            <head>
+                                <title>Credit Settlement - ${state.selectedSupplier}</title>
+                                <style>
+                                    body { margin: 0; padding: 20px; font-family: 'Courier New', monospace; }
+                                    @media print { body { padding: 0; margin: 0; } }
+                                </style>
+                            </head>
+                            <body>${settlementReceipt}
+                            <script>
+                                window.onload = () => {
+                                    window.print();
+                                    setTimeout(() => window.close(), 1000);
+                                };
+                            <\/script>
+                            </body>
+                        </html>
+                    `);
+                        printWindow.document.close();
+                    } else {
+                        alert("Please allow pop-ups for printing");
+                    }
+
+                    const statusMessage = isFullySettled
+                        ? `✅ CREDIT FULLY SETTLED!\n\n` +
+                        `Supplier: ${state.selectedSupplier}\n` +
+                        `Bill No: ${state.selectedBillNo || 'N/A'}\n` +
+                        `Payment Method: ${paymentMethod}\n` +
+                        `Amount Paid: Rs. ${formatDecimal(paymentAmount)}\n` +
+                        `Total Credit: Rs. ${formatDecimal(selectedBillCreditor.credit_amount)}\n` +
+                        `Remaining Credit: Rs. 0.00\n` +
+                        `Status: FULLY PAID ✓\n\n` +
+                        `Receipt has been printed.`
+                        : `✓ CREDIT PAYMENT RECORDED!\n\n` +
+                        `Supplier: ${state.selectedSupplier}\n` +
+                        `Bill No: ${state.selectedBillNo || 'N/A'}\n` +
+                        `Payment Method: ${paymentMethod}\n` +
+                        `Amount Paid: Rs. ${formatDecimal(paymentAmount)}\n` +
+                        `Previous Credit: Rs. ${formatDecimal(selectedBillCreditor.remaining_amount + paymentAmount)}\n` +
+                        `Remaining Credit: Rs. ${formatDecimal(newRemainingCredit)}\n` +
+                        `Status: ${newRemainingCredit > 0 ? 'PARTIAL PAYMENT - More due' : 'FULLY PAID'}\n\n` +
+                        `Receipt has been printed.`;
+
+                    alert(statusMessage);
+
+                    setState(prev => ({
+                        ...prev,
+                        selectedSupplier: null,
+                        selectedBillNo: null,
+                        supplierDetails: [],
+                        paymentAmount: "",
+                        currentPaidAmount: 0,
+                        paymentBreakdown: [],
+                        showChequeModal: false,
+                        showBankToBankModal: false,
+                        isPrinting: false
+                    }));
+                    setSelectedBillCreditor(null);
+                } else {
+                    throw new Error(response.data.message || 'Failed to update supplier loan record');
+                }
+            } else {
+                throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
+            }
+        } catch (error) {
+            console.error("Error processing credit settlement:", error);
+            alert('Failed to process payment: ' + (error.response?.data?.message || error.message));
+            setState(prev => ({ ...prev, isPrinting: false }));
+        } finally {
+            setState(prev => ({ ...prev, isPrinting: false }));
         }
     };
 
@@ -1909,6 +2141,171 @@ export default function SupplierReport() {
 
     const handleBankToBankConfirm = async (transferDetails) => {
         await processPayment(state.pendingBankToBankAmount, false, null, true, transferDetails);
+    };
+    // Credit payment handler for supplier (payable to supplier)
+    const handleCreditPayment = async () => {
+        let paymentAmount = parseFloat(state.paymentAmount);
+
+        console.log('=== CREDIT PAYMENT FOR SUPPLIER ===');
+        console.log('Payment Amount:', paymentAmount);
+        console.log('Selected Supplier:', state.selectedSupplier);
+        console.log('Bill No:', state.selectedBillNo);
+        console.log('Total Payable:', totalPayable);
+        console.log('Already Paid:', state.currentPaidAmount);
+
+        if (isNaN(paymentAmount) || paymentAmount <= 0) {
+            alert("Please enter a valid amount greater than 0");
+            return;
+        }
+
+        if (!state.selectedSupplier) {
+            alert("Please select a supplier/bill first");
+            return;
+        }
+
+        const remainingBillAmount = totalPayable - state.currentPaidAmount;
+        if (paymentAmount > remainingBillAmount) {
+            alert(`Amount exceeds remaining bill amount!\n\nRemaining: Rs. ${formatDecimal(remainingBillAmount)}\nEntered: Rs. ${formatDecimal(paymentAmount)}`);
+            return;
+        }
+
+        const confirmCredit = window.confirm(
+            `⚠️ CREDIT PAYMENT CONFIRMATION ⚠️\n\n` +
+            `Supplier: ${state.selectedSupplier}\n` +
+            `Bill Number: ${state.selectedBillNo || 'N/A'}\n` +
+            `Amount: Rs. ${paymentAmount.toFixed(2)}\n` +
+            `Remaining Bill Amount: Rs. ${formatDecimal(remainingBillAmount)}\n\n` +
+            `This amount will be recorded as PAYABLE to the supplier (Creditor record).\n` +
+            `Credit Amount will be added to supplier's credit balance.\n\n` +
+            `Are you sure you want to proceed?`
+        );
+
+        if (!confirmCredit) return;
+
+        await processCreditPayment(paymentAmount);
+    };
+
+    // Process credit payment for supplier
+    const processCreditPayment = async (paymentAmount) => {
+        if (!state.selectedSupplier || state.isPrinting) return;
+
+        console.log('=== PROCESS CREDIT PAYMENT FOR SUPPLIER ===');
+
+        setState(prev => ({ ...prev, isPrinting: true }));
+
+        try {
+            const totalPayableAmt = totalPayable;
+            const currentPaid = state.currentPaidAmount;
+            const newTotalPaid = currentPaid + paymentAmount;
+            const isFullySettled = newTotalPaid >= totalPayableAmt;
+            const newRemaining = Math.max(0, totalPayableAmt - newTotalPaid);
+
+            // First, create creditor record with the exact payment amount
+            const creditorData = {
+                bill_no: state.selectedBillNo,
+                supplier_code: state.selectedSupplier,
+                credit_amount: parseFloat(paymentAmount)
+            };
+
+            console.log('Sending to creditor API:', creditorData);
+
+            const creditorResponse = await api.post('/creditors/create', creditorData);
+
+            console.log('Creditor API Response:', creditorResponse.data);
+
+            if (!creditorResponse.data.success) {
+                throw new Error(creditorResponse.data.message || 'Failed to create credit record');
+            }
+
+            let remainingCreditAmount = parseFloat(paymentAmount);
+            let creditorStatus = 'pending';
+
+            if (creditorResponse.data.data?.remaining_amount !== undefined) {
+                remainingCreditAmount = parseFloat(creditorResponse.data.data.remaining_amount);
+                creditorStatus = creditorResponse.data.data.status || 'pending';
+            } else if (creditorResponse.data.data?.credit_amount !== undefined) {
+                remainingCreditAmount = parseFloat(creditorResponse.data.data.credit_amount);
+            }
+
+            console.log('Remaining Credit Amount:', remainingCreditAmount);
+            console.log('Creditor Status:', creditorStatus);
+
+            // Create payment history entry
+            const paymentRecord = {
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                date: new Date().toISOString(),
+                amount: paymentAmount,
+                method: 'Credit',
+                running_balance: newRemaining,
+                reference: 'Credit Payment - Payable to Supplier',
+                details: {
+                    creditor_id: creditorResponse.data.data?.id,
+                    credit_amount: parseFloat(paymentAmount),
+                    remaining_credit: remainingCreditAmount,
+                    creditor_status: creditorStatus
+                }
+            };
+
+            const allPaymentDetails = [...state.paymentBreakdown, paymentRecord];
+
+            const payload = {
+                code: state.selectedSupplier,
+                bill_no: state.selectedBillNo,
+                loan_amount: paymentAmount,
+                total_amount: newRemaining,
+                type: 'Credit',
+                transaction_ids: state.supplierDetails.map(record => record.id),
+                payment_details: allPaymentDetails
+            };
+
+            const response = await api.post('/supplier-loan', payload);
+
+            if (response.data.success) {
+                await fetchSupplierData();
+
+                if (isFullySettled && state.selectedBillNo) {
+                    const billContent = await generateBillContent(state.selectedBillNo);
+                    setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
+                }
+
+                const statusMessage = isFullySettled
+                    ? `✅ Bill Fully Paid!\n\nPayment Method: CREDIT (Payable to Supplier)\nAmount Added: Rs. ${formatDecimal(paymentAmount)}\nTotal Paid: Rs. ${formatDecimal(newTotalPaid)}\nRemaining Credit (Payable): Rs. ${formatDecimal(remainingCreditAmount)}\nCreditor Status: ${creditorStatus === 'paid' ? 'FULLY PAID' : 'PENDING'}\n\nBill is now FULLY PAID.`
+                    : `✓ Credit Added Successfully!\n\nAmount: Rs. ${formatDecimal(paymentAmount)}\nTotal Paid: Rs. ${formatDecimal(newTotalPaid)}\nRemaining on Bill: Rs. ${formatDecimal(Math.max(0, totalPayableAmt - newTotalPaid))}\nRemaining Credit (Payable): Rs. ${formatDecimal(remainingCreditAmount)}\nCreditor Status: ${creditorStatus === 'paid' ? 'FULLY PAID' : (creditorStatus === 'partial' ? 'PARTIAL' : 'PENDING')}\n\n⚠️ This amount has been recorded as CREDIT (payable to supplier) and needs to be paid later.`;
+
+                alert(statusMessage);
+
+                setState(prev => ({
+                    ...prev,
+                    selectedSupplier: null,
+                    selectedBillNo: null,
+                    supplierDetails: [],
+                    paymentAmount: "",
+                    currentPaidAmount: 0,
+                    paymentBreakdown: [],
+                    showChequeModal: false,
+                    showBankToBankModal: false,
+                    showAdjustmentModal: false,
+                    isPrinting: false
+                }));
+                setSelectedBillCreditor(null);
+            } else {
+                throw new Error(response.data.message || 'Failed to update sales record');
+            }
+        } catch (error) {
+            console.error("Error processing credit payment:", error);
+            let errorMessage = "Failed to process credit payment. ";
+            if (error.response) {
+                console.error("Error response:", error.response.data);
+                errorMessage += error.response.data?.message || error.message;
+            } else if (error.request) {
+                errorMessage += "No response from server. Please check your connection.";
+            } else {
+                errorMessage += error.message;
+            }
+            alert(errorMessage);
+        } finally {
+            setState(prev => ({ ...prev, isPrinting: false }));
+        }
     };
 
     const handleApplyAdjustment = async (adjustmentData) => {
@@ -1979,7 +2376,32 @@ export default function SupplierReport() {
 
     const totalPayable = state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
     const currentGiven = parseFloat(state.paymentAmount) || 0;
-    const remainingAfterPayment = Math.max(0, totalPayable - (state.currentPaidAmount + currentGiven));
+
+    // Calculate remaining after payment - handle credit settlement separately
+    let remainingAfterPayment;
+    if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+        // For completed bills with credit, show remaining credit amount
+        remainingAfterPayment = Math.max(0, selectedBillCreditor.remaining_amount - currentGiven);
+    } else {
+        // For pending bills, show remaining bill amount
+        remainingAfterPayment = Math.max(0, totalPayable - (state.currentPaidAmount + currentGiven));
+    }
+    useEffect(() => {
+        if (state.selectedSupplier) {
+            if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+                // For completed bills with credit, set payment amount to remaining credit
+                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) {
+                    setState(prev => ({ ...prev, paymentAmount: selectedBillCreditor.remaining_amount.toString() }));
+                }
+            } else if (!state.isUpdatingCompletedBill && state.supplierDetails.length > 0) {
+                // For pending bills, set to remaining bill amount
+                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) {
+                    const remaining = Math.max(0, totalPayable - state.currentPaidAmount);
+                    setState(prev => ({ ...prev, paymentAmount: remaining.toString() }));
+                }
+            }
+        }
+    }, [state.selectedSupplier, totalPayable, state.supplierDetails, state.currentPaidAmount, selectedBillCreditor, state.isUpdatingCompletedBill]);
 
     useEffect(() => {
         if (state.selectedSupplier && !state.isUpdatingCompletedBill && state.supplierDetails.length > 0) {
@@ -2119,20 +2541,126 @@ export default function SupplierReport() {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', marginTop: '8px', fontWeight: '700', fontSize: '16px', borderTop: '2px solid #e2e8f0' }}><span>Remaining:</span><span>Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount))}</span></div>
                                     </div>
 
-                                    {!state.isUpdatingCompletedBill && (
+                                    {/* Payment section - Show for pending bills OR completed bills with pending credit */}
+                                    {(state.selectedSupplier && (!state.isUpdatingCompletedBill || (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0))) && (
                                         <div style={styles.paymentBox}>
-                                            <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '12px' }}>💰 Enter Payment Amount</div>
-                                            <input type="number" value={state.paymentAmount} onChange={(e) => setState(prev => ({ ...prev, paymentAmount: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '14px', border: '2px solid #fbbf24', borderRadius: '12px', fontSize: '18px', fontWeight: '600', textAlign: 'center', background: 'white' }} />
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', padding: '10px 0', fontSize: '14px' }}><span>After Payment:</span><span style={{ fontWeight: 'bold', color: remainingAfterPayment === 0 ? '#10b981' : '#065f46', fontSize: '16px' }}>Rs. {formatDecimal(remainingAfterPayment === 0 ? 0 : remainingAfterPayment)}</span></div>
+                                            <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '12px' }}>
+                                                💰 Enter Payment Amount
+                                                {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
+                                                    <span style={{ fontSize: '11px', marginLeft: '8px', color: '#d97706' }}>
+                                                        (Settle Credit Payable)
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <input
+                                                type="number"
+                                                value={state.paymentAmount}
+                                                onChange={(e) => setState(prev => ({ ...prev, paymentAmount: e.target.value }))}
+                                                placeholder="0.00"
+                                                disabled={state.isPrinting}
+                                                style={{ width: '100%', padding: '14px', border: '2px solid #fbbf24', borderRadius: '12px', fontSize: '18px', fontWeight: '600', textAlign: 'center', background: 'white' }}
+                                            />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', padding: '10px 0', fontSize: '14px' }}>
+                                                <span>After Payment:</span>
+                                                <span style={{ fontWeight: 'bold', color: remainingAfterPayment === 0 ? '#10b981' : '#065f46', fontSize: '16px' }}>
+                                                    Rs. {formatDecimal(remainingAfterPayment === 0 ? 0 : remainingAfterPayment)}
+                                                </span>
+                                            </div>
                                             <div style={styles.paymentButtonsContainer}>
-                                                <button onClick={handleCashPayment} disabled={state.isPrinting || !state.paymentAmount} style={{ ...styles.cashPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💵 Cash</button>
-                                                <button onClick={handleChequePayment} disabled={state.isPrinting || !state.paymentAmount} style={{ ...styles.chequePaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💳 Cheque</button>
-                                                <button onClick={handleBankToBankPayment} disabled={state.isPrinting || !state.paymentAmount} style={{ ...styles.bankToBankPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>🏦 Bank Transfer</button>
+                                                <button onClick={handleCashPayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0} style={{ ...styles.cashPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💵 Cash</button>
+                                                <button onClick={handleChequePayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0} style={{ ...styles.chequePaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💳 Cheque</button>
+                                                <button onClick={handleBankToBankPayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0} style={{ ...styles.bankToBankPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>🏦 Bank Transfer</button>
+                                                <button
+                                                    onClick={handleCreditPayment}
+                                                    disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0 || state.isUpdatingCompletedBill}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '12px',
+                                                        background: '#f59e0b',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '12px',
+                                                        fontWeight: '600',
+                                                        fontSize: '13px',
+                                                        cursor: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0 || state.isUpdatingCompletedBill) ? 'not-allowed' : 'pointer',
+                                                        opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0 || state.isUpdatingCompletedBill) ? 0.5 : 1,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '8px'
+                                                    }}
+                                                >
+                                                    💳 Credit (Record Payable)
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
+                                        <div style={{
+                                            marginTop: '16px',
+                                            padding: '12px',
+                                            background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                                            borderRadius: '12px',
+                                            borderLeft: '4px solid #f59e0b'
+                                        }}>
+                                            <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '8px' }}>
+                                                💰 Outstanding Credit (Payable to Supplier)
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#78350f', lineHeight: '1.6' }}>
+                                                <div>Total Credit Taken: <strong>Rs. {formatDecimal(selectedBillCreditor.credit_amount)}</strong></div>
+                                                <div>Amount Paid: <strong>Rs. {formatDecimal(selectedBillCreditor.paid_amount)}</strong></div>
+                                                <div>Remaining Payable: <strong style={{ color: selectedBillCreditor.remaining_amount > 0 ? '#dc2626' : '#10b981' }}>
+                                                    Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
+                                                </strong></div>
+                                                <div>Settled Via: <strong>{selectedBillCreditor.settled_way || 'Not settled yet'}</strong></div>
+                                                <div>Status: <strong style={{
+                                                    color: selectedBillCreditor.status === 'paid' ? '#10b981' :
+                                                        selectedBillCreditor.status === 'partial' ? '#d97706' : '#dc2626'
+                                                }}>
+                                                    {selectedBillCreditor.status === 'paid' ? '✓ FULLY PAID' :
+                                                        selectedBillCreditor.status === 'partial' ? '⏳ PARTIAL' : '⚠️ PENDING'}
+                                                </strong></div>
+                                                <div style={{ fontSize: '11px', marginTop: '6px', color: '#92400e' }}>
+                                                    ⚠️ This amount is payable TO the supplier!
+                                                </div>
                                             </div>
                                         </div>
                                     )}
 
-                                    {!state.isUpdatingCompletedBill && (<button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={styles.adjustmentBtn}>🔧 Payment Adjustment</button>)}
+                                    {/* Display fully paid creditor message */}
+                                    {selectedBillCreditor && (
+                                        (() => {
+                                            const creditAmount = parseFloat(selectedBillCreditor.credit_amount) || 0;
+                                            const paidAmount = parseFloat(selectedBillCreditor.paid_amount) || 0;
+                                            const isFullyPaid = creditAmount === paidAmount && creditAmount > 0;
+
+                                            if (isFullyPaid) {
+                                                return (
+                                                    <div style={{
+                                                        marginTop: '16px',
+                                                        padding: '12px',
+                                                        background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)',
+                                                        borderRadius: '12px',
+                                                        borderLeft: '4px solid #10b981'
+                                                    }}>
+                                                        <div style={{ fontSize: '13px', color: '#065f46', fontWeight: '500' }}>
+                                                            ✅ Credit Fully Settled!
+                                                            <div style={{ fontSize: '11px', marginTop: '4px', color: '#047857' }}>
+                                                                Credit Amount: Rs. {formatDecimal(creditAmount)} | Paid: Rs. {formatDecimal(paidAmount)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()
+                                    )}
+                                    {/* Show Payment Adjustment button for pending bills OR completed bills with credit */}
+                                    {(!state.isUpdatingCompletedBill || (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0)) && (
+                                        <button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={styles.adjustmentBtn}>
+                                            🔧 Payment Adjustment
+                                        </button>
+                                    )}
                                     <button onClick={() => fetchPaymentHistory(state.selectedSupplier, state.selectedBillNo)} style={{ width: '100%', marginBottom: '0', padding: '12px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>📜 View Payment History</button>
                                 </>
                             ) : (
