@@ -129,67 +129,70 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     return (
         <div>
             {/* === Top Navigation Bar === */}
-            <nav className="navbar navbar-expand-lg navbar-dark fixed-top" style={{ backgroundColor: '#004d00', width: '100%' }}>
-                <div className="container-fluid d-flex align-items-center justify-content-between">
-                    <div className="d-flex align-items-center">
-                        <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to={basePath || "/"}>
-                            <i className="material-icons align-middle me-2">warehouse</i>
-                            මුල් පිටුව
-                        </Link>
+         <nav className="navbar navbar-expand-lg navbar-dark fixed-top" style={{ backgroundColor: '#004d00', width: '100%' }}>
+    <div className="container-fluid d-flex align-items-center justify-content-between">
+        <div className="d-flex align-items-center">
+            <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to={basePath || "/"}>
+                <i className="material-icons align-middle me-2">warehouse</i>
+                මුල් පිටුව
+            </Link>
 
-                        <div className="navbar-nav d-flex flex-row align-items-center">
-                            <div className="nav-item dropdown mx-1">
-                                <button className="btn btn-outline-light btn-sm dropdown-toggle" id="masterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i className="material-icons align-middle me-1">menu_book</i> ප්‍රධාන ගොනුව
-                                </button>
-                                <ul className="dropdown-menu dropdown-menu-dark" aria-labelledby="masterDropdown">
-                                    <li><Link to={`${basePath}/customers`} className="dropdown-item"><i className="material-icons align-middle me-1">people</i> පාරිභෝගිකයින්</Link></li>
-                                    <li><Link to={`${basePath}/items`} className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i> භාණ්ඩ</Link></li>
-                                    <li><Link to={`${basePath}/suppliers`} className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
-                                    <li><Link to={`${basePath}/commissions`} className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
-                                     <li><Link to="/banks" className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i>Banks</Link></li>
-                                    <li><Link to={`${basePath}/reports/printed-sales`} className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා</Link></li>
-                                    <li><Link to={`${basePath}/reports/printed-sales2`} className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා 2</Link></li>
-                                    <li><hr className="dropdown-divider" /></li>
-                                    <li>
-                                        <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = `${basePath}/customers-loans/report`}>
-                                            <i className="material-icons align-middle me-1 text-warning">account_balance</i> ණය වාර්තාව
-                                        </button>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            {/* 🛡️ Conditional: Hide for Admin */}
-                            {user?.role !== 'Admin' && (
-                                <>
-                                    <Link to={`${basePath}/customers-loans`} className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }}>ණය දීම/ගැනීම</Link>
-                                    
-                                    <button type="button" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }} onClick={openDayProcessModal}>දින අවසාන ක්‍රියාවලිය</button>
-                                </>
-                            )}
-                        </div>
-
-                        {/* 🛡️ Conditional: Hide Bill Size for Admin */}
-                        {isSalesEntryPage && user?.role !== 'Admin' && (
-                            <div className="d-flex align-items-center me-3" style={{ marginLeft: '20px' }}>
-                                <label htmlFor="bill-size-select" className="text-white me-2" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>Bill Size:</label>
-                                <select id="bill-size-select" value={billSize} onChange={handleBillSizeChange} className="form-select form-select-sm" style={{ width: '100px', backgroundColor: '#006400', color: 'white', border: '1px solid #4a5568' }}>
-                                    <option value="3inch">3 Inch (Def)</option>
-                                    <option value="4inch">4 Inch</option>
-                                </select>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Right Side: Display fetched value in Red and Logout Button */}
-                    {user && (
-                        <div className="d-flex align-items-center text-white">
-                            <span className="me-3 fw-bold" style={{ color: '#ff4444', fontSize: '1.1rem' }}>{settingValue}</span>
-                            <button onClick={handleLogout} className="btn btn-sm btn-outline-light" style={{ fontWeight: 'bold' }}>Logout</button>
-                        </div>
-                    )}
+            <div className="navbar-nav d-flex flex-row align-items-center">
+                <div className="nav-item dropdown mx-1">
+                    <button className="btn btn-outline-light btn-sm dropdown-toggle" id="masterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i className="material-icons align-middle me-1">menu_book</i> ප්‍රධාන ගොනුව
+                    </button>
+                    <ul className="dropdown-menu dropdown-menu-dark" aria-labelledby="masterDropdown">
+                        <li><Link to={`${basePath}/customers`} className="dropdown-item"><i className="material-icons align-middle me-1">people</i> පාරිභෝගිකයින්</Link></li>
+                        <li><Link to={`${basePath}/items`} className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i> භාණ්ඩ</Link></li>
+                        <li><Link to={`${basePath}/suppliers`} className="dropdown-item"><i className="material-icons align-middle me-1">local_shipping</i> සැපයුම්කරුවන්</Link></li>
+                        <li><Link to={`${basePath}/commissions`} className="dropdown-item"><i className="material-icons align-middle me-1">attach_money</i>කොමිස් මුදල්</Link></li>
+                        <li><Link to="/banks" className="dropdown-item"><i className="material-icons align-middle me-1">inventory_2</i>Banks</Link></li>
+                        <li><Link to={`${basePath}/reports/printed-sales`} className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා</Link></li>
+                        <li><Link to={`${basePath}/reports/printed-sales2`} className="dropdown-item flex items-center"><i className="material-icons me-1">analytics</i>ප්‍රින්ට් කළ වාර්තා 2</Link></li>
+                        <li><hr className="dropdown-divider" /></li>
+                        <li>
+                            <button type="button" className="dropdown-item text-warning" onClick={() => window.location.href = `${basePath}/customers-loans/report`}>
+                                <i className="material-icons align-middle me-1 text-warning">account_balance</i> ණය වාර්තාව
+                            </button>
+                        </li>
+                    </ul>
                 </div>
-            </nav>
+
+                {/* Separate Supplier Report Button */}
+                <Link to={`${basePath}/supplierreport`} className="btn btn-outline-light btn-sm mx-1">
+                    <i className="material-icons align-middle me-1">assessment</i> සැපයුම්කරු වාර්තාව
+                </Link>
+
+                {/* 🛡️ Conditional: Hide for Admin */}
+                {user?.role !== 'Admin' && (
+                    <>
+                        <button type="button" className="btn btn-outline-success btn-sm mx-1" style={{ fontWeight: 'bold', color: '#fff' }} onClick={openDayProcessModal}>දින අවසාන ක්‍රියාවලිය</button>
+                    </>
+                )}
+            </div>
+
+            {/* 🛡️ Conditional: Hide Bill Size for Admin */}
+            {isSalesEntryPage && user?.role !== 'Admin' && (
+                <div className="d-flex align-items-center me-3" style={{ marginLeft: '20px' }}>
+                    <label htmlFor="bill-size-select" className="text-white me-2" style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>Bill Size:</label>
+                    <select id="bill-size-select" value={billSize} onChange={handleBillSizeChange} className="form-select form-select-sm" style={{ width: '100px', backgroundColor: '#006400', color: 'white', border: '1px solid #4a5568' }}>
+                        <option value="3inch">3 Inch (Def)</option>
+                        <option value="4inch">4 Inch</option>
+                    </select>
+                </div>
+            )}
+        </div>
+
+        {/* Right Side: Display fetched value in Red and Logout Button */}
+        {user && (
+            <div className="d-flex align-items-center text-white">
+                <span className="me-3 fw-bold" style={{ color: '#ff4444', fontSize: '1.1rem' }}>{settingValue}</span>
+                <button onClick={handleLogout} className="btn btn-sm btn-outline-light" style={{ fontWeight: 'bold' }}>Logout</button>
+            </div>
+        )}
+    </div>
+</nav>
 
             {/* Main Content */}
             <main className={isSalesEntryPage ? "p-0" : "container-fluid py-4"} style={{ marginTop: '80px', marginBottom: '80px', width: '100%', maxWidth: isSalesEntryPage ? '100%' : undefined }}>

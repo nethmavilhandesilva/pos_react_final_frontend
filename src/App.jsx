@@ -45,6 +45,8 @@ import PaymentCollectionReport from './components/SalesEntry/PaymentCollectionRe
 import PaymentCollectionReport2 from './components/Suppliers/PaymentCollectionReport2';
 import UtilityTypeManager from './components/UtilityTypes/UtilityTypeManager';
 import IncomeExpenseReport2 from './components/CustomersLoans/IncomeExpenseReport2';
+import DebtorCreditorReport from './components/Reports/DebtorCreditorReport';
+import DebtorsList from './components/Debtors/DebtorsList';
 
 const getBasePath = () => {
     if (window.location.hostname === 'goviraju.lk') {
@@ -79,17 +81,17 @@ const AuthLayout = () => {
         const checkAuth = async () => {
             const currentPath = location.pathname;
             const token = localStorage.getItem('token');
-            
+
             console.log('🔐 AuthLayout - Checking path:', currentPath);
-            
+
             // PUBLIC PATHS - These are the ONLY ones accessible without authentication
             const publicPaths = ['/login', '/register', '/unauthorized'];
             const isPublicPath = publicPaths.includes(currentPath);
-            
+
             // Bill view paths (public with token in URL)
-            const isBillView = currentPath.startsWith('/view-bill') || 
-                              currentPath.startsWith('/view-supplier-bill');
-            
+            const isBillView = currentPath.startsWith('/view-bill') ||
+                currentPath.startsWith('/view-supplier-bill');
+
             // If it's a public path or bill view, allow access immediately
             if (isPublicPath || isBillView) {
                 console.log('✅ AuthLayout - Public path allowed:', currentPath);
@@ -97,7 +99,7 @@ const AuthLayout = () => {
                 setIsLoading(false);
                 return;
             }
-            
+
             // For ALL OTHER PATHS, require authentication
             if (!token) {
                 console.log('❌ AuthLayout - No token, redirecting to login from:', currentPath);
@@ -106,13 +108,13 @@ const AuthLayout = () => {
                 setIsLoading(false);
                 return;
             }
-            
+
             // Validate token with backend
             try {
                 console.log('🔍 AuthLayout - Validating token...');
                 api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
                 const response = await api.get('/user');
-                
+
                 if (response.data.success && response.data.user) {
                     console.log('✅ AuthLayout - Token valid for:', response.data.user.role);
                     localStorage.setItem('userData', JSON.stringify(response.data.user));
@@ -132,7 +134,7 @@ const AuthLayout = () => {
                 setIsLoading(false);
             }
         };
-        
+
         checkAuth();
     }, [location.pathname, navigate]);
 
@@ -155,7 +157,7 @@ const RequireRole = ({ children, allowedRoles }) => {
             setIsChecking(false);
             return;
         }
-        
+
         try {
             const user = JSON.parse(userData);
             if (allowedRoles.includes(user.role)) {
@@ -180,15 +182,15 @@ const RequireRole = ({ children, allowedRoles }) => {
 // ✅ Root redirect based on role
 const RootRedirect = () => {
     const userData = localStorage.getItem('userData');
-    
+
     if (!userData) {
         return <Navigate to="/login" replace />;
     }
-    
+
     try {
         const user = JSON.parse(userData);
         const role = user.role;
-        
+
         if (role === 'level2') {
             return <Navigate to="/printed-bills" replace />;
         } else if (role === 'level3') {
@@ -232,7 +234,7 @@ const UnAuthorizedPage = () => {
                     <br /><br />
                     Please contact your administrator if you believe this is an error.
                 </p>
-                <button 
+                <button
                     onClick={() => navigate('/login')}
                     style={{
                         padding: '10px 24px',
@@ -287,11 +289,11 @@ const AppRoutes = () => {
                 <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
                 {/* Supplier Reports with Role Protection */}
                 <Route path="/supplierreport" element={
-                    <RequireRole allowedRoles={['level4']}>
+                    <RequireRole allowedRoles={['level4', 'User']}>
                         <SupplierReport />
                     </RequireRole>
                 } />
-                
+
                 <Route path="/suppliermodal" element={<SupplierDetailsModal />} />
                 <Route path="/supplier-profit" element={<SupplierProfitReport />} />
                 <Route path="/financial-report" element={<FinancialReport />} />
@@ -304,25 +306,27 @@ const AppRoutes = () => {
                 <Route path="/supplier-loan-report" element={<SupplierLoanReport />} />
                 <Route path="/supplier-finalreport" element={<SupplierFinalReport />} />
                 <Route path="/suppliers/dobreport" element={<SupplierdobReport />} />
-                
+
                 {/* Role-specific Routes */}
                 <Route path="/printed-bills" element={
                     <RequireRole allowedRoles={['level2']}>
                         <PrintedBills />
                     </RequireRole>
                 } />
-                
+
                 <Route path="/bank-dashboard" element={
                     <RequireRole allowedRoles={['level3']}>
                         <BankDashboard />
                     </RequireRole>
                 } />
-                
+
                 <Route path="/banks" element={<Banks />} />
                 <Route path="/payment-collection-report" element={<PaymentCollectionReport />} />
                 <Route path="/payment-collection-report2" element={<PaymentCollectionReport2 />} />
                 <Route path="/utility-types" element={<UtilityTypeManager />} />
                 <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
+                    <Route path="/debtor-creditor-report" element={<DebtorCreditorReport />} />
+                    <Route path="/debtors" element={<DebtorsList />} />
             </Route>
 
             {/* Catch all - redirect to login */}
@@ -334,7 +338,7 @@ const AppRoutes = () => {
 // ✅ Main App Component
 export default function App() {
     console.log('App - Base Path:', basePath);
-    
+
     return (
         <BrowserRouter basename={basePath}>
             <AppRoutes />

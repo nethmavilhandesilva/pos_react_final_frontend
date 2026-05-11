@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../../api";
 
 const routes = {
@@ -13,7 +14,8 @@ const routes = {
     pendingFarmerBills: "/pending-farmer-bills",
     printBill: "/suppliers/print-bill",
     checkOrCreateCreditor: "/suppliers/check-or-create-creditor",
-    getSupplierByCode: "/suppliers/check-creditor"
+    getSupplierByCode: "/suppliers/check-creditor",
+    getSupplierDetailedReport: "/supplier-detailed-report",
 };
 
 // ==================== BANK ACCOUNT SELECTOR COMPONENT ====================
@@ -552,7 +554,6 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                 animation: 'slideUp 0.3s ease'
             }} onClick={(e) => e.stopPropagation()}>
 
-                {/* Header */}
                 <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -564,12 +565,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <span style={{ fontSize: '28px' }}>🔧</span>
-                        <h3 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '700',
-                            color: 'white'
-                        }}>Payment Adjustment</h3>
+                        <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: 'white' }}>Payment Adjustment</h3>
                     </div>
                     <button onClick={onClose} style={{
                         background: 'rgba(255,255,255,0.2)',
@@ -591,21 +587,9 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                     </button>
                 </div>
 
-                {/* Content */}
-                <div style={{
-                    padding: '24px',
-                    overflowY: 'auto',
-                    flex: 1,
-                }}>
-                    {/* Adjustment Type Selector */}
+                <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{
-                            display: 'block',
-                            marginBottom: '8px',
-                            fontWeight: '600',
-                            fontSize: '13px',
-                            color: '#334155'
-                        }}>Adjustment Type</label>
+                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>Adjustment Type</label>
                         <select
                             value={adjustmentType}
                             onChange={(e) => setAdjustmentType(e.target.value)}
@@ -635,478 +619,104 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                         </select>
                     </div>
 
-                    {/* Bag to Box Section */}
                     {adjustmentType === 'bag_to_box' && (
                         <>
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 1fr',
-                                gap: '16px',
-                                marginBottom: '16px'
-                            }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                                 <div>
-                                    <label style={{
-                                        display: 'block',
-                                        marginBottom: '6px',
-                                        fontWeight: '600',
-                                        fontSize: '12px',
-                                        color: '#334155'
-                                    }}>📦 Number of Bags</label>
-                                    <input
-                                        type="number"
-                                        value={bagCount}
-                                        onChange={(e) => setBagCount(e.target.value)}
-                                        placeholder="Enter bag count"
-                                        style={{
-                                            width: '100%',
-                                            padding: '10px 12px',
-                                            border: '2px solid #e2e8f0',
-                                            borderRadius: '10px',
-                                            fontSize: '14px',
-                                            transition: 'all 0.2s',
-                                            outline: 'none'
-                                        }}
-                                        onFocus={(e) => {
-                                            e.target.style.borderColor = '#f59e0b';
-                                            e.target.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.1)';
-                                        }}
-                                        onBlur={(e) => {
-                                            e.target.style.borderColor = '#e2e8f0';
-                                            e.target.style.boxShadow = 'none';
-                                        }}
-                                    />
+                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>📦 Number of Bags</label>
+                                    <input type="number" value={bagCount} onChange={(e) => setBagCount(e.target.value)} placeholder="Enter bag count"
+                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none' }} />
                                 </div>
                                 <div>
-                                    <label style={{
-                                        display: 'block',
-                                        marginBottom: '6px',
-                                        fontWeight: '600',
-                                        fontSize: '12px',
-                                        color: '#334155'
-                                    }}>💰 Value per Bag (Rs.)</label>
-                                    <input
-                                        type="number"
-                                        value={bagValue}
-                                        onChange={(e) => setBagValue(e.target.value)}
-                                        placeholder="Bag value"
-                                        style={{
-                                            width: '100%',
-                                            padding: '10px 12px',
-                                            border: '2px solid #e2e8f0',
-                                            borderRadius: '10px',
-                                            fontSize: '14px',
-                                            transition: 'all 0.2s',
-                                            outline: 'none'
-                                        }}
-                                        onFocus={(e) => {
-                                            e.target.style.borderColor = '#f59e0b';
-                                            e.target.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.1)';
-                                        }}
-                                        onBlur={(e) => {
-                                            e.target.style.borderColor = '#e2e8f0';
-                                            e.target.style.boxShadow = 'none';
-                                        }}
-                                    />
+                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>💰 Value per Bag (Rs.)</label>
+                                    <input type="number" value={bagValue} onChange={(e) => setBagValue(e.target.value)} placeholder="Bag value"
+                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none' }} />
                                 </div>
                             </div>
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 1fr',
-                                gap: '16px',
-                                marginBottom: '16px'
-                            }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                                 <div>
-                                    <label style={{
-                                        display: 'block',
-                                        marginBottom: '6px',
-                                        fontWeight: '600',
-                                        fontSize: '12px',
-                                        color: '#334155'
-                                    }}>📦 Number of Boxes</label>
-                                    <input
-                                        type="number"
-                                        value={boxCount}
-                                        onChange={(e) => setBoxCount(e.target.value)}
-                                        placeholder="Enter box count"
-                                        style={{
-                                            width: '100%',
-                                            padding: '10px 12px',
-                                            border: '2px solid #e2e8f0',
-                                            borderRadius: '10px',
-                                            fontSize: '14px',
-                                            transition: 'all 0.2s',
-                                            outline: 'none'
-                                        }}
-                                        onFocus={(e) => {
-                                            e.target.style.borderColor = '#f59e0b';
-                                            e.target.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.1)';
-                                        }}
-                                        onBlur={(e) => {
-                                            e.target.style.borderColor = '#e2e8f0';
-                                            e.target.style.boxShadow = 'none';
-                                        }}
-                                    />
+                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>📦 Number of Boxes</label>
+                                    <input type="number" value={boxCount} onChange={(e) => setBoxCount(e.target.value)} placeholder="Enter box count"
+                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none' }} />
                                 </div>
                                 <div>
-                                    <label style={{
-                                        display: 'block',
-                                        marginBottom: '6px',
-                                        fontWeight: '600',
-                                        fontSize: '12px',
-                                        color: '#334155'
-                                    }}>💰 Value per Box (Rs.)</label>
-                                    <input
-                                        type="number"
-                                        value={boxValue}
-                                        onChange={(e) => setBoxValue(e.target.value)}
-                                        placeholder="Box value"
-                                        style={{
-                                            width: '100%',
-                                            padding: '10px 12px',
-                                            border: '2px solid #e2e8f0',
-                                            borderRadius: '10px',
-                                            fontSize: '14px',
-                                            transition: 'all 0.2s',
-                                            outline: 'none'
-                                        }}
-                                        onFocus={(e) => {
-                                            e.target.style.borderColor = '#f59e0b';
-                                            e.target.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.1)';
-                                        }}
-                                        onBlur={(e) => {
-                                            e.target.style.borderColor = '#e2e8f0';
-                                            e.target.style.boxShadow = 'none';
-                                        }}
-                                    />
+                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>💰 Value per Box (Rs.)</label>
+                                    <input type="number" value={boxValue} onChange={(e) => setBoxValue(e.target.value)} placeholder="Box value"
+                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none' }} />
                                 </div>
                             </div>
-                            <div style={{
-                                background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
-                                padding: '16px',
-                                borderRadius: '12px',
-                                marginBottom: '20px',
-                                border: '1px solid #fbbf24'
-                            }}>
+                            <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #fbbf24' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '10px' }}>📊 Adjustment Summary</div>
                                 <div style={{ fontSize: '12px', color: '#78350f', lineHeight: '1.6' }}>
                                     Total Bag Value: <strong>Rs. {(parseInt(bagCount) * parseFloat(bagValue) || 0).toFixed(2)}</strong><br />
                                     Total Box Value: <strong>Rs. {(parseInt(boxCount) * parseFloat(boxValue) || 0).toFixed(2)}</strong><br />
-                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#065f46' }}>
-                                        Adjustment Amount: Rs. {Math.abs(calculateBagToBoxAdjustment()).toFixed(2)}
-                                    </span><br />
-                                    <span style={{ fontSize: '11px', color: '#78716c' }}>
-                                        This amount will be deducted from the remaining payment
-                                    </span>
+                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#065f46' }}>Adjustment Amount: Rs. {Math.abs(calculateBagToBoxAdjustment()).toFixed(2)}</span>
                                 </div>
                             </div>
                         </>
                     )}
 
-                    {/* Bill to Bill Section - Simplified (Supplier only) */}
                     {adjustmentType === 'bill_to_bill' && (
                         <>
-                            <div style={{
-                                marginBottom: '24px',
-                                padding: '16px',
-                                background: '#f8fafc',
-                                borderRadius: '16px',
-                                border: '1px solid #e2e8f0'
-                            }}>
-                                <div style={{
-                                    fontSize: '14px',
-                                    fontWeight: '600',
-                                    color: '#1e293b',
-                                    marginBottom: '12px',
-                                    paddingBottom: '8px',
-                                    borderBottom: '2px solid #10b981',
-                                    display: 'inline-block'
-                                }}>🏪 Supplier Bill Transfer</div>
-
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '1fr 1fr',
-                                    gap: '16px',
-                                    marginBottom: '16px'
-                                }}>
+                            <div style={{ marginBottom: '24px', padding: '16px', background: '#f8fafc', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b', marginBottom: '12px', paddingBottom: '8px', borderBottom: '2px solid #10b981', display: 'inline-block' }}>🏪 Supplier Bill Transfer</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                                     <div>
-                                        <label style={{
-                                            display: 'block',
-                                            marginBottom: '6px',
-                                            fontWeight: '600',
-                                            fontSize: '12px',
-                                            color: '#334155'
-                                        }}>Supplier Code</label>
-                                        <input
-                                            type="text"
-                                            value={targetSupplierCode}
-                                            onChange={(e) => setTargetSupplierCode(e.target.value.toUpperCase())}
-                                            placeholder="Enter supplier code"
-                                            style={{
-                                                width: '100%',
-                                                padding: '10px 12px',
-                                                border: '2px solid #e2e8f0',
-                                                borderRadius: '10px',
-                                                fontSize: '14px',
-                                                transition: 'all 0.2s',
-                                                outline: 'none'
-                                            }}
-                                            onFocus={(e) => {
-                                                e.target.style.borderColor = '#10b981';
-                                                e.target.style.boxShadow = '0 0 0 3px rgba(16,185,129,0.1)';
-                                            }}
-                                            onBlur={(e) => {
-                                                e.target.style.borderColor = '#e2e8f0';
-                                                e.target.style.boxShadow = 'none';
-                                            }}
-                                        />
+                                        <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>Supplier Code</label>
+                                        <input type="text" value={targetSupplierCode} onChange={(e) => setTargetSupplierCode(e.target.value.toUpperCase())} placeholder="Enter supplier code"
+                                            style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none' }} />
                                     </div>
                                     <div>
-                                        <label style={{
-                                            display: 'block',
-                                            marginBottom: '6px',
-                                            fontWeight: '600',
-                                            fontSize: '12px',
-                                            color: '#334155'
-                                        }}>Supplier Bill No</label>
-                                        <input
-                                            type="text"
-                                            value={targetSupplierBillNo}
-                                            onChange={(e) => setTargetSupplierBillNo(e.target.value)}
-                                            placeholder="Enter supplier bill number"
-                                            style={{
-                                                width: '100%',
-                                                padding: '10px 12px',
-                                                border: '2px solid #e2e8f0',
-                                                borderRadius: '10px',
-                                                fontSize: '14px',
-                                                transition: 'all 0.2s',
-                                                outline: 'none'
-                                            }}
-                                            onFocus={(e) => {
-                                                e.target.style.borderColor = '#10b981';
-                                                e.target.style.boxShadow = '0 0 0 3px rgba(16,185,129,0.1)';
-                                            }}
-                                            onBlur={(e) => {
-                                                e.target.style.borderColor = '#e2e8f0';
-                                                e.target.style.boxShadow = 'none';
-                                            }}
-                                        />
+                                        <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>Supplier Bill No</label>
+                                        <input type="text" value={targetSupplierBillNo} onChange={(e) => setTargetSupplierBillNo(e.target.value)} placeholder="Enter supplier bill number"
+                                            style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none' }} />
                                     </div>
                                 </div>
-
                                 <div>
-                                    <label style={{
-                                        display: 'block',
-                                        marginBottom: '6px',
-                                        fontWeight: '600',
-                                        fontSize: '12px',
-                                        color: '#334155'
-                                    }}>Bill Amount (Rs.)</label>
-                                    <input
-                                        type="number"
-                                        value={targetSupplierBillValue}
-                                        onChange={(e) => setTargetSupplierBillValue(e.target.value)}
-                                        placeholder="Enter bill amount"
-                                        style={{
-                                            width: '100%',
-                                            padding: '10px 12px',
-                                            border: '2px solid #e2e8f0',
-                                            borderRadius: '10px',
-                                            fontSize: '14px',
-                                            transition: 'all 0.2s',
-                                            outline: 'none'
-                                        }}
-                                        onFocus={(e) => {
-                                            e.target.style.borderColor = '#10b981';
-                                            e.target.style.boxShadow = '0 0 0 3px rgba(16,185,129,0.1)';
-                                        }}
-                                        onBlur={(e) => {
-                                            e.target.style.borderColor = '#e2e8f0';
-                                            e.target.style.boxShadow = 'none';
-                                        }}
-                                    />
+                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>Bill Amount (Rs.)</label>
+                                    <input type="number" value={targetSupplierBillValue} onChange={(e) => setTargetSupplierBillValue(e.target.value)} placeholder="Enter bill amount"
+                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none' }} />
                                 </div>
                             </div>
-
-                            {/* Transfer Summary */}
-                            <div style={{
-                                background: 'linear-gradient(135deg, #dbeafe, #eff6ff)',
-                                padding: '16px',
-                                borderRadius: '12px',
-                                marginBottom: '20px',
-                                border: '1px solid #bfdbfe'
-                            }}>
+                            <div style={{ background: 'linear-gradient(135deg, #dbeafe, #eff6ff)', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #bfdbfe' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e40af', marginBottom: '10px' }}>📊 Transfer Summary</div>
                                 <div style={{ fontSize: '12px', color: '#1e3a8a', lineHeight: '1.6' }}>
                                     Supplier Bill Amount: <strong>Rs. {(parseFloat(targetSupplierBillValue) || 0).toLocaleString()}</strong><br />
-                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#065f46' }}>
-                                        Total Transfer Amount: Rs. {(parseFloat(targetSupplierBillValue) || 0).toLocaleString()}
-                                    </span><br />
-                                    <span style={{ fontSize: '11px', color: '#64748b' }}>
-                                        This amount will be deducted from the remaining payment
-                                    </span>
+                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#065f46' }}>Total Transfer Amount: Rs. {(parseFloat(targetSupplierBillValue) || 0).toLocaleString()}</span>
                                 </div>
                             </div>
                         </>
                     )}
 
-                    {/* Bad Debt Section */}
                     {adjustmentType === 'bad_debt' && (
                         <>
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{
-                                    display: 'block',
-                                    marginBottom: '6px',
-                                    fontWeight: '600',
-                                    fontSize: '12px',
-                                    color: '#334155'
-                                }}>Bad Debt Name/Reference</label>
-                                <input
-                                    type="text"
-                                    value={badDebtName}
-                                    onChange={(e) => setBadDebtName(e.target.value)}
-                                    placeholder="Enter customer name or reference"
-                                    style={{
-                                        width: '100%',
-                                        padding: '12px 14px',
-                                        border: '2px solid #e2e8f0',
-                                        borderRadius: '12px',
-                                        fontSize: '14px',
-                                        transition: 'all 0.2s',
-                                        outline: 'none'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.borderColor = '#ef4444';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.1)';
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.borderColor = '#e2e8f0';
-                                        e.target.style.boxShadow = 'none';
-                                    }}
-                                />
+                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>Bad Debt Name/Reference</label>
+                                <input type="text" value={badDebtName} onChange={(e) => setBadDebtName(e.target.value)} placeholder="Enter customer name or reference"
+                                    style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', outline: 'none' }} />
                             </div>
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{
-                                    display: 'block',
-                                    marginBottom: '6px',
-                                    fontWeight: '600',
-                                    fontSize: '12px',
-                                    color: '#334155'
-                                }}>Bad Debt Amount (Rs.)</label>
-                                <input
-                                    type="number"
-                                    value={badDebtAmount}
-                                    onChange={(e) => setBadDebtAmount(e.target.value)}
-                                    placeholder="Enter amount to write off"
-                                    style={{
-                                        width: '100%',
-                                        padding: '12px 14px',
-                                        border: '2px solid #e2e8f0',
-                                        borderRadius: '12px',
-                                        fontSize: '14px',
-                                        transition: 'all 0.2s',
-                                        outline: 'none'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.borderColor = '#ef4444';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.1)';
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.borderColor = '#e2e8f0';
-                                        e.target.style.boxShadow = 'none';
-                                    }}
-                                />
+                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>Bad Debt Amount (Rs.)</label>
+                                <input type="number" value={badDebtAmount} onChange={(e) => setBadDebtAmount(e.target.value)} placeholder="Enter amount to write off"
+                                    style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', outline: 'none' }} />
                             </div>
-                            <div style={{
-                                background: 'linear-gradient(135deg, #fee2e2, #fecaca)',
-                                padding: '16px',
-                                borderRadius: '12px',
-                                marginBottom: '20px',
-                                border: '1px solid #f87171'
-                            }}>
-                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#991b1b', marginBottom: '8px' }}>
-                                    ⚠️ Warning: Bad Debt Write-off
-                                </div>
-                                <div style={{ fontSize: '12px', color: '#7f1d1d' }}>
-                                    Bad debt adjustment will write off <strong>Rs. {(parseFloat(badDebtAmount) || 0).toLocaleString()}</strong> from this bill.<br />
-                                    This action cannot be undone and will deduct this amount from the remaining payment.
-                                </div>
+                            <div style={{ background: 'linear-gradient(135deg, #fee2e2, #fecaca)', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #f87171' }}>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#991b1b', marginBottom: '8px' }}>⚠️ Warning: Bad Debt Write-off</div>
+                                <div style={{ fontSize: '12px', color: '#7f1d1d' }}>Bad debt adjustment will write off <strong>Rs. {(parseFloat(badDebtAmount) || 0).toLocaleString()}</strong> from this bill.</div>
                             </div>
                         </>
                     )}
                 </div>
 
-                {/* Footer */}
-                <div style={{
-                    padding: '16px 24px',
-                    borderTop: '1px solid #e2e8f0',
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    gap: '12px',
-                    background: '#f8fafc',
-                    borderRadius: '0 0 24px 24px'
-                }}>
-                    <button onClick={onClose} style={{
-                        padding: '10px 24px',
-                        background: '#f1f5f9',
-                        color: '#475569',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        fontWeight: '600',
-                        fontSize: '13px',
-                        transition: 'all 0.2s'
-                    }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#e2e8f0';
-                            e.currentTarget.style.transform = 'translateY(-1px)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#f1f5f9';
-                            e.currentTarget.style.transform = 'translateY(0)';
-                        }}>
-                        Cancel
-                    </button>
-                    <button onClick={handleConfirm} style={{
-                        padding: '10px 24px',
-                        background: 'linear-gradient(135deg, #4CAF50, #45a049)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        fontWeight: '600',
-                        fontSize: '13px',
-                        transition: 'all 0.2s',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-                        }}>
-                        Apply Adjustment
-                    </button>
+                <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#f8fafc', borderRadius: '0 0 24px 24px' }}>
+                    <button onClick={onClose} style={{ padding: '10px 24px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Cancel</button>
+                    <button onClick={handleConfirm} style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Apply Adjustment</button>
                 </div>
             </div>
 
             <style>{`
-            @keyframes fadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
-            }
-            @keyframes slideUp {
-                from {
-                    opacity: 0;
-                    transform: translateY(30px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
         `}</style>
         </div>
     );
@@ -1395,9 +1005,330 @@ const EmptyState = ({ message }) => (
         <p style={{ margin: 0, fontSize: '13px' }}>{message}</p>
     </div>
 );
+// ==================== DETAILED REPORT MODAL ====================
+const DetailedReportModal = ({ isOpen, onClose, data, supplierCode, isLoading }) => {
+    if (!isOpen) return null;
+
+    const formatCurrency = (amount) => {
+        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const formatDate = (date) => {
+        if (!date) return 'N/A';
+        return new Date(date).toLocaleDateString('en-GB', {
+            year: 'numeric', month: 'short', day: 'numeric'
+        });
+    };
+
+    const getPaymentColor = (method) => {
+        const colors = {
+            'Cash': '#10b981', 'Cheque': '#8b5cf6', 'Bank Transfer': '#ec489a',
+            'bag_to_box': '#f59e0b', 'bill_to_bill': '#3b82f6', 'bad_debt': '#ef4444'
+        };
+        return colors[method] || '#6b7280';
+    };
+
+    const getPaymentIcon = (method) => {
+        const icons = {
+            'Cash': '💰', 'Cheque': '💳', 'Bank Transfer': '🏦',
+            'bag_to_box': '📦', 'bill_to_bill': '📄', 'bad_debt': '⚠️'
+        };
+        return icons[method] || '💵';
+    };
+
+    if (isLoading) {
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20003 }}>
+                <div style={{ background: 'white', borderRadius: '20px', padding: '40px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '40px', marginBottom: '16px' }}>⏳</div>
+                    <p>Loading detailed report...</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20003, overflowY: 'auto', padding: '20px' }} onClick={onClose}>
+            <div style={{ backgroundColor: 'white', borderRadius: '24px', width: '1200px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={(e) => e.stopPropagation()}>
+
+                {/* Header */}
+                <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '24px 30px', borderRadius: '24px 24px 0 0', color: 'white', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '700' }}>👨‍🌾 Farmer Detailed Report</h2>
+                            <p style={{ margin: '8px 0 0 0', opacity: 0.9 }}>Supplier Code: <strong>{supplierCode}</strong></p>
+                        </div>
+                        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', fontSize: '24px', cursor: 'pointer', color: 'white', width: '40px', height: '40px', borderRadius: '50%' }}>×</button>
+                    </div>
+                </div>
+
+                {data && (
+                    <div style={{ padding: '24px 30px' }}>
+                        {/* Summary Cards */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '30px' }}>
+                            <div style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)', padding: '20px', borderRadius: '16px', color: 'white' }}>
+                                <div style={{ fontSize: '12px', marginBottom: '8px' }}>Total Sales</div>
+                                <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(data.summary?.total_sales_value)}</div>
+                            </div>
+                            <div style={{ background: '#10b981', padding: '20px', borderRadius: '16px', color: 'white' }}>
+                                <div style={{ fontSize: '12px', marginBottom: '8px' }}>Total Paid</div>
+                                <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(data.summary?.total_paid)}</div>
+                            </div>
+                            <div style={{ background: '#f59e0b', padding: '20px', borderRadius: '16px', color: 'white' }}>
+                                <div style={{ fontSize: '12px', marginBottom: '8px' }}>Remaining</div>
+                                <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(data.summary?.total_remaining)}</div>
+                            </div>
+                            <div style={{ background: '#3b82f6', padding: '20px', borderRadius: '16px', color: 'white' }}>
+                                <div style={{ fontSize: '12px', marginBottom: '8px' }}>Total Bills</div>
+                                <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{data.summary?.unique_bills || 0}</div>
+                            </div>
+                        </div>
+
+                        {/* Bills Section */}
+                        <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px', color: '#1e293b' }}>📋 Bills & Transactions</h3>
+                        {data.bills && data.bills.map((bill, idx) => (
+                            <div key={idx} style={{ marginBottom: '20px', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+                                <div style={{ background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                                    <div><strong>Bill No: {bill.bill_no}</strong><div style={{ fontSize: '12px', color: '#64748b' }}>Date: {formatDate(bill.date)}</div></div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div>Total: <strong>{formatCurrency(bill.total_amount)}</strong></div>
+                                        <div>Paid: <strong style={{ color: '#10b981' }}>{formatCurrency(bill.paid_amount)}</strong></div>
+                                        <div>Remaining: <strong style={{ color: bill.total_amount - bill.paid_amount > 0 ? '#f59e0b' : '#10b981' }}>{formatCurrency(bill.total_amount - bill.paid_amount)}</strong></div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* All Payments Table */}
+                        <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '30px 0 20px', color: '#1e293b' }}>📜 All Payment Records</h3>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
+                                <thead>
+                                    <tr style={{ background: '#f1f5f9' }}>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Date</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Bill No</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Method</th>
+                                        <th style={{ padding: '12px', textAlign: 'right' }}>Amount</th>
+                                        <th style={{ padding: '12px', textAlign: 'left' }}>Reference</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody>
+                                    {data.all_payments && data.all_payments.map((payment, idx) => (
+                                        <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                            <td style={{ padding: '12px' }}>{formatDate(payment.created_at)}</td>
+                                            <td style={{ padding: '12px' }}>{payment.bill_no || 'N/A'}</td>
+
+                                            <td style={{ padding: '12px' }}>
+                                                <span
+                                                    style={{
+                                                        background: getPaymentColor(payment.type),
+                                                        padding: '4px 10px',
+                                                        borderRadius: '20px',
+                                                        color: 'white',
+                                                        fontSize: '11px'
+                                                    }}
+                                                >
+                                                    {getPaymentIcon(payment.type)} {payment.type}
+                                                </span>
+                                            </td>
+
+                                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold' }}>
+                                                {formatCurrency(payment.loan_amount)}
+                                            </td>
+
+                                            <td style={{ padding: '12px', fontSize: '11px', color: '#64748b' }}>
+                                                {payment.cheque_no || payment.transfer_reference_no || '-'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+
+                                <tfoot>
+                                    <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
+                                        <td colSpan="3" style={{ padding: '12px', textAlign: 'right' }}>
+                                            Total:
+                                        </td>
+
+                                        <td style={{ padding: '12px', textAlign: 'right' }}>
+                                            {formatCurrency(data.summary?.total_paid)}
+                                        </td>
+
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 // ==================== MAIN COMPONENT ====================
 export default function SupplierReport() {
+    const navigate = useNavigate();
+    const [showFarmerModal, setShowFarmerModal] = useState(false);
+
+    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+
+    const [showDetailedReport, setShowDetailedReport] = useState(false);
+    const [detailedReportData, setDetailedReportData] = useState(null);
+    const [isLoadingReport, setIsLoadingReport] = useState(false);
+    const [selectedReportSupplier, setSelectedReportSupplier] = useState(null);
+    const farmerSelectRef = useRef(null);
+
+    const [farmerSearchQuery, setFarmerSearchQuery] = useState('');
+    const [allFarmerOptions, setAllFarmerOptions] = useState([]);
+    const [isLoadingFarmers, setIsLoadingFarmers] = useState(false);
+
+
+    // Add this useEffect to fetch all farmers/suppliers when the modal opens
+    useEffect(() => {
+        if (showFarmerModal) {
+            fetchAllFarmers();
+        }
+    }, [showFarmerModal]);
+    // Add this function to fetch all farmers from both sources
+    const fetchAllFarmers = async () => {
+        setIsLoadingFarmers(true);
+        try {
+            // Fetch suppliers from the suppliers table
+            const suppliersResponse = await api.get('/suppliers');
+            const suppliers = suppliersResponse.data || [];
+
+            // Fetch unique supplier codes from sales table with bill numbers
+            const salesResponse = await api.get('/suppliers/with-bills');
+            const salesSuppliers = salesResponse.data?.data || [];
+
+            // Combine and deduplicate
+            const allOptions = [];
+
+            // Add suppliers from suppliers table (without bill numbers)
+            suppliers.forEach(supplier => {
+                allOptions.push({
+                    type: 'supplier',
+                    code: supplier.code,
+                    name: supplier.name,
+                    telephone: supplier.telephone_no,
+                    displayText: `${supplier.code} - ${supplier.name || 'No Name'} (Supplier)`,
+                    billNo: null,
+                    hasBill: false
+                });
+            });
+
+            // Add suppliers with bills from sales table
+            salesSuppliers.forEach(item => {
+                if (item.supplier_code) {
+                    allOptions.push({
+                        type: 'bill',
+                        code: item.supplier_code,
+                        name: '',
+                        telephone: '',
+                        displayText: `${item.supplier_code} - Bill: ${item.supplier_bill_no || 'N/A'} (Printed Bill)`,
+                        billNo: item.supplier_bill_no,
+                        hasBill: true
+                    });
+                }
+            });
+
+            // Also fetch pending/unprinted suppliers from your existing data
+            const pendingWithNoBill = [...state.pendingSuppliers];
+            pendingWithNoBill.forEach(item => {
+                // Check if already added
+                const exists = allOptions.some(opt => opt.code === item.supplier_code && opt.billNo === item.supplier_bill_no);
+                if (!exists) {
+                    allOptions.push({
+                        type: 'pending',
+                        code: item.supplier_code,
+                        name: '',
+                        telephone: '',
+                        displayText: `${item.supplier_code} - Bill: ${item.supplier_bill_no || 'Pending'} (Due: ${formatDecimal(item.total_amount || 0)})`,
+                        billNo: item.supplier_bill_no,
+                        hasBill: !!item.supplier_bill_no,
+                        amount: item.total_amount
+                    });
+                }
+            });
+
+            // Also fetch completed suppliers
+            const completedWithBill = [...state.completedSuppliers];
+            completedWithBill.forEach(item => {
+                const exists = allOptions.some(opt => opt.code === item.supplier_code && opt.billNo === item.supplier_bill_no);
+                if (!exists && item.supplier_bill_no) {
+                    allOptions.push({
+                        type: 'completed',
+                        code: item.supplier_code,
+                        name: '',
+                        telephone: '',
+                        displayText: `${item.supplier_code} - Bill: ${item.supplier_bill_no} (Settled ✓)`,
+                        billNo: item.supplier_bill_no,
+                        hasBill: true,
+                        settled: true
+                    });
+                }
+            });
+
+            // Remove duplicates (same code + same billNo)
+            const uniqueOptions = [];
+            const keyMap = new Map();
+
+            for (const option of allOptions) {
+                const key = `${option.code}-${option.billNo || 'no-bill'}`;
+                if (!keyMap.has(key)) {
+                    keyMap.set(key, option);
+                    uniqueOptions.push(option);
+                }
+            }
+
+            // Sort by code
+            uniqueOptions.sort((a, b) => a.code.localeCompare(b.code));
+
+            setAllFarmerOptions(uniqueOptions);
+        } catch (error) {
+            console.error('Error fetching farmers:', error);
+            alert('Failed to load farmers list');
+        } finally {
+            setIsLoadingFarmers(false);
+        }
+    };
+
+    // Filtered farmer options based on search
+    const filteredFarmerOptions = useMemo(() => {
+        if (!farmerSearchQuery) return allFarmerOptions;
+        const query = farmerSearchQuery.toLowerCase();
+        return allFarmerOptions.filter(option =>
+            option.code.toLowerCase().includes(query) ||
+            (option.name && option.name.toLowerCase().includes(query)) ||
+            (option.billNo && option.billNo.toString().toLowerCase().includes(query))
+        );
+    }, [allFarmerOptions, farmerSearchQuery]);
+
+    // Group farmers for better organization
+    const groupedFarmers = useMemo(() => {
+        const groups = {
+            suppliers: [],
+            pending: [],
+            printed: [],
+            completed: []
+        };
+
+        filteredFarmerOptions.forEach(option => {
+            if (option.type === 'supplier') {
+                groups.suppliers.push(option);
+            } else if (option.type === 'pending') {
+                groups.pending.push(option);
+            } else if (option.type === 'completed') {
+                groups.completed.push(option);
+            } else if (option.type === 'bill') {
+                groups.printed.push(option);
+            }
+        });
+
+        return groups;
+    }, [filteredFarmerOptions]);
+
     const [state, setState] = useState({
         pendingSuppliers: [],
         completedSuppliers: [],
@@ -1430,7 +1361,9 @@ export default function SupplierReport() {
         showPrintModal: false,
         printBillContent: '',
         billSize: '4inch',
-        paymentBreakdown: []
+        paymentBreakdown: [],
+        pendingSuppliers: [],
+        completedSuppliers: [],
     });
 
     const formatDecimal = (value) => {
@@ -1458,9 +1391,23 @@ export default function SupplierReport() {
         try {
             const response = await api.get(`${routes.paymentHistory}?code=${supplierCode}&bill_no=${billNo || ''}`);
             if (response.data.success) {
+                // ✅ Remove duplicates from payments array based on unique identifier
+                const payments = response.data.data.payments || [];
+                const uniquePayments = [];
+                const seenIds = new Set();
+
+                for (const payment of payments) {
+                    // Create a unique key for each payment
+                    const uniqueKey = `${payment.amount}-${payment.method}-${new Date(payment.date).getTime()}`;
+                    if (!seenIds.has(uniqueKey)) {
+                        seenIds.add(uniqueKey);
+                        uniquePayments.push(payment);
+                    }
+                }
+
                 setState(prev => ({
                     ...prev,
-                    currentPayments: response.data.data.payments || [],
+                    currentPayments: uniquePayments, // ✅ Use deduplicated payments
                     paymentHistoryTotalPaid: response.data.data.total_paid || 0,
                     paymentHistoryTotalBill: response.data.data.total_paid + response.data.data.remaining_balance,
                     paymentHistoryRemaining: response.data.data.remaining_balance || 0,
@@ -1470,6 +1417,25 @@ export default function SupplierReport() {
         } catch (error) {
             console.error('Error fetching payment history:', error);
             alert('Failed to fetch payment history');
+        }
+    };
+
+    const fetchDetailedReport = async (supplierCode) => {
+        setIsLoadingReport(true);
+        setSelectedReportSupplier(supplierCode);
+        try {
+            const response = await api.get(`${routes.getSupplierDetailedReport}/${supplierCode}`);
+            if (response.data.success) {
+                setDetailedReportData(response.data.data);
+                setShowDetailedReport(true);
+            } else {
+                alert('Failed to load detailed report');
+            }
+        } catch (error) {
+            console.error('Error fetching detailed report:', error);
+            alert('Error loading report: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setIsLoadingReport(false);
         }
     };
 
@@ -1518,6 +1484,8 @@ export default function SupplierReport() {
                     const loanRes = await api.get(`/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`);
                     if (loanRes.data) {
                         currentPaid = parseFloat(loanRes.data.loan_amount) || 0;
+                        // ✅ IMPORTANT FIX: Use the payment details from the loan record directly
+                        // Don't create new IDs or modify them
                         paymentBreakdown = loanRes.data.payment_details || [];
                         const isFullyPaid = (total - currentPaid) <= 0;
                         setState(prev => ({ ...prev, isUpdatingCompletedBill: isFullyPaid }));
@@ -1533,7 +1501,7 @@ export default function SupplierReport() {
                 supplierDetails: response.data || [],
                 paymentAmount: (total - currentPaid).toString(),
                 currentPaidAmount: currentPaid,
-                paymentBreakdown: paymentBreakdown,
+                paymentBreakdown: paymentBreakdown, // ✅ Use the fetched breakdown directly
                 isPrinting: false
             }));
         } catch (error) {
@@ -1545,11 +1513,9 @@ export default function SupplierReport() {
 
     const generateBillContent = async (billNo) => {
         try {
-            // Fetch bill details
             const response = await api.get(`${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${state.selectedSupplier}`);
             const details = response.data;
 
-            // Fetch payment breakdown from the loan record
             let paymentBreakdown = [];
             let currentPaidAmount = 0;
             try {
@@ -1562,7 +1528,6 @@ export default function SupplierReport() {
                 console.log('No loan record found for payment breakdown');
             }
 
-            // Calculate totals from details
             let totalsupplierSales = 0;
             let totalPacksSum = 0;
             const itemSummaryData = {};
@@ -1595,13 +1560,7 @@ export default function SupplierReport() {
             const remainingAfterPayment = Math.max(0, totalsupplierSales - paidAmountValue);
             const advanceAmount = 0;
 
-            const colGroups = `
-        <colgroup>
-            <col style="width:32%;"> 
-            <col style="width:21%;">
-            <col style="width:21%;">
-            <col style="width:26%;">
-        </colgroup>`;
+            const colGroups = `<colgroup><col style="width:32%;"><col style="width:21%;"><col style="width:21%;"><col style="width:26%;"></colgroup>`;
 
             const formatNumber = (value, maxDecimals = 3) => {
                 if (typeof value !== 'number' && typeof value !== 'string') return '0';
@@ -1621,38 +1580,32 @@ export default function SupplierReport() {
                 const itemName = record.item_name || '';
                 const customerCode = record.customer_code?.toUpperCase() || '';
 
-                return `
-            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
-                <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
-                <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
-                    <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
-                    <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
-                </td>
-              </tr>`;
+                return `<tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
+                    <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
+                    <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
+                    <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
+                    <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+                        <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
+                        <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
+                    </td>
+                </tr>`;
             }).join("");
 
-            // Generate payment breakdown HTML - FIXED to show properly
             let paymentBreakdownHtml = '';
             if (paymentBreakdown && paymentBreakdown.length > 0) {
                 paymentBreakdownHtml = paymentBreakdown.map((p, idx) => {
-                    // Handle method name formatting
                     let methodName = p.method;
                     if (methodName === 'bag_to_box') methodName = 'Bag to Box';
                     if (methodName === 'bill_to_bill') methodName = 'Bill to Bill';
                     if (methodName === 'bad_debt') methodName = 'Bad Debt';
-
                     const amount = parseFloat(p.amount) || 0;
                     const paymentDate = p.date ? new Date(p.date).toLocaleDateString() : new Date().toLocaleDateString();
-
-                    return `
-                <tr style="font-size:16px;">
-                    <td style="padding:8px; text-align:center; border-bottom:1px solid #ddd;">${idx + 1}</td>
-                    <td style="padding:8px; border-bottom:1px solid #ddd;">${methodName}</td>
-                    <td style="padding:8px; text-align:right; border-bottom:1px solid #ddd;">Rs. ${formatNumber(amount)}</td>
-                    <td style="padding:8px; border-bottom:1px solid #ddd;">${paymentDate}</td>
-                </tr>`;
+                    return `<tr style="font-size:16px;">
+                        <td style="padding:8px; text-align:center; border-bottom:1px solid #ddd;">${idx + 1}</td>
+                        <td style="padding:8px; border-bottom:1px solid #ddd;">${methodName}</td>
+                        <td style="padding:8px; text-align:right; border-bottom:1px solid #ddd;">Rs. ${formatNumber(amount)}</td>
+                        <td style="padding:8px; border-bottom:1px solid #ddd;">${paymentDate}</td>
+                    </tr>`;
                 }).join('');
             }
 
@@ -1668,256 +1621,260 @@ export default function SupplierReport() {
 
             const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
 
-            return `
-        <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
-            <div style="text-align:center; font-weight:bold;">
-                <div style="font-size:24px;">Manju</div>
-                <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-                    <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
-                    <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${state.selectedSupplier}</span></div>
+            return `<div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
+                <div style="text-align:center; font-weight:bold;">
+                    <div style="font-size:24px;">Manju</div>
+                    <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
+                        <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
+                        <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${state.selectedSupplier}</span></div>
+                    </div>
+                    <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
                 </div>
-                <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
-            </div>
-            <div style="font-size:19px; margin-top:10px; padding:0 5px;">
-                <div style="font-weight: bold;">දුර:${mobile}</div>
-                <div style="display:flex; justify-content:space-between; margin-top:3px;">
-                    <span>බිල් අංකය:${billNo}</span>
-                    <span>දිනය:${date}</span>
+                <div style="font-size:19px; margin-top:10px; padding:0 5px;">
+                    <div style="font-weight: bold;">දුර:${mobile}</div>
+                    <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                        <span>බිල් අංකය:${billNo}</span>
+                        <span>දිනය:${date}</span>
+                    </div>
                 </div>
-            </div>
-            <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
-            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-                ${colGroups}
-                <thead>
-                    <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                        <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
-                    </tr>
-                </thead>
-                <tbody>${detailedItemsHtml}</tbody>
-                <tfoot>
-                    <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                        <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
-                        <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
-                    </tr>
-                </tfoot>
-            </table>
-
-            <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-                <tr>
-                    <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
-                    <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${(totalsupplierSales.toFixed(2))}</span></td>
-                </tr>
-                
-                ${paidAmountValue > 0 ? `
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
-                    <td style="text-align:right; padding-top:10px; color:#000;">- ${paidAmountValue.toFixed(2)}</td>
-                </tr>
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
-                    <td style="text-align:right; padding-top:5px; color:#000;">${remainingAfterPayment.toFixed(2)}</td>
-                </tr>
-                <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
-                ` : ''}
-
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
-                    <td style="text-align:right; padding-top:5px; color:#000;">- ${advanceAmount.toFixed(2)}</td>
-                </tr>
-
-                <tr style="font-weight:900;">
-                    <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
-                    <td style="text-align:right; padding-top:10px;">
-                        <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">
-                        ${netPayable.toFixed(2)}
-                        </span>
-                    </td>
-                </tr>
-            </table>
-
-            ${paymentBreakdownHtml ? `
-            <div style="margin-top:25px; border-top:1px solid #000; padding-top:10px;">
-                <div style="font-weight:bold; font-size:18px; text-align:center; margin-bottom:10px;">Payment Details</div>
-                <table style="width:100%; border-collapse:collapse; font-size:14px;">
+                <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
+                <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+                    ${colGroups}
                     <thead>
-                        <tr style="border-bottom:1px solid #000;">
-                            <th style="padding:5px; text-align:center;">#</th>
-                            <th style="padding:5px; text-align:left;">Method</th>
-                            <th style="padding:5px; text-align:right;">Amount</th>
-                            <th style="padding:5px; text-align:left;">Date</th>
+                        <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
+                            <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
+                            <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
+                            <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
+                            <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        ${paymentBreakdownHtml}
-                    </tbody>
+                    <tbody>${detailedItemsHtml}</tbody>
                     <tfoot>
-                        <tr style="border-top:2px solid #000; font-weight:bold;">
-                            <td colspan="2" style="padding:8px;"><strong>Total Paid:</strong></td>
-                            <td style="padding:8px; text-align:right;"><strong>Rs. ${formatNumber(paidAmountValue)}</strong></td>
-                            <td></td>
+                        <tr style="border-top:2.5px solid #000; font-weight:bold;">
+                            <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
+                            <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
                         </tr>
                     </tfoot>
                 </table>
-            </div>
-            ` : ''}
 
-            <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
-                <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
-            </div>
-            
-            <div style="text-align:center; margin-top:20px; font-size:16px;">
-                <p>Thank you!</p>
-            </div>
-        </div>`;
+                <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
+                    <tr>
+                        <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
+                        <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${(totalsupplierSales.toFixed(2))}</span></td>
+                    </tr>
+                    ${paidAmountValue > 0 ? `
+                    <tr style="font-size:18px;">
+                        <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
+                        <td style="text-align:right; padding-top:10px; color:#000;">- ${paidAmountValue.toFixed(2)}</td>
+                    </tr>
+                    <tr style="font-size:18px;">
+                        <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
+                        <td style="text-align:right; padding-top:5px; color:#000;">${remainingAfterPayment.toFixed(2)}</td>
+                    </tr>
+                    <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
+                    ` : ''}
+                    <tr style="font-size:18px;">
+                        <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
+                        <td style="text-align:right; padding-top:5px; color:#000;">- ${advanceAmount.toFixed(2)}</td>
+                    </tr>
+                    <tr style="font-weight:900;">
+                        <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
+                        <td style="text-align:right; padding-top:10px;">
+                            <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">${netPayable.toFixed(2)}</span>
+                        </td>
+                    </tr>
+                </table>
+
+                ${paymentBreakdownHtml ? `
+                <div style="margin-top:25px; border-top:1px solid #000; padding-top:10px;">
+                    <div style="font-weight:bold; font-size:18px; text-align:center; margin-bottom:10px;">Payment Details</div>
+                    <table style="width:100%; border-collapse:collapse; font-size:14px;">
+                        <thead><tr style="border-bottom:1px solid #000;"><th style="padding:5px; text-align:center;">#</th><th style="padding:5px; text-align:left;">Method</th><th style="padding:5px; text-align:right;">Amount</th><th style="padding:5px; text-align:left;">Date</th></tr></thead>
+                        <tbody>${paymentBreakdownHtml}</tbody>
+                        <tfoot><tr style="border-top:2px solid #000; font-weight:bold;"><td colspan="2" style="padding:8px;"><strong>Total Paid:</strong></td><td style="padding:8px; text-align:right;"><strong>Rs. ${formatNumber(paidAmountValue)}</strong></td><td></td></tr></tfoot>
+                    </table>
+                </div>
+                ` : ''}
+
+                <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
+                    <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
+                </div>
+                
+                <div style="text-align:center; margin-top:20px; font-size:16px;">
+                    <p>Thank you!</p>
+                </div>
+            </div>`;
         } catch (error) {
             console.error('Error generating bill:', error);
             return '<div>Error generating bill</div>';
         }
     };
 
-  const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
-    if (!state.selectedSupplier || state.isPrinting) return;
-
-    setState(prev => ({ ...prev, isPrinting: true }));
-
-    try {
-        const totalPayable = state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-        const currentPaid = state.currentPaidAmount;
-        const newTotalPaid = currentPaid + paymentAmount;
-        const isFullySettled = newTotalPaid >= totalPayable;
-        const newRemaining = Math.max(0, totalPayable - newTotalPaid);
-
-        let paymentMethod = 'Cash';
-        if (isAdjustment && adjustmentDetails) {
-            paymentMethod = adjustmentDetails.type === 'bag_to_box' ? 'Bag to Box' :
-                (adjustmentDetails.type === 'bill_to_bill' ? 'Bill to Bill' : 'Bad Debt');
-        } else if (isBankTransfer) {
-            paymentMethod = 'Bank Transfer';
-        } else if (isCheque) {
-            paymentMethod = 'Cheque';
+    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
+        // Prevent duplicate submissions
+        if (isProcessingPayment) {
+            console.log("Payment already in progress, ignoring duplicate request");
+            alert("Payment already in progress. Please wait...");
+            return;
         }
 
-        // Create payment record
-        const paymentRecord = {
-            id: Date.now().toString(),
-            date: new Date().toISOString(),
-            amount: paymentAmount,
-            method: paymentMethod,
-            running_balance: newRemaining,
-            reference: paymentMethod === 'Cash' ? null : (chequeDetails?.cheq_no || bankTransferDetails?.reference_no || adjustmentDetails?.reference),
-            details: {}
-        };
+        if (!state.selectedSupplier || state.isPrinting) return;
 
-        // Add payment method specific details
-        if (isCheque && chequeDetails) {
-            paymentRecord.reference = chequeDetails.cheq_no;
-            paymentRecord.details = { cheque_no: chequeDetails.cheq_no, cheque_date: chequeDetails.cheq_date };
-        } else if (isBankTransfer && bankTransferDetails) {
-            paymentRecord.reference = bankTransferDetails.reference_no;
-            paymentRecord.details = { reference_no: bankTransferDetails.reference_no, transfer_date: bankTransferDetails.transfer_date };
-        } else if (isAdjustment && adjustmentDetails) {
-            if (adjustmentDetails.type === 'bag_to_box') {
-                paymentRecord.reference = `${adjustmentDetails.bag_count} bags to ${adjustmentDetails.box_count} boxes`;
-                paymentRecord.details = {
-                    bag_count: adjustmentDetails.bag_count,
-                    box_count: adjustmentDetails.box_count,
-                    bag_value: adjustmentDetails.bag_value,
-                    box_value: adjustmentDetails.box_value
-                };
-            } else if (adjustmentDetails.type === 'bill_to_bill') {
-                paymentRecord.reference = adjustmentDetails.target_supplier_bill_no;
-                paymentRecord.details = {
-                    target_supplier_code: adjustmentDetails.target_supplier_code,
-                    target_supplier_bill_no: adjustmentDetails.target_supplier_bill_no,
-                    target_supplier_bill_value: adjustmentDetails.target_supplier_bill_value
-                };
-            } else if (adjustmentDetails.type === 'bad_debt') {
-                paymentRecord.reference = adjustmentDetails.bad_debt_name;
-                paymentRecord.details = {
-                    bad_debt_name: adjustmentDetails.bad_debt_name,
-                    bad_debt_amount: adjustmentDetails.bad_debt_amount
-                };
-            }
-        }
+        setIsProcessingPayment(true);
+        setState(prev => ({ ...prev, isPrinting: true }));
 
-        const allPaymentDetails = [...state.paymentBreakdown, paymentRecord];
+        try {
+            const totalPayable = state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+            const currentPaid = state.currentPaidAmount;
+            const newTotalPaid = currentPaid + paymentAmount;
+            const isFullySettled = newTotalPaid >= totalPayable;
+            const newRemaining = Math.max(0, totalPayable - newTotalPaid);
 
-        // Build payload
-        const payload = {
-            code: state.selectedSupplier,
-            bill_no: state.selectedBillNo,
-            loan_amount: paymentAmount,
-            total_amount: newRemaining,
-            type: paymentMethod,
-            transaction_ids: state.supplierDetails.map(record => record.id),
-            payment_details: allPaymentDetails
-        };
-
-        // Add payment-specific fields
-        if (isCheque && chequeDetails) {
-            payload.bank_name = chequeDetails.bank_name;
-            payload.cheque_no = chequeDetails.cheq_no;
-            payload.realized_date = chequeDetails.cheq_date;
-            payload.bank_account_id = chequeDetails.bank_account_id;
-        } else if (isBankTransfer && bankTransferDetails) {
-            payload.bank_account_id = bankTransferDetails.bank_account_id;
-            payload.transfer_reference_no = bankTransferDetails.reference_no;
-            payload.transfer_date = bankTransferDetails.transfer_date;
-            payload.transfer_notes = bankTransferDetails.notes;
-        } else if (isAdjustment && adjustmentDetails) {
-            if (adjustmentDetails.type === 'bag_to_box') {
-                payload.bag_count = adjustmentDetails.bag_count;
-                payload.box_count = adjustmentDetails.box_count;
-                payload.bag_value = adjustmentDetails.bag_value;
-                payload.box_value = adjustmentDetails.box_value;
-                payload.adjustment_amount = adjustmentDetails.amount;
-            } else if (adjustmentDetails.type === 'bill_to_bill') {
-                payload.target_supplier_code = adjustmentDetails.target_supplier_code;
-                payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
-                payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
-                payload.adjustment_amount = adjustmentDetails.amount;
-            } else if (adjustmentDetails.type === 'bad_debt') {
-                payload.bad_debt_name = adjustmentDetails.bad_debt_name;
-                payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
-                payload.adjustment_amount = adjustmentDetails.amount;
-            }
-        }
-
-        const response = await api.post('/supplier-loan', payload);
-
-        if (response.data.success) {
-            await fetchSupplierData();
-
-            if (isFullySettled && state.selectedBillNo) {
-                const billContent = await generateBillContent(state.selectedBillNo);
-                setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
+            let paymentMethod = 'Cash';
+            if (isAdjustment && adjustmentDetails) {
+                paymentMethod = adjustmentDetails.type === 'bag_to_box' ? 'Bag to Box' :
+                    (adjustmentDetails.type === 'bill_to_bill' ? 'Bill to Bill' : 'Bad Debt');
+            } else if (isBankTransfer) {
+                paymentMethod = 'Bank Transfer';
+            } else if (isCheque) {
+                paymentMethod = 'Cheque';
             }
 
-            alert(isFullySettled ? `✅ Payment Complete!\nPayment: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}` : `✓ Payment Added: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`);
+            // Create a more unique ID with timestamp + random string
+            const paymentRecord = {
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                date: new Date().toISOString(),
+                amount: paymentAmount,
+                method: paymentMethod,
+                running_balance: newRemaining,
+                reference: paymentMethod === 'Cash' ? null : (chequeDetails?.cheq_no || bankTransferDetails?.reference_no || adjustmentDetails?.reference),
+                details: {}
+            };
 
-            setState(prev => ({
-                ...prev,
-                selectedSupplier: null,
-                selectedBillNo: null,
-                supplierDetails: [],
-                paymentAmount: "",
-                currentPaidAmount: 0,
-                paymentBreakdown: [],
-                showChequeModal: false,
-                showBankToBankModal: false,
-                showAdjustmentModal: false,
-                isPrinting: false
-            }));
+            if (isCheque && chequeDetails) {
+                paymentRecord.reference = chequeDetails.cheq_no;
+                paymentRecord.details = { cheque_no: chequeDetails.cheq_no, cheque_date: chequeDetails.cheq_date };
+            } else if (isBankTransfer && bankTransferDetails) {
+                paymentRecord.reference = bankTransferDetails.reference_no;
+                paymentRecord.details = { reference_no: bankTransferDetails.reference_no, transfer_date: bankTransferDetails.transfer_date };
+            } else if (isAdjustment && adjustmentDetails) {
+                if (adjustmentDetails.type === 'bag_to_box') {
+                    paymentRecord.reference = `${adjustmentDetails.bag_count} bags to ${adjustmentDetails.box_count} boxes`;
+                    paymentRecord.details = {
+                        bag_count: adjustmentDetails.bag_count,
+                        box_count: adjustmentDetails.box_count,
+                        bag_value: adjustmentDetails.bag_value,
+                        box_value: adjustmentDetails.box_value
+                    };
+                } else if (adjustmentDetails.type === 'bill_to_bill') {
+                    paymentRecord.reference = adjustmentDetails.target_supplier_bill_no;
+                    paymentRecord.details = {
+                        target_supplier_code: adjustmentDetails.target_supplier_code,
+                        target_supplier_bill_no: adjustmentDetails.target_supplier_bill_no,
+                        target_supplier_bill_value: adjustmentDetails.target_supplier_bill_value
+                    };
+                } else if (adjustmentDetails.type === 'bad_debt') {
+                    paymentRecord.reference = adjustmentDetails.bad_debt_name;
+                    paymentRecord.details = {
+                        bad_debt_name: adjustmentDetails.bad_debt_name,
+                        bad_debt_amount: adjustmentDetails.bad_debt_amount
+                    };
+                }
+            }
+
+            // Check if this exact payment was already added (prevent duplicates in frontend)
+            const existingPayment = state.paymentBreakdown.find(p =>
+                p.amount === paymentAmount &&
+                p.method === paymentMethod &&
+                Math.abs(new Date(p.date) - new Date(paymentRecord.date)) < 2000 // within 2 seconds
+            );
+
+            if (existingPayment) {
+                console.log("Duplicate payment detected, not adding again");
+                setIsProcessingPayment(false);
+                setState(prev => ({ ...prev, isPrinting: false }));
+                alert("Duplicate payment detected. Please wait and try again.");
+                return;
+            }
+
+            const allPaymentDetails = [...state.paymentBreakdown, paymentRecord];
+
+            const payload = {
+                code: state.selectedSupplier,
+                bill_no: state.selectedBillNo,
+                loan_amount: paymentAmount,
+                total_amount: newRemaining,
+                type: paymentMethod,
+                transaction_ids: state.supplierDetails.map(record => record.id),
+                payment_details: allPaymentDetails
+            };
+
+            if (isCheque && chequeDetails) {
+                payload.bank_name = chequeDetails.bank_name;
+                payload.cheque_no = chequeDetails.cheq_no;
+                payload.realized_date = chequeDetails.cheq_date;
+                payload.bank_account_id = chequeDetails.bank_account_id;
+            } else if (isBankTransfer && bankTransferDetails) {
+                payload.bank_account_id = bankTransferDetails.bank_account_id;
+                payload.transfer_reference_no = bankTransferDetails.reference_no;
+                payload.transfer_date = bankTransferDetails.transfer_date;
+                payload.transfer_notes = bankTransferDetails.notes;
+            } else if (isAdjustment && adjustmentDetails) {
+                if (adjustmentDetails.type === 'bag_to_box') {
+                    payload.bag_count = adjustmentDetails.bag_count;
+                    payload.box_count = adjustmentDetails.box_count;
+                    payload.bag_value = adjustmentDetails.bag_value;
+                    payload.box_value = adjustmentDetails.box_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                } else if (adjustmentDetails.type === 'bill_to_bill') {
+                    payload.target_supplier_code = adjustmentDetails.target_supplier_code;
+                    payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
+                    payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                } else if (adjustmentDetails.type === 'bad_debt') {
+                    payload.bad_debt_name = adjustmentDetails.bad_debt_name;
+                    payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                }
+            }
+
+            const response = await api.post('/supplier-loan', payload);
+
+            if (response.data.success) {
+                await fetchSupplierData();
+
+                if (isFullySettled && state.selectedBillNo) {
+                    const billContent = await generateBillContent(state.selectedBillNo);
+                    setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
+                }
+
+                alert(isFullySettled ? `✅ Payment Complete!\nPayment: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}` : `✓ Payment Added: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`);
+
+                setState(prev => ({
+                    ...prev,
+                    selectedSupplier: null,
+                    selectedBillNo: null,
+                    supplierDetails: [],
+                    paymentAmount: "",
+                    currentPaidAmount: 0,
+                    paymentBreakdown: [],
+                    showChequeModal: false,
+                    showBankToBankModal: false,
+                    showAdjustmentModal: false,
+                    isPrinting: false
+                }));
+            }
+        } catch (error) {
+            console.error("Payment error:", error);
+            alert('Failed to record payment: ' + (error.response?.data?.message || error.message));
+            setState(prev => ({ ...prev, isPrinting: false }));
+        } finally {
+            // Add a delay before resetting to prevent immediate re-triggers
+            setTimeout(() => {
+                setIsProcessingPayment(false);
+            }, 2000);
         }
-    } catch (error) {
-        console.error("Payment error:", error);
-        alert('Failed to record payment: ' + (error.response?.data?.message || error.message));
-        setState(prev => ({ ...prev, isPrinting: false }));
-    }
-};
+    };
 
     const handleCashPayment = async () => {
         const paymentAmount = parseFloat(state.paymentAmount);
@@ -1959,7 +1916,7 @@ export default function SupplierReport() {
         if (adjustmentData.adjustment_type === 'bag_to_box') {
             adjustmentAmount = Math.abs((adjustmentData.bag_count * adjustmentData.bag_value) - (adjustmentData.box_count * adjustmentData.box_value));
         } else if (adjustmentData.adjustment_type === 'bill_to_bill') {
-            adjustmentAmount = adjustmentData.target_supplier_bill_value;  // Use only supplier bill value
+            adjustmentAmount = adjustmentData.target_supplier_bill_value;
         } else if (adjustmentData.adjustment_type === 'bad_debt') {
             adjustmentAmount = adjustmentData.bad_debt_amount;
         }
@@ -2037,22 +1994,26 @@ export default function SupplierReport() {
 
     return (
         <div style={styles.app}>
-            <div style={styles.container}>
-                <div style={styles.modeSelector}>
-                    <button
-                        onClick={() => handleModeChange('walking_seller')}
-                        style={{ ...styles.modeButton, ...(state.selectedMode === 'walking_seller' ? styles.modeButtonActive : {}) }}
-                    >
-                        🚶 Walking Seller
-                    </button>
-                    <button
-                        onClick={() => handleModeChange('creditor')}
-                        style={{ ...styles.modeButton, ...(state.selectedMode === 'creditor' ? styles.modeButtonActive : {}) }}
-                    >
-                        💰 Creditor Mode
-                    </button>
-                </div>
+            {/* Top Navigation Bar */}
+            <div style={{
+                background: '#1e293b',
+                padding: '12px 24px',
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                position: 'sticky',
+                top: 0,
+                zIndex: 1000
+            }}>
+                <button onClick={() => navigate('/supplierreport')} style={{ padding: '8px 20px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>📋 Supplier Report</button>
+                <button onClick={() => navigate('/supplier-profit')} style={{ padding: '8px 20px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>📊 Supplier Profit</button>
+                <button onClick={() => navigate('/suppliers/dobreport')} style={{ padding: '8px 20px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>📅 DOB Report</button>
+                <button onClick={() => navigate('/supplier-loan-report')} style={{ padding: '8px 20px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>💰 Loan Report</button>
+                <button onClick={() => setShowFarmerModal(true)} style={{ padding: '8px 20px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>👨‍🌾 Farmer Selector</button>
+            </div>
 
+            <div style={styles.container}>
                 <div style={styles.threeColumns}>
                     {/* LEFT: Not Settled */}
                     <div style={styles.panel}>
@@ -2103,6 +2064,12 @@ export default function SupplierReport() {
                         background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
                     }}>
                         <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderBottom: '1px solid rgba(255,255,255,0.2)', borderRadius: '20px 20px 0 0' }}>
+                            {/* Mode Selector Buttons */}
+                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', justifyContent: 'flex-start' }}>
+                                <button onClick={() => handleModeChange('walking_seller')} style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '500', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', background: state.selectedMode === 'walking_seller' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🚶 Walking Seller</button>
+                                <button onClick={() => handleModeChange('creditor')} style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '500', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', background: state.selectedMode === 'creditor' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>💰 Creditor Mode</button>
+                            </div>
+
                             <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'white', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <span style={{ width: '10px', height: '10px', background: '#fbbf24', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 8px #fbbf24' }}></span>
                                 Supplier Details
@@ -2120,38 +2087,17 @@ export default function SupplierReport() {
                                 <>
                                     <div style={{ padding: '20px', background: 'white', borderRadius: '16px', marginBottom: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Supplier Code</div>
-                                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a' }}>{state.selectedSupplier}</div>
-                                            </div>
-                                            {state.selectedBillNo && (
-                                                <div>
-                                                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Bill Number</div>
-                                                    <div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBillNo}</div>
-                                                </div>
-                                            )}
-                                            <div>
-                                                <span style={{ display: 'inline-block', padding: '4px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: '500', background: state.isUpdatingCompletedBill ? '#10b981' : '#f59e0b', color: 'white' }}>
-                                                    {state.isUpdatingCompletedBill ? '✓ PAID' : '⏳ PENDING'}
-                                                </span>
-                                            </div>
+                                            <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Supplier Code</div><div style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a' }}>{state.selectedSupplier}</div></div>
+                                            {state.selectedBillNo && (<div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Bill Number</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBillNo}</div></div>)}
+                                            <div><span style={{ display: 'inline-block', padding: '4px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: '500', background: state.isUpdatingCompletedBill ? '#10b981' : '#f59e0b', color: 'white' }}>{state.isUpdatingCompletedBill ? '✓ PAID' : '⏳ PENDING'}</span></div>
                                         </div>
                                     </div>
-
 
                                     <div style={{ padding: '20px', background: 'white', borderRadius: '16px', marginBottom: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
                                         <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '12px' }}>📋 Items</div>
                                         <div style={{ overflowX: 'auto' }}>
                                             <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
-                                                <thead>
-                                                    <tr style={{ background: '#f1f5f9' }}>
-                                                        <th style={{ padding: '8px', textAlign: 'left' }}>Customer</th>
-                                                        <th style={{ padding: '8px', textAlign: 'left' }}>Item</th>
-                                                        <th style={{ padding: '8px', textAlign: 'right' }}>Wt (kg)</th>
-                                                        <th style={{ padding: '8px', textAlign: 'right' }}>Price</th>
-                                                        <th style={{ padding: '8px', textAlign: 'right' }}>Total</th>
-                                                    </tr>
-                                                </thead>
+                                                <thead><tr style={{ background: '#f1f5f9' }}><th style={{ padding: '8px', textAlign: 'left' }}>Customer</th><th style={{ padding: '8px', textAlign: 'left' }}>Item</th><th style={{ padding: '8px', textAlign: 'right' }}>Wt (kg)</th><th style={{ padding: '8px', textAlign: 'right' }}>Price</th><th style={{ padding: '8px', textAlign: 'right' }}>Total</th></tr></thead>
                                                 <tbody>
                                                     {state.supplierDetails.map((sale, idx) => (
                                                         <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
@@ -2168,34 +2114,16 @@ export default function SupplierReport() {
                                     </div>
 
                                     <div style={{ padding: '20px', background: 'white', borderRadius: '16px', marginBottom: '16px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
-                                            <span>Total Payable:</span>
-                                            <span>Rs. {formatDecimal(totalPayable)}</span>
-                                        </div>
-                                        {state.currentPaidAmount > 0 && (
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', color: '#059669', fontWeight: 'bold' }}>
-                                                <span>Already Paid:</span>
-                                                <span>Rs. {formatDecimal(state.currentPaidAmount)}</span>
-                                            </div>
-                                        )}
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', marginTop: '8px', fontWeight: '700', fontSize: '16px', borderTop: '2px solid #e2e8f0' }}>
-                                            <span>Remaining:</span>
-                                            <span>Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount))}</span>
-                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}><span>Total Payable:</span><span>Rs. {formatDecimal(totalPayable)}</span></div>
+                                        {state.currentPaidAmount > 0 && (<div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', color: '#059669', fontWeight: 'bold' }}><span>Already Paid:</span><span>Rs. {formatDecimal(state.currentPaidAmount)}</span></div>)}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', marginTop: '8px', fontWeight: '700', fontSize: '16px', borderTop: '2px solid #e2e8f0' }}><span>Remaining:</span><span>Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount))}</span></div>
                                     </div>
 
                                     {!state.isUpdatingCompletedBill && (
                                         <div style={styles.paymentBox}>
                                             <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '12px' }}>💰 Enter Payment Amount</div>
-                                            <input type="number" value={state.paymentAmount} onChange={(e) => setState(prev => ({ ...prev, paymentAmount: e.target.value }))}
-                                                placeholder="0.00" disabled={state.isPrinting}
-                                                style={{ width: '100%', padding: '14px', border: '2px solid #fbbf24', borderRadius: '12px', fontSize: '18px', fontWeight: '600', textAlign: 'center', background: 'white' }} />
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', padding: '10px 0', fontSize: '14px' }}>
-                                                <span>After Payment:</span>
-                                                <span style={{ fontWeight: 'bold', color: remainingAfterPayment === 0 ? '#10b981' : '#065f46', fontSize: '16px' }}>
-                                                    Rs. {formatDecimal(remainingAfterPayment === 0 ? 0 : remainingAfterPayment)}
-                                                </span>
-                                            </div>
+                                            <input type="number" value={state.paymentAmount} onChange={(e) => setState(prev => ({ ...prev, paymentAmount: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '14px', border: '2px solid #fbbf24', borderRadius: '12px', fontSize: '18px', fontWeight: '600', textAlign: 'center', background: 'white' }} />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', padding: '10px 0', fontSize: '14px' }}><span>After Payment:</span><span style={{ fontWeight: 'bold', color: remainingAfterPayment === 0 ? '#10b981' : '#065f46', fontSize: '16px' }}>Rs. {formatDecimal(remainingAfterPayment === 0 ? 0 : remainingAfterPayment)}</span></div>
                                             <div style={styles.paymentButtonsContainer}>
                                                 <button onClick={handleCashPayment} disabled={state.isPrinting || !state.paymentAmount} style={{ ...styles.cashPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💵 Cash</button>
                                                 <button onClick={handleChequePayment} disabled={state.isPrinting || !state.paymentAmount} style={{ ...styles.chequePaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💳 Cheque</button>
@@ -2204,9 +2132,7 @@ export default function SupplierReport() {
                                         </div>
                                     )}
 
-                                    {!state.isUpdatingCompletedBill && (
-                                        <button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={styles.adjustmentBtn}>🔧 Payment Adjustment</button>
-                                    )}
+                                    {!state.isUpdatingCompletedBill && (<button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={styles.adjustmentBtn}>🔧 Payment Adjustment</button>)}
                                     <button onClick={() => fetchPaymentHistory(state.selectedSupplier, state.selectedBillNo)} style={{ width: '100%', marginBottom: '0', padding: '12px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>📜 View Payment History</button>
                                 </>
                             ) : (
@@ -2264,6 +2190,310 @@ export default function SupplierReport() {
                 </div>
             </div>
 
+            {/* Farmer Selector Modal */}
+            {showFarmerModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    display: 'flex', justifyContent: 'center', alignItems: 'center',
+                    zIndex: 20002
+                }} onClick={() => {
+                    setShowFarmerModal(false);
+                    setFarmerSearchQuery('');
+                }}>
+                    <div style={{
+                        backgroundColor: 'white', borderRadius: '20px', width: '700px', maxWidth: '90%',
+                        padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                        maxHeight: '80vh', display: 'flex', flexDirection: 'column'
+                    }} onClick={(e) => e.stopPropagation()}>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>👨‍🌾 Farmer / Supplier Selector</h3>
+                            <button onClick={() => {
+                                setShowFarmerModal(false);
+                                setFarmerSearchQuery('');
+                            }} style={{ background: '#f1f5f9', border: 'none', fontSize: '20px', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%' }}>×</button>
+                        </div>
+
+                        {/* Search Input */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <input
+                                type="text"
+                                placeholder="🔍 Search by code, name, or bill number..."
+                                value={farmerSearchQuery}
+                                onChange={(e) => setFarmerSearchQuery(e.target.value.toUpperCase())}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 16px',
+                                    border: '2px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    fontSize: '14px',
+                                    outline: 'none',
+                                    transition: 'all 0.2s'
+                                }}
+                                onFocus={(e) => {
+                                    e.target.style.borderColor = '#667eea';
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(102,126,234,0.1)';
+                                }}
+                                onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0';
+                                    e.target.style.boxShadow = 'none';
+                                }}
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Loading State */}
+                        {isLoadingFarmers && (
+                            <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                                <div style={{ fontSize: '40px', marginBottom: '12px' }}>⏳</div>
+                                <p>Loading farmers...</p>
+                            </div>
+                        )}
+
+                        {/* Farmers List with Categories */}
+                        {!isLoadingFarmers && (
+                            <div style={{ overflowY: 'auto', flex: 1, maxHeight: '500px' }}>
+                                {/* Suppliers from suppliers table (without bills) */}
+                                {groupedFarmers.suppliers.length > 0 && (
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <div style={{
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            color: '#64748b',
+                                            marginBottom: '10px',
+                                            paddingBottom: '6px',
+                                            borderBottom: '2px solid #e2e8f0',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}>
+                                            <span>🏪 Registered Suppliers</span>
+                                            <span style={{ fontSize: '11px', background: '#e2e8f0', padding: '2px 8px', borderRadius: '20px' }}>
+                                                {groupedFarmers.suppliers.length}
+                                            </span>
+                                        </div>
+                                        {groupedFarmers.suppliers.map((supplier, idx) => (
+                                            <div
+                                                key={`supplier-${idx}`}
+                                                onClick={() => {
+                                                    fetchDetailedReport(supplier.code);
+                                                    setShowFarmerModal(false);
+                                                    setFarmerSearchQuery('');
+                                                }}
+                                                style={{
+                                                    padding: '10px 14px',
+                                                    marginBottom: '6px',
+                                                    background: '#f8fafc',
+                                                    borderRadius: '10px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    border: '1px solid #e2e8f0'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#eff6ff';
+                                                    e.currentTarget.style.borderColor = '#3b82f6';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = '#f8fafc';
+                                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                                }}
+                                            >
+                                                <div style={{ fontWeight: '700', fontSize: '15px', color: '#0f172a' }}>{supplier.code}</div>
+                                                <div style={{ fontSize: '12px', color: '#64748b' }}>
+                                                    {supplier.name || 'No name registered'}
+                                                    {supplier.telephone && ` • 📞 ${supplier.telephone}`}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Pending Bills (Not Settled) */}
+                                {groupedFarmers.pending.length > 0 && (
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <div style={{
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            color: '#f59e0b',
+                                            marginBottom: '10px',
+                                            paddingBottom: '6px',
+                                            borderBottom: '2px solid #fef3c7',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}>
+                                            <span>⏳ Pending Bills (Not Settled)</span>
+                                            <span style={{ fontSize: '11px', background: '#fef3c7', padding: '2px 8px', borderRadius: '20px', color: '#92400e' }}>
+                                                {groupedFarmers.pending.length}
+                                            </span>
+                                        </div>
+                                        {groupedFarmers.pending.map((item, idx) => (
+                                            <div
+                                                key={`pending-${idx}`}
+                                                onClick={() => {
+                                                    fetchDetailedReport(item.code);
+                                                    setShowFarmerModal(false);
+                                                    setFarmerSearchQuery('');
+                                                }}
+                                                style={{
+                                                    padding: '10px 14px',
+                                                    marginBottom: '6px',
+                                                    background: '#fffbeb',
+                                                    borderRadius: '10px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    border: '1px solid #fde68a'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#fef3c7';
+                                                    e.currentTarget.style.borderColor = '#f59e0b';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = '#fffbeb';
+                                                    e.currentTarget.style.borderColor = '#fde68a';
+                                                }}
+                                            >
+                                                <div style={{ fontWeight: '700', fontSize: '15px', color: '#92400e' }}>
+                                                    {item.code} {item.billNo && `- Bill: ${item.billNo}`}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#b45309' }}>
+                                                    Due Amount: Rs. {formatDecimal(item.amount || 0)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Printed Bills (With Bill Numbers) */}
+                                {groupedFarmers.printed.length > 0 && (
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <div style={{
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            color: '#3b82f6',
+                                            marginBottom: '10px',
+                                            paddingBottom: '6px',
+                                            borderBottom: '2px solid #dbeafe',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}>
+                                            <span>📄 Printed Bills</span>
+                                            <span style={{ fontSize: '11px', background: '#dbeafe', padding: '2px 8px', borderRadius: '20px', color: '#1e40af' }}>
+                                                {groupedFarmers.printed.length}
+                                            </span>
+                                        </div>
+                                        {groupedFarmers.printed.map((item, idx) => (
+                                            <div
+                                                key={`printed-${idx}`}
+                                                onClick={() => {
+                                                    fetchDetailedReport(item.code);
+                                                    setShowFarmerModal(false);
+                                                    setFarmerSearchQuery('');
+                                                }}
+                                                style={{
+                                                    padding: '10px 14px',
+                                                    marginBottom: '6px',
+                                                    background: '#eff6ff',
+                                                    borderRadius: '10px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    border: '1px solid #bfdbfe'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#dbeafe';
+                                                    e.currentTarget.style.borderColor = '#3b82f6';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = '#eff6ff';
+                                                    e.currentTarget.style.borderColor = '#bfdbfe';
+                                                }}
+                                            >
+                                                <div style={{ fontWeight: '700', fontSize: '15px', color: '#1e40af' }}>
+                                                    {item.code} - Bill: {item.billNo || 'N/A'}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Completed/Settled Bills */}
+                                {groupedFarmers.completed.length > 0 && (
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <div style={{
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            color: '#10b981',
+                                            marginBottom: '10px',
+                                            paddingBottom: '6px',
+                                            borderBottom: '2px solid #d1fae5',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}>
+                                            <span>✅ Settled Bills</span>
+                                            <span style={{ fontSize: '11px', background: '#d1fae5', padding: '2px 8px', borderRadius: '20px', color: '#065f46' }}>
+                                                {groupedFarmers.completed.length}
+                                            </span>
+                                        </div>
+                                        {groupedFarmers.completed.map((item, idx) => (
+                                            <div
+                                                key={`completed-${idx}`}
+                                                onClick={() => {
+                                                    fetchDetailedReport(item.code);
+                                                    setShowFarmerModal(false);
+                                                    setFarmerSearchQuery('');
+                                                }}
+                                                style={{
+                                                    padding: '10px 14px',
+                                                    marginBottom: '6px',
+                                                    background: '#ecfdf5',
+                                                    borderRadius: '10px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    border: '1px solid #a7f3d0'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#d1fae5';
+                                                    e.currentTarget.style.borderColor = '#10b981';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = '#ecfdf5';
+                                                    e.currentTarget.style.borderColor = '#a7f3d0';
+                                                }}
+                                            >
+                                                <div style={{ fontWeight: '700', fontSize: '15px', color: '#065f46' }}>
+                                                    {item.code} - Bill: {item.billNo}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#047857' }}>✓ Fully Settled</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* No Results */}
+                                {filteredFarmerOptions.length === 0 && !isLoadingFarmers && (
+                                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                        <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔍</div>
+                                        <p>No farmers or suppliers found matching "{farmerSearchQuery}"</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+                            <button onClick={() => {
+                                setShowFarmerModal(false);
+                                setFarmerSearchQuery('');
+                            }} style={{ padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600' }}>
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Modals */}
             <CreditorModal isOpen={state.showCreditorModal} onClose={() => setState(prev => ({ ...prev, showCreditorModal: false, selectedMode: 'walking_seller' }))} onConfirm={handleCreditorConfirm} />
             <PrintBillModal isOpen={state.showPrintModal} onClose={() => setState(prev => ({ ...prev, showPrintModal: false }))} billContent={state.printBillContent} billSize={state.billSize} setBillSize={(size) => setState(prev => ({ ...prev, billSize: size }))} onPrint={() => setState(prev => ({ ...prev, showPrintModal: false }))} />
@@ -2272,6 +2502,14 @@ export default function SupplierReport() {
             <PaymentAdjustmentModal isOpen={state.showAdjustmentModal} onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))} onConfirm={handleApplyAdjustment} billNo={state.selectedBillNo} supplierCode={state.selectedSupplier} originalBillTotal={totalPayable} />
             <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
             <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null }))} onConfirm={handleDeletePayment} supplierCode={state.deleteSupplierCode} billNo={state.deleteBillNo} />
+            {/* Detailed Report Modal */}
+            <DetailedReportModal
+                isOpen={showDetailedReport}
+                onClose={() => setShowDetailedReport(false)}
+                data={detailedReportData}
+                supplierCode={selectedReportSupplier}
+                isLoading={isLoadingReport}
+            />
         </div>
     );
 }

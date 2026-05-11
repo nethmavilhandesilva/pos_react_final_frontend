@@ -1,0 +1,804 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../../api';
+
+const DebtorCreditorReport = () => {
+    const navigate = useNavigate();
+    const [activeTab, setActiveTab] = useState('debtors');
+    const [debtors, setDebtors] = useState([]);
+    const [creditors, setCreditors] = useState([]);
+    const [debtorSummary, setDebtorSummary] = useState({});
+    const [creditorSummary, setCreditorSummary] = useState({});
+    const [combinedSummary, setCombinedSummary] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [limit, setLimit] = useState(50);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [modalData, setModalData] = useState(null);
+    const [modalLoading, setModalLoading] = useState(false);
+
+    const fetchCombinedReport = useCallback(async () => {
+        setLoading(true);
+        try {
+            const response = await api.get('/debtor-creditor/combined', {
+                params: { search: searchTerm, limit }
+            });
+            if (response.data.success) {
+                setDebtors(response.data.debtors);
+                setCreditors(response.data.creditors);
+                setDebtorSummary(response.data.debtor_summary);
+                setCreditorSummary(response.data.creditor_summary);
+                setCombinedSummary(response.data.combined_summary);
+            }
+        } catch (error) {
+            console.error('Error fetching combined report:', error);
+            alert('Failed to load report data');
+        } finally {
+            setLoading(false);
+        }
+    }, [searchTerm, limit]);
+
+    useEffect(() => {
+        fetchCombinedReport();
+    }, [fetchCombinedReport]);
+
+    const fetchDetails = async (type, code) => {
+        setModalLoading(true);
+        setShowDetailsModal(true);
+        try {
+            const endpoint = type === 'debtor' 
+                ? `/debtor-creditor/debtor/${code}`
+                : `/debtor-creditor/creditor/${code}`;
+            const response = await api.get(endpoint);
+            if (response.data.success) {
+                setModalData(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching details:', error);
+            alert('Failed to load details');
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const formatCurrency = (amount) => {
+        return `Rs. ${(amount || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        })}`;
+    };
+
+    const formatDate = (date) => {
+        if (!date) return 'N/A';
+        return new Date(date).toLocaleDateString('en-GB', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    };
+
+    const filteredDebtors = useMemo(() => {
+        if (!searchTerm) return debtors;
+        const term = searchTerm.toLowerCase();
+        return debtors.filter(d => 
+            d.code?.toLowerCase().includes(term) ||
+            d.name?.toLowerCase().includes(term) ||
+            d.telephone?.includes(term)
+        );
+    }, [debtors, searchTerm]);
+
+    const filteredCreditors = useMemo(() => {
+        if (!searchTerm) return creditors;
+        const term = searchTerm.toLowerCase();
+        return creditors.filter(c => 
+            c.code?.toLowerCase().includes(term) ||
+            c.name?.toLowerCase().includes(term) ||
+            c.telephone?.includes(term)
+        );
+    }, [creditors, searchTerm]);
+
+    const currentData = activeTab === 'debtors' ? filteredDebtors : filteredCreditors;
+    const currentSummary = activeTab === 'debtors' ? debtorSummary : creditorSummary;
+
+    if (loading) {
+        return (
+            <div style={styles.fullScreenContainer}>
+                <div style={styles.loadingContainer}>
+                    <div style={styles.loadingSpinner}>⏳</div>
+                    <p style={styles.loadingText}>Loading report data...</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={styles.fullScreenContainer}>
+            {/* Header */}
+            <div style={styles.header}>
+                <div style={styles.headerTitle}>
+                    <span style={styles.headerIcon}>💰</span>
+                    <span>Debtor & Creditor Report</span>
+                </div>
+                <div style={styles.headerSubtitle}>
+                    Comprehensive report of all debtors and creditors with their transaction details
+                </div>
+            </div>
+
+            {/* Combined Summary Cards */}
+            <div style={styles.statsGrid}>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Total Debtors</div>
+                    <div style={styles.statValue}>{combinedSummary.total_debtors || 0}</div>
+                </div>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Total Creditors</div>
+                    <div style={styles.statValue}>{combinedSummary.total_creditors || 0}</div>
+                </div>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Debtor Outstanding</div>
+                    <div style={styles.statValue}>{formatCurrency(combinedSummary.total_debtor_outstanding)}</div>
+                </div>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Creditor Outstanding</div>
+                    <div style={styles.statValue}>{formatCurrency(combinedSummary.total_creditor_outstanding)}</div>
+                </div>
+            </div>
+
+            {/* Tabs */}
+            <div style={styles.tabsContainer}>
+                <button
+                    style={{
+                        ...styles.tabButton,
+                        ...(activeTab === 'debtors' ? styles.tabButtonActive : {})
+                    }}
+                    onClick={() => setActiveTab('debtors')}
+                >
+                    🧾 Debtors ({debtors.length})
+                </button>
+                <button
+                    style={{
+                        ...styles.tabButton,
+                        ...(activeTab === 'creditors' ? styles.tabButtonActive : {})
+                    }}
+                    onClick={() => setActiveTab('creditors')}
+                >
+                    🏪 Creditors ({creditors.length})
+                </button>
+            </div>
+
+            {/* Search and Filters */}
+            <div style={styles.searchBar}>
+                <input
+                    type="text"
+                    placeholder="🔍 Search by code, name, or telephone..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={styles.searchInput}
+                    onFocus={(e) => {
+                        e.target.style.borderColor = '#667eea';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(102,126,234,0.1)';
+                    }}
+                    onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0';
+                        e.target.style.boxShadow = 'none';
+                    }}
+                />
+                <select
+                    value={limit}
+                    onChange={(e) => setLimit(parseInt(e.target.value))}
+                    style={styles.select}
+                >
+                    <option value={20}>Show 20</option>
+                    <option value={50}>Show 50</option>
+                    <option value={100}>Show 100</option>
+                    <option value={200}>Show 200</option>
+                </select>
+                <button
+                    onClick={fetchCombinedReport}
+                    style={styles.refreshBtn}
+                    onMouseEnter={(e) => e.target.style.background = '#45a049'}
+                    onMouseLeave={(e) => e.target.style.background = '#4CAF50'}
+                >
+                    🔄 Refresh
+                </button>
+            </div>
+
+            {/* Summary for active tab */}
+            <div style={styles.statsGrid}>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Debtors' : 'Creditors'}</div>
+                    <div style={styles.statValue}>{currentSummary[`total_${activeTab}`] || 0}</div>
+                </div>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Sales' : 'Supplier'} Amount</div>
+                    <div style={styles.statValue}>{formatCurrency(currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`])}</div>
+                </div>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Total Paid</div>
+                    <div style={styles.statValue}>{formatCurrency(currentSummary.total_paid_amount)}</div>
+                </div>
+                <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Remaining' : 'Outstanding'}</div>
+                    <div style={styles.statValue}>{formatCurrency(currentSummary.total_remaining_amount)}</div>
+                </div>
+            </div>
+
+            {/* Data Table */}
+            <div style={styles.tableWrapper}>
+                <table style={styles.table}>
+                    <thead>
+                        <tr>
+                            <th style={styles.th}>Code</th>
+                            <th style={styles.th}>Name</th>
+                            <th style={styles.th}>Telephone</th>
+                            <th style={styles.th}>Total</th>
+                            <th style={styles.th}>Paid</th>
+                            <th style={styles.th}>Remaining</th>
+                            <th style={styles.th}>Bills</th>
+                            <th style={styles.th}>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {currentData.length === 0 ? (
+                            <tr>
+                                <td colSpan="8" style={styles.emptyState}>
+                                    No {activeTab} found
+                                </td>
+                            </tr>
+                        ) : (
+                            currentData.map((item, idx) => (
+                                <tr
+                                    key={idx}
+                                    style={styles.tableRow}
+                                    onClick={() => fetchDetails(activeTab === 'debtors' ? 'debtor' : 'creditor', item.code)}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = '#f8fafc';
+                                        e.currentTarget.style.cursor = 'pointer';
+                                    }}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                >
+                                    <td style={styles.td}>
+                                        <strong>{item.code}</strong>
+                                    </td>
+                                    <td style={styles.td}>{item.name || '-'}</td>
+                                    <td style={styles.td}>{item.telephone || '-'}</td>
+                                    <td style={styles.td}>
+                                        <strong>{formatCurrency(activeTab === 'debtors' ? item.total_sales : item.total_supplier_amount)}</strong>
+                                    </td>
+                                    <td style={styles.td}>{formatCurrency(item.total_paid)}</td>
+                                    <td style={styles.td}>
+                                        <span style={{ color: item.total_remaining > 0 ? '#dc2626' : '#10b981' }}>
+                                            {formatCurrency(item.total_remaining)}
+                                        </span>
+                                    </td>
+                                    <td style={styles.td}>{item.bill_count || 0}</td>
+                                    <td style={styles.td}>
+                                        <span style={{
+                                            ...styles.statusBadge,
+                                            ...(item.status === 'Fully Paid' || item.status === 'Fully Settled' ? styles.statusPaid : styles.statusPending)
+                                        }}>
+                                            {item.status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Details Modal */}
+            {showDetailsModal && (
+                <div style={styles.modalOverlay} onClick={() => setShowDetailsModal(false)}>
+                    <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                        <div style={styles.modalHeader}>
+                            <div>
+                                <h3 style={styles.modalTitle}>
+                                    {activeTab === 'debtors' ? '🧾 Debtor Details' : '🏪 Creditor Details'}
+                                </h3>
+                                <p style={styles.modalSubtitle}>
+                                    {modalData?.code}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setShowDetailsModal(false)}
+                                style={styles.modalCloseBtn}
+                                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+                                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div style={styles.modalBody}>
+                            {modalLoading ? (
+                                <div style={styles.modalLoading}>
+                                    <div style={styles.loadingSpinner}>⏳</div>
+                                    <p>Loading details...</p>
+                                </div>
+                            ) : modalData && (
+                                <>
+                                    {/* Profile Section */}
+                                    <div style={styles.profileSection}>
+                                        {modalData.profile_pic && (
+                                            <img
+                                                src={modalData.profile_pic.startsWith('http') ? modalData.profile_pic : `https://goviraju.lk/sms_new_backend_50500/application/public/storage/${modalData.profile_pic}`}
+                                                alt="Profile"
+                                                style={styles.profilePic}
+                                                onError={(e) => { e.target.style.display = 'none'; }}
+                                            />
+                                        )}
+                                        <div style={styles.profileInfo}>
+                                            <h4 style={styles.profileName}>{modalData.name || 'N/A'}</h4>
+                                            <p style={styles.profileDetail}>📞 {modalData.telephone || 'No phone'}</p>
+                                            <p style={styles.profileDetail}>📍 {modalData.address || 'No address'}</p>
+                                            {activeTab === 'debtors' && modalData.credit_limit && (
+                                                <p style={styles.profileDetail}>💳 Credit Limit: {formatCurrency(modalData.credit_limit)}</p>
+                                            )}
+                                            {activeTab === 'creditors' && modalData.advance_amount > 0 && (
+                                                <p style={styles.profileDetail}>💰 Advance Amount: {formatCurrency(modalData.advance_amount)}</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Bills Section */}
+                                    <h4 style={styles.sectionTitle}>📋 Bills & Transactions</h4>
+                                    <div style={styles.tableWrapper}>
+                                        <table style={styles.detailsTable}>
+                                            <thead>
+                                                <tr style={styles.detailsTableHeader}>
+                                                    <th style={styles.detailsTh}>Bill No</th>
+                                                    <th style={styles.detailsTh}>Date</th>
+                                                    <th style={styles.detailsTh}>Total</th>
+                                                    <th style={styles.detailsTh}>Paid</th>
+                                                    <th style={styles.detailsTh}>Remaining</th>
+                                                    <th style={styles.detailsTh}>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(modalData.bills || []).map((bill, idx) => {
+                                                    const paidAmount = bill.given_amount || bill.paid_amount || 0;
+                                                    const remaining = bill.total_amount - paidAmount;
+                                                    return (
+                                                        <tr key={idx} style={styles.detailsTableRow}>
+                                                            <td style={styles.detailsTd}><strong>{bill.bill_no}</strong></td>
+                                                            <td style={styles.detailsTd}>{formatDate(bill.created_at)}</td>
+                                                            <td style={styles.detailsTd}>{formatCurrency(bill.total_amount)}</td>
+                                                            <td style={styles.detailsTd}>{formatCurrency(paidAmount)}</td>
+                                                            <td style={styles.detailsTd}>
+                                                                <span style={{ color: remaining > 0 ? '#dc2626' : '#10b981' }}>
+                                                                    {formatCurrency(remaining)}
+                                                                </span>
+                                                            </td>
+                                                            <td style={styles.detailsTd}>
+                                                                <span style={{
+                                                                    ...styles.statusBadge,
+                                                                    ...(remaining <= 0 ? styles.statusPaid : styles.statusPending)
+                                                                }}>
+                                                                    {remaining <= 0 ? 'Paid' : 'Pending'}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* Payments Section (for Creditors) */}
+                                    {activeTab === 'creditors' && modalData.payments && modalData.payments.length > 0 && (
+                                        <>
+                                            <h4 style={styles.sectionTitle}>💰 Payment History</h4>
+                                            <div style={styles.tableWrapper}>
+                                                <table style={styles.detailsTable}>
+                                                    <thead>
+                                                        <tr style={styles.detailsTableHeader}>
+                                                            <th style={styles.detailsTh}>Date</th>
+                                                            <th style={styles.detailsTh}>Amount</th>
+                                                            <th style={styles.detailsTh}>Method</th>
+                                                            <th style={styles.detailsTh}>Bill No</th>
+                                                            <th style={styles.detailsTh}>Reference</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {modalData.payments.map((payment, idx) => (
+                                                            <tr key={idx} style={styles.detailsTableRow}>
+                                                                <td style={styles.detailsTd}>{formatDate(payment.date)}</td>
+                                                                <td style={styles.detailsTd}><strong>{formatCurrency(payment.amount)}</strong></td>
+                                                                <td style={styles.detailsTd}>
+                                                                    <span style={{
+                                                                        ...styles.paymentMethodBadge,
+                                                                        background: payment.type === 'Cash' ? '#10b981' : payment.type === 'Cheque' ? '#8b5cf6' : payment.type === 'Bank Transfer' ? '#ec489a' : '#f59e0b',
+                                                                        color: 'white'
+                                                                    }}>
+                                                                        {payment.icon} {payment.payment_method_display}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>{payment.bill_no || '-'}</td>
+                                                                <td style={styles.detailsTd}>
+                                                                    {payment.cheque_no || payment.transfer_reference_no || payment.bad_debt_name || '-'}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const styles = {
+    fullScreenContainer: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh',
+        background: '#f0f2f5',
+        overflowY: 'auto',
+        padding: '20px 30px',
+        margin: 0,
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        boxSizing: 'border-box',
+        zIndex: 999
+    },
+    loadingContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        width: '100%'
+    },
+    loadingSpinner: {
+        fontSize: '48px',
+        marginBottom: '16px',
+        animation: 'spin 1s linear infinite'
+    },
+    loadingText: {
+        fontSize: '16px',
+        color: '#64748b'
+    },
+    header: {
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: '24px 32px',
+        borderRadius: '20px',
+        color: 'white',
+        marginBottom: '24px',
+        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+    },
+    headerTitle: {
+        fontSize: '28px',
+        fontWeight: '700',
+        margin: 0,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px'
+    },
+    headerIcon: {
+        fontSize: '32px'
+    },
+    headerSubtitle: {
+        fontSize: '14px',
+        opacity: 0.9,
+        marginTop: '8px'
+    },
+    statsGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: '20px',
+        marginBottom: '24px'
+    },
+    statCard: {
+        background: 'white',
+        borderRadius: '16px',
+        padding: '20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        cursor: 'pointer'
+    },
+    statLabel: {
+        fontSize: '12px',
+        color: '#64748b',
+        marginBottom: '8px',
+        textTransform: 'uppercase',
+        fontWeight: '600',
+        letterSpacing: '0.5px'
+    },
+    statValue: {
+        fontSize: '32px',
+        fontWeight: '800',
+        color: '#1e293b'
+    },
+    tabsContainer: {
+        display: 'flex',
+        gap: '12px',
+        marginBottom: '24px',
+        background: 'white',
+        padding: '8px',
+        borderRadius: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+    },
+    tabButton: {
+        padding: '12px 28px',
+        border: 'none',
+        background: 'transparent',
+        fontSize: '15px',
+        fontWeight: '600',
+        cursor: 'pointer',
+        borderRadius: '12px',
+        transition: 'all 0.2s',
+        color: '#475569'
+    },
+    tabButtonActive: {
+        background: '#667eea',
+        color: 'white',
+        boxShadow: '0 2px 4px rgba(102,126,234,0.3)'
+    },
+    searchBar: {
+        display: 'flex',
+        gap: '12px',
+        marginBottom: '24px',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        background: 'white',
+        padding: '16px',
+        borderRadius: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+    },
+    searchInput: {
+        flex: 1,
+        padding: '12px 16px',
+        border: '2px solid #e2e8f0',
+        borderRadius: '12px',
+        fontSize: '14px',
+        outline: 'none',
+        transition: 'all 0.2s',
+        minWidth: '200px',
+        background: 'white'
+    },
+    select: {
+        padding: '12px 16px',
+        border: '2px solid #e2e8f0',
+        borderRadius: '12px',
+        background: 'white',
+        cursor: 'pointer',
+        fontSize: '14px',
+        outline: 'none'
+    },
+    refreshBtn: {
+        padding: '12px 24px',
+        background: '#4CAF50',
+        color: 'white',
+        border: 'none',
+        borderRadius: '12px',
+        cursor: 'pointer',
+        fontWeight: '600',
+        fontSize: '14px',
+        transition: 'all 0.2s'
+    },
+    tableWrapper: {
+        overflowX: 'auto',
+        borderRadius: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        background: 'white'
+    },
+    table: {
+        width: '100%',
+        background: 'white',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        borderCollapse: 'collapse'
+    },
+    th: {
+        padding: '16px 20px',
+        textAlign: 'left',
+        background: '#f8fafc',
+        fontWeight: '600',
+        color: '#475569',
+        borderBottom: '2px solid #e2e8f0',
+        fontSize: '14px'
+    },
+    td: {
+        padding: '14px 20px',
+        borderBottom: '1px solid #f1f5f9',
+        fontSize: '14px',
+        color: '#334155'
+    },
+    tableRow: {
+        transition: 'background 0.2s'
+    },
+    emptyState: {
+        textAlign: 'center',
+        padding: '60px',
+        color: '#94a3b8',
+        fontSize: '14px'
+    },
+    statusBadge: {
+        display: 'inline-block',
+        padding: '4px 12px',
+        borderRadius: '20px',
+        fontSize: '12px',
+        fontWeight: '500'
+    },
+    statusPaid: {
+        background: '#d1fae5',
+        color: '#065f46'
+    },
+    statusPending: {
+        background: '#fed7aa',
+        color: '#9a3412'
+    },
+    modalOverlay: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.7)',
+        backdropFilter: 'blur(5px)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 10000
+    },
+    modalContent: {
+        background: 'white',
+        borderRadius: '24px',
+        width: '90%',
+        maxWidth: '1100px',
+        maxHeight: '85vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+        animation: 'slideUp 0.3s ease'
+    },
+    modalHeader: {
+        padding: '20px 28px',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        borderRadius: '24px 24px 0 0',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+    },
+    modalTitle: {
+        margin: 0,
+        fontSize: '20px',
+        fontWeight: '700'
+    },
+    modalSubtitle: {
+        margin: '4px 0 0 0',
+        opacity: 0.9,
+        fontSize: '13px'
+    },
+    modalCloseBtn: {
+        background: 'rgba(255,255,255,0.2)',
+        border: 'none',
+        fontSize: '28px',
+        cursor: 'pointer',
+        color: 'white',
+        width: '40px',
+        height: '40px',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'all 0.2s'
+    },
+    modalBody: {
+        padding: '28px',
+        overflowY: 'auto',
+        flex: 1
+    },
+    modalLoading: {
+        textAlign: 'center',
+        padding: '60px',
+        color: '#64748b'
+    },
+    profileSection: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '24px',
+        marginBottom: '28px',
+        paddingBottom: '24px',
+        borderBottom: '2px solid #e2e8f0',
+        flexWrap: 'wrap'
+    },
+    profilePic: {
+        width: '90px',
+        height: '90px',
+        borderRadius: '50%',
+        objectFit: 'cover',
+        border: '4px solid white',
+        boxShadow: '0 4px 15px rgba(0,0,0,0.15)'
+    },
+    profileInfo: {
+        flex: 1
+    },
+    profileName: {
+        margin: '0 0 6px 0',
+        fontSize: '22px',
+        fontWeight: '700',
+        color: '#1e293b'
+    },
+    profileDetail: {
+        margin: '4px 0',
+        color: '#64748b',
+        fontSize: '13px'
+    },
+    sectionTitle: {
+        fontSize: '18px',
+        fontWeight: '600',
+        marginBottom: '18px',
+        color: '#1e293b',
+        paddingBottom: '8px',
+        borderBottom: '2px solid #667eea',
+        display: 'inline-block'
+    },
+    detailsTable: {
+        width: '100%',
+        fontSize: '13px',
+        borderCollapse: 'collapse',
+        marginBottom: '24px'
+    },
+    detailsTableHeader: {
+        background: '#f1f5f9'
+    },
+    detailsTh: {
+        padding: '12px 16px',
+        textAlign: 'left',
+        fontWeight: '600',
+        color: '#475569',
+        borderBottom: '1px solid #e2e8f0'
+    },
+    detailsTd: {
+        padding: '12px 16px',
+        borderBottom: '1px solid #e2e8f0',
+        color: '#334155'
+    },
+    detailsTableRow: {
+        transition: 'background 0.2s'
+    },
+    paymentMethodBadge: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 12px',
+        borderRadius: '20px',
+        fontSize: '11px',
+        fontWeight: '500'
+    }
+};
+
+// Add keyframes animation to the document head
+const styleSheet = document.createElement("style");
+styleSheet.textContent = `
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+`;
+document.head.appendChild(styleSheet);
+
+export default DebtorCreditorReport;

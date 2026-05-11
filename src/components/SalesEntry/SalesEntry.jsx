@@ -1091,6 +1091,10 @@ export default function SalesEntry() {
         } else if (field === 'price_per_kg_grid_item') {
             setFormData(prev => ({ ...prev, 'price_per_kg': value }));
             updateState({ gridPricePerKg: value, priceManuallyChanged: false });
+        } else if (field === 'telephone_no') {
+            // Only allow numbers and limit to 10 digits
+            const cleaned = value.replace(/\D/g, '').slice(0, 10);
+            setFormData(prev => ({ ...prev, telephone_no: cleaned }));
         } else {
             setFormData(prev => ({ ...prev, [field]: value }));
         }
@@ -1169,6 +1173,21 @@ export default function SalesEntry() {
             });
         }
     };
+    // Show Save button when telephone number has 10 digits
+    useEffect(() => {
+        const phoneNumber = formData.telephone_no || "";
+        // Check if phone number has exactly 10 digits (only numbers)
+        const isValidPhone = /^\d{10}$/.test(phoneNumber);
+
+        // Also check if we have a customer code
+        const customerCode = formData.customer_code || autoCustomerCode;
+
+        if (isValidPhone && customerCode && !selectedPrintedCustomer) {
+            updateState({ showSavePhoneButton: true });
+        } else {
+            updateState({ showSavePhoneButton: false });
+        }
+    }, [formData.telephone_no, formData.customer_code, autoCustomerCode, selectedPrintedCustomer]);
 
     const handleEditClick = (sale) => {
         // If same record clicked again → clear fields EXCEPT customer/contact fields
@@ -1597,43 +1616,43 @@ export default function SalesEntry() {
         });
     };
 
-   const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
-    const formatNumber = (num) => {
-        if (typeof num !== 'number' && typeof num !== 'string') return '0';
-        const number = parseFloat(num);
-        if (isNaN(number)) return '0';
+    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+        const formatNumber = (num) => {
+            if (typeof num !== 'number' && typeof num !== 'string') return '0';
+            const number = parseFloat(num);
+            if (isNaN(number)) return '0';
 
-        if (Number.isInteger(number)) {
-            return number.toLocaleString('en-US');
-        } else {
-            const parts = number.toFixed(2).split('.');
-            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-            return `${wholePart}.${parts[1]}`;
-        }
-    };
+            if (Number.isInteger(number)) {
+                return number.toLocaleString('en-US');
+            } else {
+                const parts = number.toFixed(2).split('.');
+                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+                return `${wholePart}.${parts[1]}`;
+            }
+        };
 
-    const date = new Date().toLocaleDateString();
-    const time = new Date().toLocaleTimeString();
-    let totalAmountSum = 0;
-    const consolidatedSummary = {};
+        const date = new Date().toLocaleDateString();
+        const time = new Date().toLocaleTimeString();
+        let totalAmountSum = 0;
+        const consolidatedSummary = {};
 
-    salesData.forEach(s => {
-        const itemName = s.item_name || 'Unknown';
-        if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
-        consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
-        consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
-        totalAmountSum += parseFloat(s.total) || 0;
-    });
+        salesData.forEach(s => {
+            const itemName = s.item_name || 'Unknown';
+            if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+            totalAmountSum += parseFloat(s.total) || 0;
+        });
 
-    const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
-    const is4Inch = billSize === '4inch';
-    const receiptMaxWidth = is4Inch ? '4in' : '350px';
+        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+        const is4Inch = billSize === '4inch';
+        const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-    const fontSizeBody = '25px';
-    const fontSizeHeader = '23px';
-    const fontSizeTotal = '28px';
+        const fontSizeBody = '25px';
+        const fontSizeHeader = '23px';
+        const fontSizeTotal = '28px';
 
-    const colGroups = `
+        const colGroups = `
     <colgroup>
         <col style="width:32%;"> 
         <col style="width:21%;">
@@ -1641,13 +1660,13 @@ export default function SalesEntry() {
         <col style="width:26%;">
     </colgroup>`;
 
-    const itemsHtml = salesData.map(s => {
-        const packs = parseInt(s.packs) || 0;
-        const weight = parseFloat(s.weight) || 0;
-        const price = parseFloat(s.price_per_kg) || 0;
-        const value = (weight * price).toFixed(2);
+        const itemsHtml = salesData.map(s => {
+            const packs = parseInt(s.packs) || 0;
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const value = (weight * price).toFixed(2);
 
-        return `
+            return `
     <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom;">
         <td style="text-align:left; padding:10px 0; white-space: nowrap;">
             ${s.item_name || ""}<br>${formatNumber(packs)}
@@ -1661,15 +1680,15 @@ export default function SalesEntry() {
             <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
         </td>
     </tr>`;
-    }).join("");
+        }).join("");
 
-    const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-    const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
-    const finalGrandTotal = totalSales + totalPackCost;
-    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-    const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
-    
-    const loanRow = globalLoanAmount !== 0 ? `
+        const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+        const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+        const finalGrandTotal = totalSales + totalPackCost;
+        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+        const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+
+        const loanRow = globalLoanAmount !== 0 ? `
     <tr>
         <td style="font-size:20px; padding-top:8px;">පෙර ණය:</td>
         <td style="text-align:right; font-size:22px; font-weight:bold; padding-top:8px;">
@@ -1677,22 +1696,22 @@ export default function SalesEntry() {
         </td>
     </tr>` : '';
 
-    const summaryEntries = Object.entries(consolidatedSummary);
-    let summaryHtmlContent = '';
-    for (let i = 0; i < summaryEntries.length; i += 2) {
-        const [name1, d1] = summaryEntries[i];
-        const [name2, d2] = summaryEntries[i + 1] || [null, null];
-        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-        summaryHtmlContent += `
+        const summaryEntries = Object.entries(consolidatedSummary);
+        let summaryHtmlContent = '';
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+            summaryHtmlContent += `
         <tr>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>
         </tr>`;
-    }
+        }
 
-    return `
-    <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
+        return `
+   <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
             <div style="font-size:24px;">Manju</div>
             <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
@@ -1739,43 +1758,44 @@ export default function SalesEntry() {
             </table>
         </div>
 
-        <!-- TOTALS TABLE - SEPARATE FROM ITEMS TABLE TO AVOID DUPLICATION -->
+        <!-- TOTALS AND SUMMARY TOGETHER - ONLY ONCE -->
         <div style="page-break-before: avoid; page-break-after: avoid;">
+            <!-- SUMMARY TABLE -->
+            <div style="margin-top:25px; border-top:2.5px solid #000; padding-top:10px;">
+                <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">
+                    <tbody>
+                        ${summaryHtmlContent || '<tr><td colspan="2">No items</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- TOTALS TABLE -->
             <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px; border-collapse:collapse;">
                 <tbody>
                     <tr>
-                        <td style="width:50%; font-size:20px;">මලු:</td>
-                        <td style="width:50%; text-align:right; font-weight:bold;">${formatNumber(totalPackCost.toFixed(2))}</td>
+                        <td style="width:50%; font-size:20px;">මලු:
+                        <td style="width:50%; text-align:right; font-weight:bold;">${formatNumber(totalPackCost.toFixed(2))}
                     </tr>
                     <tr>
-                        <td style="font-size:20px; padding-top:8px;">එකතුව:</td>
+                        <td style="font-size:20px; padding-top:8px;">එකතුව:
                         <td style="text-align:right; padding-top:8px;">
                             <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px; display:inline-block;">
                                 ${Number(finalGrandTotal).toFixed(2)}
                             </span>
-                        </td>
+                        
                     </tr>
                     ${loanRow}
                     ${givenAmount > 0 ? `
                     <tr>
-                        <td style="font-size:18px; padding-top:18px;">දුන් මුදල:</td>
+                        <td style="font-size:18px; padding-top:18px;">දුන් මුදල:
                         <td style="text-align:right; font-size:20px; padding-top:18px; font-weight:bold;">
                             ${formatNumber(parseFloat(givenAmount).toFixed(2))}
-                        </td>
+                        
                     </tr>
                     <tr>
-                        <td style="font-size:22px;">ඉතිරිය:</td>
-                        <td style="text-align:right; font-size:26px;">${formatNumber(remaining.toFixed(2))}</td>
+                        <td style="font-size:22px;">ඉතිරිය:
+                        <td style="text-align:right; font-size:26px;">${formatNumber(remaining.toFixed(2))}
                     </tr>` : ''}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- SUMMARY TABLE -->
-        <div style="margin-top:25px; border-top:2.5px solid #000; padding-top:10px;">
-            <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">
-                <tbody>
-                    ${summaryHtmlContent || '<tr><td colspan="2">No items</td></tr>'}
                 </tbody>
             </table>
         </div>
@@ -1785,7 +1805,7 @@ export default function SalesEntry() {
             <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
         </div>
     </div>`;
-};
+    };
     const formatReceiptValue = (value) => {
         if (value === null || value === undefined || value === '') return '0.00';
         const num = parseFloat(value);
@@ -1846,10 +1866,10 @@ export default function SalesEntry() {
             }
         }
 
-        // --- ZERO PRICE VALIDATION ---
-        const hasZeroPrice = salesData.some(s => parseFloat(s.price_per_kg) === 0);
-        if (hasZeroPrice) {
-            alert("මිල 0 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+        // --- ZERO OR ONE PRICE VALIDATION ---
+        const hasZeroOrOnePrice = salesData.some(s => parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1);
+        if (hasZeroOrOnePrice) {
+            alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
             return;
         }
 
