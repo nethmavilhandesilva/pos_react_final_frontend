@@ -822,8 +822,9 @@ const PrintBillModal = ({ isOpen, onClose, billContent, billSize, setBillSize, o
 };
 
 // ==================== CREDITOR MODAL ====================
-const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
-    const [supplierCode, setSupplierCode] = useState('');
+const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSupplierCode = '', billNo: initialBillNo = null }) => {
+    const [supplierCode, setSupplierCode] = useState(initialSupplierCode || '');
+    const [billNo, setBillNo] = useState(initialBillNo || '');
     const [loading, setLoading] = useState(false);
     const [showSupplierForm, setShowSupplierForm] = useState(false);
     const [formData, setFormData] = useState({
@@ -836,6 +837,16 @@ const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
         nic_front: null,
         nic_back: null
     });
+
+    // Update when props change
+    useEffect(() => {
+        if (initialSupplierCode) {
+            setSupplierCode(initialSupplierCode);
+        }
+        if (initialBillNo) {
+            setBillNo(initialBillNo);
+        }
+    }, [initialSupplierCode, initialBillNo]);
 
     if (!isOpen) return null;
 
@@ -852,6 +863,12 @@ const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
             });
 
             if (response.data.exists) {
+                // If supplier exists, mark as creditor with bill number
+                await api.put('/suppliers/update-creditor-status', {
+                    code: supplierCode,
+                    Creditor: 'Y',
+                    bill_no: billNo  // Pass the bill number
+                });
                 onConfirm(response.data.supplier);
                 onClose();
             } else {
@@ -880,6 +897,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
         submitData.append('dob', formData.dob);
         submitData.append('address', formData.address);
         submitData.append('telephone_no', formData.telephone_no);
+        submitData.append('bill_no', billNo); // Pass bill number
+        submitData.append('credit_amount', '0'); // Default credit amount
         if (formData.profile_pic) submitData.append('profile_pic', formData.profile_pic);
         if (formData.nic_front) submitData.append('nic_front', formData.nic_front);
         if (formData.nic_back) submitData.append('nic_back', formData.nic_back);
@@ -889,6 +908,21 @@ const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
             const response = await api.post('/suppliers', submitData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
+
+            // Also create creditor record with the bill number
+            if (billNo) {
+                try {
+                    await api.post('/creditors/create-with-supplier', {
+                        bill_no: billNo,
+                        supplier_code: formData.code.toUpperCase(),
+                        credit_amount: 0,
+                        creditor_no: response.data.Creditor_no
+                    });
+                } catch (creditorError) {
+                    console.error('Error creating creditor record:', creditorError);
+                }
+            }
+
             onConfirm(response.data.supplier);
             onClose();
         } catch (error) {
@@ -912,6 +946,18 @@ const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
                     padding: '24px'
                 }} onClick={(e) => e.stopPropagation()}>
                     <h3>Create New Supplier (Creditor)</h3>
+                    {billNo && (
+                        <div style={{
+                            background: '#e0f2fe',
+                            padding: '10px',
+                            borderRadius: '8px',
+                            marginBottom: '16px',
+                            fontSize: '13px',
+                            color: '#0369a1'
+                        }}>
+                            📄 This will be linked to Bill No: {billNo}
+                        </div>
+                    )}
                     <form onSubmit={(e) => { e.preventDefault(); handleCreateSupplier(); }}>
                         <input type="text" name="code" placeholder="Supplier Code *" required onChange={handleFormChange} style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }} />
                         <input type="text" name="name" placeholder="Supplier Name *" required onChange={handleFormChange} style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }} />
@@ -937,10 +983,27 @@ const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
         }} onClick={onClose}>
             <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '400px', padding: '24px' }} onClick={(e) => e.stopPropagation()}>
                 <h3>Creditor Mode</h3>
+                {billNo && (
+                    <div style={{
+                        background: '#e0f2fe',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        marginBottom: '16px',
+                        fontSize: '13px',
+                        color: '#0369a1'
+                    }}>
+                        📄 Bill Number: <strong>{billNo}</strong>
+                    </div>
+                )}
                 <p>Enter supplier code to mark as creditor:</p>
-                <input type="text" value={supplierCode} onChange={(e) => setSupplierCode(e.target.value.toUpperCase())}
-                    placeholder="Enter Supplier Code" autoFocus
-                    style={{ width: '100%', padding: '12px', border: '2px solid #e2e8f0', borderRadius: '8px', marginBottom: '16px' }} />
+                <input
+                    type="text"
+                    value={supplierCode}
+                    onChange={(e) => setSupplierCode(e.target.value.toUpperCase())}
+                    placeholder="Enter Supplier Code"
+                    autoFocus
+                    style={{ width: '100%', padding: '12px', border: '2px solid #e2e8f0', borderRadius: '8px', marginBottom: '16px' }}
+                />
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <button onClick={onClose} style={{ flex: 1, padding: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px' }}>Cancel</button>
                     <button onClick={handleCheckCreditor} disabled={loading} style={{ flex: 1, padding: '10px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px' }}>{loading ? 'Checking...' : 'Continue'}</button>
@@ -949,7 +1012,6 @@ const CreditorModal = ({ isOpen, onClose, onConfirm }) => {
         </div>
     );
 };
-
 // ==================== STYLES ====================
 const styles = {
     app: { width: '100vw', minHeight: '100vh', background: '#0dea77', margin: 0, padding: 0, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
@@ -1165,6 +1227,242 @@ const DetailedReportModal = ({ isOpen, onClose, data, supplierCode, isLoading })
         </div>
     );
 };
+// ==================== CREDITOR FORM MODAL ====================
+const CreditorFormModal = ({ isOpen, onClose, onSave, supplierCode, billNo = null, existingCreditorNo = null }) => {
+    const [formData, setFormData] = useState({
+        code: '',
+        name: '',
+        dob: '',
+        address: '',
+        telephone_no: '',
+        advance_amount: '',
+        profile_pic: null,
+        nic_front: null,
+        nic_back: null
+    });
+    const [loading, setLoading] = useState(false);
+    const [previewImages, setPreviewImages] = useState({
+        profile_pic: null,
+        nic_front: null,
+        nic_back: null
+    });
+    const [generatedCreditorNo, setGeneratedCreditorNo] = useState(null);
+
+    useEffect(() => {
+        if (isOpen && supplierCode) {
+            setFormData(prev => ({ ...prev, code: supplierCode.toUpperCase() }));
+            if (existingCreditorNo) {
+                setGeneratedCreditorNo(existingCreditorNo);
+            } else {
+                setGeneratedCreditorNo(null);
+            }
+        }
+    }, [isOpen, supplierCode, existingCreditorNo]);
+
+    if (!isOpen) return null;
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleFileChange = (e) => {
+        const { name, files } = e.target;
+        const file = files[0];
+        if (file) {
+            setFormData(prev => ({ ...prev, [name]: file }));
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setPreviewImages(prev => ({ ...prev, [name]: reader.result }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleSubmit = async () => {
+        setLoading(true);
+        try {
+            const formDataToSend = new FormData();
+            formDataToSend.append('code', supplierCode.toUpperCase());
+            if (formData.name) formDataToSend.append('name', formData.name);
+            if (formData.dob) formDataToSend.append('dob', formData.dob);
+            if (formData.address) formDataToSend.append('address', formData.address);
+            if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
+            if (formData.advance_amount) formDataToSend.append('advance_amount', formData.advance_amount);
+            formDataToSend.append('Creditor', 'Y');
+
+            if (formData.profile_pic) formDataToSend.append('profile_pic', formData.profile_pic);
+            if (formData.nic_front) formDataToSend.append('nic_front', formData.nic_front);
+            if (formData.nic_back) formDataToSend.append('nic_back', formData.nic_back);
+
+            const response = await api.post('/suppliers', formDataToSend, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (response.status === 200 || response.status === 201) {
+                const creditorNo = response.data.Creditor_no;
+                setGeneratedCreditorNo(creditorNo);
+
+                // If there's a bill number, create a creditor record with that bill number
+                if (billNo) {
+                    try {
+                        await api.post('/creditors/create-with-supplier', {
+                            bill_no: billNo,
+                            supplier_code: supplierCode.toUpperCase(),
+                            credit_amount: 0,
+                            creditor_no: creditorNo
+                        });
+                        console.log('Creditor record created with bill number:', billNo);
+                    } catch (creditorError) {
+                        console.error('Error creating creditor record:', creditorError);
+                    }
+                }
+
+                alert(`Supplier registered as Creditor successfully!\nCreditor Number: ${creditorNo}${billNo ? `\nBill No: ${billNo}` : ''}`);
+                onSave(true, creditorNo);
+                onClose();
+            }
+        } catch (error) {
+            console.error('Error saving creditor:', error);
+            alert('Failed to save creditor information. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10001,
+        }} onClick={onClose}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '20px',
+                width: '500px',
+                maxWidth: '90%',
+                maxHeight: '85vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            }} onClick={(e) => e.stopPropagation()}>
+                <div style={{
+                    padding: '16px 20px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '20px 20px 0 0',
+                }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>📝</span> Register Creditor: {supplierCode}
+                        {billNo && <span style={{ fontSize: '12px', marginLeft: '8px' }}>(Bill: {billNo})</span>}
+                    </h3>
+                </div>
+
+                <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+                    {generatedCreditorNo && (
+                        <div style={{
+                            background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)',
+                            padding: '12px',
+                            borderRadius: '10px',
+                            marginBottom: '16px',
+                            border: '1px solid #10b981',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{ fontSize: '12px', color: '#065f46', fontWeight: '500' }}>Creditor Number</div>
+                            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#047857' }}>{generatedCreditorNo}</div>
+                        </div>
+                    )}
+
+                    <div style={{
+                        background: '#fef3c7',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        marginBottom: '16px',
+                        fontSize: '12px',
+                        color: '#92400e',
+                        border: '1px solid #fde68a',
+                    }}>
+                        ⚠️ Supplier "{supplierCode}" not found. Please provide information to register as Creditor.
+
+                        <br />
+                        <small>All fields are optional</small>
+
+                        <br />
+                        <small>A unique Creditor Number will be automatically generated.</small>
+
+                        {billNo && (
+                            <>
+                                <br />
+                                <small>This creditor will be linked to Bill No: {billNo}</small>
+                            </>
+                        )}
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Supplier Code</label>
+                        <input type="text" value={supplierCode} disabled style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', background: '#f1f5f9' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Supplier Name</label>
+                        <input type="text" name="name" value={formData.name} onChange={handleChange} placeholder="Enter supplier name" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Date of Birth</label>
+                        <input type="date" name="dob" value={formData.dob} onChange={handleChange} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Telephone Number</label>
+                        <input type="tel" name="telephone_no" value={formData.telephone_no} onChange={handleChange} placeholder="Enter phone number" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Address</label>
+                        <textarea name="address" value={formData.address} onChange={handleChange} placeholder="Enter address" rows="2" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', resize: 'vertical', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Advance Amount (Rs.)</label>
+                        <input type="number" name="advance_amount" value={formData.advance_amount} onChange={handleChange} placeholder="Enter advance amount" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>Profile Picture</label>
+                        <input type="file" name="profile_pic" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png" style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                        {previewImages.profile_pic && <img src={previewImages.profile_pic} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>NIC Front</label>
+                            <input type="file" name="nic_front" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png" style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                            {previewImages.nic_front && <img src={previewImages.nic_front} alt="NIC Front" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px', color: '#334155' }}>NIC Back</label>
+                            <input type="file" name="nic_back" onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png" style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                            {previewImages.nic_back && <img src={previewImages.nic_back} alt="NIC Back" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc', borderRadius: '0 0 20px 20px' }}>
+                    <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Skip</button>
+                    <button onClick={handleSubmit} disabled={loading} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', opacity: loading ? 0.6 : 1 }}>{loading ? 'Saving...' : 'Save & Continue'}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // ==================== MAIN COMPONENT ====================
 export default function SupplierReport() {
@@ -1172,6 +1470,9 @@ export default function SupplierReport() {
     const [showFarmerModal, setShowFarmerModal] = useState(false);
     // Add after other state declarations
     const [selectedBillCreditor, setSelectedBillCreditor] = useState(null);
+    // Add these near other state declarations
+    const [showCreditorModal, setShowCreditorModal] = useState(false);
+    const [selectedBillForCreditor, setSelectedBillForCreditor] = useState({ supplierCode: '', billNo: null });
 
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
@@ -1184,7 +1485,27 @@ export default function SupplierReport() {
     const [farmerSearchQuery, setFarmerSearchQuery] = useState('');
     const [allFarmerOptions, setAllFarmerOptions] = useState([]);
     const [isLoadingFarmers, setIsLoadingFarmers] = useState(false);
+    // Add state for creditor form
+    const [showCreditorForm, setShowCreditorForm] = useState(false);
+    const [pendingCreditorBill, setPendingCreditorBill] = useState(null);
 
+    // Add handler for creditor save
+    const handleCreditorSave = async (saved, creditorNo = null) => {
+        console.log('Creditor save callback:', saved, 'Creditor No:', creditorNo);
+        if (saved && pendingCreditorBill) {
+            setShowCreditorForm(false);
+            setPendingCreditorBill(null);
+            // Refresh supplier data
+            await fetchSupplierData();
+            const message = `Supplier ${pendingCreditorBill.supplierCode} has been registered as a Creditor!`;
+            const creditorMessage = creditorNo ? `\nCreditor Number: ${creditorNo}` : '';
+            const billMessage = pendingCreditorBill.billNo ? `\nBill No: ${pendingCreditorBill.billNo}` : '';
+            alert(message + creditorMessage + billMessage);
+        } else {
+            setShowCreditorForm(false);
+            setPendingCreditorBill(null);
+        }
+    };
 
     // Add this useEffect to fetch all farmers/suppliers when the modal opens
     useEffect(() => {
@@ -1463,7 +1784,56 @@ export default function SupplierReport() {
     const handleModeChange = (mode) => {
         setState(prev => ({ ...prev, selectedMode: mode }));
         if (mode === 'creditor') {
-            setState(prev => ({ ...prev, showCreditorModal: true }));
+            // Check if a supplier is selected
+            if (state.selectedSupplier) {
+                // Show creditor modal with the selected supplier code and bill number
+                setSelectedBillForCreditor({
+                    supplierCode: state.selectedSupplier,
+                    billNo: state.selectedBillNo
+                });
+                setShowCreditorModal(true);
+            } else {
+                // No supplier selected, show prompt
+                const supplierCode = prompt('Enter Supplier Code to mark as Creditor:');
+                if (supplierCode && supplierCode.trim()) {
+                    setSelectedBillForCreditor({
+                        supplierCode: supplierCode.trim().toUpperCase(),
+                        billNo: null
+                    });
+                    setShowCreditorModal(true);
+                }
+            }
+        }
+    };
+    const checkAndHandleCreditor = async (supplierCode, billNo = null) => {
+        console.log('Checking creditor for:', supplierCode);
+
+        try {
+            const response = await api.get(`/suppliers/check-supplier/${supplierCode}`);
+            const data = response.data;
+            console.log('Supplier check response:', data);
+
+            if (data.exists) {
+                if (data.supplier && data.supplier.Creditor !== 'Y') {
+                    await api.put('/suppliers/update-creditor-status', {
+                        code: supplierCode,
+                        Creditor: 'Y',
+                        bill_no: billNo
+                    });
+                    console.log('Updated supplier as Creditor');
+                    alert(`Supplier ${supplierCode} has been marked as Creditor!`);
+                    await fetchSupplierData();
+                } else if (data.supplier && data.supplier.Creditor === 'Y') {
+                    alert(`Supplier ${supplierCode} is already a Creditor!`);
+                }
+            } else {
+                console.log('Supplier not found, showing creditor form');
+                setPendingCreditorBill({ supplierCode: supplierCode, billNo: billNo });
+                setShowCreditorForm(true);
+            }
+        } catch (error) {
+            console.error('Error checking creditor:', error);
+            alert('Failed to check supplier. Please try again.');
         }
     };
 
@@ -2535,7 +2905,7 @@ export default function SupplierReport() {
                                         </div>
                                     </div>
 
-                                   
+
 
                                     {/* Payment section - Show for pending bills OR completed bills with pending credit */}
                                     {(state.selectedSupplier && (!state.isUpdatingCompletedBill || (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0))) && (
@@ -3019,7 +3389,13 @@ export default function SupplierReport() {
             )}
 
             {/* Modals */}
-            <CreditorModal isOpen={state.showCreditorModal} onClose={() => setState(prev => ({ ...prev, showCreditorModal: false, selectedMode: 'walking_seller' }))} onConfirm={handleCreditorConfirm} />
+            <CreditorFormModal
+                isOpen={showCreditorForm}
+                onClose={() => setShowCreditorForm(false)}
+                onSave={handleCreditorSave}
+                supplierCode={pendingCreditorBill?.supplierCode || ''}
+                billNo={pendingCreditorBill?.billNo || null}
+            />
             <PrintBillModal isOpen={state.showPrintModal} onClose={() => setState(prev => ({ ...prev, showPrintModal: false }))} billContent={state.printBillContent} billSize={state.billSize} setBillSize={(size) => setState(prev => ({ ...prev, billSize: size }))} onPrint={() => setState(prev => ({ ...prev, showPrintModal: false }))} />
             <ChequeModal isOpen={state.showChequeModal} onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))} onConfirm={handleChequeConfirm} amount={state.pendingChequeAmount} />
             <BankToBankModal isOpen={state.showBankToBankModal} onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))} onConfirm={handleBankToBankConfirm} amount={state.pendingBankToBankAmount} supplierCode={state.selectedSupplier} />
@@ -3033,6 +3409,17 @@ export default function SupplierReport() {
                 data={detailedReportData}
                 supplierCode={selectedReportSupplier}
                 isLoading={isLoadingReport}
+            />
+            {/* Add this with other modals */}
+            <CreditorModal
+                isOpen={showCreditorModal}
+                onClose={() => {
+                    setShowCreditorModal(false);
+                    setSelectedBillForCreditor({ supplierCode: '', billNo: null });
+                }}
+                onConfirm={handleCreditorConfirm}
+                supplierCode={selectedBillForCreditor.supplierCode}
+                billNo={selectedBillForCreditor.billNo}
             />
         </div>
     );
