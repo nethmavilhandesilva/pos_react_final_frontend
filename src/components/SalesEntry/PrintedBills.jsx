@@ -65,46 +65,46 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         onSelect('walking');
     };
 
- const handleCheckCustomer = async () => {
-    if (!customerCode.trim()) {
-        alert('Please enter a customer code');
-        return;
-    }
-
-    setLoading(true);
-    try {
-        const response = await api.get(`${routes.checkCustomer}/${customerCode.toUpperCase()}`);
-        const data = response.data;
-
-        if (data.exists) {
-            setCustomerExists(true);
-            setExistingCustomer(data.customer);
-            alert(`Customer "${customerCode.toUpperCase()}" found! They will be registered as a Debtor.`);
-            if (data.customer && data.customer.Debtor !== 'Y') {
-                // ✅ Pass billNo when updating debtor status
-                await api.put(routes.updateDebtorStatus, {
-                    short_name: customerCode.toUpperCase(),
-                    Debtor: 'Y',
-                    bill_no: billNo  // Add this line
-                });
-            }
-            setShowDebtorConfirm(false);
-            onSelect('debtor');
-            setCustomerCode('');
-            setCustomerExists(false);
-            setExistingCustomer(null);
-        } else {
-            setShowDebtorConfirm(false);
-            onDebtorClick(customerCode.toUpperCase(), billNo);
-            setCustomerCode('');
+    const handleCheckCustomer = async () => {
+        if (!customerCode.trim()) {
+            alert('Please enter a customer code');
+            return;
         }
-    } catch (error) {
-        console.error('Error checking customer:', error);
-        alert('Failed to check customer. Please try again.');
-    } finally {
-        setLoading(false);
-    }
-};
+
+        setLoading(true);
+        try {
+            const response = await api.get(`${routes.checkCustomer}/${customerCode.toUpperCase()}`);
+            const data = response.data;
+
+            if (data.exists) {
+                setCustomerExists(true);
+                setExistingCustomer(data.customer);
+                alert(`Customer "${customerCode.toUpperCase()}" found! They will be registered as a Debtor.`);
+                if (data.customer && data.customer.Debtor !== 'Y') {
+                    // ✅ Pass billNo when updating debtor status
+                    await api.put(routes.updateDebtorStatus, {
+                        short_name: customerCode.toUpperCase(),
+                        Debtor: 'Y',
+                        bill_no: billNo  // Add this line
+                    });
+                }
+                setShowDebtorConfirm(false);
+                onSelect('debtor');
+                setCustomerCode('');
+                setCustomerExists(false);
+                setExistingCustomer(null);
+            } else {
+                setShowDebtorConfirm(false);
+                onDebtorClick(customerCode.toUpperCase(), billNo);
+                setCustomerCode('');
+            }
+        } catch (error) {
+            console.error('Error checking customer:', error);
+            alert('Failed to check customer. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleSkip = () => {
         setShowDebtorConfirm(false);
@@ -3964,6 +3964,7 @@ export default function PrintedBills() {
                     }
                 }
             }
+
             // Get existing payment history
             let existingHistory = [];
             try {
@@ -3999,53 +4000,6 @@ export default function PrintedBills() {
                     String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
                 );
 
-                if (paymentDetailsForReceipt && response.data.data.bank_name) {
-                    paymentDetailsForReceipt.bank_name = response.data.data.bank_name;
-                }
-
-                // Calculate cash given amount (exclude credit payments)
-                const cashGivenAmount = state.selectedBill.cashPayments || 0;
-
-                const receiptHtml = buildFullReceiptHTML(
-                    state.selectedBill.sales,
-                    state.selectedBill.billNo,
-                    state.selectedBill.customerCode,
-                    customer?.telephone_no || "",
-                    0,
-                    totalGivenAmount,
-                    isAdjustment ? 'adjustment' : (isBankTransfer ? 'bank_to_bank' : (isCheque ? 'cheque' : 'cash')),
-                    paymentDetailsForReceipt,
-                    '3inch',
-                    cashGivenAmount  // Pass only cash given amount
-                );
-                const printWindow = window.open("", "_blank", "width=800,height=600");
-                if (!printWindow) {
-                    alert("Please allow pop-ups for printing");
-                    setState(prev => ({ ...prev, isPrinting: false }));
-                    return;
-                }
-
-                printWindow.document.write(`
-                <html>
-                    <head><title>Print Bill - ${state.selectedBill.billNo}</title>
-                    <style>
-                        body { margin: 0; padding: 20px; font-family: 'Courier New', monospace; } 
-                        @media print { body { padding: 0; margin: 0; } }
-                    </style>
-                </head>
-                <body>${receiptHtml}
-                <script>
-                    window.onload = () => { 
-                        window.print(); 
-                        setTimeout(() => window.close(), 1000); 
-                    };
-                <\/script>
-                </body>
-                </html>
-            `);
-                printWindow.document.close();
-
-                // Show appropriate success message with debtor info if applicable
                 let debtorMessage = '';
                 if (existingDebtor && existingDebtor.remaining_amount > 0 && !isAdjustment && paymentMethod !== 'Credit') {
                     const newRemaining = Math.max(0, existingDebtor.remaining_amount - paymentAmount);
@@ -4067,9 +4021,60 @@ export default function PrintedBills() {
                     debtorMessage = `\n\n💰 NOTE: This bill has a credit of Rs. ${formatDecimal(totalCreditAmount)}. Your cash payment will be applied to this credit.`;
                 }
 
+                // ⭐ ONLY GENERATE RECEIPT IF FULLY SETTLED ⭐
+                if (isFullySettled) {
+                    if (paymentDetailsForReceipt && response.data.data.bank_name) {
+                        paymentDetailsForReceipt.bank_name = response.data.data.bank_name;
+                    }
+
+                    // Calculate cash given amount (exclude credit payments)
+                    const cashGivenAmount = state.selectedBill.cashPayments || 0;
+
+                    const receiptHtml = buildFullReceiptHTML(
+                        state.selectedBill.sales,
+                        state.selectedBill.billNo,
+                        state.selectedBill.customerCode,
+                        customer?.telephone_no || "",
+                        0,
+                        totalGivenAmount,
+                        isAdjustment ? 'adjustment' : (isBankTransfer ? 'bank_to_bank' : (isCheque ? 'cheque' : 'cash')),
+                        paymentDetailsForReceipt,
+                        '3inch',
+                        cashGivenAmount
+                    );
+
+                    const printWindow = window.open("", "_blank", "width=800,height=600");
+                    if (!printWindow) {
+                        alert("Please allow pop-ups for printing");
+                        setState(prev => ({ ...prev, isPrinting: false }));
+                        return;
+                    }
+
+                    printWindow.document.write(`
+                <html>
+                    <head><title>Print Bill - ${state.selectedBill.billNo}</title>
+                    <style>
+                        body { margin: 0; padding: 20px; font-family: 'Courier New', monospace; } 
+                        @media print { body { padding: 0; margin: 0; } }
+                    </style>
+                </head>
+                <body>${receiptHtml}
+                <script>
+                    window.onload = () => { 
+                        window.print(); 
+                        setTimeout(() => window.close(), 1000); 
+                    };
+                <\/script>
+                </body>
+                </html>
+            `);
+                    printWindow.document.close();
+                }
+
+                // Show appropriate success message
                 const statusMessage = givenAmountApplied === 'Y'
                     ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill is now FULLY PAID and moved to Completed Payments.${debtorMessage}`
-                    : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}${debtorMessage}`;
+                    : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}${debtorMessage}\n\n📝 Receipt will be generated when bill is fully settled.`;
 
                 alert(statusMessage);
 
@@ -4165,72 +4170,146 @@ export default function PrintedBills() {
         await processPayment(state.pendingBankToBankAmount, false, null, true, transferDetails, false, null);
     };
 
-    const handlePrintWithoutUpdate = async () => {
-        if (!state.selectedBill || state.isPrinting) return;
+  const handlePrintWithoutUpdate = async () => {
+    if (!state.selectedBill || state.isPrinting) return;
 
-        setState(prev => ({ ...prev, isPrinting: true }));
+    // CRITICAL: Validate sales data exists
+    if (!state.selectedBill.sales || state.selectedBill.sales.length === 0) {
+        alert("No sales data found for this bill. Cannot print.");
+        return;
+    }
 
-        try {
-            const customer = state.customers.find(c =>
-                String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
-            );
+    setState(prev => ({ ...prev, isPrinting: true }));
 
-            let paymentMethod = 'cash';
-            let paymentDetails = null;
+    try {
+        const customer = state.customers.find(c =>
+            String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
+        );
 
-            if (state.selectedBill.paymentAdjustmentType === 'Cheque') {
-                paymentMethod = 'cheque';
-                paymentDetails = {
-                    cheq_no: state.selectedBill.chequeDetails?.cheq_no,
-                    cheq_date: state.selectedBill.chequeDetails?.cheq_date,
-                    bank_name: state.selectedBill.chequeDetails?.bank_name
-                };
-            } else if (state.selectedBill.paymentAdjustmentType === 'Bank Transfer') {
-                paymentMethod = 'bank_to_bank';
-                paymentDetails = {
-                    reference_no: state.selectedBill.transferDetails?.reference_no,
-                    transfer_date: state.selectedBill.transferDetails?.transfer_date,
-                    bank_name: state.selectedBill.bank_name
-                };
-            }
+        let paymentMethod = 'cash';
+        let paymentDetails = null;
 
-            // Calculate cash given amount (exclude credit)
-            const cashGivenAmount = state.selectedBill.cashPayments || state.selectedBill.givenAmount || 0;
+        if (state.selectedBill.paymentAdjustmentType === 'Cheque') {
+            paymentMethod = 'cheque';
+            paymentDetails = {
+                cheq_no: state.selectedBill.chequeDetails?.cheq_no,
+                cheq_date: state.selectedBill.chequeDetails?.cheq_date,
+                bank_name: state.selectedBill.chequeDetails?.bank_name
+            };
+        } else if (state.selectedBill.paymentAdjustmentType === 'Bank Transfer') {
+            paymentMethod = 'bank_to_bank';
+            paymentDetails = {
+                reference_no: state.selectedBill.transferDetails?.reference_no,
+                transfer_date: state.selectedBill.transferDetails?.transfer_date,
+                bank_name: state.selectedBill.bank_name
+            };
+        }
 
-            const receiptHtml = buildFullReceiptHTML(
-                state.selectedBill.sales,
-                state.selectedBill.billNo,
-                customer?.name || state.selectedBill.customerCode,
-                customer?.telephone_no || "",
-                0,
-                state.selectedBill.givenAmount || 0,
-                paymentMethod,
-                paymentDetails,
-                '3inch',
-                cashGivenAmount  // Pass only cash given amount
-            );
+        // Calculate cash given amount (exclude credit if needed)
+        const cashGivenAmount = state.selectedBill.cashPayments || state.selectedBill.givenAmount || 0;
 
-            const printWindow = window.open("", "_blank", "width=800,height=600");
-            if (!printWindow) {
-                alert("Please allow pop-ups for printing");
-                return;
-            }
+        console.log("Generating receipt with:", {
+            salesCount: state.selectedBill.sales.length,
+            billNo: state.selectedBill.billNo,
+            cashGivenAmount
+        });
 
-            printWindow.document.write(`
+        const receiptHtml = buildFullReceiptHTML(
+            state.selectedBill.sales,
+            state.selectedBill.billNo,
+            customer?.name || state.selectedBill.customerCode,
+            customer?.telephone_no || "",
+            0,
+            state.selectedBill.givenAmount || 0,
+            paymentMethod,
+            paymentDetails,
+            '3inch',
+            cashGivenAmount
+        );
+
+        // Validate receipt HTML is not empty
+        if (!receiptHtml || receiptHtml.length < 100) {
+            throw new Error("Receipt HTML generation failed - content too short");
+        }
+
+        const printWindow = window.open("", "_blank", "width=800,height=600");
+        if (!printWindow) {
+            alert("Please allow pop-ups for printing");
+            return;
+        }
+
+        // Write with proper error handling
+        printWindow.document.write(`
+            <!DOCTYPE html>
             <html>
-                <head><title>Print Bill - ${state.selectedBill.billNo}</title>
-                <style>body { margin: 0; padding: 20px; font-family: 'Courier New', monospace; } @media print { body { padding: 0; margin: 0; } }</style>
+                <head>
+                    <title>Print Bill - ${state.selectedBill.billNo}</title>
+                    <meta charset="UTF-8">
+                    <style>
+                        * {
+                            margin: 0;
+                            padding: 0;
+                            box-sizing: border-box;
+                        }
+                        body { 
+                            margin: 0; 
+                            padding: 20px; 
+                            font-family: 'Courier New', monospace;
+                            background: white;
+                        } 
+                        @media print { 
+                            body { 
+                                margin: 0; 
+                                padding: 0; 
+                                background: white;
+                            } 
+                        }
+                    </style>
                 </head>
-                <body>${receiptHtml}<script>window.onload = () => { window.print(); setTimeout(() => window.close(), 1000); };</script></body>
+                <body>
+                    ${receiptHtml}
+                    <script>
+                        (function() {
+                            console.log("Print window loaded");
+                            window.onload = function() {
+                                setTimeout(function() {
+                                    window.print();
+                                    setTimeout(function() {
+                                        window.close();
+                                    }, 1000);
+                                }, 500);
+                            };
+                            
+                            // Fallback in case onload already fired
+                            if (document.readyState === 'complete') {
+                                setTimeout(function() {
+                                    window.print();
+                                    setTimeout(function() {
+                                        window.close();
+                                    }, 1000);
+                                }, 500);
+                            }
+                        })();
+                    <\/script>
+                </body>
             </html>
         `);
-            printWindow.document.close();
-        } catch (error) {
-            alert("Error printing bill");
-        } finally {
-            setState(prev => ({ ...prev, isPrinting: false }));
-        }
-    };
+        printWindow.document.close();
+        
+        // Optional: Add error logging for the print window
+        printWindow.onerror = function(msg, url, lineNo, columnNo, error) {
+            console.error("Print window error:", msg, error);
+            alert("Error occurred while printing. Please check console for details.");
+            return false;
+        };
+        
+    } catch (error) {
+        console.error("Error in handlePrintWithoutUpdate:", error);
+        alert("Error printing bill: " + error.message);
+    } finally {
+        setState(prev => ({ ...prev, isPrinting: false }));
+    }
+};
     const handleApplyAdjustment = async (adjustmentData) => {
         try {
             let adjustmentAmount = 0;
@@ -4331,245 +4410,265 @@ export default function PrintedBills() {
         await processCreditPayment(paymentAmount);
     };
     // Process credit payment
-    const processCreditPayment = async (paymentAmount) => {
-        if (!state.selectedBill || state.isPrinting) return;
+ // Process credit payment
+// Process credit payment
+const processCreditPayment = async (paymentAmount) => {
+    if (!state.selectedBill || state.isPrinting) return;
 
-        console.log('=== PROCESS CREDIT PAYMENT ===');
-        console.log('Payment Amount:', paymentAmount);
-        console.log('Bill No:', state.selectedBill.billNo);
-        console.log('Customer Code:', state.selectedBill.customerCode);
-        console.log('Current Given Amount:', state.selectedBill.givenAmount);
-        console.log('Total Bill Amount:', state.selectedBill.totalAmount);
+    console.log('=== PROCESS CREDIT PAYMENT ===');
+    console.log('Payment Amount:', paymentAmount);
+    console.log('Bill No:', state.selectedBill.billNo);
+    console.log('Customer Code:', state.selectedBill.customerCode);
+    console.log('Current Given Amount:', state.selectedBill.givenAmount);
+    console.log('Total Bill Amount:', state.selectedBill.totalAmount);
+    console.log('Sales Data:', state.selectedBill.sales); // Debug log
 
-        setState(prev => ({ ...prev, isPrinting: true }));
+    setState(prev => ({ ...prev, isPrinting: true }));
 
+    try {
+        const currentGiven = state.selectedBill.givenAmount || 0;
+        const totalGivenAmount = currentGiven + paymentAmount;
+        const isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
+        const creditTransaction = isFullySettled ? 'N' : 'Y';
+        const givenAmountApplied = isFullySettled ? 'Y' : 'N';
+
+        console.log('Calculated Values:', {
+            currentGiven,
+            totalGivenAmount,
+            isFullySettled,
+            creditTransaction,
+            givenAmountApplied
+        });
+
+        // First, create debtor record with the exact payment amount
+        const debtorData = {
+            bill_no: state.selectedBill.billNo,
+            customer_code: state.selectedBill.customerCode,
+            credit_amount: parseFloat(paymentAmount)
+        };
+
+        console.log('Sending to debtor API:', debtorData);
+
+        const debtorResponse = await api.post('/debtors/create', debtorData);
+
+        console.log('Debtor API Response:', debtorResponse.data);
+
+        if (!debtorResponse.data.success) {
+            throw new Error(debtorResponse.data.message || 'Failed to create credit record');
+        }
+
+        // Get the remaining debt amount and status from the response
+        let remainingDebtAmount = parseFloat(paymentAmount);
+        let debtorStatus = 'pending';
+
+        if (debtorResponse.data.data?.remaining_amount !== undefined) {
+            remainingDebtAmount = parseFloat(debtorResponse.data.data.remaining_amount);
+            debtorStatus = debtorResponse.data.data.status || 'pending';
+        } else if (debtorResponse.data.data?.credit_amount !== undefined) {
+            remainingDebtAmount = parseFloat(debtorResponse.data.data.credit_amount);
+        }
+
+        console.log('Remaining Debt Amount:', remainingDebtAmount);
+        console.log('Debtor Status:', debtorStatus);
+
+        // Create payment history entry
+        const paymentHistoryEntry = {
+            id: Math.random().toString(36).substr(2, 9),
+            date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+            amount: parseFloat(paymentAmount),
+            method: 'Credit',
+            running_balance: parseFloat(totalGivenAmount),
+            is_fully_paid: isFullySettled,
+            reference: 'Credit Payment',
+            details: {
+                debtor_id: debtorResponse.data.data?.id,
+                credit_amount: parseFloat(paymentAmount),
+                remaining_debt: remainingDebtAmount,
+                debtor_status: debtorStatus
+            }
+        };
+
+        // Get existing payment history
+        let existingHistory = [];
         try {
-            const currentGiven = state.selectedBill.givenAmount || 0;
-            const totalGivenAmount = currentGiven + paymentAmount;
-            const isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
-            const creditTransaction = isFullySettled ? 'N' : 'Y';
-            const givenAmountApplied = isFullySettled ? 'Y' : 'N';
-
-            console.log('Calculated Values:', {
-                currentGiven,
-                totalGivenAmount,
-                isFullySettled,
-                creditTransaction,
-                givenAmountApplied
-            });
-
-            // First, create debtor record with the exact payment amount
-            const debtorData = {
-                bill_no: state.selectedBill.billNo,
-                customer_code: state.selectedBill.customerCode,
-                credit_amount: parseFloat(paymentAmount)
-            };
-
-            console.log('Sending to debtor API:', debtorData);
-
-            const debtorResponse = await api.post('/debtors/create', debtorData);
-
-            console.log('Debtor API Response:', debtorResponse.data);
-
-            if (!debtorResponse.data.success) {
-                throw new Error(debtorResponse.data.message || 'Failed to create credit record');
+            const currentHistory = state.selectedBill.payment_history;
+            if (currentHistory) {
+                existingHistory = typeof currentHistory === 'string'
+                    ? JSON.parse(currentHistory)
+                    : currentHistory;
             }
+        } catch (e) {
+            console.error('Error parsing existing history:', e);
+            existingHistory = [];
+        }
 
-            // Get the remaining debt amount and status from the response
-            let remainingDebtAmount = parseFloat(paymentAmount);
-            let debtorStatus = 'pending';
+        existingHistory.push(paymentHistoryEntry);
+        console.log('Updated payment history:', existingHistory);
 
-            if (debtorResponse.data.data?.remaining_amount !== undefined) {
-                remainingDebtAmount = parseFloat(debtorResponse.data.data.remaining_amount);
-                debtorStatus = debtorResponse.data.data.status || 'pending';
-            } else if (debtorResponse.data.data?.credit_amount !== undefined) {
-                remainingDebtAmount = parseFloat(debtorResponse.data.data.credit_amount);
-            }
+        // Create the payload object
+        const payload = {
+            bill_no: state.selectedBill.billNo,
+            given_amount: parseFloat(totalGivenAmount),
+            given_amount_applied: givenAmountApplied,
+            credit_transaction: creditTransaction,
+            payment_amount: parseFloat(paymentAmount),
+            payment_method: 'Credit',
+            payment_history: JSON.stringify(existingHistory)
+        };
 
-            console.log('Remaining Debt Amount:', remainingDebtAmount);
-            console.log('Debtor Status:', debtorStatus);
+        console.log('Sending to sales update API:', payload);
 
-            // Create payment history entry
-            const paymentHistoryEntry = {
-                id: Math.random().toString(36).substr(2, 9),
-                date: new Date().toISOString().slice(0, 19).replace('T', ' '),
-                amount: parseFloat(paymentAmount),
-                method: 'Credit',
-                running_balance: parseFloat(totalGivenAmount),
-                is_fully_paid: isFullySettled,
-                reference: 'Credit Payment',
-                details: {
-                    debtor_id: debtorResponse.data.data?.id,
-                    credit_amount: parseFloat(paymentAmount),
-                    remaining_debt: remainingDebtAmount,
-                    debtor_status: debtorStatus
-                }
-            };
+        const response = await api.put(routes.updateGivenAmountApplied, payload);
 
-            // Get existing payment history
-            let existingHistory = [];
-            try {
-                const currentHistory = state.selectedBill.payment_history;
-                if (currentHistory) {
-                    existingHistory = typeof currentHistory === 'string'
-                        ? JSON.parse(currentHistory)
-                        : currentHistory;
-                }
-            } catch (e) {
-                console.error('Error parsing existing history:', e);
-                existingHistory = [];
-            }
+        console.log('Sales update response:', response.data);
 
-            existingHistory.push(paymentHistoryEntry);
-            console.log('Updated payment history:', existingHistory);
+        if (response.data.success) {
+            // Refresh sales data
+            await fetchSalesData();
 
-            // Update the sales record
-            const payload = {
-                bill_no: state.selectedBill.billNo,
-                given_amount: parseFloat(totalGivenAmount),
-                given_amount_applied: givenAmountApplied,
-                credit_transaction: creditTransaction,
-                payment_amount: parseFloat(paymentAmount),
-                payment_method: 'Credit',
-                payment_history: JSON.stringify(existingHistory)
-            };
+            // Get customer details
+            const customer = state.customers.find(c =>
+                String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
+            );
 
-            console.log('Sending to sales update API:', payload);
-
-            const response = await api.put(routes.updateGivenAmountApplied, payload);
-
-            console.log('Sales update response:', response.data);
-
-            if (response.data.success) {
-                // Refresh sales data
-                await fetchSalesData();
-
-                // Get customer details
-                const customer = state.customers.find(c =>
-                    String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
-                );
-
-                // Create receipt HTML with proper number values
+            // ⭐ ONLY GENERATE RECEIPT IF FULLY SETTLED ⭐
+            if (isFullySettled) {
+                // Calculate cash given amount (exclude credit payments)
                 const cashGivenAmount = state.selectedBill.cashPayments || 0;
 
-                const receiptHtml = buildFullReceiptHTML(
-                    state.selectedBill.sales,
-                    state.selectedBill.billNo,
-                    state.selectedBill.customerCode,
-                    customer?.telephone_no || "",
-                    0,
-                    parseFloat(totalGivenAmount),
-                    'credit',
-                    {
-                        amount: parseFloat(paymentAmount),
-                        type: 'credit',
-                        remaining_debt: remainingDebtAmount,
-                        debtor_status: debtorStatus
-                    },
-                    '3inch',
-                    cashGivenAmount  // Pass only cash given amount
-                );
-                // Open print window
-                const printWindow = window.open("", "_blank", "width=800,height=600");
-                if (!printWindow) {
-                    alert("Please allow pop-ups for printing");
-                    setState(prev => ({ ...prev, isPrinting: false }));
-                    return;
+                console.log('Generating receipt with sales data:', state.selectedBill.sales);
+                
+                // Ensure sales data is valid
+                if (!state.selectedBill.sales || state.selectedBill.sales.length === 0) {
+                    console.error('No sales data found for bill:', state.selectedBill.billNo);
+                    alert('No sales data found for this bill. Receipt cannot be generated.');
+                } else {
+                    // Use the existing buildFullReceiptHTML function which already handles 'credit' payment method
+                    const receiptHtml = buildFullReceiptHTML(
+                        state.selectedBill.sales,
+                        state.selectedBill.billNo,
+                        customer?.name || state.selectedBill.customerCode, // Use customer name if available
+                        customer?.telephone_no || "",
+                        0,
+                        parseFloat(totalGivenAmount),
+                        'credit',  // This will trigger the credit display in the receipt
+                        {
+                            amount: parseFloat(paymentAmount),
+                            remaining_debt: remainingDebtAmount,
+                            debtor_status: debtorStatus
+                        },
+                        '3inch',
+                        cashGivenAmount
+                    );
+
+                    console.log('Receipt HTML generated, length:', receiptHtml.length);
+                    
+                    const printWindow = window.open("", "_blank", "width=800,height=600");
+                    if (!printWindow) {
+                        alert("Please allow pop-ups for printing");
+                        setState(prev => ({ ...prev, isPrinting: false }));
+                        return;
+                    }
+
+                    // Use a clean HTML structure with the receipt from buildFullReceiptHTML
+                    printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                        <head>
+                            <title>Credit Bill - ${state.selectedBill.billNo}</title>
+                            <meta charset="UTF-8">
+                            <style>
+                                * {
+                                    margin: 0;
+                                    padding: 0;
+                                    box-sizing: border-box;
+                                }
+                                body { 
+                                    margin: 0; 
+                                    padding: 20px; 
+                                    font-family: 'Courier New', monospace;
+                                    background: white;
+                                } 
+                                @media print { 
+                                    body { 
+                                        margin: 0; 
+                                        padding: 0; 
+                                        background: white;
+                                    } 
+                                }
+                            </style>
+                        </head>
+                        <body>
+                            ${receiptHtml}
+                            <script>
+                                window.onload = function() { 
+                                    setTimeout(function() {
+                                        window.print();
+                                        setTimeout(function() {
+                                            window.close();
+                                        }, 1000);
+                                    }, 500);
+                                };
+                            <\/script>
+                        </body>
+                    </html>
+                    `);
+                    printWindow.document.close();
                 }
-
-                printWindow.document.write(`
-                <html>
-                    <head>
-                        <title>Credit Bill - ${state.selectedBill.billNo}</title>
-                        <style>
-                            body { margin: 0; padding: 20px; font-family: 'Courier New', monospace; } 
-                            @media print { body { padding: 0; margin: 0; } }
-                            .credit-note {
-                                background-color: #fef3c7;
-                                padding: 10px;
-                                margin-top: 10px;
-                                border-radius: 5px;
-                                text-align: center;
-                            }
-                            .debt-status {
-                                font-size: 12px;
-                                margin-top: 5px;
-                                color: #92400e;
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        ${receiptHtml}
-                        <div class="credit-note">
-                            <strong>⚠️ CREDIT NOTE ⚠️</strong><br>
-                            Amount: Rs. ${paymentAmount.toFixed(2)} recorded as DEBT<br>
-                            Remaining Debt: Rs. ${remainingDebtAmount.toFixed(2)}<br>
-                            <div class="debt-status">
-                                Status: ${debtorStatus === 'paid' ? '✓ FULLY PAID' : (debtorStatus === 'partial' ? '⏳ PARTIAL' : '⚠️ PENDING')}
-                            </div>
-                        </div>
-                        <script>
-                            window.onload = () => { 
-                                window.print(); 
-                                setTimeout(() => window.close(), 1000); 
-                            };
-                        <\/script>
-                    </body>
-                </html>
-            `);
-                printWindow.document.close();
-
-                // Show success message
-                const statusMessage = givenAmountApplied === 'Y'
-                    ? `✅ Bill Fully Paid!\n\n` +
-                    `Payment Method: CREDIT\n` +
-                    `Amount Added: Rs. ${formatDecimal(paymentAmount)}\n` +
-                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
-                    `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
-                    `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : 'PENDING'}\n\n` +
-                    `Bill is now FULLY PAID.`
-                    : `✓ Credit Added Successfully!\n\n` +
-                    `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
-                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
-                    `Remaining on Bill: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}\n` +
-                    `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
-                    `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : (debtorStatus === 'partial' ? 'PARTIAL PAYMENT' : 'PENDING')}\n\n` +
-                    `⚠️ This amount has been recorded as DEBT and needs to be collected later.`;
-
-                alert(statusMessage);
-
-                // Reset state
-                setState(prev => ({
-                    ...prev,
-                    selectedBill: null,
-                    givenAmountInput: "",
-                    showChequeModal: false,
-                    showBankToBankModal: false,
-                    showAdjustmentModal: false,
-                    pendingBankToBankAmount: 0
-                }));
-            } else {
-                throw new Error(response.data.message || 'Failed to update sales record');
-            }
-        } catch (error) {
-            console.error("Error processing credit payment:", error);
-            let errorMessage = "Failed to process credit payment. ";
-
-            if (error.response) {
-                console.error("Error response:", error.response.data);
-                errorMessage += error.response.data?.message || error.message;
-            } else if (error.request) {
-                console.error("Error request:", error.request);
-                errorMessage += "No response from server. Please check your connection.";
-            } else {
-                errorMessage += error.message;
             }
 
-            alert(errorMessage);
-        } finally {
-            setState(prev => ({ ...prev, isPrinting: false }));
+            // Show success message
+            const statusMessage = givenAmountApplied === 'Y'
+                ? `✅ Bill Fully Paid!\n\n` +
+                  `Payment Method: CREDIT\n` +
+                  `Amount Added: Rs. ${formatDecimal(paymentAmount)}\n` +
+                  `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
+                  `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
+                  `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : 'PENDING'}\n\n` +
+                  `Bill is now FULLY PAID.`
+                : `✓ Credit Added Successfully!\n\n` +
+                  `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
+                  `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
+                  `Remaining on Bill: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}\n` +
+                  `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
+                  `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : (debtorStatus === 'partial' ? 'PARTIAL PAYMENT' : 'PENDING')}\n\n` +
+                  `⚠️ This amount has been recorded as DEBT and needs to be collected later.\n` +
+                  `📝 Receipt will be generated when bill is fully settled.`;
+
+            alert(statusMessage);
+
+            // Reset state
+            setState(prev => ({
+                ...prev,
+                selectedBill: null,
+                givenAmountInput: "",
+                showChequeModal: false,
+                showBankToBankModal: false,
+                showAdjustmentModal: false,
+                pendingBankToBankAmount: 0
+            }));
+        } else {
+            throw new Error(response.data.message || 'Failed to update sales record');
         }
-    };
+    } catch (error) {
+        console.error("Error processing credit payment:", error);
+        let errorMessage = "Failed to process credit payment. ";
+
+        if (error.response) {
+            console.error("Error response:", error.response.data);
+            errorMessage += error.response.data?.message || error.message;
+        } else if (error.request) {
+            console.error("Error request:", error.request);
+            errorMessage += "No response from server. Please check your connection.";
+        } else {
+            errorMessage += error.message;
+        }
+
+        alert(errorMessage);
+    } finally {
+        setState(prev => ({ ...prev, isPrinting: false }));
+    }
+};
     // Add this function to check debtor settlement status
     const getDebtorStatusMessage = (debtor) => {
         if (!debtor) return null;
