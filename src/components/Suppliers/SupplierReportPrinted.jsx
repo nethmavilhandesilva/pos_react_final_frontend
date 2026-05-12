@@ -483,7 +483,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
     const calculateBagToBoxAdjustment = () => {
         const totalBagValue = (parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0);
         const totalBoxValue = (parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0);
-        return totalBagValue - totalBoxValue;
+        return totalBagValue + totalBoxValue;
     };
 
     const handleConfirm = () => {
@@ -2078,17 +2078,6 @@ export default function SupplierReport() {
                     </tr>
                 </table>
 
-                ${paymentBreakdownHtml ? `
-                <div style="margin-top:25px; border-top:1px solid #000; padding-top:10px;">
-                    <div style="font-weight:bold; font-size:18px; text-align:center; margin-bottom:10px;">Payment Details</div>
-                    <table style="width:100%; border-collapse:collapse; font-size:14px;">
-                        <thead><tr style="border-bottom:1px solid #000;"><th style="padding:5px; text-align:center;">#</th><th style="padding:5px; text-align:left;">Method</th><th style="padding:5px; text-align:right;">Amount</th><th style="padding:5px; text-align:left;">Date</th></tr></thead>
-                        <tbody>${paymentBreakdownHtml}</tbody>
-                        <tfoot><tr style="border-top:2px solid #000; font-weight:bold;"><td colspan="2" style="padding:8px;"><strong>Total Paid:</strong></td><td style="padding:8px; text-align:right;"><strong>Rs. ${formatNumber(paidAmountValue)}</strong></td><td></td></tr></tfoot>
-                    </table>
-                </div>
-                ` : ''}
-
                 <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
                     <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
                 </div>
@@ -2681,7 +2670,7 @@ export default function SupplierReport() {
     const handleApplyAdjustment = async (adjustmentData) => {
         let adjustmentAmount = 0;
         if (adjustmentData.adjustment_type === 'bag_to_box') {
-            adjustmentAmount = Math.abs((adjustmentData.bag_count * adjustmentData.bag_value) - (adjustmentData.box_count * adjustmentData.box_value));
+            adjustmentAmount = Math.abs((adjustmentData.bag_count * adjustmentData.bag_value) + (adjustmentData.box_count * adjustmentData.box_value));
         } else if (adjustmentData.adjustment_type === 'bill_to_bill') {
             adjustmentAmount = adjustmentData.target_supplier_bill_value;
         } else if (adjustmentData.adjustment_type === 'bad_debt') {
