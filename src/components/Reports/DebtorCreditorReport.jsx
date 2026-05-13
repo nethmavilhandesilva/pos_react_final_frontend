@@ -42,20 +42,33 @@ const DebtorCreditorReport = () => {
         fetchCombinedReport();
     }, [fetchCombinedReport]);
 
-    const fetchDetails = async (type, code) => {
+    const fetchDebtorDetails = async (code) => {
         setModalLoading(true);
         setShowDetailsModal(true);
         try {
-            const endpoint = type === 'debtor' 
-                ? `/debtor-creditor/debtor/${code}`
-                : `/debtor-creditor/creditor/${code}`;
-            const response = await api.get(endpoint);
+            const response = await api.get(`/debtor-creditor/debtor/${code}`);
             if (response.data.success) {
                 setModalData(response.data.data);
             }
         } catch (error) {
-            console.error('Error fetching details:', error);
-            alert('Failed to load details');
+            console.error('Error fetching debtor details:', error);
+            alert('Failed to load debtor details');
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const fetchCreditorDetails = async (code) => {
+        setModalLoading(true);
+        setShowDetailsModal(true);
+        try {
+            const response = await api.get(`/debtor-creditor/creditor/${code}`);
+            if (response.data.success) {
+                setModalData(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching creditor details:', error);
+            alert('Failed to load creditor details');
         } finally {
             setModalLoading(false);
         }
@@ -77,13 +90,25 @@ const DebtorCreditorReport = () => {
         });
     };
 
+    // Helper function to get image URL
+    const getImageUrl = (imagePath) => {
+        if (!imagePath) return null;
+        if (imagePath.startsWith('http') || imagePath.startsWith('data:')) {
+            return imagePath;
+        }
+        const baseUrl = 'https://goviraju.lk/sms_new_backend_50500/application/public/storage';
+        const cleanPath = imagePath.replace(/^\/+/, '');
+        return `${baseUrl}/${cleanPath}`;
+    };
+
     const filteredDebtors = useMemo(() => {
         if (!searchTerm) return debtors;
         const term = searchTerm.toLowerCase();
         return debtors.filter(d => 
             d.code?.toLowerCase().includes(term) ||
             d.name?.toLowerCase().includes(term) ||
-            d.telephone?.includes(term)
+            d.telephone?.includes(term) ||
+            d.debtor_no?.toLowerCase().includes(term)
         );
     }, [debtors, searchTerm]);
 
@@ -99,6 +124,20 @@ const DebtorCreditorReport = () => {
 
     const currentData = activeTab === 'debtors' ? filteredDebtors : filteredCreditors;
     const currentSummary = activeTab === 'debtors' ? debtorSummary : creditorSummary;
+
+    // Function to get payment method icon and color
+    const getPaymentMethodStyle = (method) => {
+        const methods = {
+            'Cash': { icon: '💰', color: '#10b981' },
+            'Cheque': { icon: '💳', color: '#8b5cf6' },
+            'Bank Transfer': { icon: '🏦', color: '#ec489a' },
+            'bag_to_box': { icon: '📦', color: '#f59e0b' },
+            'bill_to_bill': { icon: '📄', color: '#3b82f6' },
+            'bad_debt': { icon: '⚠️', color: '#ef4444' },
+            'Credit': { icon: '💳', color: '#f59e0b' }
+        };
+        return methods[method] || { icon: '💰', color: '#6b7280' };
+    };
 
     if (loading) {
         return (
@@ -170,7 +209,7 @@ const DebtorCreditorReport = () => {
             <div style={styles.searchBar}>
                 <input
                     type="text"
-                    placeholder="🔍 Search by code, name, or telephone..."
+                    placeholder="🔍 Search by code, name, telephone, or debtor number..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     style={styles.searchInput}
@@ -228,10 +267,11 @@ const DebtorCreditorReport = () => {
                 <table style={styles.table}>
                     <thead>
                         <tr>
+                            <th style={styles.th}>Debtor No</th>
                             <th style={styles.th}>Code</th>
                             <th style={styles.th}>Name</th>
                             <th style={styles.th}>Telephone</th>
-                            <th style={styles.th}>Total</th>
+                            <th style={styles.th}>Total Sales</th>
                             <th style={styles.th}>Paid</th>
                             <th style={styles.th}>Remaining</th>
                             <th style={styles.th}>Bills</th>
@@ -241,7 +281,7 @@ const DebtorCreditorReport = () => {
                     <tbody>
                         {currentData.length === 0 ? (
                             <tr>
-                                <td colSpan="8" style={styles.emptyState}>
+                                <td colSpan="9" style={styles.emptyState}>
                                     No {activeTab} found
                                 </td>
                             </tr>
@@ -250,13 +290,19 @@ const DebtorCreditorReport = () => {
                                 <tr
                                     key={idx}
                                     style={styles.tableRow}
-                                    onClick={() => fetchDetails(activeTab === 'debtors' ? 'debtor' : 'creditor', item.code)}
+                                    onClick={() => activeTab === 'debtors' 
+                                        ? fetchDebtorDetails(item.code) 
+                                        : fetchCreditorDetails(item.code)
+                                    }
                                     onMouseEnter={(e) => {
                                         e.currentTarget.style.background = '#f8fafc';
                                         e.currentTarget.style.cursor = 'pointer';
                                     }}
                                     onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
                                 >
+                                    <td style={styles.td}>
+                                        <strong>{item.debtor_no || '-'}</strong>
+                                    </td>
                                     <td style={styles.td}>
                                         <strong>{item.code}</strong>
                                     </td>
@@ -297,7 +343,7 @@ const DebtorCreditorReport = () => {
                                     {activeTab === 'debtors' ? '🧾 Debtor Details' : '🏪 Creditor Details'}
                                 </h3>
                                 <p style={styles.modalSubtitle}>
-                                    {modalData?.code}
+                                    {modalData?.code} {modalData?.debtor_no && `| Debtor No: ${modalData.debtor_no}`}
                                 </p>
                             </div>
                             <button
@@ -320,19 +366,39 @@ const DebtorCreditorReport = () => {
                                 <>
                                     {/* Profile Section */}
                                     <div style={styles.profileSection}>
-                                        {modalData.profile_pic && (
+                                        {modalData.profile_pic ? (
                                             <img
-                                                src={modalData.profile_pic.startsWith('http') ? modalData.profile_pic : `https://goviraju.lk/sms_new_backend_50500/application/public/storage/${modalData.profile_pic}`}
+                                                src={getImageUrl(modalData.profile_pic)}
                                                 alt="Profile"
                                                 style={styles.profilePic}
-                                                onError={(e) => { e.target.style.display = 'none'; }}
+                                                onError={(e) => { 
+                                                    e.target.style.display = 'none';
+                                                    e.target.parentElement.innerHTML += '<div style="width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; font-size: 40px; color: white;">👤</div>';
+                                                }}
                                             />
+                                        ) : (
+                                            <div style={{
+                                                width: '90px',
+                                                height: '90px',
+                                                borderRadius: '50%',
+                                                background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '40px',
+                                                color: 'white'
+                                            }}>
+                                                👤
+                                            </div>
                                         )}
                                         <div style={styles.profileInfo}>
                                             <h4 style={styles.profileName}>{modalData.name || 'N/A'}</h4>
                                             <p style={styles.profileDetail}>📞 {modalData.telephone || 'No phone'}</p>
                                             <p style={styles.profileDetail}>📍 {modalData.address || 'No address'}</p>
-                                            {activeTab === 'debtors' && modalData.credit_limit && (
+                                            {modalData.debtor_no && (
+                                                <p style={styles.profileDetail}>🔢 Debtor Number: <strong>{modalData.debtor_no}</strong></p>
+                                            )}
+                                            {activeTab === 'debtors' && modalData.credit_limit > 0 && (
                                                 <p style={styles.profileDetail}>💳 Credit Limit: {formatCurrency(modalData.credit_limit)}</p>
                                             )}
                                             {activeTab === 'creditors' && modalData.advance_amount > 0 && (
@@ -341,8 +407,49 @@ const DebtorCreditorReport = () => {
                                         </div>
                                     </div>
 
-                                    {/* Bills Section */}
-                                    <h4 style={styles.sectionTitle}>📋 Bills & Transactions</h4>
+                                    {/* Credit/Debt Summary Section - Shows separate credit transactions */}
+                                    {modalData.debt_summary && modalData.debt_summary.length > 0 && (
+                                        <>
+                                            <h4 style={styles.sectionTitle}>💰 Credit/Debt Transactions</h4>
+                                            <div style={styles.summaryGrid}>
+                                                {modalData.debt_summary.map((debt, idx) => {
+                                                    const isFullySettled = debt.credit_amount > 0 && debt.credit_amount === debt.paid_amount;
+                                                    return (
+                                                        <div key={idx} style={{
+                                                            ...styles.summaryCard,
+                                                            background: isFullySettled ? '#f0fdf4' : '#f8fafc',
+                                                            borderColor: isFullySettled ? '#bbf7d0' : '#e2e8f0'
+                                                        }}>
+                                                            <div style={styles.summaryCardHeader}>
+                                                                <strong>Bill No: {debt.bill_no}</strong>
+                                                                <span style={{
+                                                                    ...styles.statusBadge,
+                                                                    background: isFullySettled ? '#d1fae5' : (debt.status === 'partial' ? '#fed7aa' : '#fee2e2'),
+                                                                    color: isFullySettled ? '#065f46' : (debt.status === 'partial' ? '#9a3412' : '#991b1b')
+                                                                }}>
+                                                                    {isFullySettled ? '✓ FULLY SETTLED' : (debt.status === 'partial' ? '⏳ PARTIAL' : '⚠️ PENDING')}
+                                                                </span>
+                                                            </div>
+                                                            <div style={styles.summaryCardDetails}>
+                                                                <div>Credit Amount: <strong>{formatCurrency(debt.credit_amount)}</strong></div>
+                                                                <div>Paid Amount: <strong style={{ color: '#10b981' }}>{formatCurrency(debt.paid_amount)}</strong></div>
+                                                                <div>Remaining: <strong style={{ color: debt.remaining_amount > 0 ? '#dc2626' : '#10b981' }}>{formatCurrency(debt.remaining_amount)}</strong></div>
+                                                                {debt.settled_way && <div>Settled Via: <strong>{debt.settled_way}</strong></div>}
+                                                                {isFullySettled && (
+                                                                    <div style={{ marginTop: '8px', color: '#065f46', fontSize: '12px', fontWeight: '500' }}>
+                                                                        ✅ This credit has been fully settled
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {/* Bills Section - Only shows actual sales */}
+                                    <h4 style={styles.sectionTitle}>📋 Bills & Transactions (Sales)</h4>
                                     <div style={styles.tableWrapper}>
                                         <table style={styles.detailsTable}>
                                             <thead>
@@ -385,46 +492,69 @@ const DebtorCreditorReport = () => {
                                         </table>
                                     </div>
 
-                                    {/* Payments Section (for Creditors) */}
-                                    {activeTab === 'creditors' && modalData.payments && modalData.payments.length > 0 && (
-                                        <>
-                                            <h4 style={styles.sectionTitle}>💰 Payment History</h4>
-                                            <div style={styles.tableWrapper}>
-                                                <table style={styles.detailsTable}>
-                                                    <thead>
-                                                        <tr style={styles.detailsTableHeader}>
-                                                            <th style={styles.detailsTh}>Date</th>
-                                                            <th style={styles.detailsTh}>Amount</th>
-                                                            <th style={styles.detailsTh}>Method</th>
-                                                            <th style={styles.detailsTh}>Bill No</th>
-                                                            <th style={styles.detailsTh}>Reference</th>
+                                    {/* Payment History Section */}
+                                    <h4 style={styles.sectionTitle}>📜 Payment History</h4>
+                                    <div style={styles.tableWrapper}>
+                                        <table style={styles.detailsTable}>
+                                            <thead>
+                                                <tr style={styles.detailsTableHeader}>
+                                                    <th style={styles.detailsTh}>Date</th>
+                                                    <th style={styles.detailsTh}>Bill No</th>
+                                                    <th style={styles.detailsTh}>Amount</th>
+                                                    <th style={styles.detailsTh}>Method</th>
+                                                    <th style={styles.detailsTh}>Reference</th>
+                                                    <th style={styles.detailsTh}>Running Balance</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(modalData.payments || []).map((payment, idx) => {
+                                                    const methodStyle = getPaymentMethodStyle(payment.method);
+                                                    return (
+                                                        <tr key={idx} style={styles.detailsTableRow}>
+                                                            <td style={styles.detailsTd}>{formatDate(payment.date)}</td>
+                                                            <td style={styles.detailsTd}>{payment.bill_no || '-'}</td>
+                                                            <td style={styles.detailsTd}>
+                                                                <strong style={{ color: '#059669' }}>{formatCurrency(payment.amount)}</strong>
+                                                            </td>
+                                                            <td style={styles.detailsTd}>
+                                                                <span style={{
+                                                                    ...styles.paymentMethodBadge,
+                                                                    background: methodStyle.color,
+                                                                    color: 'white'
+                                                                }}>
+                                                                    {methodStyle.icon} {payment.method_display || payment.method}
+                                                                </span>
+                                                            </td>
+                                                            <td style={styles.detailsTd}>
+                                                                {payment.reference || payment.cheque_no || payment.transfer_reference_no || payment.bad_debt_name || '-'}
+                                                            </td>
+                                                            <td style={styles.detailsTd}>
+                                                                {payment.running_balance !== undefined && payment.running_balance !== null 
+                                                                    ? formatCurrency(payment.running_balance) 
+                                                                    : '-'}
+                                                            </td>
                                                         </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {modalData.payments.map((payment, idx) => (
-                                                            <tr key={idx} style={styles.detailsTableRow}>
-                                                                <td style={styles.detailsTd}>{formatDate(payment.date)}</td>
-                                                                <td style={styles.detailsTd}><strong>{formatCurrency(payment.amount)}</strong></td>
-                                                                <td style={styles.detailsTd}>
-                                                                    <span style={{
-                                                                        ...styles.paymentMethodBadge,
-                                                                        background: payment.type === 'Cash' ? '#10b981' : payment.type === 'Cheque' ? '#8b5cf6' : payment.type === 'Bank Transfer' ? '#ec489a' : '#f59e0b',
-                                                                        color: 'white'
-                                                                    }}>
-                                                                        {payment.icon} {payment.payment_method_display}
-                                                                    </span>
-                                                                </td>
-                                                                <td style={styles.detailsTd}>{payment.bill_no || '-'}</td>
-                                                                <td style={styles.detailsTd}>
-                                                                    {payment.cheque_no || payment.transfer_reference_no || payment.bad_debt_name || '-'}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </>
-                                    )}
+                                                    );
+                                                })}
+                                                {(modalData.payments || []).length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="6" style={styles.emptyState}>
+                                                            No payment records found
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                            {modalData.total_paid_amount > 0 && (
+                                                <tfoot>
+                                                    <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
+                                                        <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Total Paid:</td>
+                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_paid_amount)}</td>
+                                                        <td colSpan="3"></td>
+                                                    </tr>
+                                                </tfoot>
+                                            )}
+                                        </table>
+                                    </div>
                                 </>
                             )}
                         </div>
@@ -656,7 +786,7 @@ const styles = {
         background: 'white',
         borderRadius: '24px',
         width: '90%',
-        maxWidth: '1100px',
+        maxWidth: '1200px',
         maxHeight: '85vh',
         display: 'flex',
         flexDirection: 'column',
@@ -741,10 +871,35 @@ const styles = {
         fontSize: '18px',
         fontWeight: '600',
         marginBottom: '18px',
+        marginTop: '24px',
         color: '#1e293b',
         paddingBottom: '8px',
         borderBottom: '2px solid #667eea',
         display: 'inline-block'
+    },
+    summaryGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+        gap: '16px',
+        marginBottom: '24px'
+    },
+    summaryCard: {
+        borderRadius: '12px',
+        padding: '16px',
+        border: '1px solid #e2e8f0',
+        transition: 'all 0.2s'
+    },
+    summaryCardHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '12px',
+        paddingBottom: '8px',
+        borderBottom: '1px solid #e2e8f0'
+    },
+    summaryCardDetails: {
+        fontSize: '13px',
+        lineHeight: '1.8'
     },
     detailsTable: {
         width: '100%',

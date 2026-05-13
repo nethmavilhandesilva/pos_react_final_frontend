@@ -33,7 +33,6 @@ const routes = {
         getPending: "/debtors/pending/all"
     }
 };
-
 // ==================== CUSTOMER TYPE SELECTOR ====================
 // ==================== CUSTOMER TYPE SELECTOR ====================
 const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, billCustomerCode = null, billNo = null }) => {
@@ -42,68 +41,287 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
     const [loading, setLoading] = useState(false);
     const [customerExists, setCustomerExists] = useState(false);
     const [existingCustomer, setExistingCustomer] = useState(null);
+    const [matchingCustomers, setMatchingCustomers] = useState([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [allCustomers, setAllCustomers] = useState([]);
+    const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+    const [selectedFromDropdown, setSelectedFromDropdown] = useState(false);
+    const [customersLoaded, setCustomersLoaded] = useState(false);
+
+    // Fetch all customers when component mounts
+    useEffect(() => {
+        fetchAllCustomers();
+    }, []);
+
+    // Also fetch when modal opens to ensure fresh data
+    useEffect(() => {
+        if (showDebtorConfirm && !customersLoaded) {
+            fetchAllCustomers();
+        }
+    }, [showDebtorConfirm]);
+
+    const fetchAllCustomers = async () => {
+        setIsLoadingCustomers(true);
+        try {
+            console.log('Fetching customers from API...');
+            const response = await api.get(routes.customers);
+            console.log('Raw API Response:', response.data);
+            
+            let customersData = [];
+            
+            // The API returns a direct array
+            if (Array.isArray(response.data)) {
+                customersData = response.data;
+                console.log('Response is directly an array');
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+                customersData = response.data.data;
+                console.log('Found data in response.data.data');
+            } else if (response.data.customers && Array.isArray(response.data.customers)) {
+                customersData = response.data.customers;
+                console.log('Found data in response.data.customers');
+            }
+            
+            console.log('Number of customers loaded:', customersData.length);
+            
+            // Specifically check for NVDS customers
+            const nvdsCustomers = customersData.filter(c => c.short_name === 'NVDS');
+            console.log('NVDS customers found:', nvdsCustomers.length);
+            
+            setAllCustomers(customersData);
+            setCustomersLoaded(true);
+            
+            // If there's a customer code already typed, search for matches AFTER state is updated
+            if (customerCode) {
+                // Use setTimeout to ensure state is updated
+                setTimeout(() => {
+                    searchMatchingCustomers(customerCode);
+                }, 100);
+            }
+        } catch (error) {
+            console.error('Error fetching customers:', error);
+            alert('Failed to load customers list. Please refresh and try again.');
+        } finally {
+            setIsLoadingCustomers(false);
+        }
+    };
 
     // Pre-fill customer code when modal opens with bill's customer code
     useEffect(() => {
         if (showDebtorConfirm && billCustomerCode) {
             setCustomerCode(billCustomerCode);
+            setSelectedFromDropdown(false);
+            // Wait for customers to be loaded before searching
+            if (billCustomerCode) {
+                const searchTimer = setTimeout(() => {
+                    if (allCustomers.length > 0) {
+                        searchMatchingCustomers(billCustomerCode);
+                        setShowSuggestions(true);
+                    } else {
+                        // If customers not loaded yet, wait a bit more
+                        const waitTimer = setInterval(() => {
+                            if (allCustomers.length > 0) {
+                                searchMatchingCustomers(billCustomerCode);
+                                setShowSuggestions(true);
+                                clearInterval(waitTimer);
+                            }
+                        }, 100);
+                        // Clear after 5 seconds
+                        setTimeout(() => clearInterval(waitTimer), 5000);
+                    }
+                }, 200);
+                return () => clearTimeout(searchTimer);
+            }
         }
-    }, [showDebtorConfirm, billCustomerCode]);
+    }, [showDebtorConfirm, billCustomerCode, allCustomers.length]);
 
-    const handleDebtorClick = () => {
-        if (selectedType === 'debtor') {
+    const searchMatchingCustomers = (searchTerm) => {
+        console.log('Searching for:', searchTerm);
+        console.log('All customers available:', allCustomers.length);
+        
+        if (!searchTerm || searchTerm.trim() === '') {
+            setMatchingCustomers([]);
+            setShowSuggestions(false);
             return;
         }
-        setShowDebtorConfirm(true);
-        // Reset customer code to bill's customer code when opening
-        if (billCustomerCode) {
-            setCustomerCode(billCustomerCode);
-        }
-    };
 
-    const handleWalkingClick = () => {
-        onSelect('walking');
-    };
-
-    const handleCheckCustomer = async () => {
-        if (!customerCode.trim()) {
-            alert('Please enter a customer code');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const response = await api.get(`${routes.checkCustomer}/${customerCode.toUpperCase()}`);
-            const data = response.data;
-
-            if (data.exists) {
-                setCustomerExists(true);
-                setExistingCustomer(data.customer);
-                alert(`Customer "${customerCode.toUpperCase()}" found! They will be registered as a Debtor.`);
-                if (data.customer && data.customer.Debtor !== 'Y') {
-                    // ✅ Pass billNo when updating debtor status
-                    await api.put(routes.updateDebtorStatus, {
-                        short_name: customerCode.toUpperCase(),
-                        Debtor: 'Y',
-                        bill_no: billNo  // Add this line
-                    });
+        const term = searchTerm.toUpperCase();
+        const matches = allCustomers
+            .filter(customer => {
+                const shortName = (customer.short_name || '').toUpperCase();
+                const matches = shortName === term || shortName.startsWith(term);
+                if (matches) {
+                    console.log('Match found:', shortName, 'Debtor_no:', customer.Debtor_no);
                 }
+                return matches;
+            })
+            .slice(0, 10);
+        
+        console.log('Matching customers found:', matches.length);
+        setMatchingCustomers(matches);
+        setShowSuggestions(matches.length > 0);
+        
+        // If no matches found, log the first few customers for debugging
+        if (matches.length === 0 && allCustomers.length > 0) {
+            console.log('First 5 customers in list:', allCustomers.slice(0, 5).map(c => c.short_name));
+        }
+    };
+
+    const handleCustomerCodeChange = (e) => {
+        const value = e.target.value.toUpperCase();
+        setCustomerCode(value);
+        setSelectedFromDropdown(false);
+        searchMatchingCustomers(value);
+        setCustomerExists(false);
+        setExistingCustomer(null);
+    };
+
+const handleSelectCustomer = (customer) => {
+    console.log('Selected customer:', customer);
+    setCustomerCode(customer.short_name);
+    setSelectedFromDropdown(true);
+    setShowSuggestions(false);
+    
+    // Show message with the actual debtor number
+    if (customer.Debtor === 'Y' && customer.Debtor_no) {
+        alert(`✅ Customer "${customer.short_name}" selected!\n📋 Debtor Number: ${customer.Debtor_no}\n\nThis debtor number will be used for Bill #${billNo}`);
+    } else if (customer.Debtor === 'Y') {
+        alert(`✅ Customer "${customer.short_name}" selected!\n\nProceeding with this existing customer.`);
+    } else {
+        alert(`👤 Customer "${customer.short_name}" selected! They will be registered as a Debtor.`);
+    }
+    
+    // Pass the entire customer object to avoid API call
+    setTimeout(() => {
+        handleCheckCustomerWithCode(customer.short_name, true, customer);
+    }, 100);
+};
+const handleCheckCustomerWithCode = async (code, useExisting = false, selectedCustomerData = null) => {
+    if (!code.trim()) {
+        alert('Please enter a customer code');
+        return;
+    }
+
+    setLoading(true);
+    try {
+        let customerData;
+        let selectedDebtorNo;
+        let selectedCustomerId = null;
+        
+        // If we have selected customer data from dropdown, use it directly
+        if (selectedCustomerData) {
+            console.log('Using selected customer data directly:', selectedCustomerData);
+            customerData = {
+                exists: true,
+                customer: selectedCustomerData
+            };
+            selectedDebtorNo = selectedCustomerData.Debtor_no;
+            selectedCustomerId = selectedCustomerData.id; // Get the customer ID
+        } else {
+            // Only call API if user typed the code
+            const response = await api.get(`${routes.checkCustomer}/${code}`);
+            customerData = response.data;
+            selectedDebtorNo = customerData.customer?.Debtor_no;
+            selectedCustomerId = customerData.customer?.id;
+        }
+        
+        console.log('Customer data:', customerData);
+        console.log('Selected from dropdown:', selectedFromDropdown);
+        console.log('Current bill number:', billNo);
+        console.log('Selected debtor number:', selectedDebtorNo);
+        console.log('Selected customer ID:', selectedCustomerId);
+
+        if (customerData.exists) {
+            if (selectedFromDropdown || useExisting) {
+                console.log('Using EXISTING customer with debtor_no:', selectedDebtorNo);
+                
+                // Pass the customer_id to identify the specific customer
+                const updateResponse = await api.put(routes.updateDebtorStatus, {
+                    short_name: code,
+                    customer_id: selectedCustomerId, // Add customer_id
+                    Debtor: 'Y',
+                    bill_no: billNo
+                });
+                
+                const debtorNo = updateResponse.data.debtor_no || selectedDebtorNo;
+                const wasNewRecordCreated = updateResponse.data.was_new_record_created;
+                
+                if (wasNewRecordCreated) {
+                    alert(`✅ New debtor record created for Bill #${billNo}\n📋 Debtor Number: ${debtorNo}\n\nProceeding with payment.`);
+                } else {
+                    alert(`✅ Using EXISTING Debtor!\n📋 Customer: ${code}\n📋 Debtor Number: ${debtorNo || 'N/A'}\n📋 Bill Number: ${billNo || 'N/A'}\n\nProceeding with payment.`);
+                }
+                
                 setShowDebtorConfirm(false);
-                onSelect('debtor');
+                onSelect('walking');
                 setCustomerCode('');
                 setCustomerExists(false);
                 setExistingCustomer(null);
+                setMatchingCustomers([]);
+                setShowSuggestions(false);
+                setSelectedFromDropdown(false);
+                
             } else {
-                setShowDebtorConfirm(false);
-                onDebtorClick(customerCode.toUpperCase(), billNo);
-                setCustomerCode('');
+                // Rest of your code...
+                const confirmNew = window.confirm(
+                    `⚠️ CUSTOMER ALREADY EXISTS BUT NOT SELECTED FROM DROPDOWN ⚠️\n\n` +
+                    `Customer Code: ${code}\n` +
+                    `Existing Customer Found: ${customerData.customer.name || 'Unknown'}\n` +
+                    `Existing Debtor No: ${customerData.customer.Debtor_no || 'Not assigned'}\n\n` +
+                    `You did NOT select this customer from the dropdown.\n` +
+                    `Do you want to CREATE a NEW debtor record for "${code}"?\n\n` +
+                    `This will create a new entry with a DIFFERENT Debtor Number.\n` +
+                    `Click OK to create NEW record, Cancel to use existing record.`
+                );
+                
+                if (confirmNew) {
+                    alert(`✅ Creating NEW debtor record for "${code}" with a NEW Debtor Number.\nPlease fill in the debtor registration form.`);
+                    setShowDebtorConfirm(false);
+                    onDebtorClick(code, billNo);
+                    setCustomerCode('');
+                    setMatchingCustomers([]);
+                    setShowSuggestions(false);
+                    setSelectedFromDropdown(false);
+                } else {
+                    alert(`✅ Using EXISTING debtor record for "${code}".\nCreating debtor record for Bill #${billNo} if not exists.`);
+                    
+                    const updateResponse = await api.put(routes.updateDebtorStatus, {
+                        short_name: code,
+                        customer_id: selectedCustomerId,
+                        Debtor: 'Y',
+                        bill_no: billNo
+                    });
+                    
+                    const debtorNo = updateResponse.data.debtor_no || customerData.customer.Debtor_no;
+                    
+                    setShowDebtorConfirm(false);
+                    onSelect('walking');
+                    setCustomerCode('');
+                    setCustomerExists(false);
+                    setExistingCustomer(null);
+                    setMatchingCustomers([]);
+                    setShowSuggestions(false);
+                    setSelectedFromDropdown(false);
+                }
             }
-        } catch (error) {
-            console.error('Error checking customer:', error);
-            alert('Failed to check customer. Please try again.');
-        } finally {
-            setLoading(false);
+        } else {
+            console.log('Customer NOT found, creating NEW customer record');
+            setShowDebtorConfirm(false);
+            onDebtorClick(code, billNo);
+            setCustomerCode('');
+            setMatchingCustomers([]);
+            setShowSuggestions(false);
+            setSelectedFromDropdown(false);
         }
+    } catch (error) {
+        console.error('Error checking customer:', error);
+        alert('Failed to check customer. Please try again.');
+    } finally {
+        setLoading(false);
+    }
+};
+
+    const handleCheckCustomer = async () => {
+        await handleCheckCustomerWithCode(customerCode, false);
     };
 
     const handleSkip = () => {
@@ -111,13 +329,10 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         setCustomerCode('');
         setCustomerExists(false);
         setExistingCustomer(null);
+        setMatchingCustomers([]);
+        setShowSuggestions(false);
+        setSelectedFromDropdown(false);
     };
-
-    const handleDirectDebtor = () => {
-        setShowDebtorConfirm(false);
-        onDebtorClick(null);
-    };
-
     return (
         <>
             <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)', borderRadius: '12px', border: '2px solid #bae6fd' }}>
@@ -126,7 +341,7 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                 </label>
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button
-                        onClick={handleWalkingClick}
+                        onClick={() => onSelect('walking')}
                         disabled={disabled}
                         style={{
                             flex: 1,
@@ -149,7 +364,7 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                         🚶 Walking Customer
                     </button>
                     <button
-                        onClick={handleDebtorClick}
+                        onClick={() => setShowDebtorConfirm(true)}
                         disabled={disabled}
                         style={{
                             flex: 1,
@@ -172,6 +387,9 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                         📋 Debtor
                     </button>
                 </div>
+                <div style={{ fontSize: '10px', color: '#0369a1', marginTop: '8px', textAlign: 'center' }}>
+                    💡 Tip: Select from dropdown to use existing customer. Type and click Continue to create new debtor
+                </div>
             </div>
 
             {showDebtorConfirm && (
@@ -191,7 +409,7 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     <div style={{
                         backgroundColor: 'white',
                         borderRadius: '20px',
-                        width: '450px',
+                        width: '500px',
                         maxWidth: '90%',
                         padding: '24px',
                         boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
@@ -213,12 +431,14 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                             )}
                         </div>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>Customer Code</label>
+                        <div style={{ marginBottom: '20px', position: 'relative' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>
+                                Customer Code
+                            </label>
                             <input
                                 type="text"
                                 value={customerCode}
-                                onChange={(e) => setCustomerCode(e.target.value.toUpperCase())}
+                                onChange={handleCustomerCodeChange}
                                 placeholder="Enter customer code (e.g., RTY)"
                                 autoFocus
                                 style={{
@@ -236,7 +456,131 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                                         handleCheckCustomer();
                                     }
                                 }}
+                                onBlur={() => {
+                                    setTimeout(() => setShowSuggestions(false), 200);
+                                }}
+                                onFocus={() => {
+                                    if (customerCode && matchingCustomers.length > 0) {
+                                        setShowSuggestions(true);
+                                    }
+                                }}
                             />
+                            
+                            {/* Loading indicator */}
+                            {isLoadingCustomers && (
+                                <div style={{ 
+                                    position: 'absolute', 
+                                    top: '100%', 
+                                    left: 0, 
+                                    right: 0, 
+                                    backgroundColor: 'white', 
+                                    padding: '10px', 
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '8px',
+                                    marginTop: '4px',
+                                    textAlign: 'center',
+                                    fontSize: '12px',
+                                    color: '#64748b'
+                                }}>
+                                    ⏳ Loading customers...
+                                </div>
+                            )}
+                            
+                            {/* Suggestions Dropdown */}
+                            {!isLoadingCustomers && showSuggestions && matchingCustomers.length > 0 && (
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    right: 0,
+                                    backgroundColor: 'white',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                                    zIndex: 20001,
+                                    maxHeight: '300px',
+                                    overflowY: 'auto',
+                                    marginTop: '4px'
+                                }}>
+                                    {matchingCustomers.map((customer, index) => (
+                                        <div
+                                            key={index}
+                                            onClick={() => handleSelectCustomer(customer)}
+                                            style={{
+                                                padding: '12px 14px',
+                                                cursor: 'pointer',
+                                                borderBottom: index < matchingCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                                transition: 'background 0.2s',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.background = '#f8fafc';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.background = 'white';
+                                            }}
+                                        >
+                                            <div>
+                                                <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#1e293b' }}>
+                                                    {customer.short_name}
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                                    {customer.name || 'No name'}
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                background: customer.Debtor === 'Y' ? '#fef3c7' : '#f1f5f9',
+                                                padding: '4px 10px',
+                                                borderRadius: '20px',
+                                                fontSize: '11px',
+                                                fontWeight: '600',
+                                                color: customer.Debtor === 'Y' ? '#92400e' : '#64748b'
+                                            }}>
+                                                {customer.Debtor === 'Y' ? (
+                                                    <>📋 Debtor: {customer.Debtor_no || 'N/A'}</>
+                                                ) : (
+                                                    <>👤 Regular</>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            
+                            {/* No customers message */}
+                            {!isLoadingCustomers && customerCode && matchingCustomers.length === 0 && allCustomers.length > 0 && (
+                                <div style={{ 
+                                    position: 'absolute', 
+                                    top: '100%', 
+                                    left: 0, 
+                                    right: 0, 
+                                    backgroundColor: '#fef3c7', 
+                                    padding: '10px', 
+                                    border: '1px solid #fde68a',
+                                    borderRadius: '8px',
+                                    marginTop: '4px',
+                                    fontSize: '12px',
+                                    color: '#92400e'
+                                }}>
+                                    No matching customers found for "{customerCode}"
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ 
+                            background: '#e0f2fe', 
+                            padding: '10px', 
+                            borderRadius: '8px', 
+                            marginBottom: '16px',
+                            fontSize: '12px',
+                            color: '#0369a1'
+                        }}>
+                            <strong>📌 How it works:</strong><br/>
+                            • <strong>Select from dropdown</strong> → Use existing customer (same Debtor No)<br/>
+                            • <strong>Type & click Continue</strong> → Create NEW debtor (different Debtor No)<br/>
+                            • Same customer code can have multiple Debtor Numbers!
                         </div>
 
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -279,7 +623,6 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         </>
     );
 };
-// ==================== DEBTOR FORM MODAL ====================
 // ==================== DEBTOR FORM MODAL ====================
 const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null, existingDebtorNo = null }) => {
     const [formData, setFormData] = useState({
@@ -332,57 +675,48 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null,
         }
     };
 
-    const handleSubmit = async () => {
-        setLoading(true);
-        try {
-            const formDataToSend = new FormData();
-            formDataToSend.append('short_name', customerCode.toUpperCase());
-            if (formData.name) formDataToSend.append('name', formData.name);
-            if (formData.ID_NO) formDataToSend.append('ID_NO', formData.ID_NO);
-            if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
-            if (formData.address) formDataToSend.append('address', formData.address);
-            if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
-            formDataToSend.append('Debtor', 'Y');
-
-            if (formData.profile_pic) formDataToSend.append('profile_pic', formData.profile_pic);
-            if (formData.nic_front) formDataToSend.append('nic_front', formData.nic_front);
-            if (formData.nic_back) formDataToSend.append('nic_back', formData.nic_back);
-
-            const response = await api.post('/customers', formDataToSend, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-
-            if (response.status === 200 || response.status === 201) {
-                const debtorNo = response.data.Debtor_no;
-                setGeneratedDebtorNo(debtorNo);
-
-                // If there's a bill number, create a debtor record with that bill number
-                if (billNo) {
-                    try {
-                        await api.post('/debtors/create-with-customer', {
-                            bill_no: billNo,
-                            customer_code: customerCode.toUpperCase(),
-                            credit_amount: 0,
-                            debtor_no: debtorNo
-                        });
-                        console.log('Debtor record created with bill number:', billNo);
-                    } catch (debtorError) {
-                        console.error('Error creating debtor record:', debtorError);
-                        // Continue anyway, the customer was created
-                    }
-                }
-
-                alert(`Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`);
-                onSave(true, debtorNo);
-                onClose();
-            }
-        } catch (error) {
-            console.error('Error saving debtor:', error);
-            alert('Failed to save debtor information. Please try again.');
-        } finally {
-            setLoading(false);
+   // In DebtorFormModal, update the handleSubmit function:
+const handleSubmit = async () => {
+    setLoading(true);
+    try {
+        const formDataToSend = new FormData();
+        formDataToSend.append('short_name', customerCode.toUpperCase());
+        if (formData.name) formDataToSend.append('name', formData.name);
+        if (formData.ID_NO) formDataToSend.append('ID_NO', formData.ID_NO);
+        if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
+        if (formData.address) formDataToSend.append('address', formData.address);
+        if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
+        formDataToSend.append('Debtor', 'Y');
+        
+        // ✅ IMPORTANT: Pass bill_no to the backend
+        if (billNo) {
+            formDataToSend.append('bill_no', billNo);
+            console.log('Adding bill_no to form data:', billNo);
         }
-    };
+
+        if (formData.profile_pic) formDataToSend.append('profile_pic', formData.profile_pic);
+        if (formData.nic_front) formDataToSend.append('nic_front', formData.nic_front);
+        if (formData.nic_back) formDataToSend.append('nic_back', formData.nic_back);
+
+        const response = await api.post('/customers', formDataToSend, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        if (response.status === 200 || response.status === 201) {
+            const debtorNo = response.data.Debtor_no;
+            setGeneratedDebtorNo(debtorNo);
+
+            alert(`Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`);
+            onSave(true, debtorNo);
+            onClose();
+        }
+    } catch (error) {
+        console.error('Error saving debtor:', error);
+        alert('Failed to save debtor information. Please try again.');
+    } finally {
+        setLoading(false);
+    }
+};
 
     return (
         <div
@@ -3730,6 +4064,8 @@ export default function PrintedBills() {
                     console.log('Updated customer as Debtor');
                 }
                 handleBillClick(bill);
+                // ✅ Reset customer type back to walking after handling
+                setState(prev => ({ ...prev, customerType: 'walking' }));
             } else {
                 console.log('Customer not found, showing debtor form');
                 setState(prev => ({
@@ -3749,7 +4085,7 @@ export default function PrintedBills() {
         if (saved && state.pendingDebtorBill) {
             setState(prev => ({
                 ...prev,
-                customerType: 'debtor',
+                customerType: 'walking',  // ✅ Change from 'debtor' to 'walking'
                 showDebtorForm: false,
                 pendingDebtorBill: null
             }));
