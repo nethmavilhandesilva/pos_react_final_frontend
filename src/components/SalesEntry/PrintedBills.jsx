@@ -4148,7 +4148,8 @@ export default function PrintedBills() {
                 given_amount_applied: givenAmountApplied,
                 credit_transaction: creditTransaction,
                 payment_amount: paymentAmount,
-                payment_method: paymentMethod
+                payment_method: paymentMethod,
+                is_walking_customer: state.customerType === 'walking' 
             };
 
             let paymentMethodText = 'Cash';
@@ -4882,7 +4883,8 @@ export default function PrintedBills() {
                 credit_transaction: creditTransaction,
                 payment_amount: parseFloat(paymentAmount),
                 payment_method: 'Credit',
-                payment_history: JSON.stringify(existingHistory)
+                payment_history: JSON.stringify(existingHistory),
+                is_walking_customer: state.customerType === 'walking' 
             };
 
             console.log('Sending to sales update API:', payload);
