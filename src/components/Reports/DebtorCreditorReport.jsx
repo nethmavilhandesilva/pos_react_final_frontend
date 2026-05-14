@@ -104,7 +104,7 @@ const DebtorCreditorReport = () => {
     const filteredDebtors = useMemo(() => {
         if (!searchTerm) return debtors;
         const term = searchTerm.toLowerCase();
-        return debtors.filter(d => 
+        return debtors.filter(d =>
             d.code?.toLowerCase().includes(term) ||
             d.name?.toLowerCase().includes(term) ||
             d.telephone?.includes(term) ||
@@ -115,7 +115,7 @@ const DebtorCreditorReport = () => {
     const filteredCreditors = useMemo(() => {
         if (!searchTerm) return creditors;
         const term = searchTerm.toLowerCase();
-        return creditors.filter(c => 
+        return creditors.filter(c =>
             c.code?.toLowerCase().includes(term) ||
             c.name?.toLowerCase().includes(term) ||
             c.telephone?.includes(term)
@@ -248,14 +248,59 @@ const DebtorCreditorReport = () => {
                     <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Debtors' : 'Creditors'}</div>
                     <div style={styles.statValue}>{currentSummary[`total_${activeTab}`] || 0}</div>
                 </div>
+
                 <div style={styles.statCard}>
                     <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Sales' : 'Supplier'} Amount</div>
-                    <div style={styles.statValue}>{formatCurrency(currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`])}</div>
+                    <div style={styles.statValue}>
+                        {formatCurrency(currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`])}
+                    </div>
                 </div>
+
+                {/* Total Paid Card with Conditional Logic */}
                 <div style={styles.statCard}>
                     <div style={styles.statLabel}>Total Paid</div>
-                    <div style={styles.statValue}>{formatCurrency(currentSummary.total_paid_amount)}</div>
+                    <div style={styles.statValue}>
+                        {(() => {
+                            const totalSales = currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`] || 0;
+                            const totalPaid = currentSummary.total_paid_amount || 0;
+                            const totalCreditDeductions = currentSummary.total_credit_deductions || 0;
+
+                            // Apply same logic: if paid > sales, subtract credit deductions
+                            let displayPaid;
+                            if (totalPaid > totalSales) {
+                                displayPaid = totalPaid - totalCreditDeductions;
+                            } else {
+                                displayPaid = totalPaid;
+                            }
+
+                            return formatCurrency(displayPaid);
+                        })()}
+                    </div>
+                    {/* Optional: Show adjustment indicator */}
+                    {(() => {
+                        const totalSales = currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`] || 0;
+                        const totalPaid = currentSummary.total_paid_amount || 0;
+                        if (totalPaid > totalSales && activeTab === 'debtors') {
+                            return (
+                                <div style={{ fontSize: '11px', color: '#8b5cf6', marginTop: '4px' }}>
+                                    (Adjusted: -{formatCurrency(currentSummary.total_credit_deductions)})
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
                 </div>
+
+                {/* Credit Deductions Card */}
+                {activeTab === 'debtors' && currentSummary.total_credit_deductions !== undefined && (
+                    <div style={styles.statCard}>
+                        <div style={styles.statLabel}>Credit Deductions</div>
+                        <div style={{ ...styles.statValue, color: '#f59e0b' }}>
+                            {formatCurrency(currentSummary.total_credit_deductions)}
+                        </div>
+                    </div>
+                )}
+
                 <div style={styles.statCard}>
                     <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Remaining' : 'Outstanding'}</div>
                     <div style={styles.statValue}>{formatCurrency(currentSummary.total_remaining_amount)}</div>
@@ -273,61 +318,108 @@ const DebtorCreditorReport = () => {
                             <th style={styles.th}>Telephone</th>
                             <th style={styles.th}>Total Sales</th>
                             <th style={styles.th}>Paid</th>
+                            {activeTab === 'debtors' && <th style={styles.th}>Credit</th>}
                             <th style={styles.th}>Remaining</th>
                             <th style={styles.th}>Bills</th>
                             <th style={styles.th}>Status</th>
                         </tr>
                     </thead>
+
                     <tbody>
                         {currentData.length === 0 ? (
                             <tr>
-                                <td colSpan="9" style={styles.emptyState}>
+                                <td colSpan={activeTab === 'debtors' ? 10 : 9} style={styles.emptyState}>
                                     No {activeTab} found
                                 </td>
                             </tr>
                         ) : (
-                            currentData.map((item, idx) => (
-                                <tr
-                                    key={idx}
-                                    style={styles.tableRow}
-                                    onClick={() => activeTab === 'debtors' 
-                                        ? fetchDebtorDetails(item.code) 
-                                        : fetchCreditorDetails(item.code)
-                                    }
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = '#f8fafc';
-                                        e.currentTarget.style.cursor = 'pointer';
-                                    }}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                >
-                                    <td style={styles.td}>
-                                        <strong>{item.debtor_no || '-'}</strong>
-                                    </td>
-                                    <td style={styles.td}>
-                                        <strong>{item.code}</strong>
-                                    </td>
-                                    <td style={styles.td}>{item.name || '-'}</td>
-                                    <td style={styles.td}>{item.telephone || '-'}</td>
-                                    <td style={styles.td}>
-                                        <strong>{formatCurrency(activeTab === 'debtors' ? item.total_sales : item.total_supplier_amount)}</strong>
-                                    </td>
-                                    <td style={styles.td}>{formatCurrency(item.total_paid)}</td>
-                                    <td style={styles.td}>
-                                        <span style={{ color: item.total_remaining > 0 ? '#dc2626' : '#10b981' }}>
-                                            {formatCurrency(item.total_remaining)}
-                                        </span>
-                                    </td>
-                                    <td style={styles.td}>{item.bill_count || 0}</td>
-                                    <td style={styles.td}>
-                                        <span style={{
-                                            ...styles.statusBadge,
-                                            ...(item.status === 'Fully Paid' || item.status === 'Fully Settled' ? styles.statusPaid : styles.statusPending)
-                                        }}>
-                                            {item.status}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))
+                            currentData.map((item, idx) => {
+                                // Calculate values safely
+                                const totalSales = activeTab === 'debtors'
+                                    ? (item.total_sales || 0)
+                                    : (item.total_supplier_amount || 0);
+
+                                const paidAmount = item.total_paid || 0;
+                                const creditDeduction = item.credit_deductions || 0;
+
+                                // ✅ CORRECTED CONDITION: 
+                                // If paidAmount is greater than totalSales, subtract credit deductions
+                                // Otherwise show the regular paidAmount
+                                let displayPaid;
+                                if (paidAmount > totalSales) {
+                                    displayPaid = paidAmount - creditDeduction;
+                                } else {
+                                    displayPaid = paidAmount;
+                                }
+
+                                return (
+                                    <tr
+                                        key={idx}
+                                        style={styles.tableRow}
+                                        onClick={() =>
+                                            activeTab === 'debtors'
+                                                ? fetchDebtorDetails(item.code)
+                                                : fetchCreditorDetails(item.code)
+                                        }
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = '#f8fafc';
+                                            e.currentTarget.style.cursor = 'pointer';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = 'white';
+                                        }}
+                                    >
+                                        <td style={styles.td}>
+                                            <strong>{item.debtor_no || '-'}</strong>
+                                        </td>
+
+                                        <td style={styles.td}>
+                                            <strong>{item.code}</strong>
+                                        </td>
+
+                                        <td style={styles.td}>{item.name || '-'}</td>
+                                        <td style={styles.td}>{item.telephone || '-'}</td>
+
+                                        <td style={styles.td}>
+                                            <strong>{formatCurrency(totalSales)}</strong>
+                                        </td>
+
+                                        {/* ✅ PAID COLUMN WITH CONDITION */}
+                                        <td style={styles.td}>
+                                            {formatCurrency(displayPaid)}
+                                        </td>
+
+                                        {activeTab === 'debtors' && (
+                                            <td style={styles.td}>
+                                                <span style={{ color: '#f59e0b', fontWeight: '600' }}>
+                                                    {formatCurrency(creditDeduction)}
+                                                </span>
+                                            </td>
+                                        )}
+
+                                        <td style={styles.td}>
+                                            <span style={{
+                                                color: item.total_remaining > 0 ? '#dc2626' : '#10b981'
+                                            }}>
+                                                {formatCurrency(item.total_remaining)}
+                                            </span>
+                                        </td>
+
+                                        <td style={styles.td}>{item.bill_count || 0}</td>
+
+                                        <td style={styles.td}>
+                                            <span style={{
+                                                ...styles.statusBadge,
+                                                ...(item.status === 'Fully Paid' || item.status === 'Fully Settled'
+                                                    ? styles.statusPaid
+                                                    : styles.statusPending)
+                                            }}>
+                                                {item.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                );
+                            })
                         )}
                     </tbody>
                 </table>
@@ -371,7 +463,7 @@ const DebtorCreditorReport = () => {
                                                 src={getImageUrl(modalData.profile_pic)}
                                                 alt="Profile"
                                                 style={styles.profilePic}
-                                                onError={(e) => { 
+                                                onError={(e) => {
                                                     e.target.style.display = 'none';
                                                     e.target.parentElement.innerHTML += '<div style="width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; font-size: 40px; color: white;">👤</div>';
                                                 }}
@@ -407,49 +499,8 @@ const DebtorCreditorReport = () => {
                                         </div>
                                     </div>
 
-                                    {/* Credit/Debt Summary Section - Shows separate credit transactions */}
-                                    {modalData.debt_summary && modalData.debt_summary.length > 0 && (
-                                        <>
-                                            <h4 style={styles.sectionTitle}>💰 Credit/Debt Transactions</h4>
-                                            <div style={styles.summaryGrid}>
-                                                {modalData.debt_summary.map((debt, idx) => {
-                                                    const isFullySettled = debt.credit_amount > 0 && debt.credit_amount === debt.paid_amount;
-                                                    return (
-                                                        <div key={idx} style={{
-                                                            ...styles.summaryCard,
-                                                            background: isFullySettled ? '#f0fdf4' : '#f8fafc',
-                                                            borderColor: isFullySettled ? '#bbf7d0' : '#e2e8f0'
-                                                        }}>
-                                                            <div style={styles.summaryCardHeader}>
-                                                                <strong>Bill No: {debt.bill_no}</strong>
-                                                                <span style={{
-                                                                    ...styles.statusBadge,
-                                                                    background: isFullySettled ? '#d1fae5' : (debt.status === 'partial' ? '#fed7aa' : '#fee2e2'),
-                                                                    color: isFullySettled ? '#065f46' : (debt.status === 'partial' ? '#9a3412' : '#991b1b')
-                                                                }}>
-                                                                    {isFullySettled ? '✓ FULLY SETTLED' : (debt.status === 'partial' ? '⏳ PARTIAL' : '⚠️ PENDING')}
-                                                                </span>
-                                                            </div>
-                                                            <div style={styles.summaryCardDetails}>
-                                                                <div>Credit Amount: <strong>{formatCurrency(debt.credit_amount)}</strong></div>
-                                                                <div>Paid Amount: <strong style={{ color: '#10b981' }}>{formatCurrency(debt.paid_amount)}</strong></div>
-                                                                <div>Remaining: <strong style={{ color: debt.remaining_amount > 0 ? '#dc2626' : '#10b981' }}>{formatCurrency(debt.remaining_amount)}</strong></div>
-                                                                {debt.settled_way && <div>Settled Via: <strong>{debt.settled_way}</strong></div>}
-                                                                {isFullySettled && (
-                                                                    <div style={{ marginTop: '8px', color: '#065f46', fontSize: '12px', fontWeight: '500' }}>
-                                                                        ✅ This credit has been fully settled
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </>
-                                    )}
-
                                     {/* Bills Section - Only shows actual sales */}
-                                    <h4 style={styles.sectionTitle}>📋 Bills & Transactions (Sales)</h4>
+                                    <h4 style={styles.sectionTitle}>📋 Bills & Transactions</h4>
                                     <div style={styles.tableWrapper}>
                                         <table style={styles.detailsTable}>
                                             <thead>
@@ -464,13 +515,15 @@ const DebtorCreditorReport = () => {
                                             </thead>
                                             <tbody>
                                                 {(modalData.bills || []).map((bill, idx) => {
-                                                    const paidAmount = bill.given_amount || bill.paid_amount || 0;
-                                                    const remaining = bill.total_amount - paidAmount;
+                                                    // Use the correct field names from backend
+                                                    const paidAmount = bill.paid_amount || bill.given_amount || 0;
+                                                    const totalAmount = bill.total_amount || bill.total || 0;
+                                                    const remaining = totalAmount - paidAmount;
                                                     return (
                                                         <tr key={idx} style={styles.detailsTableRow}>
                                                             <td style={styles.detailsTd}><strong>{bill.bill_no}</strong></td>
                                                             <td style={styles.detailsTd}>{formatDate(bill.created_at)}</td>
-                                                            <td style={styles.detailsTd}>{formatCurrency(bill.total_amount)}</td>
+                                                            <td style={styles.detailsTd}>{formatCurrency(totalAmount)}</td>
                                                             <td style={styles.detailsTd}>{formatCurrency(paidAmount)}</td>
                                                             <td style={styles.detailsTd}>
                                                                 <span style={{ color: remaining > 0 ? '#dc2626' : '#10b981' }}>
@@ -488,7 +541,25 @@ const DebtorCreditorReport = () => {
                                                         </tr>
                                                     );
                                                 })}
+                                                {(modalData.bills || []).length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="6" style={styles.emptyState}>
+                                                            No bills found
+                                                        </td>
+                                                    </tr>
+                                                )}
                                             </tbody>
+                                            {modalData.total_paid_amount > 0 && (
+                                                <tfoot>
+                                                    <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
+                                                        <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Summary:</td>
+                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_bill_amount || modalData.total_amount)}</td>
+                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_paid_amount)}</td>
+                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_remaining)}</td>
+                                                        <td></td>
+                                                    </tr>
+                                                </tfoot>
+                                            )}
                                         </table>
                                     </div>
 
@@ -514,7 +585,9 @@ const DebtorCreditorReport = () => {
                                                             <td style={styles.detailsTd}>{formatDate(payment.date)}</td>
                                                             <td style={styles.detailsTd}>{payment.bill_no || '-'}</td>
                                                             <td style={styles.detailsTd}>
-                                                                <strong style={{ color: '#059669' }}>{formatCurrency(payment.amount)}</strong>
+                                                                <strong style={{ color: payment.method === 'Credit' ? '#f59e0b' : '#059669' }}>
+                                                                    {formatCurrency(payment.amount)}
+                                                                </strong>
                                                             </td>
                                                             <td style={styles.detailsTd}>
                                                                 <span style={{
@@ -529,8 +602,8 @@ const DebtorCreditorReport = () => {
                                                                 {payment.reference || payment.cheque_no || payment.transfer_reference_no || payment.bad_debt_name || '-'}
                                                             </td>
                                                             <td style={styles.detailsTd}>
-                                                                {payment.running_balance !== undefined && payment.running_balance !== null 
-                                                                    ? formatCurrency(payment.running_balance) 
+                                                                {payment.running_balance !== undefined && payment.running_balance !== null
+                                                                    ? formatCurrency(payment.running_balance)
                                                                     : '-'}
                                                             </td>
                                                         </tr>
@@ -544,15 +617,6 @@ const DebtorCreditorReport = () => {
                                                     </tr>
                                                 )}
                                             </tbody>
-                                            {modalData.total_paid_amount > 0 && (
-                                                <tfoot>
-                                                    <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
-                                                        <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Total Paid:</td>
-                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_paid_amount)}</td>
-                                                        <td colSpan="3"></td>
-                                                    </tr>
-                                                </tfoot>
-                                            )}
                                         </table>
                                     </div>
                                 </>
@@ -876,30 +940,6 @@ const styles = {
         paddingBottom: '8px',
         borderBottom: '2px solid #667eea',
         display: 'inline-block'
-    },
-    summaryGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px'
-    },
-    summaryCard: {
-        borderRadius: '12px',
-        padding: '16px',
-        border: '1px solid #e2e8f0',
-        transition: 'all 0.2s'
-    },
-    summaryCardHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '12px',
-        paddingBottom: '8px',
-        borderBottom: '1px solid #e2e8f0'
-    },
-    summaryCardDetails: {
-        fontSize: '13px',
-        lineHeight: '1.8'
     },
     detailsTable: {
         width: '100%',
