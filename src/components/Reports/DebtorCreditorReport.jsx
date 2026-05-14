@@ -514,50 +514,130 @@ const DebtorCreditorReport = () => {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {(modalData.bills || []).map((bill, idx) => {
-                                                    // Use the correct field names from backend
-                                                    const paidAmount = bill.paid_amount || bill.given_amount || 0;
-                                                    const totalAmount = bill.total_amount || bill.total || 0;
-                                                    const remaining = totalAmount - paidAmount;
-                                                    return (
-                                                        <tr key={idx} style={styles.detailsTableRow}>
-                                                            <td style={styles.detailsTd}><strong>{bill.bill_no}</strong></td>
-                                                            <td style={styles.detailsTd}>{formatDate(bill.created_at)}</td>
-                                                            <td style={styles.detailsTd}>{formatCurrency(totalAmount)}</td>
-                                                            <td style={styles.detailsTd}>{formatCurrency(paidAmount)}</td>
-                                                            <td style={styles.detailsTd}>
-                                                                <span style={{ color: remaining > 0 ? '#dc2626' : '#10b981' }}>
-                                                                    {formatCurrency(remaining)}
-                                                                </span>
-                                                            </td>
-                                                            <td style={styles.detailsTd}>
-                                                                <span style={{
-                                                                    ...styles.statusBadge,
-                                                                    ...(remaining <= 0 ? styles.statusPaid : styles.statusPending)
-                                                                }}>
-                                                                    {remaining <= 0 ? 'Paid' : 'Pending'}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                                {(modalData.bills || []).length === 0 && (
+                                                {(modalData.bills || []).length === 0 ? (
                                                     <tr>
                                                         <td colSpan="6" style={styles.emptyState}>
                                                             No bills found
                                                         </td>
                                                     </tr>
+                                                ) : (
+                                                    (() => {
+                                                        // Group bills by bill_no
+                                                        const groupedBills = {};
+
+                                                        (modalData.bills || []).forEach(bill => {
+                                                            const billNo = bill.bill_no;
+                                                            if (!groupedBills[billNo]) {
+                                                                groupedBills[billNo] = {
+                                                                    bill_no: billNo,
+                                                                    created_at: bill.created_at,
+                                                                    total_amount: 0,
+                                                                    paid_amount: 0,  // Will be set once, not summed
+                                                                    remaining: 0
+                                                                };
+                                                            }
+
+                                                            // Sum total amounts for the bill
+                                                            const totalAmount = bill.total_amount || bill.total || 0;
+                                                            groupedBills[billNo].total_amount += totalAmount;
+
+                                                            // DON'T sum paid_amount - use the paid_amount from the bill directly
+                                                            // (should be the same for all entries of same bill_no)
+                                                            if (groupedBills[billNo].paid_amount === 0) {
+                                                                const paidAmount = bill.paid_amount || bill.given_amount || 0;
+                                                                groupedBills[billNo].paid_amount = paidAmount;
+                                                            }
+                                                        });
+
+                                                        // Calculate remaining for each grouped bill
+                                                        Object.values(groupedBills).forEach(group => {
+                                                            group.remaining = group.total_amount - group.paid_amount;
+                                                        });
+
+                                                        // Convert to array and sort
+                                                        const groupedBillsArray = Object.values(groupedBills).sort((a, b) =>
+                                                            new Date(b.created_at) - new Date(a.created_at)
+                                                        );
+
+                                                        return groupedBillsArray.map((group, groupIdx) => {
+                                                            const isFullyPaid = group.remaining <= 0;
+
+                                                            return (
+                                                                <tr key={groupIdx} style={styles.detailsTableRow}>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <strong>{group.bill_no}</strong>
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        {formatDate(group.created_at)}
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <strong>{formatCurrency(group.total_amount)}</strong>
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <strong style={{ color: '#059669' }}>
+                                                                            {formatCurrency(group.paid_amount)}
+                                                                        </strong>
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <span style={{
+                                                                            color: group.remaining > 0 ? '#dc2626' : '#10b981'
+                                                                        }}>
+                                                                            {formatCurrency(group.remaining)}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <span style={{
+                                                                            ...styles.statusBadge,
+                                                                            ...(isFullyPaid ? styles.statusPaid : styles.statusPending)
+                                                                        }}>
+                                                                            {isFullyPaid ? 'Paid' : 'Pending'}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        });
+                                                    })()
                                                 )}
                                             </tbody>
                                             {modalData.total_paid_amount > 0 && (
                                                 <tfoot>
-                                                    <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
-                                                        <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Summary:</td>
-                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_bill_amount || modalData.total_amount)}</td>
-                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_paid_amount)}</td>
-                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_remaining)}</td>
-                                                        <td></td>
-                                                    </tr>
+                                                    {(() => {
+                                                        // Calculate proper totals from grouped bills
+                                                        let groupedTotalAmount = 0;
+                                                        let groupedPaidAmount = 0;
+
+                                                        // Group bills first to get correct paid amount (not summed)
+                                                        const tempGroupedBills = {};
+                                                        (modalData.bills || []).forEach(bill => {
+                                                            const billNo = bill.bill_no;
+                                                            if (!tempGroupedBills[billNo]) {
+                                                                tempGroupedBills[billNo] = {
+                                                                    total_amount: 0,
+                                                                    paid_amount: bill.paid_amount || bill.given_amount || 0
+                                                                };
+                                                            }
+                                                            const totalAmount = bill.total_amount || bill.total || 0;
+                                                            tempGroupedBills[billNo].total_amount += totalAmount;
+                                                        });
+
+                                                        // Calculate totals from grouped data
+                                                        Object.values(tempGroupedBills).forEach(group => {
+                                                            groupedTotalAmount += group.total_amount;
+                                                            groupedPaidAmount += group.paid_amount;
+                                                        });
+
+                                                        const groupedRemaining = groupedTotalAmount - groupedPaidAmount;
+
+                                                        return (
+                                                            <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
+                                                                <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Summary (Grouped):</td>
+                                                                <td style={styles.detailsTd}>{formatCurrency(groupedTotalAmount)}</td>
+                                                                <td style={styles.detailsTd}>{formatCurrency(groupedPaidAmount)}</td>
+                                                                <td style={styles.detailsTd}>{formatCurrency(groupedRemaining)}</td>
+                                                                <td style={styles.detailsTd}></td>
+                                                            </tr>
+                                                        );
+                                                    })()}
                                                 </tfoot>
                                             )}
                                         </table>
@@ -569,52 +649,83 @@ const DebtorCreditorReport = () => {
                                         <table style={styles.detailsTable}>
                                             <thead>
                                                 <tr style={styles.detailsTableHeader}>
-                                                    <th style={styles.detailsTh}>Date</th>
                                                     <th style={styles.detailsTh}>Bill No</th>
-                                                    <th style={styles.detailsTh}>Amount</th>
-                                                    <th style={styles.detailsTh}>Method</th>
-                                                    <th style={styles.detailsTh}>Reference</th>
-                                                    <th style={styles.detailsTh}>Running Balance</th>
+                                                    <th style={styles.detailsTh}>Total Paid</th>
+                                                    <th style={styles.detailsTh}>Payment Methods</th>
+                                                    <th style={styles.detailsTh}>Number of Payments</th>
+                                                    <th style={styles.detailsTh}>Last Payment Date</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {(modalData.payments || []).map((payment, idx) => {
-                                                    const methodStyle = getPaymentMethodStyle(payment.method);
-                                                    return (
-                                                        <tr key={idx} style={styles.detailsTableRow}>
-                                                            <td style={styles.detailsTd}>{formatDate(payment.date)}</td>
-                                                            <td style={styles.detailsTd}>{payment.bill_no || '-'}</td>
-                                                            <td style={styles.detailsTd}>
-                                                                <strong style={{ color: payment.method === 'Credit' ? '#f59e0b' : '#059669' }}>
-                                                                    {formatCurrency(payment.amount)}
-                                                                </strong>
-                                                            </td>
-                                                            <td style={styles.detailsTd}>
-                                                                <span style={{
-                                                                    ...styles.paymentMethodBadge,
-                                                                    background: methodStyle.color,
-                                                                    color: 'white'
-                                                                }}>
-                                                                    {methodStyle.icon} {payment.method_display || payment.method}
-                                                                </span>
-                                                            </td>
-                                                            <td style={styles.detailsTd}>
-                                                                {payment.reference || payment.cheque_no || payment.transfer_reference_no || payment.bad_debt_name || '-'}
-                                                            </td>
-                                                            <td style={styles.detailsTd}>
-                                                                {payment.running_balance !== undefined && payment.running_balance !== null
-                                                                    ? formatCurrency(payment.running_balance)
-                                                                    : '-'}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                                {(modalData.payments || []).length === 0 && (
+                                                {(modalData.payments || []).length === 0 ? (
                                                     <tr>
-                                                        <td colSpan="6" style={styles.emptyState}>
+                                                        <td colSpan="5" style={styles.emptyState}>
                                                             No payment records found
                                                         </td>
                                                     </tr>
+                                                ) : (
+                                                    (() => {
+                                                        // Group payments by bill_no
+                                                        const groupedPayments = {};
+
+                                                        (modalData.payments || []).forEach(payment => {
+                                                            const billNo = payment.bill_no || 'No Bill No';
+                                                            if (!groupedPayments[billNo]) {
+                                                                groupedPayments[billNo] = {
+                                                                    bill_no: billNo,
+                                                                    total_amount: 0,
+                                                                    payment_methods: new Set(),
+                                                                    payment_count: 0,
+                                                                    last_payment_date: null,
+                                                                    method_icons: new Set()
+                                                                };
+                                                            }
+
+                                                            groupedPayments[billNo].total_amount += payment.amount || 0;
+                                                            groupedPayments[billNo].payment_methods.add(payment.method_display || payment.method);
+                                                            groupedPayments[billNo].method_icons.add(getPaymentMethodStyle(payment.method).icon);
+                                                            groupedPayments[billNo].payment_count++;
+
+                                                            const paymentDate = payment.date;
+                                                            if (!groupedPayments[billNo].last_payment_date ||
+                                                                new Date(paymentDate) > new Date(groupedPayments[billNo].last_payment_date)) {
+                                                                groupedPayments[billNo].last_payment_date = paymentDate;
+                                                            }
+                                                        });
+
+                                                        // Convert to array and sort by last payment date
+                                                        const groupedPaymentsArray = Object.values(groupedPayments)
+                                                            .sort((a, b) => new Date(b.last_payment_date) - new Date(a.last_payment_date));
+
+                                                        return groupedPaymentsArray.map((group, groupIdx) => {
+                                                            const paymentMethods = Array.from(group.payment_methods).join(', ');
+                                                            const methodIcons = Array.from(group.method_icons).join(' ');
+
+                                                            return (
+                                                                <tr key={groupIdx} style={styles.detailsTableRow}>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <strong>{group.bill_no}</strong>
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <strong style={{ color: '#059669' }}>
+                                                                            {formatCurrency(group.total_amount)}
+                                                                        </strong>
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        <span style={{ fontSize: '13px' }}>
+                                                                            {methodIcons} {paymentMethods}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        {group.payment_count} payment{group.payment_count !== 1 ? 's' : ''}
+                                                                    </td>
+                                                                    <td style={styles.detailsTd}>
+                                                                        {formatDate(group.last_payment_date)}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        });
+                                                    })()
                                                 )}
                                             </tbody>
                                         </table>
