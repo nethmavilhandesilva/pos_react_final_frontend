@@ -16,12 +16,13 @@ const DebtorCreditorReport = () => {
     const [showDetailsModal, setShowDetailsModal] = useState(false);
     const [modalData, setModalData] = useState(null);
     const [modalLoading, setModalLoading] = useState(false);
+    const [viewOldBills, setViewOldBills] = useState(false);
 
     const fetchCombinedReport = useCallback(async () => {
         setLoading(true);
         try {
             const response = await api.get('/debtor-creditor/combined', {
-                params: { search: searchTerm, limit }
+                params: { search: searchTerm, limit, view_old_bills: viewOldBills }
             });
             if (response.data.success) {
                 setDebtors(response.data.debtors);
@@ -36,43 +37,48 @@ const DebtorCreditorReport = () => {
         } finally {
             setLoading(false);
         }
-    }, [searchTerm, limit]);
+    }, [searchTerm, limit, viewOldBills]);
 
     useEffect(() => {
         fetchCombinedReport();
     }, [fetchCombinedReport]);
 
-    const fetchDebtorDetails = async (code) => {
-        setModalLoading(true);
-        setShowDetailsModal(true);
-        try {
-            const response = await api.get(`/debtor-creditor/debtor/${code}`);
-            if (response.data.success) {
-                setModalData(response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching debtor details:', error);
-            alert('Failed to load debtor details');
-        } finally {
-            setModalLoading(false);
+   const fetchDebtorDetails = async (code) => {
+    setModalLoading(true);
+    setShowDetailsModal(true);
+    try {
+        const response = await api.get(`/debtor-creditor/debtor/${code}`, {
+            params: { view_old_bills: viewOldBills }
+        });
+        if (response.data.success) {
+            setModalData(response.data.data);
         }
-    };
+    } catch (error) {
+        console.error('Error fetching debtor details:', error);
+        alert('Failed to load debtor details');
+    } finally {
+        setModalLoading(false);
+    }
+};
 
-    const fetchCreditorDetails = async (code) => {
-        setModalLoading(true);
-        setShowDetailsModal(true);
-        try {
-            const response = await api.get(`/debtor-creditor/creditor/${code}`);
-            if (response.data.success) {
-                setModalData(response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching creditor details:', error);
-            alert('Failed to load creditor details');
-        } finally {
-            setModalLoading(false);
+
+  const fetchCreditorDetails = async (code) => {
+    setModalLoading(true);
+    setShowDetailsModal(true);
+    try {
+        const response = await api.get(`/debtor-creditor/creditor/${code}`, {
+            params: { view_old_bills: viewOldBills }
+        });
+        if (response.data.success) {
+            setModalData(response.data.data);
         }
-    };
+    } catch (error) {
+        console.error('Error fetching creditor details:', error);
+        alert('Failed to load creditor details');
+    } finally {
+        setModalLoading(false);
+    }
+};
 
     const formatCurrency = (amount) => {
         return `Rs. ${(amount || 0).toLocaleString(undefined, {
@@ -160,6 +166,40 @@ const DebtorCreditorReport = () => {
                 </div>
                 <div style={styles.headerSubtitle}>
                     Comprehensive report of all debtors and creditors with their transaction details
+                </div>
+                {/* View Old Bills Button */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                    <button
+                        onClick={() => {
+                            setViewOldBills(!viewOldBills);
+                            setLoading(true);
+                        }}
+                        style={{
+                            padding: '8px 20px',
+                            background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '13px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            transition: 'all 0.2s',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                        }}
+                    >
+                        {viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
+                    </button>
                 </div>
             </div>
 
@@ -426,316 +466,213 @@ const DebtorCreditorReport = () => {
             </div>
 
             {/* Details Modal */}
-            {showDetailsModal && (
-                <div style={styles.modalOverlay} onClick={() => setShowDetailsModal(false)}>
-                    <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                        <div style={styles.modalHeader}>
-                            <div>
-                                <h3 style={styles.modalTitle}>
-                                    {activeTab === 'debtors' ? '🧾 Debtor Details' : '🏪 Creditor Details'}
-                                </h3>
-                                <p style={styles.modalSubtitle}>
-                                    {modalData?.code} {modalData?.debtor_no && `| Debtor No: ${modalData.debtor_no}`}
-                                </p>
-                            </div>
-                            <button
-                                onClick={() => setShowDetailsModal(false)}
-                                style={styles.modalCloseBtn}
-                                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
-                                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
-                            >
-                                ×
-                            </button>
-                        </div>
-
-                        <div style={styles.modalBody}>
-                            {modalLoading ? (
-                                <div style={styles.modalLoading}>
-                                    <div style={styles.loadingSpinner}>⏳</div>
-                                    <p>Loading details...</p>
-                                </div>
-                            ) : modalData && (
-                                <>
-                                    {/* Profile Section */}
-                                    <div style={styles.profileSection}>
-                                        {modalData.profile_pic ? (
-                                            <img
-                                                src={getImageUrl(modalData.profile_pic)}
-                                                alt="Profile"
-                                                style={styles.profilePic}
-                                                onError={(e) => {
-                                                    e.target.style.display = 'none';
-                                                    e.target.parentElement.innerHTML += '<div style="width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; font-size: 40px; color: white;">👤</div>';
-                                                }}
-                                            />
-                                        ) : (
-                                            <div style={{
-                                                width: '90px',
-                                                height: '90px',
-                                                borderRadius: '50%',
-                                                background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: '40px',
-                                                color: 'white'
-                                            }}>
-                                                👤
-                                            </div>
-                                        )}
-                                        <div style={styles.profileInfo}>
-                                            <h4 style={styles.profileName}>{modalData.name || 'N/A'}</h4>
-                                            <p style={styles.profileDetail}>📞 {modalData.telephone || 'No phone'}</p>
-                                            <p style={styles.profileDetail}>📍 {modalData.address || 'No address'}</p>
-                                            {modalData.debtor_no && (
-                                                <p style={styles.profileDetail}>🔢 Debtor Number: <strong>{modalData.debtor_no}</strong></p>
-                                            )}
-                                            {activeTab === 'debtors' && modalData.credit_limit > 0 && (
-                                                <p style={styles.profileDetail}>💳 Credit Limit: {formatCurrency(modalData.credit_limit)}</p>
-                                            )}
-                                            {activeTab === 'creditors' && modalData.advance_amount > 0 && (
-                                                <p style={styles.profileDetail}>💰 Advance Amount: {formatCurrency(modalData.advance_amount)}</p>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Bills Section - Only shows actual sales */}
-                                    <h4 style={styles.sectionTitle}>📋 Bills & Transactions</h4>
-                                    <div style={styles.tableWrapper}>
-                                        <table style={styles.detailsTable}>
-                                            <thead>
-                                                <tr style={styles.detailsTableHeader}>
-                                                    <th style={styles.detailsTh}>Bill No</th>
-                                                    <th style={styles.detailsTh}>Date</th>
-                                                    <th style={styles.detailsTh}>Total</th>
-                                                    <th style={styles.detailsTh}>Paid</th>
-                                                    <th style={styles.detailsTh}>Remaining</th>
-                                                    <th style={styles.detailsTh}>Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(modalData.bills || []).length === 0 ? (
-                                                    <tr>
-                                                        <td colSpan="6" style={styles.emptyState}>
-                                                            No bills found
-                                                        </td>
-                                                    </tr>
-                                                ) : (
-                                                    (() => {
-                                                        // Group bills by bill_no
-                                                        const groupedBills = {};
-
-                                                        (modalData.bills || []).forEach(bill => {
-                                                            const billNo = bill.bill_no;
-                                                            if (!groupedBills[billNo]) {
-                                                                groupedBills[billNo] = {
-                                                                    bill_no: billNo,
-                                                                    created_at: bill.created_at,
-                                                                    total_amount: 0,
-                                                                    paid_amount: 0,  // Will be set once, not summed
-                                                                    remaining: 0
-                                                                };
-                                                            }
-
-                                                            // Sum total amounts for the bill
-                                                            const totalAmount = bill.total_amount || bill.total || 0;
-                                                            groupedBills[billNo].total_amount += totalAmount;
-
-                                                            // DON'T sum paid_amount - use the paid_amount from the bill directly
-                                                            // (should be the same for all entries of same bill_no)
-                                                            if (groupedBills[billNo].paid_amount === 0) {
-                                                                const paidAmount = bill.paid_amount || bill.given_amount || 0;
-                                                                groupedBills[billNo].paid_amount = paidAmount;
-                                                            }
-                                                        });
-
-                                                        // Calculate remaining for each grouped bill
-                                                        Object.values(groupedBills).forEach(group => {
-                                                            group.remaining = group.total_amount - group.paid_amount;
-                                                        });
-
-                                                        // Convert to array and sort
-                                                        const groupedBillsArray = Object.values(groupedBills).sort((a, b) =>
-                                                            new Date(b.created_at) - new Date(a.created_at)
-                                                        );
-
-                                                        return groupedBillsArray.map((group, groupIdx) => {
-                                                            const isFullyPaid = group.remaining <= 0;
-
-                                                            return (
-                                                                <tr key={groupIdx} style={styles.detailsTableRow}>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <strong>{group.bill_no}</strong>
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        {formatDate(group.created_at)}
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <strong>{formatCurrency(group.total_amount)}</strong>
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <strong style={{ color: '#059669' }}>
-                                                                            {formatCurrency(group.paid_amount)}
-                                                                        </strong>
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <span style={{
-                                                                            color: group.remaining > 0 ? '#dc2626' : '#10b981'
-                                                                        }}>
-                                                                            {formatCurrency(group.remaining)}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <span style={{
-                                                                            ...styles.statusBadge,
-                                                                            ...(isFullyPaid ? styles.statusPaid : styles.statusPending)
-                                                                        }}>
-                                                                            {isFullyPaid ? 'Paid' : 'Pending'}
-                                                                        </span>
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        });
-                                                    })()
-                                                )}
-                                            </tbody>
-                                            {modalData.total_paid_amount > 0 && (
-                                                <tfoot>
-                                                    {(() => {
-                                                        // Calculate proper totals from grouped bills
-                                                        let groupedTotalAmount = 0;
-                                                        let groupedPaidAmount = 0;
-
-                                                        // Group bills first to get correct paid amount (not summed)
-                                                        const tempGroupedBills = {};
-                                                        (modalData.bills || []).forEach(bill => {
-                                                            const billNo = bill.bill_no;
-                                                            if (!tempGroupedBills[billNo]) {
-                                                                tempGroupedBills[billNo] = {
-                                                                    total_amount: 0,
-                                                                    paid_amount: bill.paid_amount || bill.given_amount || 0
-                                                                };
-                                                            }
-                                                            const totalAmount = bill.total_amount || bill.total || 0;
-                                                            tempGroupedBills[billNo].total_amount += totalAmount;
-                                                        });
-
-                                                        // Calculate totals from grouped data
-                                                        Object.values(tempGroupedBills).forEach(group => {
-                                                            groupedTotalAmount += group.total_amount;
-                                                            groupedPaidAmount += group.paid_amount;
-                                                        });
-
-                                                        const groupedRemaining = groupedTotalAmount - groupedPaidAmount;
-
-                                                        return (
-                                                            <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
-                                                                <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Summary (Grouped):</td>
-                                                                <td style={styles.detailsTd}>{formatCurrency(groupedTotalAmount)}</td>
-                                                                <td style={styles.detailsTd}>{formatCurrency(groupedPaidAmount)}</td>
-                                                                <td style={styles.detailsTd}>{formatCurrency(groupedRemaining)}</td>
-                                                                <td style={styles.detailsTd}></td>
-                                                            </tr>
-                                                        );
-                                                    })()}
-                                                </tfoot>
-                                            )}
-                                        </table>
-                                    </div>
-
-                                    {/* Payment History Section */}
-                                    <h4 style={styles.sectionTitle}>📜 Payment History</h4>
-                                    <div style={styles.tableWrapper}>
-                                        <table style={styles.detailsTable}>
-                                            <thead>
-                                                <tr style={styles.detailsTableHeader}>
-                                                    <th style={styles.detailsTh}>Bill No</th>
-                                                    <th style={styles.detailsTh}>Total Paid</th>
-                                                    <th style={styles.detailsTh}>Payment Methods</th>
-                                                    <th style={styles.detailsTh}>Number of Payments</th>
-                                                    <th style={styles.detailsTh}>Last Payment Date</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(modalData.payments || []).length === 0 ? (
-                                                    <tr>
-                                                        <td colSpan="5" style={styles.emptyState}>
-                                                            No payment records found
-                                                        </td>
-                                                    </tr>
-                                                ) : (
-                                                    (() => {
-                                                        // Group payments by bill_no
-                                                        const groupedPayments = {};
-
-                                                        (modalData.payments || []).forEach(payment => {
-                                                            const billNo = payment.bill_no || 'No Bill No';
-                                                            if (!groupedPayments[billNo]) {
-                                                                groupedPayments[billNo] = {
-                                                                    bill_no: billNo,
-                                                                    total_amount: 0,
-                                                                    payment_methods: new Set(),
-                                                                    payment_count: 0,
-                                                                    last_payment_date: null,
-                                                                    method_icons: new Set()
-                                                                };
-                                                            }
-
-                                                            groupedPayments[billNo].total_amount += payment.amount || 0;
-                                                            groupedPayments[billNo].payment_methods.add(payment.method_display || payment.method);
-                                                            groupedPayments[billNo].method_icons.add(getPaymentMethodStyle(payment.method).icon);
-                                                            groupedPayments[billNo].payment_count++;
-
-                                                            const paymentDate = payment.date;
-                                                            if (!groupedPayments[billNo].last_payment_date ||
-                                                                new Date(paymentDate) > new Date(groupedPayments[billNo].last_payment_date)) {
-                                                                groupedPayments[billNo].last_payment_date = paymentDate;
-                                                            }
-                                                        });
-
-                                                        // Convert to array and sort by last payment date
-                                                        const groupedPaymentsArray = Object.values(groupedPayments)
-                                                            .sort((a, b) => new Date(b.last_payment_date) - new Date(a.last_payment_date));
-
-                                                        return groupedPaymentsArray.map((group, groupIdx) => {
-                                                            const paymentMethods = Array.from(group.payment_methods).join(', ');
-                                                            const methodIcons = Array.from(group.method_icons).join(' ');
-
-                                                            return (
-                                                                <tr key={groupIdx} style={styles.detailsTableRow}>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <strong>{group.bill_no}</strong>
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <strong style={{ color: '#059669' }}>
-                                                                            {formatCurrency(group.total_amount)}
-                                                                        </strong>
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        <span style={{ fontSize: '13px' }}>
-                                                                            {methodIcons} {paymentMethods}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        {group.payment_count} payment{group.payment_count !== 1 ? 's' : ''}
-                                                                    </td>
-                                                                    <td style={styles.detailsTd}>
-                                                                        {formatDate(group.last_payment_date)}
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        });
-                                                    })()
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
+           {/* Details Modal */}
+{showDetailsModal && (
+    <div style={styles.modalOverlay} onClick={() => setShowDetailsModal(false)}>
+        <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+                <div>
+                    <h3 style={styles.modalTitle}>
+                        {activeTab === 'debtors' ? '🧾 Debtor Details' : '🏪 Creditor Details'}
+                    </h3>
+                    <p style={styles.modalSubtitle}>
+                        {modalData?.code} {modalData?.debtor_no && `| Debtor No: ${modalData.debtor_no}`}
+                    </p>
                 </div>
-            )}
+                <button
+                    onClick={() => setShowDetailsModal(false)}
+                    style={styles.modalCloseBtn}
+                >
+                    ×
+                </button>
+            </div>
+
+            <div style={styles.modalBody}>
+                {modalLoading ? (
+                    <div style={styles.modalLoading}>
+                        <div style={styles.loadingSpinner}>⏳</div>
+                        <p>Loading details...</p>
+                    </div>
+                ) : modalData && (
+                    <>
+                        {/* Profile Section */}
+                        <div style={styles.profileSection}>
+                            {modalData.profile_pic ? (
+                                <img
+                                    src={getImageUrl(modalData.profile_pic)}
+                                    alt="Profile"
+                                    style={styles.profilePic}
+                                    onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.parentElement.innerHTML += '<div style="width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; font-size: 40px; color: white;">👤</div>';
+                                    }}
+                                />
+                            ) : (
+                                <div style={{
+                                    width: '90px',
+                                    height: '90px',
+                                    borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '40px',
+                                    color: 'white'
+                                }}>
+                                    👤
+                                </div>
+                            )}
+                            <div style={styles.profileInfo}>
+                                <h4 style={styles.profileName}>{modalData.name || 'N/A'}</h4>
+                                <p style={styles.profileDetail}>📞 {modalData.telephone || 'No phone'}</p>
+                                <p style={styles.profileDetail}>📍 {modalData.address || 'No address'}</p>
+                                {modalData.debtor_no && (
+                                    <p style={styles.profileDetail}>🔢 Debtor Number: <strong>{modalData.debtor_no}</strong></p>
+                                )}
+                                {activeTab === 'debtors' && modalData.credit_limit > 0 && (
+                                    <p style={styles.profileDetail}>💳 Credit Limit: {formatCurrency(modalData.credit_limit)}</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Bills Section - Simplified - Just display the bills array directly */}
+                        <h4 style={styles.sectionTitle}>📋 Bills & Transactions</h4>
+                        <div style={styles.tableWrapper}>
+                            <table style={styles.detailsTable}>
+                                <thead>
+                                    <tr style={styles.detailsTableHeader}>
+                                        <th style={styles.detailsTh}>Bill No</th>
+                                        <th style={styles.detailsTh}>Date</th>
+                                        <th style={styles.detailsTh}>Total</th>
+                                        <th style={styles.detailsTh}>Paid</th>
+                                        <th style={styles.detailsTh}>Remaining</th>
+                                        <th style={styles.detailsTh}>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(modalData.bills || []).length === 0 ? (
+                                        <tr>
+                                            <td colSpan="6" style={styles.emptyState}>
+                                                No bills found
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        modalData.bills.map((bill, idx) => {
+                                            const isFullyPaid = bill.remaining_amount <= 0;
+                                            return (
+                                                <tr key={idx} style={styles.detailsTableRow}>
+                                                    <td style={styles.detailsTd}>
+                                                        <strong>{bill.bill_no}</strong>
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        {formatDate(bill.created_at)}
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        <strong>{formatCurrency(bill.total_amount)}</strong>
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        <strong style={{ color: '#059669' }}>
+                                                            {formatCurrency(bill.paid_amount)}
+                                                        </strong>
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        <span style={{
+                                                            color: bill.remaining_amount > 0 ? '#dc2626' : '#10b981'
+                                                        }}>
+                                                            {formatCurrency(bill.remaining_amount)}
+                                                        </span>
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        <span style={{
+                                                            ...styles.statusBadge,
+                                                            ...(isFullyPaid ? styles.statusPaid : styles.statusPending)
+                                                        }}>
+                                                            {isFullyPaid ? 'Paid' : 'Pending'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                                {modalData.total_bill_amount > 0 && (
+                                    <tfoot>
+                                        <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
+                                            <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Total Summary:</td>
+                                            <td style={styles.detailsTd}>{formatCurrency(modalData.total_bill_amount)}</td>
+                                            <td style={styles.detailsTd}>{formatCurrency(modalData.total_paid_amount)}</td>
+                                            <td style={styles.detailsTd}>{formatCurrency(modalData.total_remaining)}</td>
+                                            <td style={styles.detailsTd}></td>
+                                        </tr>
+                                    </tfoot>
+                                )}
+                            </table>
+                        </div>
+
+                        {/* Payment History Section - Simplified */}
+                        <h4 style={styles.sectionTitle}>📜 Payment History</h4>
+                        <div style={styles.tableWrapper}>
+                            <table style={styles.detailsTable}>
+                                <thead>
+                                    <tr style={styles.detailsTableHeader}>
+                                        <th style={styles.detailsTh}>Bill No</th>
+                                        <th style={styles.detailsTh}>Amount</th>
+                                        <th style={styles.detailsTh}>Payment Method</th>
+                                        <th style={styles.detailsTh}>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(modalData.payments || []).length === 0 ? (
+                                        <tr>
+                                            <td colSpan="4" style={styles.emptyState}>
+                                                No payment records found
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        modalData.payments.map((payment, idx) => {
+                                            const methodStyle = getPaymentMethodStyle(payment.method);
+                                            return (
+                                                <tr key={idx} style={styles.detailsTableRow}>
+                                                    <td style={styles.detailsTd}>
+                                                        <strong>{payment.bill_no || 'N/A'}</strong>
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        <strong style={{ color: '#059669' }}>
+                                                            {formatCurrency(payment.amount)}
+                                                        </strong>
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        <span style={{ 
+                                                            display: 'inline-flex', 
+                                                            alignItems: 'center', 
+                                                            gap: '6px',
+                                                            padding: '4px 12px',
+                                                            borderRadius: '20px',
+                                                            background: `${methodStyle.color}15`,
+                                                            color: methodStyle.color,
+                                                            fontSize: '12px',
+                                                            fontWeight: '500'
+                                                        }}>
+                                                            <span>{methodStyle.icon}</span>
+                                                            <span>{payment.method_display || payment.method || 'Cash'}</span>
+                                                        </span>
+                                                    </td>
+                                                    <td style={styles.detailsTd}>
+                                                        {formatDate(payment.date)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    </div>
+)}
         </div>
     );
 };
