@@ -579,30 +579,46 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
         return ((parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0)) + ((parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0));
     };
 
-    const handleConfirm = () => {
-        const adjustmentData = { adjustment_type: adjustmentType, original_bill_total: originalBillTotal };
-        if (adjustmentType === 'bag_to_box') {
-            if (!bagCount || !boxCount || !bagValue || !boxValue) { alert('Please fill all bag/box fields'); return; }
-            adjustmentData.bag_count = parseInt(bagCount);
-            adjustmentData.box_count = parseInt(boxCount);
-            adjustmentData.bag_value = parseFloat(bagValue);
-            adjustmentData.box_value = parseFloat(boxValue);
-            adjustmentData.amount = Math.abs(calculateBagToBoxAdjustment());
-        } else if (adjustmentType === 'bill_to_bill') {
-            if (!customerCodeField || !customerBillNo || !customerBillValue) { alert('Please fill all bill to bill fields'); return; }
-            adjustmentData.customer_code = customerCodeField;
-            adjustmentData.customer_bill_no = customerBillNo;
-            adjustmentData.customer_bill_value = parseFloat(customerBillValue);
-            adjustmentData.amount = parseFloat(customerBillValue);
-        } else if (adjustmentType === 'bad_debt') {
-            if (!badDebtName || !badDebtAmount) { alert('Please enter bad debt name and amount'); return; }
-            adjustmentData.bad_debt_name = badDebtName;
-            adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
-            adjustmentData.amount = parseFloat(badDebtAmount);
+   const handleConfirm = () => {
+    const adjustmentData = { adjustment_type: adjustmentType, original_bill_total: originalBillTotal };
+    
+    if (adjustmentType === 'bag_to_box') {
+        if (!bagCount || !boxCount || !bagValue || !boxValue) { 
+            alert('Please fill all bag/box fields'); 
+            return; 
         }
-        onConfirm(adjustmentData);
-        onClose();
-    };
+        adjustmentData.type = 'bag_to_box';  // ✅ ADD THIS - IMPORTANT!
+        adjustmentData.bag_count = parseInt(bagCount);
+        adjustmentData.box_count = parseInt(boxCount);
+        adjustmentData.bag_value = parseFloat(bagValue);
+        adjustmentData.box_value = parseFloat(boxValue);
+        adjustmentData.amount = Math.abs(calculateBagToBoxAdjustment());
+    } 
+    else if (adjustmentType === 'bill_to_bill') {
+        if (!customerCodeField || !customerBillNo || !customerBillValue) { 
+            alert('Please fill all bill to bill fields'); 
+            return; 
+        }
+        adjustmentData.type = 'bill_to_bill';  // ✅ ADD THIS - IMPORTANT!
+        adjustmentData.customer_code = customerCodeField;
+        adjustmentData.customer_bill_no = customerBillNo;
+        adjustmentData.customer_bill_value = parseFloat(customerBillValue);
+        adjustmentData.amount = parseFloat(customerBillValue);
+    } 
+    else if (adjustmentType === 'bad_debt') {
+        if (!badDebtName || !badDebtAmount) { 
+            alert('Please enter bad debt name and amount'); 
+            return; 
+        }
+        adjustmentData.type = 'bad_debt';  // ✅ ADD THIS - IMPORTANT!
+        adjustmentData.bad_debt_name = badDebtName;
+        adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
+        adjustmentData.amount = parseFloat(badDebtAmount);
+    }
+    
+    onConfirm(adjustmentData);
+    onClose();
+};
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }} onClick={onClose}>
@@ -858,36 +874,36 @@ export default function PrintedBills() {
         } catch (error) { console.error("Error fetching data:", error); setState(prev => ({ ...prev, isLoading: false })); }
     };
 
-   const fetchArchivedSales = async (isFromStorage = false) => {
-    if (!startDate || !endDate) { 
-        return; 
-    }
-    setArchivedData(prev => ({ ...prev, isLoading: true }));
-    try {
-        const response = await api.get(routes.getArchivedSales, { params: { start_date: startDate, end_date: endDate } });
-        if (response.data.success) {
-            const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-            setArchivedData({ pendingBills, appliedBills, isLoading: false });
-            setDataSource('sales_history');
-            // Save to localStorage
-            localStorage.setItem('printedBills_startDate', startDate);
-            localStorage.setItem('printedBills_endDate', endDate);
-            localStorage.setItem('printedBills_dataSource', 'sales_history');
-            localStorage.setItem('printedBills_viewOldBills', 'true');
-            
-            if (!isFromStorage) {
-                alert(`Loaded ${pendingBills.length + appliedBills.length} bills from ${startDate} to ${endDate}`);
-            }
-        } else { 
-            if (!isFromStorage) alert('Failed to fetch archived data'); 
-            setArchivedData(prev => ({ ...prev, isLoading: false })); 
+    const fetchArchivedSales = async (isFromStorage = false) => {
+        if (!startDate || !endDate) {
+            return;
         }
-    } catch (error) { 
-        console.error('Error fetching archived sales:', error); 
-        if (!isFromStorage) alert('Failed to fetch archived data'); 
-        setArchivedData(prev => ({ ...prev, isLoading: false })); 
-    }
-};
+        setArchivedData(prev => ({ ...prev, isLoading: true }));
+        try {
+            const response = await api.get(routes.getArchivedSales, { params: { start_date: startDate, end_date: endDate } });
+            if (response.data.success) {
+                const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
+                setArchivedData({ pendingBills, appliedBills, isLoading: false });
+                setDataSource('sales_history');
+                // Save to localStorage
+                localStorage.setItem('printedBills_startDate', startDate);
+                localStorage.setItem('printedBills_endDate', endDate);
+                localStorage.setItem('printedBills_dataSource', 'sales_history');
+                localStorage.setItem('printedBills_viewOldBills', 'true');
+
+                if (!isFromStorage) {
+                    alert(`Loaded ${pendingBills.length + appliedBills.length} bills from ${startDate} to ${endDate}`);
+                }
+            } else {
+                if (!isFromStorage) alert('Failed to fetch archived data');
+                setArchivedData(prev => ({ ...prev, isLoading: false }));
+            }
+        } catch (error) {
+            console.error('Error fetching archived sales:', error);
+            if (!isFromStorage) alert('Failed to fetch archived data');
+            setArchivedData(prev => ({ ...prev, isLoading: false }));
+        }
+    };
 
     const resetToCurrentSales = () => {
         setViewOldBills(false);
@@ -1065,13 +1081,20 @@ export default function PrintedBills() {
                 paymentMethodForDebtor = 'cash';
             }
 
+            // Debug log to see what's being sent
+            console.log('=== PROCESS PAYMENT DEBUG ===');
+            console.log('isAdjustment:', isAdjustment);
+            console.log('adjustmentDetails:', adjustmentDetails);
+            console.log('paymentMethod:', paymentMethod);
+            console.log('paymentAmount:', paymentAmount);
+
             const payload = {
                 bill_no: state.selectedBill.billNo,
                 given_amount: totalGivenAmount,
                 given_amount_applied: givenAmountApplied,
                 credit_transaction: creditTransaction,
                 payment_amount: paymentAmount,
-                payment_method: paymentMethod,
+                payment_method: paymentMethod, // This MUST be 'bag_to_box', 'bill_to_bill', or 'bad_debt'
                 is_walking_customer: state.customerType === 'walking'
             };
 
@@ -1715,15 +1738,15 @@ export default function PrintedBills() {
         }
     };
     // Auto-fetch archived sales when both start date and end date are selected
-useEffect(() => {
-    if (viewOldBills && startDate && endDate) {
-        // Add a small delay to avoid too many requests while typing
-        const delayDebounce = setTimeout(() => {
-            fetchArchivedSales(true);
-        }, 500);
-        return () => clearTimeout(delayDebounce);
-    }
-}, [startDate, endDate, viewOldBills]);
+    useEffect(() => {
+        if (viewOldBills && startDate && endDate) {
+            // Add a small delay to avoid too many requests while typing
+            const delayDebounce = setTimeout(() => {
+                fetchArchivedSales(true);
+            }, 500);
+            return () => clearTimeout(delayDebounce);
+        }
+    }, [startDate, endDate, viewOldBills]);
     const stats = useMemo(() => {
         const pendingAmount = filterPendingBills.reduce((sum, b) => sum + b.totalAmount, 0);
         const appliedAmount = filterAppliedBills.reduce((sum, b) => sum + b.totalAmount, 0);
@@ -1830,122 +1853,122 @@ useEffect(() => {
                         </div>
                     </div>
 
-                  {/* CENTER: Bill Details */}
-<div style={{ background: 'white', borderRadius: '24px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 35px -10px rgba(0,0,0,0.15)' }}>
-    {/* Customer Type Selector */}
-    <div style={{ padding: '20px 24px 0', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
-        <CustomerTypeSelector selectedType={state.customerType} onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))} disabled={state.isPrinting} onDebtorClick={(code, billNo) => setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: { customerCode: code, billNo } }))} billCustomerCode={state.selectedBill?.customerCode} billNo={state.selectedBill?.billNo} />
-    </div>
-
-    {/* Header */}
-    <div style={{ padding: '16px 24px', background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '10px', height: '10px', background: '#fbbf24', borderRadius: '50%', boxShadow: '0 0 8px #fbbf24' }}></div>
-                <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'white', margin: 0 }}>Bill Details</h2>
-            </div>
-            {state.selectedBill && (
-                <button onClick={() => setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "" }))} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', padding: '6px 14px', borderRadius: '30px' }}>
-                    ✕ Clear
-                </button>
-            )}
-        </div>
-    </div>
-
-    {/* Scrollable Content */}
-    <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc' }}>
-        {state.selectedBill ? (
-            <>
-                {/* Bill Info Card */}
-                <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
-                        <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Bill Number</div><div style={{ fontSize: '24px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>#{state.selectedBill.billNo}</div></div>
-                        <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Customer</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBill.customerCode}</div></div>
-                        <div><span style={{ display: 'inline-block', padding: '6px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: '600', background: state.selectedBill.givenAmountApplied === 'Y' ? '#10b981' : '#f59e0b', color: 'white' }}>{state.selectedBill.givenAmountApplied === 'Y' ? '✓ PAID' : '⏳ PENDING'}</span></div>
-                    </div>
-                    <div style={{ marginTop: '20px', padding: '16px', background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', borderRadius: '14px', borderLeft: '4px solid #10b981' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                            <div><div style={{ fontSize: '12px', color: '#065f46', fontWeight: '500', marginBottom: '4px' }}>💰 Cash Received</div><div style={{ fontSize: '20px', fontWeight: '700', color: '#047857' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || 0)}</div>{state.selectedBill.paymentAdjustmentType && <div style={{ fontSize: '11px', marginTop: '6px', color: '#047857' }}>Type: {state.selectedBill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : state.selectedBill.paymentAdjustmentType === 'Bank Transfer' ? '🏦 Bank Transfer' : state.selectedBill.paymentAdjustmentType === 'bag_to_box' ? '📦 Bag to Box' : state.selectedBill.paymentAdjustmentType === 'bill_to_bill' ? '📄 Bill Transfer' : state.selectedBill.paymentAdjustmentType === 'bad_debt' ? '⚠️ Bad Debt' : '💰 Cash'}</div>}</div>
-                            {state.selectedBill.creditAmount > 0 && <div style={{ padding: '12px 16px', background: '#fef3c7', borderRadius: '12px', borderLeft: '3px solid #f59e0b' }}><div style={{ fontSize: '12px', color: '#92400e', fontWeight: '500' }}>💳 Credit Taken</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#b45309' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</div></div>}
+                    {/* CENTER: Bill Details */}
+                    <div style={{ background: 'white', borderRadius: '24px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 35px -10px rgba(0,0,0,0.15)' }}>
+                        {/* Customer Type Selector */}
+                        <div style={{ padding: '20px 24px 0', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
+                            <CustomerTypeSelector selectedType={state.customerType} onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))} disabled={state.isPrinting} onDebtorClick={(code, billNo) => setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: { customerCode: code, billNo } }))} billCustomerCode={state.selectedBill?.customerCode} billNo={state.selectedBill?.billNo} />
                         </div>
-                    </div>
-                    {selectedBillDebtor && selectedBillDebtor.remaining_amount > 0 && (
-                        <div style={{ marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '14px', borderLeft: '4px solid #f59e0b' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                                <div><div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '4px' }}>⚠️ Outstanding Debt</div><div style={{ fontSize: '22px', fontWeight: '700', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillDebtor.remaining_amount)}</div><div style={{ fontSize: '11px', color: '#78350f' }}>Any payment applied to this debt first</div></div>
-                                <div style={{ padding: '6px 12px', background: selectedBillDebtor.status === 'paid' ? '#10b981' : selectedBillDebtor.status === 'partial' ? '#f59e0b' : '#ef4444', borderRadius: '30px', color: 'white', fontSize: '11px', fontWeight: '600' }}>{selectedBillDebtor.status === 'paid' ? 'PAID' : selectedBillDebtor.status === 'partial' ? 'PARTIAL' : 'PENDING'}</div>
+
+                        {/* Header */}
+                        <div style={{ padding: '16px 24px', background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '10px', height: '10px', background: '#fbbf24', borderRadius: '50%', boxShadow: '0 0 8px #fbbf24' }}></div>
+                                    <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'white', margin: 0 }}>Bill Details</h2>
+                                </div>
+                                {state.selectedBill && (
+                                    <button onClick={() => setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "" }))} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', padding: '6px 14px', borderRadius: '30px' }}>
+                                        ✕ Clear
+                                    </button>
+                                )}
                             </div>
                         </div>
-                    )}
-                </div>
 
-                {/* Items Table */}
-                <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}><span>📋</span> Items List</div>
-                    <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
-                            <thead><tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
-                                <th style={{ padding: '14px 12px', textAlign: 'left' }}>Item</th>
-                                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Kg</th>
-                                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Price</th>
-                                <th style={{ padding: '14px 12px', textAlign: 'center' }}>Packs</th>
-                                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Total</th>
-                             </tr></thead>
-                            <tbody>
-                                {state.selectedBill.sales.map((s, i) => {
-                                    const total = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0);
-                                    return (<tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '14px 12px', fontWeight: '500' }}>{s.item_name}<div style={{ fontSize: '11px', color: '#94a3b8' }}>{s.supplier_code || 'ASW'}</div></td>
-                                        <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.weight)}</td>
-                                        <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.price_per_kg)}</td>
-                                        <td style={{ padding: '14px 12px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '2px 10px', borderRadius: '20px', fontSize: '12px' }}>{s.packs}</span></td>
-                                        <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', color: '#059669', fontFamily: 'monospace' }}>Rs. {formatDecimal(total)}</td>
-                                     </tr>);
-                                })}
-                            </tbody>
-                        </table>
+                        {/* Scrollable Content */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc' }}>
+                            {state.selectedBill ? (
+                                <>
+                                    {/* Bill Info Card */}
+                                    <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
+                                            <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Bill Number</div><div style={{ fontSize: '24px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>#{state.selectedBill.billNo}</div></div>
+                                            <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Customer</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBill.customerCode}</div></div>
+                                            <div><span style={{ display: 'inline-block', padding: '6px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: '600', background: state.selectedBill.givenAmountApplied === 'Y' ? '#10b981' : '#f59e0b', color: 'white' }}>{state.selectedBill.givenAmountApplied === 'Y' ? '✓ PAID' : '⏳ PENDING'}</span></div>
+                                        </div>
+                                        <div style={{ marginTop: '20px', padding: '16px', background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', borderRadius: '14px', borderLeft: '4px solid #10b981' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                                <div><div style={{ fontSize: '12px', color: '#065f46', fontWeight: '500', marginBottom: '4px' }}>💰 Cash Received</div><div style={{ fontSize: '20px', fontWeight: '700', color: '#047857' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || 0)}</div>{state.selectedBill.paymentAdjustmentType && <div style={{ fontSize: '11px', marginTop: '6px', color: '#047857' }}>Type: {state.selectedBill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : state.selectedBill.paymentAdjustmentType === 'Bank Transfer' ? '🏦 Bank Transfer' : state.selectedBill.paymentAdjustmentType === 'bag_to_box' ? '📦 Bag to Box' : state.selectedBill.paymentAdjustmentType === 'bill_to_bill' ? '📄 Bill Transfer' : state.selectedBill.paymentAdjustmentType === 'bad_debt' ? '⚠️ Bad Debt' : '💰 Cash'}</div>}</div>
+                                                {state.selectedBill.creditAmount > 0 && <div style={{ padding: '12px 16px', background: '#fef3c7', borderRadius: '12px', borderLeft: '3px solid #f59e0b' }}><div style={{ fontSize: '12px', color: '#92400e', fontWeight: '500' }}>💳 Credit Taken</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#b45309' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</div></div>}
+                                            </div>
+                                        </div>
+                                        {selectedBillDebtor && selectedBillDebtor.remaining_amount > 0 && (
+                                            <div style={{ marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '14px', borderLeft: '4px solid #f59e0b' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                                                    <div><div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '4px' }}>⚠️ Outstanding Debt</div><div style={{ fontSize: '22px', fontWeight: '700', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillDebtor.remaining_amount)}</div><div style={{ fontSize: '11px', color: '#78350f' }}>Any payment applied to this debt first</div></div>
+                                                    <div style={{ padding: '6px 12px', background: selectedBillDebtor.status === 'paid' ? '#10b981' : selectedBillDebtor.status === 'partial' ? '#f59e0b' : '#ef4444', borderRadius: '30px', color: 'white', fontSize: '11px', fontWeight: '600' }}>{selectedBillDebtor.status === 'paid' ? 'PAID' : selectedBillDebtor.status === 'partial' ? 'PARTIAL' : 'PENDING'}</div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Items Table */}
+                                    <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}><span>📋</span> Items List</div>
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
+                                                <thead><tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
+                                                    <th style={{ padding: '14px 12px', textAlign: 'left' }}>Item</th>
+                                                    <th style={{ padding: '14px 12px', textAlign: 'right' }}>Kg</th>
+                                                    <th style={{ padding: '14px 12px', textAlign: 'right' }}>Price</th>
+                                                    <th style={{ padding: '14px 12px', textAlign: 'center' }}>Packs</th>
+                                                    <th style={{ padding: '14px 12px', textAlign: 'right' }}>Total</th>
+                                                </tr></thead>
+                                                <tbody>
+                                                    {state.selectedBill.sales.map((s, i) => {
+                                                        const total = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0);
+                                                        return (<tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                            <td style={{ padding: '14px 12px', fontWeight: '500' }}>{s.item_name}<div style={{ fontSize: '11px', color: '#94a3b8' }}>{s.supplier_code || 'ASW'}</div></td>
+                                                            <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.weight)}</td>
+                                                            <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.price_per_kg)}</td>
+                                                            <td style={{ padding: '14px 12px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '2px 10px', borderRadius: '20px', fontSize: '12px' }}>{s.packs}</span></td>
+                                                            <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', color: '#059669', fontFamily: 'monospace' }}>Rs. {formatDecimal(total)}</td>
+                                                        </tr>);
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    {/* Totals Card */}
+                                    <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Subtotal:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span></div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Bag Charges:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.packs) || 0) * (parseFloat(s.CustomerPackCost) || 0)), 0))}</span></div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', fontWeight: '700', fontSize: '18px', borderTop: '2px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}><span>Total Payable:</span><span style={{ fontFamily: 'monospace', color: '#dc2626' }}>Rs. {formatDecimal(state.selectedBill.totalAmount)}</span></div>
+                                            {(state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0) && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#059669', fontWeight: '600' }}><span>Cash Given:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || state.selectedBill.givenAmount)}</span></div>}
+                                            {state.selectedBill.creditAmount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#d97706', fontWeight: '600' }}><span>Credit Taken:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</span></div>}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: '16px', color: '#dc2626', fontWeight: '700', background: '#fef2f2', borderRadius: '12px', marginTop: '8px' }}><span>💰 Remaining:</span><span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - (state.selectedBill.cashPayments || state.selectedBill.givenAmount || 0)))}</span></div>
+                                        </div>
+                                    </div>
+
+                                    {/* Payment Section */}
+                                    <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '20px', padding: '24px', marginBottom: '16px' }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#92400e', marginBottom: '16px' }}>💰 Enter Payment Amount</div>
+                                        <input type="number" value={state.givenAmountInput} onChange={(e) => setState(prev => ({ ...prev, givenAmountInput: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }} />
+                                        <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
+                                            <button onClick={async () => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else await processPayment(amt); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💵 Cash</button>
+                                            <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingChequeAmount: amt, showChequeModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💳 Cheque</button>
+                                            <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingBankToBankAmount: amt, showBankToBankModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#ec489a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>🏦 Transfer</button>
+                                            <button onClick={handleCreditPayment} disabled={state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0} style={{ flex: 1, padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 0.5 : 1 }}>💳 Credit</button>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <button onClick={handlePrintWithoutUpdate} disabled={state.isPrinting} style={{ width: '100%', padding: '14px', background: '#64748b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting ? 'not-allowed' : 'pointer' }}>🖨️ Re-print Bill</button>
+                                        <button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={{ width: '100%', padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>🔧 Payment Adjustment</button>
+                                        <button onClick={handleViewPaymentHistory} style={{ width: '100%', padding: '14px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>📜 View Payment History</button>
+                                    </div>
+                                </>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '80px 20px', color: '#94a3b8' }}>
+                                    <div style={{ fontSize: '64px', marginBottom: '16px' }}>📋</div>
+                                    <p style={{ fontSize: '16px', fontWeight: '500' }}>Click on any bill to view details</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
-
-                {/* Totals Card */}
-                <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Subtotal:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span></div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Bag Charges:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.packs) || 0) * (parseFloat(s.CustomerPackCost) || 0)), 0))}</span></div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', fontWeight: '700', fontSize: '18px', borderTop: '2px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}><span>Total Payable:</span><span style={{ fontFamily: 'monospace', color: '#dc2626' }}>Rs. {formatDecimal(state.selectedBill.totalAmount)}</span></div>
-                        {(state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0) && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#059669', fontWeight: '600' }}><span>Cash Given:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || state.selectedBill.givenAmount)}</span></div>}
-                        {state.selectedBill.creditAmount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#d97706', fontWeight: '600' }}><span>Credit Taken:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</span></div>}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: '16px', color: '#dc2626', fontWeight: '700', background: '#fef2f2', borderRadius: '12px', marginTop: '8px' }}><span>💰 Remaining:</span><span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - (state.selectedBill.cashPayments || state.selectedBill.givenAmount || 0)))}</span></div>
-                    </div>
-                </div>
-
-                {/* Payment Section */}
-                <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '20px', padding: '24px', marginBottom: '16px' }}>
-                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#92400e', marginBottom: '16px' }}>💰 Enter Payment Amount</div>
-                    <input type="number" value={state.givenAmountInput} onChange={(e) => setState(prev => ({ ...prev, givenAmountInput: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }} />
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
-                        <button onClick={async () => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else await processPayment(amt); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💵 Cash</button>
-                        <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingChequeAmount: amt, showChequeModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💳 Cheque</button>
-                        <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingBankToBankAmount: amt, showBankToBankModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#ec489a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>🏦 Transfer</button>
-                        <button onClick={handleCreditPayment} disabled={state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0} style={{ flex: 1, padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 0.5 : 1 }}>💳 Credit</button>
-                    </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <button onClick={handlePrintWithoutUpdate} disabled={state.isPrinting} style={{ width: '100%', padding: '14px', background: '#64748b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting ? 'not-allowed' : 'pointer' }}>🖨️ Re-print Bill</button>
-                    <button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={{ width: '100%', padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>🔧 Payment Adjustment</button>
-                    <button onClick={handleViewPaymentHistory} style={{ width: '100%', padding: '14px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>📜 View Payment History</button>
-                </div>
-            </>
-        ) : (
-            <div style={{ textAlign: 'center', padding: '80px 20px', color: '#94a3b8' }}>
-                <div style={{ fontSize: '64px', marginBottom: '16px' }}>📋</div>
-                <p style={{ fontSize: '16px', fontWeight: '500' }}>Click on any bill to view details</p>
-            </div>
-        )}
-    </div>
-</div>
 
                     {/* RIGHT: Pending Payment */}
                     <div style={styles.panel}>
@@ -1990,7 +2013,7 @@ useEffect(() => {
             {/* Modals */}
             <ChequeModal isOpen={state.showChequeModal} onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingChequeAmount, true, details); }} amount={state.pendingChequeAmount} />
             <BankToBankModal isOpen={state.showBankToBankModal} onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingBankToBankAmount, false, null, true, details); }} amount={state.pendingBankToBankAmount} customerCode={state.selectedBill?.customerCode} customerName={state.customers.find(c => c.short_name?.toUpperCase() === state.selectedBill?.customerCode?.toUpperCase())?.name} />
-            <PaymentAdjustmentModal isOpen={state.showAdjustmentModal} onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))} onConfirm={async (data) => { await processPayment(data.amount, false, null, false, null, true, data); }} billNo={state.selectedBill?.billNo} customerCode={state.selectedBill?.customerCode} originalBillTotal={state.selectedBill?.totalAmount || 0} />
+          <PaymentAdjustmentModal isOpen={state.showAdjustmentModal} onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))} onConfirm={async (data) => { await processPayment(data.amount, false, null, false, null, true, data); }} billNo={state.selectedBill?.billNo} customerCode={state.selectedBill?.customerCode} originalBillTotal={state.selectedBill?.totalAmount || 0} />
             <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
             <DebtorFormModal isOpen={state.showDebtorForm} onClose={() => setState(prev => ({ ...prev, showDebtorForm: false, pendingDebtorBill: null }))} onSave={handleDebtorSave} customerCode={state.pendingDebtorBill?.customerCode || ''} billNo={state.pendingDebtorBill?.billNo} />
             <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null }))} onConfirm={handleDeleteBillPayments} billNo={state.deleteBillNo} customerCode={state.deleteCustomerCode} />
