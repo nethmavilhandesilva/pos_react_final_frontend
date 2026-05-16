@@ -1091,7 +1091,7 @@ export default function PrintedBills() {
     const toggleModal = (name) => setModals(prev => ({ ...prev, [name]: !prev[name] }));
 
     // Old Bills States
-       // Old Bills States - Initialize from localStorage immediately
+    // Old Bills States - Initialize from localStorage immediately
     const [viewOldBills, setViewOldBills] = useState(() => {
         const saved = localStorage.getItem('printedBills_viewOldBills');
         return saved === 'true';
@@ -1168,19 +1168,21 @@ export default function PrintedBills() {
         }
     };
 
-    const resetToCurrentSales = () => {
-        setViewOldBills(false);
-        setStartDate('');
-        setEndDate('');
-        setDataSource('sales');
-        setArchivedData({ pendingBills: [], appliedBills: [], isLoading: false });
-        fetchSalesData();
-        // Clear saved filter states from localStorage
-        localStorage.removeItem('printedBills_viewOldBills');
-        localStorage.removeItem('printedBills_startDate');
-        localStorage.removeItem('printedBills_endDate');
-        localStorage.removeItem('printedBills_dataSource');
-    };
+   const resetToCurrentSales = () => {
+    setViewOldBills(false);
+    setStartDate('');
+    setEndDate('');
+    setDataSource('sales');
+    setArchivedData({ pendingBills: [], appliedBills: [], isLoading: false });
+    // Reset customer type to null when going back to current bills
+    setState(prev => ({ ...prev, customerType: null }));
+    fetchSalesData();
+    // Clear saved filter states from localStorage
+    localStorage.removeItem('printedBills_viewOldBills');
+    localStorage.removeItem('printedBills_startDate');
+    localStorage.removeItem('printedBills_endDate');
+    localStorage.removeItem('printedBills_dataSource');
+};
 
     const handleBillClick = async (bill) => {
         // If clicking the same bill, clear it
@@ -1212,7 +1214,7 @@ export default function PrintedBills() {
             setSelectedBillDebtor(null);
         }
     };
-    
+
 
     // Save filter states whenever they change
     useEffect(() => {
@@ -2046,6 +2048,13 @@ export default function PrintedBills() {
             return () => clearTimeout(delayDebounce);
         }
     }, [startDate, endDate, viewOldBills]);
+    // Add this useEffect after your existing state declarations
+    useEffect(() => {
+        // When View Old Bills is clicked, automatically select Walking Customer
+        if (viewOldBills) {
+            setState(prev => ({ ...prev, customerType: 'walking' }));
+        }
+    }, [viewOldBills]); // This runs whenever viewOldBills changes
     const stats = useMemo(() => {
         const pendingAmount = filterPendingBills.reduce((sum, b) => sum + b.totalAmount, 0);
         const appliedAmount = filterAppliedBills.reduce((sum, b) => sum + b.totalAmount, 0);
@@ -2106,34 +2115,149 @@ export default function PrintedBills() {
     return (
         <div style={styles.app}>
             <div style={styles.container}>
-                {/* Old Bills Bar */}
-                <div style={styles.oldBillsBar}>
-                    <button onClick={() => { if (viewOldBills) resetToCurrentSales(); else { setViewOldBills(true); } }} style={{ padding: '10px 24px', background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)', color: 'white', border: 'none', borderRadius: '12px', cursor: 'pointer', fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}><span>📜</span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}</button>
-                    {viewOldBills && (
-                        <div style={styles.datePickerContainer}>
-                            <div>
-                                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
-                                <input
-                                    type="date"
-                                    value={startDate}
-                                    onChange={(e) => setStartDate(e.target.value)}
-                                    style={styles.dateInput}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
-                                <input
-                                    type="date"
-                                    value={endDate}
-                                    onChange={(e) => setEndDate(e.target.value)}
-                                    style={styles.dateInput}
-                                />
-                            </div>
-                            <button onClick={resetToCurrentSales} style={{ padding: '8px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', marginTop: '18px' }}>Cancel</button>
-                        </div>
-                    )}
-                    {dataSource === 'sales_history' && <div style={styles.viewTypeIndicator}><span>📚</span>Viewing Archived Bills<button onClick={resetToCurrentSales} style={{ background: 'none', border: 'none', color: '#92400e', cursor: 'pointer', marginLeft: '4px' }}>✕</button></div>}
-                </div>
+        {/* Old Bills Bar */}
+<div style={styles.oldBillsBar}>
+    <button 
+        onClick={async () => {
+            if (viewOldBills) {
+                // Switching from Old Bills to Current Bills
+                resetToCurrentSales();
+                // Reset customer type to null (user must select again)
+                setState(prev => ({ ...prev, customerType: null }));
+            } else {
+                // Switching from Current Bills to Old Bills
+                setViewOldBills(true);
+                // Auto-select Walking Customer when viewing old bills
+                setState(prev => ({ ...prev, customerType: 'walking' }));
+                
+                // Don't fetch immediately - let user select dates first
+                // Just show the date pickers
+            }
+        }} 
+        style={{
+            padding: '10px 24px',
+            background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '12px',
+            cursor: 'pointer',
+            fontWeight: '600',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+        }}
+        onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-2px)';
+            e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
+        }}
+        onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        }}
+    >
+        <span>📜</span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
+    </button>
+    
+    {viewOldBills && (
+        <div style={styles.datePickerContainer}>
+            <div>
+                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
+                <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                        setStartDate(e.target.value);
+                        // Auto-fetch when both dates are selected
+                        if (endDate && e.target.value) {
+                            setTimeout(() => {
+                                fetchArchivedSales();
+                            }, 100);
+                        }
+                    }}
+                    style={styles.dateInput}
+                />
+            </div>
+            <div>
+                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
+                <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                        setEndDate(e.target.value);
+                        // Auto-fetch when both dates are selected
+                        if (startDate && e.target.value) {
+                            setTimeout(() => {
+                                fetchArchivedSales();
+                            }, 100);
+                        }
+                    }}
+                    style={styles.dateInput}
+                />
+            </div>
+            <button 
+                onClick={() => {
+                    if (startDate && endDate) {
+                        setArchivedData(prev => ({ ...prev, isLoading: true }));
+                        fetchArchivedSales();
+                    } else {
+                        alert('Please select both start and end dates');
+                    }
+                }} 
+                style={{ 
+                    padding: '8px 20px', 
+                    background: 'linear-gradient(135deg, #10b981, #059669)', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '8px', 
+                    cursor: 'pointer', 
+                    fontWeight: '600', 
+                    marginTop: '18px' 
+                }}
+            >
+                Apply Filter
+            </button>
+            <button 
+                onClick={resetToCurrentSales} 
+                style={{ 
+                    padding: '8px 20px', 
+                    background: '#f1f5f9', 
+                    color: '#475569', 
+                    border: 'none', 
+                    borderRadius: '8px', 
+                    cursor: 'pointer', 
+                    fontWeight: '600', 
+                    marginTop: '18px' 
+                }}
+            >
+                Cancel
+            </button>
+        </div>
+    )}
+    
+    {dataSource === 'sales_history' && (
+        <div style={styles.viewTypeIndicator}>
+            <span>📚</span>Viewing Archived Bills
+            <button 
+                onClick={() => {
+                    resetToCurrentSales();
+                    setState(prev => ({ ...prev, customerType: null }));
+                }} 
+                style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    color: '#92400e', 
+                    cursor: 'pointer', 
+                    marginLeft: '4px' 
+                }}
+            >
+                ✕
+            </button>
+        </div>
+    )}
+</div>
 
                 <div style={styles.threeColumns}>
                     {/* LEFT: Completed Payments */}
