@@ -827,6 +827,11 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
     const [billNo, setBillNo] = useState(initialBillNo || '');
     const [loading, setLoading] = useState(false);
     const [showSupplierForm, setShowSupplierForm] = useState(false);
+    const [matchingSuppliers, setMatchingSuppliers] = useState([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+    const [selectedFromDropdown, setSelectedFromDropdown] = useState(false);
+    const [selectedSupplierData, setSelectedSupplierData] = useState(null);
     const [formData, setFormData] = useState({
         code: '',
         name: '',
@@ -848,39 +853,99 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
         }
     }, [initialSupplierCode, initialBillNo]);
 
-    if (!isOpen) return null;
+    // Fetch suppliers when supplier code changes (for suggestions)
+    useEffect(() => {
+        if (supplierCode && supplierCode.length > 0 && !selectedFromDropdown) {
+            const timer = setTimeout(() => {
+                fetchMatchingSuppliers(supplierCode.charAt(0));
+            }, 300);
+            return () => clearTimeout(timer);
+        } else if (!supplierCode) {
+            setMatchingSuppliers([]);
+            setShowSuggestions(false);
+        }
+    }, [supplierCode, selectedFromDropdown]);
 
-    const handleCheckCreditor = async () => {
-        if (!supplierCode) {
-            alert('Please enter supplier code');
+    const fetchMatchingSuppliers = async (letter) => {
+        if (!letter) {
+            setMatchingSuppliers([]);
+            setShowSuggestions(false);
             return;
         }
 
-        setLoading(true);
+        setIsLoadingSuppliers(true);
         try {
-            const response = await api.post(routes.checkOrCreateCreditor, {
-                supplier_code: supplierCode
-            });
-
-            if (response.data.exists) {
-                // If supplier exists, mark as creditor with bill number
-                await api.put('/suppliers/update-creditor-status', {
-                    code: supplierCode,
-                    Creditor: 'Y',
-                    bill_no: billNo  // Pass the bill number
-                });
-                onConfirm(response.data.supplier);
-                onClose();
-            } else {
-                setShowSupplierForm(true);
+            const response = await api.get(`/suppliers/by-letter?letter=${letter}`);
+            if (response.data.success) {
+                setMatchingSuppliers(response.data.data);
+                setShowSuggestions(response.data.data.length > 0);
             }
         } catch (error) {
-            alert('Error checking supplier: ' + (error.response?.data?.message || error.message));
+            console.error('Error fetching suppliers:', error);
         } finally {
-            setLoading(false);
+            setIsLoadingSuppliers(false);
         }
     };
 
+    const handleSupplierCodeChange = (e) => {
+        const value = e.target.value.toUpperCase();
+        setSupplierCode(value);
+        setSelectedFromDropdown(false);
+        setSelectedSupplierData(null);
+    };
+
+    const handleSelectSupplier = (supplier) => {
+        setSupplierCode(supplier.code);
+        setSelectedSupplierData(supplier);
+        setSelectedFromDropdown(true);
+        setShowSuggestions(false);
+        // Show supplier info
+        alert(`✅ Supplier "${supplier.code}" selected!\n📋 Creditor Number: ${supplier.Creditor_no || 'Not Assigned'}\n📝 Name: ${supplier.name || 'No name'}\n\n📄 Bill No: ${billNo || 'N/A'}\n\nThis will create a creditor record for this bill using existing supplier.`);
+    };
+
+   const handleCheckCreditor = async () => {
+    if (!supplierCode) {
+        alert('Please enter supplier code');
+        return;
+    }
+
+    setLoading(true);
+    try {
+        // If selected from dropdown, use existing supplier
+        if (selectedFromDropdown && selectedSupplierData) {
+            // Mark supplier as creditor if not already
+            if (selectedSupplierData.Creditor !== 'Y') {
+                await api.put('/suppliers/update-creditor-status', {
+                    code: supplierCode,
+                    Creditor: 'Y',
+                    bill_no: billNo
+                });
+            }
+
+            // Create a new creditor record for this specific bill
+            await api.post('/creditors/create-with-supplier', {
+                bill_no: billNo,
+                supplier_code: supplierCode,
+                credit_amount: 0,
+                creditor_no: selectedSupplierData.Creditor_no
+            });
+
+            alert(`✅ Creditor record created for Bill #${billNo}\n📋 Supplier: ${supplierCode}\n📋 Creditor Number: ${selectedSupplierData.Creditor_no || 'N/A'}\n\nA new creditor record has been created for this bill using the existing supplier.`);
+
+            onConfirm(selectedSupplierData);
+            onClose();
+        } else {
+            // NOT selected from dropdown - DIRECTLY OPEN FORM TO CREATE NEW SUPPLIER
+            // No checking if supplier exists, just open the registration form
+            setShowSupplierForm(true);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error: ' + (error.response?.data?.message || error.message));
+    } finally {
+        setLoading(false);
+    }
+};
     const handleFormChange = (e) => {
         const { name, value, files } = e.target;
         if (files) {
@@ -897,8 +962,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
         submitData.append('dob', formData.dob);
         submitData.append('address', formData.address);
         submitData.append('telephone_no', formData.telephone_no);
-        submitData.append('bill_no', billNo); // Pass bill number
-        submitData.append('credit_amount', '0'); // Default credit amount
+        submitData.append('bill_no', billNo);
+        submitData.append('credit_amount', '0');
         if (formData.profile_pic) submitData.append('profile_pic', formData.profile_pic);
         if (formData.nic_front) submitData.append('nic_front', formData.nic_front);
         if (formData.nic_back) submitData.append('nic_back', formData.nic_back);
@@ -909,7 +974,6 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
-            // Also create creditor record with the bill number
             if (billNo) {
                 try {
                     await api.post('/creditors/create-with-supplier', {
@@ -918,11 +982,13 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                         credit_amount: 0,
                         creditor_no: response.data.Creditor_no
                     });
+                    console.log('Creditor record created with bill number:', billNo);
                 } catch (creditorError) {
                     console.error('Error creating creditor record:', creditorError);
                 }
             }
 
+            alert(`Supplier registered as Creditor successfully!\nCreditor Number: ${response.data.Creditor_no}${billNo ? `\nBill No: ${billNo}` : ''}`);
             onConfirm(response.data.supplier);
             onClose();
         } catch (error) {
@@ -981,32 +1047,124 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
             backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 20001,
             display: 'flex', justifyContent: 'center', alignItems: 'center'
         }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '400px', padding: '24px' }} onClick={(e) => e.stopPropagation()}>
-                <h3>Creditor Mode</h3>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '20px',
+                width: '500px',
+                padding: '24px',
+                maxHeight: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
+                position: 'relative'
+            }} onClick={(e) => e.stopPropagation()}>
+
+                <h3 style={{ marginBottom: '16px', color: '#1e293b', flexShrink: 0 }}>💰 Creditor Mode</h3>
+
                 {billNo && (
                     <div style={{
                         background: '#e0f2fe',
-                        padding: '10px',
+                        padding: '12px',
                         borderRadius: '8px',
                         marginBottom: '16px',
                         fontSize: '13px',
-                        color: '#0369a1'
+                        color: '#0369a1',
+                        flexShrink: 0
                     }}>
                         📄 Bill Number: <strong>{billNo}</strong>
                     </div>
                 )}
-                <p>Enter supplier code to mark as creditor:</p>
-                <input
-                    type="text"
-                    value={supplierCode}
-                    onChange={(e) => setSupplierCode(e.target.value.toUpperCase())}
-                    placeholder="Enter Supplier Code"
-                    autoFocus
-                    style={{ width: '100%', padding: '12px', border: '2px solid #e2e8f0', borderRadius: '8px', marginBottom: '16px' }}
-                />
-                <div style={{ display: 'flex', gap: '12px' }}>
-                    <button onClick={onClose} style={{ flex: 1, padding: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px' }}>Cancel</button>
-                    <button onClick={handleCheckCreditor} disabled={loading} style={{ flex: 1, padding: '10px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px' }}>{loading ? 'Checking...' : 'Continue'}</button>
+
+                <p style={{ marginBottom: '12px', color: '#475569', flexShrink: 0 }}>Enter supplier code to mark as creditor:</p>
+
+                {/* Scrollable content area for suggestions */}
+                <div style={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    marginBottom: '16px',
+                    minHeight: '0'
+                }}>
+                    <div style={{ position: 'relative' }}>
+                        <input
+                            type="text"
+                            value={supplierCode}
+                            onChange={handleSupplierCodeChange}
+                            placeholder="Enter Supplier Code"
+                            autoFocus
+                            style={{ width: '100%', padding: '12px', border: '2px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold' }}
+                        />
+
+                        {/* Suggestions dropdown */}
+                        {showSuggestions && !selectedFromDropdown && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                background: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                                zIndex: 20002,
+                                maxHeight: '200px',
+                                overflowY: 'auto',
+                                marginTop: '4px'
+                            }}>
+                                {isLoadingSuppliers ? (
+                                    <div style={{ padding: '12px', textAlign: 'center', color: '#64748b' }}>
+                                        <span>⏳ Loading...</span>
+                                    </div>
+                                ) : (
+                                    matchingSuppliers.map((supplier, idx) => (
+                                        <div
+                                            key={idx}
+                                            onClick={() => handleSelectSupplier(supplier)}
+                                            style={{
+                                                padding: '12px 14px',
+                                                cursor: 'pointer',
+                                                borderBottom: idx < matchingSuppliers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                                transition: 'background 0.2s'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <div>
+                                                    <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{supplier.code}</div>
+                                                    {supplier.name && (
+                                                        <div style={{ fontSize: '11px', color: '#64748b' }}>{supplier.name}</div>
+                                                    )}
+                                                </div>
+                                                <div style={{
+                                                    background: '#d1fae5',
+                                                    padding: '4px 10px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '11px',
+                                                    fontWeight: '600',
+                                                    color: '#065f46'
+                                                }}>
+                                                    📋 {supplier.Creditor_no || 'Creditor'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '12px', padding: '8px', background: '#f8fafc', borderRadius: '8px' }}>
+                        💡 <strong>Tip:</strong> As you type, matching supplier codes with Creditor status will appear below.
+                        <br />
+                        • <strong>Select from dropdown</strong> → Use existing supplier (same Creditor No) for this bill
+                        <br />
+                        • <strong>Type & click Continue</strong> → Create NEW supplier (different Creditor No)
+                    </div>
+                </div>
+
+                {/* Buttons - fixed at the bottom */}
+                <div style={{ display: 'flex', gap: '12px', flexShrink: 0, marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                    <button onClick={onClose} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>Cancel</button>
+                    <button onClick={handleCheckCreditor} disabled={loading} style={{ flex: 1, padding: '10px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', opacity: loading ? 0.6 : 1 }}>{loading ? 'Checking...' : 'Continue'}</button>
                 </div>
             </div>
         </div>
@@ -1679,7 +1837,7 @@ export default function SupplierReport() {
         paymentMethod: 'Cash',
         isUpdatingCompletedBill: false,
         currentPaidAmount: 0,
-        showCreditorModal: false,
+        // REMOVE THIS LINE: showCreditorModal: false,
         selectedMode: 'walking_seller',
         showPrintModal: false,
         printBillContent: '',
@@ -1783,26 +1941,28 @@ export default function SupplierReport() {
 
     const handleModeChange = (mode) => {
         setState(prev => ({ ...prev, selectedMode: mode }));
+
         if (mode === 'creditor') {
-            // Check if a supplier is selected
-            if (state.selectedSupplier) {
-                // Show creditor modal with the selected supplier code and bill number
-                setSelectedBillForCreditor({
-                    supplierCode: state.selectedSupplier,
-                    billNo: state.selectedBillNo
-                });
-                setShowCreditorModal(true);
-            } else {
-                // No supplier selected, show prompt
-                const supplierCode = prompt('Enter Supplier Code to mark as Creditor:');
-                if (supplierCode && supplierCode.trim()) {
-                    setSelectedBillForCreditor({
-                        supplierCode: supplierCode.trim().toUpperCase(),
-                        billNo: null
-                    });
-                    setShowCreditorModal(true);
-                }
+            // Check if a supplier/bill is selected
+            if (!state.selectedSupplier) {
+                alert('Please select a supplier/bill first before marking as creditor.');
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                return;
             }
+
+            // Check if there's a bill number
+            if (!state.selectedBillNo) {
+                alert('Please select a bill that has a bill number.');
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                return;
+            }
+
+            // Show creditor modal with the selected supplier code and bill number
+            setSelectedBillForCreditor({
+                supplierCode: state.selectedSupplier,
+                billNo: state.selectedBillNo
+            });
+            setShowCreditorModal(true);
         }
     };
     const checkAndHandleCreditor = async (supplierCode, billNo = null) => {
@@ -1898,7 +2058,6 @@ export default function SupplierReport() {
             }));
         } catch (error) {
             console.error("Error fetching supplier details:", error);
-            alert(`Failed to load supplier details: ${error.response?.data?.message || error.message}`);
             setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
             setSelectedBillCreditor(null);
         }
@@ -3400,16 +3559,20 @@ export default function SupplierReport() {
                 isLoading={isLoadingReport}
             />
             {/* Add this with other modals */}
-            <CreditorModal
-                isOpen={showCreditorModal}
-                onClose={() => {
-                    setShowCreditorModal(false);
-                    setSelectedBillForCreditor({ supplierCode: '', billNo: null });
-                }}
-                onConfirm={handleCreditorConfirm}
-                supplierCode={selectedBillForCreditor.supplierCode}
-                billNo={selectedBillForCreditor.billNo}
-            />
+            {showCreditorModal && (
+                <CreditorModal
+                    isOpen={showCreditorModal}
+                    onClose={() => {
+                        setShowCreditorModal(false);
+                        setSelectedBillForCreditor({ supplierCode: '', billNo: null });
+                        // Reset mode back to walking_seller when modal is closed
+                        setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                    }}
+                    onConfirm={handleCreditorConfirm}
+                    supplierCode={selectedBillForCreditor.supplierCode}
+                    billNo={selectedBillForCreditor.billNo}
+                />
+            )}
         </div>
     );
 }
