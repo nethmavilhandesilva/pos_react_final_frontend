@@ -3655,7 +3655,7 @@ export default function PrintedBills() {
         paymentHistoryTotalPaid: 0,
         paymentHistoryTotalBill: 0,
         paymentHistoryRemaining: 0,
-        customerType: 'walking',
+        customerType:null,
         showDebtorForm: false,
         pendingDebtorBill: null,
         showReportModal: false,

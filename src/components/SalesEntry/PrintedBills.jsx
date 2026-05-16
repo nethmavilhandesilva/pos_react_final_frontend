@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import api from "../../api";
 import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
@@ -215,15 +215,69 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
 
     const handleSkip = () => { setShowDebtorConfirm(false); resetCustomerState(); };
 
+    // Check if no type is selected
+    const noTypeSelected = !selectedType;
+
     return (
         <>
             <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)', borderRadius: '12px', border: '2px solid #bae6fd' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '700', fontSize: '12px', color: '#0369a1' }}>👤 Customer Type</label>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                    <button onClick={() => onSelect('walking')} disabled={disabled} style={{ flex: 1, padding: '10px', background: selectedType === 'walking' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white', color: selectedType === 'walking' ? 'white' : '#475569', border: selectedType === 'walking' ? 'none' : '2px solid #e2e8f0', borderRadius: '10px', cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s', opacity: disabled ? 0.6 : 1 }}>🚶 Walking Customer</button>
-                    <button onClick={() => setShowDebtorConfirm(true)} disabled={disabled} style={{ flex: 1, padding: '10px', background: selectedType === 'debtor' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'white', color: selectedType === 'debtor' ? 'white' : '#475569', border: selectedType === 'debtor' ? 'none' : '2px solid #e2e8f0', borderRadius: '10px', cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s', opacity: disabled ? 0.6 : 1 }}>📋 Debtor</button>
+                    <button
+                        onClick={() => onSelect('walking')}
+                        disabled={disabled}
+                        style={{
+                            flex: 1, padding: '10px',
+                            background: selectedType === 'walking' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white',
+                            color: selectedType === 'walking' ? 'white' : '#475569',
+                            border: selectedType === 'walking' ? 'none' : '2px solid #e2e8f0',
+                            borderRadius: '10px',
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                            opacity: disabled ? 0.6 : 1
+                        }}
+                    >
+                        🚶 Walking Customer
+                    </button>
+                    <button
+                        onClick={() => setShowDebtorConfirm(true)}
+                        disabled={disabled}
+                        style={{
+                            flex: 1, padding: '10px',
+                            background: selectedType === 'debtor' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'white',
+                            color: selectedType === 'debtor' ? 'white' : '#475569',
+                            border: selectedType === 'debtor' ? 'none' : '2px solid #e2e8f0',
+                            borderRadius: '10px',
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                            opacity: disabled ? 0.6 : 1
+                        }}
+                    >
+                        📋 Debtor
+                    </button>
                 </div>
-                <div style={{ fontSize: '10px', color: '#0369a1', marginTop: '8px', textAlign: 'center' }}>💡 Tip: Select from dropdown to use existing customer. Type and click Continue to create new debtor</div>
+                {noTypeSelected && (
+                    <div style={{ fontSize: '10px', color: '#dc2626', marginTop: '8px', textAlign: 'center', fontWeight: '500' }}>
+                        ⚠️ Please select customer type to continue
+                    </div>
+                )}
+                {!noTypeSelected && (
+                    <div style={{ fontSize: '10px', color: '#0369a1', marginTop: '8px', textAlign: 'center' }}>
+                        ✅ Customer type selected: {selectedType === 'walking' ? 'Walking Customer' : 'Debtor'}
+                    </div>
+                )}
             </div>
 
             {showDebtorConfirm && (
@@ -319,20 +373,148 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                 <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
                     {generatedDebtorNo && <div style={{ background: '#d1fae5', padding: '12px', borderRadius: '10px', marginBottom: '16px', textAlign: 'center' }}><div style={{ fontSize: '12px', color: '#065f46' }}>Debtor Number</div><div style={{ fontSize: '20px', fontWeight: 'bold', color: '#047857' }}>{generatedDebtorNo}</div></div>}
                     <div style={{ background: '#fef3c7', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px', color: '#92400e' }}>⚠️ Customer "{customerCode}" not found. Please provide information to register as Debtor.<br /><small>All fields are optional. A unique Debtor Number will be automatically generated.{billNo && <><br /><small>This debtor will be linked to Bill No: {billNo}</small></>}</small></div>
-                    {['name', 'ID_NO', 'telephone_no', 'address', 'credit_limit'].map(field => (
-                        <div key={field} style={{ marginBottom: '12px' }}>
-                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>{field === 'name' ? 'Full Name' : field === 'ID_NO' ? 'ID Number' : field === 'telephone_no' ? 'Telephone Number' : field === 'address' ? 'Address' : 'Credit Limit (Rs.)'}</label>
-                            {field === 'address' ? <textarea name={field} value={formData[field]} onChange={handleChange} rows="2" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', resize: 'vertical' }} /> :
-                                <input type={field === 'credit_limit' ? 'number' : 'text'} name={field} value={formData[field]} onChange={handleChange} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }} />}
-                        </div>
-                    ))}
-                    {['profile_pic', 'nic_front', 'nic_back'].map(field => (
-                        <div key={field} style={{ marginBottom: '12px' }}>
-                            <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>{field === 'profile_pic' ? 'Profile Picture' : field === 'nic_front' ? 'NIC Front' : 'NIC Back'}</label>
-                            <input type="file" name={field} onChange={handleFileChange} accept="image/jpeg,image/jpg,image/png" style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
-                            {previewImages[field] && <img src={previewImages[field]} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
-                        </div>
-                    ))}
+
+                    {/* Text fields with enter key navigation */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Full Name</label>
+                        <input
+                            type="text"
+                            name="name"
+                            value={formData.name}
+                            onChange={handleChange}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    document.querySelector('input[name="ID_NO"]').focus();
+                                }
+                            }}
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>ID Number</label>
+                        <input
+                            type="text"
+                            name="ID_NO"
+                            value={formData.ID_NO}
+                            onChange={handleChange}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    document.querySelector('input[name="telephone_no"]').focus();
+                                }
+                            }}
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Telephone Number</label>
+                        <input
+                            type="text"
+                            name="telephone_no"
+                            value={formData.telephone_no}
+                            onChange={handleChange}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    document.querySelector('textarea[name="address"]').focus();
+                                }
+                            }}
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Address</label>
+                        <textarea
+                            name="address"
+                            value={formData.address}
+                            onChange={handleChange}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    document.querySelector('input[name="credit_limit"]').focus();
+                                }
+                            }}
+                            rows="2"
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', resize: 'vertical' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Credit Limit (Rs.)</label>
+                        <input
+                            type="number"
+                            name="credit_limit"
+                            value={formData.credit_limit}
+                            onChange={handleChange}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    document.querySelector('input[name="profile_pic_file"]')?.focus();
+                                }
+                            }}
+                            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
+                        />
+                    </div>
+
+                    {/* File upload fields - Enter key skips to next or submits on last */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Profile Picture</label>
+                        <input
+                            type="file"
+                            name="profile_pic"
+                            onChange={handleFileChange}
+                            accept="image/jpeg,image/jpg,image/png"
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    document.querySelector('input[name="nic_front"]').focus();
+                                }
+                            }}
+                            style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
+                        />
+                        {previewImages.profile_pic && <img src={previewImages.profile_pic} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>NIC Front</label>
+                        <input
+                            type="file"
+                            name="nic_front"
+                            onChange={handleFileChange}
+                            accept="image/jpeg,image/jpg,image/png"
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    document.querySelector('input[name="nic_back"]').focus();
+                                }
+                            }}
+                            style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
+                        />
+                        {previewImages.nic_front && <img src={previewImages.nic_front} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                    </div>
+
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>NIC Back</label>
+                        <input
+                            type="file"
+                            name="nic_back"
+                            onChange={handleFileChange}
+                            accept="image/jpeg,image/jpg,image/png"
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    // On last field, submit the form
+                                    handleSubmit();
+                                }
+                            }}
+                            style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
+                        />
+                        {previewImages.nic_back && <img src={previewImages.nic_back} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
+                    </div>
                 </div>
                 <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc', borderRadius: '0 0 20px 20px' }}>
                     <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Skip</button>
@@ -579,46 +761,46 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
         return ((parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0)) + ((parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0));
     };
 
-   const handleConfirm = () => {
-    const adjustmentData = { adjustment_type: adjustmentType, original_bill_total: originalBillTotal };
-    
-    if (adjustmentType === 'bag_to_box') {
-        if (!bagCount || !boxCount || !bagValue || !boxValue) { 
-            alert('Please fill all bag/box fields'); 
-            return; 
+    const handleConfirm = () => {
+        const adjustmentData = { adjustment_type: adjustmentType, original_bill_total: originalBillTotal };
+
+        if (adjustmentType === 'bag_to_box') {
+            if (!bagCount || !boxCount || !bagValue || !boxValue) {
+                alert('Please fill all bag/box fields');
+                return;
+            }
+            adjustmentData.type = 'bag_to_box';  // ✅ ADD THIS - IMPORTANT!
+            adjustmentData.bag_count = parseInt(bagCount);
+            adjustmentData.box_count = parseInt(boxCount);
+            adjustmentData.bag_value = parseFloat(bagValue);
+            adjustmentData.box_value = parseFloat(boxValue);
+            adjustmentData.amount = Math.abs(calculateBagToBoxAdjustment());
         }
-        adjustmentData.type = 'bag_to_box';  // ✅ ADD THIS - IMPORTANT!
-        adjustmentData.bag_count = parseInt(bagCount);
-        adjustmentData.box_count = parseInt(boxCount);
-        adjustmentData.bag_value = parseFloat(bagValue);
-        adjustmentData.box_value = parseFloat(boxValue);
-        adjustmentData.amount = Math.abs(calculateBagToBoxAdjustment());
-    } 
-    else if (adjustmentType === 'bill_to_bill') {
-        if (!customerCodeField || !customerBillNo || !customerBillValue) { 
-            alert('Please fill all bill to bill fields'); 
-            return; 
+        else if (adjustmentType === 'bill_to_bill') {
+            if (!customerCodeField || !customerBillNo || !customerBillValue) {
+                alert('Please fill all bill to bill fields');
+                return;
+            }
+            adjustmentData.type = 'bill_to_bill';  // ✅ ADD THIS - IMPORTANT!
+            adjustmentData.customer_code = customerCodeField;
+            adjustmentData.customer_bill_no = customerBillNo;
+            adjustmentData.customer_bill_value = parseFloat(customerBillValue);
+            adjustmentData.amount = parseFloat(customerBillValue);
         }
-        adjustmentData.type = 'bill_to_bill';  // ✅ ADD THIS - IMPORTANT!
-        adjustmentData.customer_code = customerCodeField;
-        adjustmentData.customer_bill_no = customerBillNo;
-        adjustmentData.customer_bill_value = parseFloat(customerBillValue);
-        adjustmentData.amount = parseFloat(customerBillValue);
-    } 
-    else if (adjustmentType === 'bad_debt') {
-        if (!badDebtName || !badDebtAmount) { 
-            alert('Please enter bad debt name and amount'); 
-            return; 
+        else if (adjustmentType === 'bad_debt') {
+            if (!badDebtName || !badDebtAmount) {
+                alert('Please enter bad debt name and amount');
+                return;
+            }
+            adjustmentData.type = 'bad_debt';  // ✅ ADD THIS - IMPORTANT!
+            adjustmentData.bad_debt_name = badDebtName;
+            adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
+            adjustmentData.amount = parseFloat(badDebtAmount);
         }
-        adjustmentData.type = 'bad_debt';  // ✅ ADD THIS - IMPORTANT!
-        adjustmentData.bad_debt_name = badDebtName;
-        adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
-        adjustmentData.amount = parseFloat(badDebtAmount);
-    }
-    
-    onConfirm(adjustmentData);
-    onClose();
-};
+
+        onConfirm(adjustmentData);
+        onClose();
+    };
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }} onClick={onClose}>
@@ -829,6 +1011,77 @@ export default function PrintedBills() {
     const navigate = useNavigate();
     const basePath = window.location.hostname === 'goviraju.lk' ? '/sms_new_frontend_50500' : '';
 
+    // ==================== AUTO REFRESH WITH SILENT UPDATE ====================
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const refreshTimeoutRef = useRef(null);
+    const isMountedRef = useRef(true);
+
+    // Silent refresh function - updates data without showing loading skeleton
+    const silentRefresh = useCallback(async () => {
+        if (!isMountedRef.current) return;
+
+        setIsRefreshing(true);
+        try {
+            const [salesRes, customersRes] = await Promise.all([
+                api.get(routes.getAllSales),
+                api.get(routes.customers)
+            ]);
+
+            const salesData = salesRes.data.sales || salesRes.data || [];
+            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+            const { pendingBills, appliedBills } = processBillData(salesData);
+
+            // Only update if component is still mounted
+            if (isMountedRef.current) {
+                setState(prev => ({
+                    ...prev,
+                    pendingBills,
+                    appliedBills,
+                    customers: customersData,
+                    isLoading: false
+                }));
+            }
+        } catch (error) {
+            console.error("Silent refresh error:", error);
+        } finally {
+            if (isMountedRef.current) {
+                setIsRefreshing(false);
+            }
+        }
+    }, []);
+
+    // Initial fetch and setup auto-refresh every 3 seconds
+    useEffect(() => {
+        isMountedRef.current = true;
+
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) setUser(JSON.parse(storedUser));
+
+        // Initial load with loading indicator
+        const initialLoad = async () => {
+            setState(prev => ({ ...prev, isLoading: true }));
+            await silentRefresh();
+        };
+        initialLoad();
+
+        // Set up interval for silent refresh every 3 seconds
+        const intervalId = setInterval(() => {
+            // Only refresh if we're not already refreshing and component is mounted
+            if (!isRefreshing && isMountedRef.current && !viewOldBills) {
+                silentRefresh();
+            }
+        }, 3000); // 3 seconds
+
+        // Cleanup on unmount
+        return () => {
+            isMountedRef.current = false;
+            if (refreshTimeoutRef.current) {
+                clearTimeout(refreshTimeoutRef.current);
+            }
+            clearInterval(intervalId);
+        };
+    }, []); // Empty dependency array - only runs once on mount
+
     // Report Modal States
     const [modals, setModals] = useState({
         itemReport: false, weightReport: false, grnSaleReport: false, salesAdjustmentReport: false,
@@ -838,18 +1091,28 @@ export default function PrintedBills() {
     const toggleModal = (name) => setModals(prev => ({ ...prev, [name]: !prev[name] }));
 
     // Old Bills States
-    const [viewOldBills, setViewOldBills] = useState(false);
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+       // Old Bills States - Initialize from localStorage immediately
+    const [viewOldBills, setViewOldBills] = useState(() => {
+        const saved = localStorage.getItem('printedBills_viewOldBills');
+        return saved === 'true';
+    });
+    const [startDate, setStartDate] = useState(() => {
+        return localStorage.getItem('printedBills_startDate') || '';
+    });
+    const [endDate, setEndDate] = useState(() => {
+        return localStorage.getItem('printedBills_endDate') || '';
+    });
     const [archivedData, setArchivedData] = useState({ pendingBills: [], appliedBills: [], isLoading: false });
-    const [dataSource, setDataSource] = useState('sales');
+    const [dataSource, setDataSource] = useState(() => {
+        return localStorage.getItem('printedBills_dataSource') || 'sales';
+    });
 
     const [state, setState] = useState({
         pendingBills: [], appliedBills: [], customers: [], pendingSearchQuery: "", appliedSearchQuery: "",
         selectedBill: null, isLoading: true, isPrinting: false, givenAmountInput: "", isUpdatingCompletedBill: false,
         showChequeModal: false, pendingChequeAmount: 0, showAdjustmentModal: false, showBankToBankModal: false,
         pendingBankToBankAmount: 0, showPaymentHistoryModal: false, currentPayments: [], paymentHistoryTotalPaid: 0,
-        paymentHistoryTotalBill: 0, paymentHistoryRemaining: 0, customerType: 'walking', showDebtorForm: false,
+        paymentHistoryTotalBill: 0, paymentHistoryRemaining: 0, customerType: null, showDebtorForm: false,
         pendingDebtorBill: null, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null
     });
 
@@ -920,53 +1183,36 @@ export default function PrintedBills() {
     };
 
     const handleBillClick = async (bill) => {
+        // If clicking the same bill, clear it
         if (state.selectedBill?.billNo === bill.billNo) {
-            setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "", isUpdatingCompletedBill: false }));
+            setState(prev => ({
+                ...prev,
+                selectedBill: null,
+                givenAmountInput: "",
+                isUpdatingCompletedBill: false
+            }));
             setSelectedBillDebtor(null);
-        } else {
-            setState(prev => ({ ...prev, selectedBill: bill, givenAmountInput: "", isUpdatingCompletedBill: bill.givenAmountApplied === 'Y' }));
-            try {
-                const response = await api.get(`/debtors/${bill.billNo}`);
-                if (response.data.success && response.data.data) setSelectedBillDebtor(response.data.data);
-                else setSelectedBillDebtor(null);
-            } catch (e) { setSelectedBillDebtor(null); }
+            return;
+        }
+
+        setState(prev => ({
+            ...prev,
+            selectedBill: bill,
+            givenAmountInput: "",
+            isUpdatingCompletedBill: bill.givenAmountApplied === 'Y'
+        }));
+        try {
+            const response = await api.get(`/debtors/${bill.billNo}`);
+            if (response.data.success && response.data.data) {
+                setSelectedBillDebtor(response.data.data);
+            } else {
+                setSelectedBillDebtor(null);
+            }
+        } catch (e) {
+            setSelectedBillDebtor(null);
         }
     };
-    // Load saved filter states from localStorage on component mount
-    // Load saved filter states from localStorage on component mount
-    useEffect(() => {
-        const savedViewOldBills = localStorage.getItem('printedBills_viewOldBills');
-        const savedStartDate = localStorage.getItem('printedBills_startDate');
-        const savedEndDate = localStorage.getItem('printedBills_endDate');
-        const savedDataSource = localStorage.getItem('printedBills_dataSource');
-
-        let hasSavedFilters = false;
-
-        if (savedViewOldBills !== null) {
-            setViewOldBills(savedViewOldBills === 'true');
-            hasSavedFilters = true;
-        }
-        if (savedStartDate) {
-            setStartDate(savedStartDate);
-            hasSavedFilters = true;
-        }
-        if (savedEndDate) {
-            setEndDate(savedEndDate);
-            hasSavedFilters = true;
-        }
-        if (savedDataSource && savedDataSource !== 'sales') {
-            setDataSource(savedDataSource);
-            hasSavedFilters = true;
-        }
-
-        // If we have saved filters for archived bills, automatically fetch them
-        if (hasSavedFilters && savedViewOldBills === 'true' && savedStartDate && savedEndDate) {
-            // Use setTimeout to ensure all states are updated before fetching
-            setTimeout(() => {
-                fetchArchivedSales(true); // Pass a flag to indicate it's from localStorage
-            }, 100);
-        }
-    }, []);
+    
 
     // Save filter states whenever they change
     useEffect(() => {
@@ -1001,31 +1247,84 @@ export default function PrintedBills() {
         } catch (error) { console.error('Error deleting payments:', error); alert('Failed to reverse payments.'); }
         finally { setState(prev => ({ ...prev, isPrinting: false, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null })); }
     };
-
     const checkAndHandleDebtor = async (bill) => {
-        if (state.customerType === 'walking') { handleBillClick(bill); return; }
+        console.log('Checking debtor for:', bill.customerCode, 'Customer type:', state.customerType);
+
+        // If clicking the same bill that's already selected, clear everything
+        if (state.selectedBill && state.selectedBill.billNo === bill.billNo) {
+            setState(prev => ({
+                ...prev,
+                selectedBill: null,
+                givenAmountInput: "",
+                isUpdatingCompletedBill: false,
+                customerType: null  // Clear customer type as well
+            }));
+            setSelectedBillDebtor(null);
+            return;
+        }
+
+        // First, show the bill details in the middle screen
+        handleBillClick(bill);
+
+        // Then check if customer type is selected - if not, just show bill but don't process debtor logic
+        if (!state.customerType) {
+            // Bill details are shown, but payment section is locked via opacity/pointerEvents
+            return;
+        }
+
+        // If customer type is selected, proceed with debtor processing
+        if (state.customerType === 'walking') {
+            // Walking customer - no additional processing needed
+            return;
+        }
+
+        // For debtor type, process debtor registration if needed
         try {
             const response = await api.get(`${routes.checkCustomer}/${bill.customerCode}`);
-            if (response.data.exists) {
-                if (response.data.customer?.Debtor !== 'Y') await api.put(routes.updateDebtorStatus, { short_name: bill.customerCode, Debtor: 'Y' });
-                handleBillClick(bill);
-                setState(prev => ({ ...prev, customerType: 'walking' }));
-            } else {
-                setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: bill }));
-            }
-        } catch (error) { console.error('Error checking debtor:', error); handleBillClick(bill); }
-    };
+            const data = response.data;
+            console.log('Customer check response:', data);
 
-    const handleDebtorSave = (saved, debtorNo) => {
-        if (saved && state.pendingDebtorBill) {
-            alert(`Customer ${state.pendingDebtorBill.customerCode} registered as Debtor!${debtorNo ? `\nDebtor Number: ${debtorNo}` : ''}`);
-            setState(prev => ({ ...prev, customerType: 'walking', showDebtorForm: false, pendingDebtorBill: null }));
-            handleBillClick(state.pendingDebtorBill);
-        } else {
-            setState(prev => ({ ...prev, showDebtorForm: false, pendingDebtorBill: null }));
+            if (data.exists) {
+                if (data.customer && data.customer.Debtor !== 'Y') {
+                    await api.put(routes.updateDebtorStatus, {
+                        short_name: bill.customerCode,
+                        Debtor: 'Y'
+                    });
+                    console.log('Updated customer as Debtor');
+                }
+            } else {
+                console.log('Customer not found, showing debtor form');
+                setState(prev => ({
+                    ...prev,
+                    showDebtorForm: true,
+                    pendingDebtorBill: bill
+                }));
+            }
+        } catch (error) {
+            console.error('Error checking debtor:', error);
         }
     };
-
+    const handleDebtorSave = async (saved, debtorNo = null) => {
+        console.log('Debtor save callback:', saved, 'Debtor No:', debtorNo);
+        if (saved && state.pendingDebtorBill) {
+            setState(prev => ({
+                ...prev,
+                customerType: null,  // ✅ Reset to null, not 'walking'
+                showDebtorForm: false,
+                pendingDebtorBill: null
+            }));
+            const message = `Customer ${state.pendingDebtorBill.customerCode} has been registered as a Debtor!`;
+            const debtorMessage = debtorNo ? `\nDebtor Number: ${debtorNo}` : '';
+            const billMessage = state.pendingDebtorBill.billNo ? `\nBill No: ${state.pendingDebtorBill.billNo}` : '';
+            alert(message + debtorMessage + billMessage);
+        } else {
+            setState(prev => ({
+                ...prev,
+                showDebtorForm: false,
+                pendingDebtorBill: null
+            }));
+        }
+    };
     const handlePrintWithoutUpdate = async () => {
         if (!state.selectedBill?.sales?.length) { alert("No sales data found."); return; }
         setState(prev => ({ ...prev, isPrinting: true }));
@@ -1868,35 +2167,105 @@ export default function PrintedBills() {
                                     <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'white', margin: 0 }}>Bill Details</h2>
                                 </div>
                                 {state.selectedBill && (
-                                    <button onClick={() => setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "" }))} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', padding: '6px 14px', borderRadius: '30px' }}>
+                                    <button onClick={() => setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "", customerType: null }))} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', padding: '6px 14px', borderRadius: '30px' }}>
                                         ✕ Clear
                                     </button>
                                 )}
                             </div>
                         </div>
 
-                        {/* Scrollable Content */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc' }}>
+                        {/* Scrollable Content - DISABLED if no customer type selected */}
+                        <div style={{
+                            flex: 1,
+                            overflowY: 'auto',
+                            padding: '24px',
+                            background: '#f8fafc',
+                            position: 'relative',
+                            opacity: !state.customerType ? 0.5 : 1,
+                            pointerEvents: !state.customerType ? 'none' : 'auto'
+                        }}>
+                            {!state.customerType && (
+                                <div style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    background: 'rgba(200, 200, 200, 0.3)',
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    zIndex: 10,
+                                    borderRadius: '20px'
+                                }}>
+                                    <div style={{
+                                        background: 'white',
+                                        padding: '15px 25px',
+                                        borderRadius: '12px',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                        textAlign: 'center'
+                                    }}>
+                                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔒</div>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#475569' }}>Select customer type above to continue</div>
+                                    </div>
+                                </div>
+                            )}
                             {state.selectedBill ? (
                                 <>
                                     {/* Bill Info Card */}
                                     <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
-                                            <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Bill Number</div><div style={{ fontSize: '24px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>#{state.selectedBill.billNo}</div></div>
-                                            <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Customer</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBill.customerCode}</div></div>
-                                            <div><span style={{ display: 'inline-block', padding: '6px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: '600', background: state.selectedBill.givenAmountApplied === 'Y' ? '#10b981' : '#f59e0b', color: 'white' }}>{state.selectedBill.givenAmountApplied === 'Y' ? '✓ PAID' : '⏳ PENDING'}</span></div>
+                                            <div>
+                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Bill Number</div>
+                                                <div style={{ fontSize: '24px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>#{state.selectedBill.billNo}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Customer</div>
+                                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBill.customerCode}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Status</div>
+                                                <span style={{ display: 'inline-block', padding: '6px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: '600', background: state.selectedBill.givenAmountApplied === 'Y' ? '#10b981' : '#f59e0b', color: 'white' }}>
+                                                    {state.selectedBill.givenAmountApplied === 'Y' ? '✓ PAID' : '⏳ PENDING'}
+                                                </span>
+                                            </div>
                                         </div>
+
+                                        {/* Display Debtor Number if available */}
+                                        {selectedBillDebtor && selectedBillDebtor.Debtor_no && (
+                                            <div style={{
+                                                marginTop: '12px',
+                                                padding: '10px 12px',
+                                                background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)',
+                                                borderRadius: '10px',
+                                                borderLeft: '4px solid #8b5cf6'
+                                            }}>
+                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#6d28d9', marginBottom: '4px' }}>📋 Debtor Number</div>
+                                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#5b21b6', fontFamily: 'monospace' }}>{selectedBillDebtor.Debtor_no}</div>
+                                            </div>
+                                        )}
+
                                         <div style={{ marginTop: '20px', padding: '16px', background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', borderRadius: '14px', borderLeft: '4px solid #10b981' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                                                <div><div style={{ fontSize: '12px', color: '#065f46', fontWeight: '500', marginBottom: '4px' }}>💰 Cash Received</div><div style={{ fontSize: '20px', fontWeight: '700', color: '#047857' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || 0)}</div>{state.selectedBill.paymentAdjustmentType && <div style={{ fontSize: '11px', marginTop: '6px', color: '#047857' }}>Type: {state.selectedBill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : state.selectedBill.paymentAdjustmentType === 'Bank Transfer' ? '🏦 Bank Transfer' : state.selectedBill.paymentAdjustmentType === 'bag_to_box' ? '📦 Bag to Box' : state.selectedBill.paymentAdjustmentType === 'bill_to_bill' ? '📄 Bill Transfer' : state.selectedBill.paymentAdjustmentType === 'bad_debt' ? '⚠️ Bad Debt' : '💰 Cash'}</div>}</div>
+                                                <div>
+                                                    <div style={{ fontSize: '12px', color: '#065f46', fontWeight: '500', marginBottom: '4px' }}>💰 Cash Received</div>
+                                                    <div style={{ fontSize: '20px', fontWeight: '700', color: '#047857' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || 0)}</div>
+                                                    {state.selectedBill.paymentAdjustmentType && <div style={{ fontSize: '11px', marginTop: '6px', color: '#047857' }}>Type: {state.selectedBill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : state.selectedBill.paymentAdjustmentType === 'Bank Transfer' ? '🏦 Bank Transfer' : state.selectedBill.paymentAdjustmentType === 'bag_to_box' ? '📦 Bag to Box' : state.selectedBill.paymentAdjustmentType === 'bill_to_bill' ? '📄 Bill Transfer' : state.selectedBill.paymentAdjustmentType === 'bad_debt' ? '⚠️ Bad Debt' : '💰 Cash'}</div>}
+                                                </div>
                                                 {state.selectedBill.creditAmount > 0 && <div style={{ padding: '12px 16px', background: '#fef3c7', borderRadius: '12px', borderLeft: '3px solid #f59e0b' }}><div style={{ fontSize: '12px', color: '#92400e', fontWeight: '500' }}>💳 Credit Taken</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#b45309' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</div></div>}
                                             </div>
                                         </div>
-                                        {selectedBillDebtor && selectedBillDebtor.remaining_amount > 0 && (
+                                        {selectedBillDebtor && selectedBillDebtor.remaining_amount > 0 && selectedBillDebtor.credit_amount !== selectedBillDebtor.paid_amount && (
                                             <div style={{ marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '14px', borderLeft: '4px solid #f59e0b' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                                                    <div><div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '4px' }}>⚠️ Outstanding Debt</div><div style={{ fontSize: '22px', fontWeight: '700', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillDebtor.remaining_amount)}</div><div style={{ fontSize: '11px', color: '#78350f' }}>Any payment applied to this debt first</div></div>
-                                                    <div style={{ padding: '6px 12px', background: selectedBillDebtor.status === 'paid' ? '#10b981' : selectedBillDebtor.status === 'partial' ? '#f59e0b' : '#ef4444', borderRadius: '30px', color: 'white', fontSize: '11px', fontWeight: '600' }}>{selectedBillDebtor.status === 'paid' ? 'PAID' : selectedBillDebtor.status === 'partial' ? 'PARTIAL' : 'PENDING'}</div>
+                                                    <div>
+                                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '4px' }}>⚠️ Outstanding Debt</div>
+                                                        <div style={{ fontSize: '22px', fontWeight: '700', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillDebtor.remaining_amount)}</div>
+                                                        <div style={{ fontSize: '11px', color: '#78350f' }}>Any payment applied to this debt first</div>
+                                                    </div>
+                                                    <div style={{ padding: '6px 12px', background: selectedBillDebtor.status === 'paid' ? '#10b981' : selectedBillDebtor.status === 'partial' ? '#f59e0b' : '#ef4444', borderRadius: '30px', color: 'white', fontSize: '11px', fontWeight: '600' }}>
+                                                        {selectedBillDebtor.status === 'paid' ? 'PAID' : selectedBillDebtor.status === 'partial' ? 'PARTIAL' : 'PENDING'}
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
@@ -1907,23 +2276,27 @@ export default function PrintedBills() {
                                         <div style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}><span>📋</span> Items List</div>
                                         <div style={{ overflowX: 'auto' }}>
                                             <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
-                                                <thead><tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
-                                                    <th style={{ padding: '14px 12px', textAlign: 'left' }}>Item</th>
-                                                    <th style={{ padding: '14px 12px', textAlign: 'right' }}>Kg</th>
-                                                    <th style={{ padding: '14px 12px', textAlign: 'right' }}>Price</th>
-                                                    <th style={{ padding: '14px 12px', textAlign: 'center' }}>Packs</th>
-                                                    <th style={{ padding: '14px 12px', textAlign: 'right' }}>Total</th>
-                                                </tr></thead>
+                                                <thead>
+                                                    <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
+                                                        <th style={{ padding: '14px 12px', textAlign: 'left' }}>Item</th>
+                                                        <th style={{ padding: '14px 12px', textAlign: 'right' }}>Kg</th>
+                                                        <th style={{ padding: '14px 12px', textAlign: 'right' }}>Price</th>
+                                                        <th style={{ padding: '14px 12px', textAlign: 'center' }}>Packs</th>
+                                                        <th style={{ padding: '14px 12px', textAlign: 'right' }}>Total</th>
+                                                    </tr>
+                                                </thead>
                                                 <tbody>
                                                     {state.selectedBill.sales.map((s, i) => {
                                                         const total = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0);
-                                                        return (<tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                            <td style={{ padding: '14px 12px', fontWeight: '500' }}>{s.item_name}<div style={{ fontSize: '11px', color: '#94a3b8' }}>{s.supplier_code || 'ASW'}</div></td>
-                                                            <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.weight)}</td>
-                                                            <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.price_per_kg)}</td>
-                                                            <td style={{ padding: '14px 12px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '2px 10px', borderRadius: '20px', fontSize: '12px' }}>{s.packs}</span></td>
-                                                            <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', color: '#059669', fontFamily: 'monospace' }}>Rs. {formatDecimal(total)}</td>
-                                                        </tr>);
+                                                        return (
+                                                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                                <td style={{ padding: '14px 12px', fontWeight: '500' }}>{s.item_name}<div style={{ fontSize: '11px', color: '#94a3b8' }}>{s.supplier_code || 'ASW'}</div></td>
+                                                                <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.weight)}</td>
+                                                                <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.price_per_kg)}</td>
+                                                                <td style={{ padding: '14px 12px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '2px 10px', borderRadius: '20px', fontSize: '12px' }}>{s.packs}</span></td>
+                                                                <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', color: '#059669', fontFamily: 'monospace' }}>Rs. {formatDecimal(total)}</td>
+                                                            </tr>
+                                                        );
                                                     })}
                                                 </tbody>
                                             </table>
@@ -1933,12 +2306,34 @@ export default function PrintedBills() {
                                     {/* Totals Card */}
                                     <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Subtotal:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span></div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Bag Charges:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.packs) || 0) * (parseFloat(s.CustomerPackCost) || 0)), 0))}</span></div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', fontWeight: '700', fontSize: '18px', borderTop: '2px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}><span>Total Payable:</span><span style={{ fontFamily: 'monospace', color: '#dc2626' }}>Rs. {formatDecimal(state.selectedBill.totalAmount)}</span></div>
-                                            {(state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0) && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#059669', fontWeight: '600' }}><span>Cash Given:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || state.selectedBill.givenAmount)}</span></div>}
-                                            {state.selectedBill.creditAmount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#d97706', fontWeight: '600' }}><span>Credit Taken:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</span></div>}
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: '16px', color: '#dc2626', fontWeight: '700', background: '#fef2f2', borderRadius: '12px', marginTop: '8px' }}><span>💰 Remaining:</span><span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - (state.selectedBill.cashPayments || state.selectedBill.givenAmount || 0)))}</span></div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}>
+                                                <span>Subtotal:</span>
+                                                <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}>
+                                                <span>Bag Charges:</span>
+                                                <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.packs) || 0) * (parseFloat(s.CustomerPackCost) || 0)), 0))}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', fontWeight: '700', fontSize: '18px', borderTop: '2px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}>
+                                                <span>Total Payable:</span>
+                                                <span style={{ fontFamily: 'monospace', color: '#dc2626' }}>Rs. {formatDecimal(state.selectedBill.totalAmount)}</span>
+                                            </div>
+                                            {(state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0) && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#059669', fontWeight: '600' }}>
+                                                    <span>Cash Given:</span>
+                                                    <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || state.selectedBill.givenAmount)}</span>
+                                                </div>
+                                            )}
+                                            {state.selectedBill.creditAmount > 0 && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#d97706', fontWeight: '600' }}>
+                                                    <span>Credit Taken:</span>
+                                                    <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</span>
+                                                </div>
+                                            )}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: '16px', color: '#dc2626', fontWeight: '700', background: '#fef2f2', borderRadius: '12px', marginTop: '8px' }}>
+                                                <span>💰 Remaining:</span>
+                                                <span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - (state.selectedBill.cashPayments || state.selectedBill.givenAmount || 0)))}</span>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -2013,7 +2408,7 @@ export default function PrintedBills() {
             {/* Modals */}
             <ChequeModal isOpen={state.showChequeModal} onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingChequeAmount, true, details); }} amount={state.pendingChequeAmount} />
             <BankToBankModal isOpen={state.showBankToBankModal} onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingBankToBankAmount, false, null, true, details); }} amount={state.pendingBankToBankAmount} customerCode={state.selectedBill?.customerCode} customerName={state.customers.find(c => c.short_name?.toUpperCase() === state.selectedBill?.customerCode?.toUpperCase())?.name} />
-          <PaymentAdjustmentModal isOpen={state.showAdjustmentModal} onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))} onConfirm={async (data) => { await processPayment(data.amount, false, null, false, null, true, data); }} billNo={state.selectedBill?.billNo} customerCode={state.selectedBill?.customerCode} originalBillTotal={state.selectedBill?.totalAmount || 0} />
+            <PaymentAdjustmentModal isOpen={state.showAdjustmentModal} onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))} onConfirm={async (data) => { await processPayment(data.amount, false, null, false, null, true, data); }} billNo={state.selectedBill?.billNo} customerCode={state.selectedBill?.customerCode} originalBillTotal={state.selectedBill?.totalAmount || 0} />
             <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
             <DebtorFormModal isOpen={state.showDebtorForm} onClose={() => setState(prev => ({ ...prev, showDebtorForm: false, pendingDebtorBill: null }))} onSave={handleDebtorSave} customerCode={state.pendingDebtorBill?.customerCode || ''} billNo={state.pendingDebtorBill?.billNo} />
             <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null }))} onConfirm={handleDeleteBillPayments} billNo={state.deleteBillNo} customerCode={state.deleteCustomerCode} />
@@ -2030,6 +2425,4 @@ export default function PrintedBills() {
             <DayProcessModal isOpen={modals.dayProcess} onClose={() => toggleModal('dayProcess')} />
         </div>
     );
-
-
 }
