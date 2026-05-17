@@ -743,6 +743,7 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
 };
 
 // ==================== PAYMENT ADJUSTMENT MODAL ====================
+// ==================== PAYMENT ADJUSTMENT MODAL ====================
 const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCode, originalBillTotal }) => {
     const [adjustmentType, setAdjustmentType] = useState('bag_to_box');
     const [bagCount, setBagCount] = useState('');
@@ -769,7 +770,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                 alert('Please fill all bag/box fields');
                 return;
             }
-            adjustmentData.type = 'bag_to_box';  // ✅ ADD THIS - IMPORTANT!
+            adjustmentData.type = 'bag_to_box';
             adjustmentData.bag_count = parseInt(bagCount);
             adjustmentData.box_count = parseInt(boxCount);
             adjustmentData.bag_value = parseFloat(bagValue);
@@ -781,7 +782,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                 alert('Please fill all bill to bill fields');
                 return;
             }
-            adjustmentData.type = 'bill_to_bill';  // ✅ ADD THIS - IMPORTANT!
+            adjustmentData.type = 'bill_to_bill';
             adjustmentData.customer_code = customerCodeField;
             adjustmentData.customer_bill_no = customerBillNo;
             adjustmentData.customer_bill_value = parseFloat(customerBillValue);
@@ -792,7 +793,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                 alert('Please enter bad debt name and amount');
                 return;
             }
-            adjustmentData.type = 'bad_debt';  // ✅ ADD THIS - IMPORTANT!
+            adjustmentData.type = 'bad_debt';
             adjustmentData.bad_debt_name = badDebtName;
             adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
             adjustmentData.amount = parseFloat(badDebtAmount);
@@ -800,6 +801,20 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
 
         onConfirm(adjustmentData);
         onClose();
+    };
+
+    const handleTypeSelect = (type) => {
+        setAdjustmentType(type);
+        // Reset form fields when switching types
+        setBagCount('');
+        setBoxCount('');
+        setBagValue('');
+        setBoxValue('');
+        setCustomerCodeField('');
+        setCustomerBillNo('');
+        setCustomerBillValue('');
+        setBadDebtName('');
+        setBadDebtAmount('');
     };
 
     return (
@@ -810,14 +825,74 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                     <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', fontSize: '24px', cursor: 'pointer', color: 'white', width: '34px', height: '34px', borderRadius: '50%' }}>×</button>
                 </div>
                 <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-                    <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>Adjustment Type</label>
-                        <select value={adjustmentType} onChange={(e) => setAdjustmentType(e.target.value)} style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}>
-                            <option value="bag_to_box">📦 Bag to Box Conversion</option>
-                            <option value="bill_to_bill">📄 Bill to Bill Transfer</option>
-                            <option value="bad_debt">⚠️ Bad Debt Write-off</option>
-                        </select>
+                    {/* Three Buttons for Adjustment Types - REPLACES THE DROPDOWN */}
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={() => handleTypeSelect('bag_to_box')}
+                            style={{
+                                flex: 1,
+                                padding: '14px',
+                                background: adjustmentType === 'bag_to_box' ? 'linear-gradient(135deg, #10b981, #059669)' : '#f1f5f9',
+                                color: adjustmentType === 'bag_to_box' ? 'white' : '#475569',
+                                border: adjustmentType === 'bag_to_box' ? 'none' : '2px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            <span>📦</span> Bag to Box Conversion
+                        </button>
+                        <button
+                            onClick={() => handleTypeSelect('bill_to_bill')}
+                            style={{
+                                flex: 1,
+                                padding: '14px',
+                                background: adjustmentType === 'bill_to_bill' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#f1f5f9',
+                                color: adjustmentType === 'bill_to_bill' ? 'white' : '#475569',
+                                border: adjustmentType === 'bill_to_bill' ? 'none' : '2px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            <span>📄</span> Bill to Bill Transfer
+                        </button>
+                        <button
+                            onClick={() => handleTypeSelect('bad_debt')}
+                            style={{
+                                flex: 1,
+                                padding: '14px',
+                                background: adjustmentType === 'bad_debt' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : '#f1f5f9',
+                                color: adjustmentType === 'bad_debt' ? 'white' : '#475569',
+                                border: adjustmentType === 'bad_debt' ? 'none' : '2px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            <span>⚠️</span> Bad Debt Write-off
+                        </button>
                     </div>
+
+                    {/* Conditional Form Fields based on selected adjustment type */}
                     {adjustmentType === 'bag_to_box' && (
                         <>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
@@ -834,6 +909,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                             </div>
                         </>
                     )}
+
                     {adjustmentType === 'bill_to_bill' && (
                         <>
                             <div style={{ marginBottom: '24px', padding: '16px', background: '#f8fafc', borderRadius: '16px' }}>
@@ -850,6 +926,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
                             </div>
                         </>
                     )}
+
                     {adjustmentType === 'bad_debt' && (
                         <>
                             <div style={{ marginBottom: '16px' }}><label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>Bad Debt Name/Reference</label><input type="text" value={badDebtName} onChange={(e) => setBadDebtName(e.target.value)} style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px' }} /></div>
@@ -1049,6 +1126,30 @@ export default function PrintedBills() {
             }
         }
     }, []);
+    const getTotalReceived = (bill) => {
+        if (!bill) return 0;
+
+        let total = 0;
+        const history = bill.paymentHistory || bill.payment_history;
+        if (history) {
+            let payments = typeof history === 'string' ? JSON.parse(history) : history;
+            if (Array.isArray(payments)) {
+                payments.forEach(p => {
+                    if (p.method !== 'Credit') {
+                        total += parseFloat(p.amount) || 0;
+                    }
+                });
+            }
+        }
+        return total;
+    };
+    const getAdjustmentTotals = (history) => {
+        let totals = { bag_to_box: 0, bill_to_bill: 0, bad_debt: 0 };
+        if (!history) return totals;
+        let payments = typeof history === 'string' ? JSON.parse(history) : (history || []);
+        payments.forEach(p => { if (totals[p.method] !== undefined) totals[p.method] += parseFloat(p.amount) || 0; });
+        return totals;
+    };
 
     // Initial fetch and setup auto-refresh every 3 seconds
     useEffect(() => {
@@ -1080,8 +1181,7 @@ export default function PrintedBills() {
             }
             clearInterval(intervalId);
         };
-    }, []); // Empty dependency array - only runs once on mount
-
+    }, []);
     // Report Modal States
     const [modals, setModals] = useState({
         itemReport: false, weightReport: false, grnSaleReport: false, salesAdjustmentReport: false,
@@ -1113,9 +1213,21 @@ export default function PrintedBills() {
         showChequeModal: false, pendingChequeAmount: 0, showAdjustmentModal: false, showBankToBankModal: false,
         pendingBankToBankAmount: 0, showPaymentHistoryModal: false, currentPayments: [], paymentHistoryTotalPaid: 0,
         paymentHistoryTotalBill: 0, paymentHistoryRemaining: 0, customerType: null, showDebtorForm: false,
-        pendingDebtorBill: null, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null
+        pendingDebtorBill: null, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null, adjustmentType: 'bag_to_box', // Track selected adjustment type
+        bagCount: '', boxCount: '', bagValue: '', boxValue: '',
+        customerCodeField: '', customerBillNo: '', customerBillValue: '',
+        badDebtName: '', badDebtAmount: ''
     });
-
+    // Add this useEffect after your state declarations (around line where other useEffects are)
+    useEffect(() => {
+        if (state.givenAmountInput) {
+            setState(prev => ({
+                ...prev,
+                customerBillValue: state.givenAmountInput,
+                badDebtAmount: state.givenAmountInput
+            }));
+        }
+    }, [state.givenAmountInput]);
     const [selectedBillDebtor, setSelectedBillDebtor] = useState(null);
     const [user, setUser] = useState(null);
 
@@ -1126,6 +1238,98 @@ export default function PrintedBills() {
         const interval = setInterval(fetchSalesData, 30000);
         return () => clearInterval(interval);
     }, []);
+    const handleAdjustmentTypeSelect = (type) => {
+        setState(prev => ({
+            ...prev,
+            adjustmentType: type,
+            // Reset all adjustment fields
+            bagCount: '', boxCount: '', bagValue: '', boxValue: '',
+            customerCodeField: '', customerBillNo: '', customerBillValue: '',
+            badDebtName: '', badDebtAmount: ''
+        }));
+    };
+
+    const calculateBagToBoxAdjustment = () => {
+        return ((parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0)) +
+            ((parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0));
+    };
+
+    const handleAdjustmentPayment = async () => {
+        let paymentAmount = parseFloat(state.givenAmountInput);
+        if (!paymentAmount || paymentAmount <= 0) {
+            alert("Please enter a valid amount");
+            return;
+        }
+
+        if (!state.selectedBill) {
+            alert("Please select a bill first");
+            return;
+        }
+
+        const remainingBillAmount = state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0);
+        if (paymentAmount > remainingBillAmount) {
+            alert(`Amount exceeds remaining bill amount!\n\nRemaining: Rs. ${formatDecimal(remainingBillAmount)}\nEntered: Rs. ${formatDecimal(paymentAmount)}`);
+            return;
+        }
+
+        let adjustmentDetails = null;
+
+        if (state.adjustmentType === 'bag_to_box') {
+            if (!state.bagCount || !state.boxCount || !state.bagValue || !state.boxValue) {
+                alert('Please fill all bag/box fields');
+                return;
+            }
+            adjustmentDetails = {
+                type: 'bag_to_box',
+                amount: Math.abs(calculateBagToBoxAdjustment()),
+                bag_count: parseInt(state.bagCount),
+                box_count: parseInt(state.boxCount),
+                bag_value: parseFloat(state.bagValue),
+                box_value: parseFloat(state.boxValue)
+            };
+        } else if (state.adjustmentType === 'bill_to_bill') {
+            if (!state.customerCodeField || !state.customerBillNo || !state.customerBillValue) {
+                alert('Please fill all bill to bill fields');
+                return;
+            }
+            adjustmentDetails = {
+                type: 'bill_to_bill',
+                amount: parseFloat(state.customerBillValue),
+                customer_code: state.customerCodeField,
+                customer_bill_no: state.customerBillNo,
+                customer_bill_value: parseFloat(state.customerBillValue)
+            };
+        } else if (state.adjustmentType === 'bad_debt') {
+            if (!state.badDebtName || !state.badDebtAmount) {
+                alert('Please enter bad debt name and amount');
+                return;
+            }
+            adjustmentDetails = {
+                type: 'bad_debt',
+                amount: parseFloat(state.badDebtAmount),
+                bad_debt_name: state.badDebtName,
+                bad_debt_amount: parseFloat(state.badDebtAmount)
+            };
+        }
+
+        await processPayment(paymentAmount, false, null, false, null, true, adjustmentDetails);
+
+        // Clear all adjustment fields after submission
+        setState(prev => ({
+            ...prev,
+            givenAmountInput: "",
+            bagCount: '',
+            boxCount: '',
+            bagValue: '',
+            boxValue: '',
+            customerCodeField: '',
+            customerBillNo: '',
+            customerBillValue: '',
+            badDebtName: '',
+            badDebtAmount: '',
+            adjustmentType: 'bag_to_box'
+        }));
+    };
 
     const fetchSalesData = async () => {
         try {
@@ -1168,21 +1372,21 @@ export default function PrintedBills() {
         }
     };
 
-   const resetToCurrentSales = () => {
-    setViewOldBills(false);
-    setStartDate('');
-    setEndDate('');
-    setDataSource('sales');
-    setArchivedData({ pendingBills: [], appliedBills: [], isLoading: false });
-    // Reset customer type to null when going back to current bills
-    setState(prev => ({ ...prev, customerType: null }));
-    fetchSalesData();
-    // Clear saved filter states from localStorage
-    localStorage.removeItem('printedBills_viewOldBills');
-    localStorage.removeItem('printedBills_startDate');
-    localStorage.removeItem('printedBills_endDate');
-    localStorage.removeItem('printedBills_dataSource');
-};
+    const resetToCurrentSales = () => {
+        setViewOldBills(false);
+        setStartDate('');
+        setEndDate('');
+        setDataSource('sales');
+        setArchivedData({ pendingBills: [], appliedBills: [], isLoading: false });
+        // Reset customer type to null when going back to current bills
+        setState(prev => ({ ...prev, customerType: null }));
+        fetchSalesData();
+        // Clear saved filter states from localStorage
+        localStorage.removeItem('printedBills_viewOldBills');
+        localStorage.removeItem('printedBills_startDate');
+        localStorage.removeItem('printedBills_endDate');
+        localStorage.removeItem('printedBills_dataSource');
+    };
 
     const handleBillClick = async (bill) => {
         // If clicking the same bill, clear it
@@ -2115,149 +2319,149 @@ export default function PrintedBills() {
     return (
         <div style={styles.app}>
             <div style={styles.container}>
-        {/* Old Bills Bar */}
-<div style={styles.oldBillsBar}>
-    <button 
-        onClick={async () => {
-            if (viewOldBills) {
-                // Switching from Old Bills to Current Bills
-                resetToCurrentSales();
-                // Reset customer type to null (user must select again)
-                setState(prev => ({ ...prev, customerType: null }));
-            } else {
-                // Switching from Current Bills to Old Bills
-                setViewOldBills(true);
-                // Auto-select Walking Customer when viewing old bills
-                setState(prev => ({ ...prev, customerType: 'walking' }));
-                
-                // Don't fetch immediately - let user select dates first
-                // Just show the date pickers
-            }
-        }} 
-        style={{
-            padding: '10px 24px',
-            background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontWeight: '600',
-            fontSize: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-        }}
-        onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-2px)';
-            e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
-        }}
-        onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-        }}
-    >
-        <span>📜</span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
-    </button>
-    
-    {viewOldBills && (
-        <div style={styles.datePickerContainer}>
-            <div>
-                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
-                <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                        setStartDate(e.target.value);
-                        // Auto-fetch when both dates are selected
-                        if (endDate && e.target.value) {
-                            setTimeout(() => {
-                                fetchArchivedSales();
-                            }, 100);
-                        }
-                    }}
-                    style={styles.dateInput}
-                />
-            </div>
-            <div>
-                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
-                <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                        setEndDate(e.target.value);
-                        // Auto-fetch when both dates are selected
-                        if (startDate && e.target.value) {
-                            setTimeout(() => {
-                                fetchArchivedSales();
-                            }, 100);
-                        }
-                    }}
-                    style={styles.dateInput}
-                />
-            </div>
-            <button 
-                onClick={() => {
-                    if (startDate && endDate) {
-                        setArchivedData(prev => ({ ...prev, isLoading: true }));
-                        fetchArchivedSales();
-                    } else {
-                        alert('Please select both start and end dates');
-                    }
-                }} 
-                style={{ 
-                    padding: '8px 20px', 
-                    background: 'linear-gradient(135deg, #10b981, #059669)', 
-                    color: 'white', 
-                    border: 'none', 
-                    borderRadius: '8px', 
-                    cursor: 'pointer', 
-                    fontWeight: '600', 
-                    marginTop: '18px' 
-                }}
-            >
-                Apply Filter
-            </button>
-            <button 
-                onClick={resetToCurrentSales} 
-                style={{ 
-                    padding: '8px 20px', 
-                    background: '#f1f5f9', 
-                    color: '#475569', 
-                    border: 'none', 
-                    borderRadius: '8px', 
-                    cursor: 'pointer', 
-                    fontWeight: '600', 
-                    marginTop: '18px' 
-                }}
-            >
-                Cancel
-            </button>
-        </div>
-    )}
-    
-    {dataSource === 'sales_history' && (
-        <div style={styles.viewTypeIndicator}>
-            <span>📚</span>Viewing Archived Bills
-            <button 
-                onClick={() => {
-                    resetToCurrentSales();
-                    setState(prev => ({ ...prev, customerType: null }));
-                }} 
-                style={{ 
-                    background: 'none', 
-                    border: 'none', 
-                    color: '#92400e', 
-                    cursor: 'pointer', 
-                    marginLeft: '4px' 
-                }}
-            >
-                ✕
-            </button>
-        </div>
-    )}
-</div>
+                {/* Old Bills Bar */}
+                <div style={styles.oldBillsBar}>
+                    <button
+                        onClick={async () => {
+                            if (viewOldBills) {
+                                // Switching from Old Bills to Current Bills
+                                resetToCurrentSales();
+                                // Reset customer type to null (user must select again)
+                                setState(prev => ({ ...prev, customerType: null }));
+                            } else {
+                                // Switching from Current Bills to Old Bills
+                                setViewOldBills(true);
+                                // Auto-select Walking Customer when viewing old bills
+                                setState(prev => ({ ...prev, customerType: 'walking' }));
+
+                                // Don't fetch immediately - let user select dates first
+                                // Just show the date pickers
+                            }
+                        }}
+                        style={{
+                            padding: '10px 24px',
+                            background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '12px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            transition: 'all 0.2s',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                        }}
+                    >
+                        <span>📜</span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
+                    </button>
+
+                    {viewOldBills && (
+                        <div style={styles.datePickerContainer}>
+                            <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => {
+                                        setStartDate(e.target.value);
+                                        // Auto-fetch when both dates are selected
+                                        if (endDate && e.target.value) {
+                                            setTimeout(() => {
+                                                fetchArchivedSales();
+                                            }, 100);
+                                        }
+                                    }}
+                                    style={styles.dateInput}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => {
+                                        setEndDate(e.target.value);
+                                        // Auto-fetch when both dates are selected
+                                        if (startDate && e.target.value) {
+                                            setTimeout(() => {
+                                                fetchArchivedSales();
+                                            }, 100);
+                                        }
+                                    }}
+                                    style={styles.dateInput}
+                                />
+                            </div>
+                            <button
+                                onClick={() => {
+                                    if (startDate && endDate) {
+                                        setArchivedData(prev => ({ ...prev, isLoading: true }));
+                                        fetchArchivedSales();
+                                    } else {
+                                        alert('Please select both start and end dates');
+                                    }
+                                }}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontWeight: '600',
+                                    marginTop: '18px'
+                                }}
+                            >
+                                Apply Filter
+                            </button>
+                            <button
+                                onClick={resetToCurrentSales}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: '#f1f5f9',
+                                    color: '#475569',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontWeight: '600',
+                                    marginTop: '18px'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+
+                    {dataSource === 'sales_history' && (
+                        <div style={styles.viewTypeIndicator}>
+                            <span>📚</span>Viewing Archived Bills
+                            <button
+                                onClick={() => {
+                                    resetToCurrentSales();
+                                    setState(prev => ({ ...prev, customerType: null }));
+                                }}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#92400e',
+                                    cursor: 'pointer',
+                                    marginLeft: '4px'
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 <div style={styles.threeColumns}>
                     {/* LEFT: Completed Payments */}
@@ -2269,13 +2473,16 @@ export default function PrintedBills() {
                                 <div key={bill.billNo} style={{ ...styles.billItem, ...styles.billApplied, ...(state.selectedBill?.billNo === bill.billNo && state.isUpdatingCompletedBill ? styles.billSelected : {}) }} onClick={() => handleBillClick(bill)} onContextMenu={(e) => handleContextMenu(e, bill)}>
                                     <div style={styles.billRow}>
                                         <div style={styles.billLeft}><div style={styles.billNo}>{bill.billNo}</div><div style={styles.billCustomer}>{bill.customerCode}</div></div>
-                                        <div style={styles.billRight}><div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>{bill.cashPayments > 0 && <div style={styles.billGiven}>Given: {formatDecimal(bill.cashPayments)}</div>}{bill.creditAmount > 0 && <div style={{ fontSize: '10px', color: '#d97706', marginTop: '2px' }}>💳 Credit: {formatDecimal(bill.creditAmount)}</div>}</div>
+                                        <div style={styles.billRight}>
+                                            <div style={styles.billTotal}>Rs. {formatDecimal(bill.totalAmount)}</div>
+                                            {getTotalReceived(bill) > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(getTotalReceived(bill))}</div>}
+                                            {bill.creditAmount > 0 && <div style={{ fontSize: '10px', color: '#d97706', marginTop: '2px' }}>💳 Credit: {formatDecimal(bill.creditAmount)}</div>}
+                                        </div>
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </div>
-
                     {/* CENTER: Bill Details */}
                     <div style={{ background: 'white', borderRadius: '24px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 35px -10px rgba(0,0,0,0.15)' }}>
                         {/* Customer Type Selector */}
@@ -2284,19 +2491,6 @@ export default function PrintedBills() {
                         </div>
 
                         {/* Header */}
-                        <div style={{ padding: '16px 24px', background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ width: '10px', height: '10px', background: '#fbbf24', borderRadius: '50%', boxShadow: '0 0 8px #fbbf24' }}></div>
-                                    <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'white', margin: 0 }}>Bill Details</h2>
-                                </div>
-                                {state.selectedBill && (
-                                    <button onClick={() => setState(prev => ({ ...prev, selectedBill: null, givenAmountInput: "", customerType: null }))} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', padding: '6px 14px', borderRadius: '30px' }}>
-                                        ✕ Clear
-                                    </button>
-                                )}
-                            </div>
-                        </div>
 
                         {/* Scrollable Content - DISABLED if no customer type selected */}
                         <div style={{
@@ -2362,23 +2556,21 @@ export default function PrintedBills() {
                                                 padding: '10px 12px',
                                                 background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)',
                                                 borderRadius: '10px',
-                                                borderLeft: '4px solid #8b5cf6'
+                                                borderLeft: '4px solid #8b5cf6',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px'
                                             }}>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#6d28d9', marginBottom: '4px' }}>📋 Debtor Number</div>
-                                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#5b21b6', fontFamily: 'monospace' }}>{selectedBillDebtor.Debtor_no}</div>
+                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#6d28d9' }}>
+                                                    📋 Debtor Number:
+                                                </div>
+                                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#5b21b6', fontFamily: 'monospace' }}>
+                                                    {selectedBillDebtor.Debtor_no}
+                                                </div>
                                             </div>
                                         )}
 
-                                        <div style={{ marginTop: '20px', padding: '16px', background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)', borderRadius: '14px', borderLeft: '4px solid #10b981' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                                                <div>
-                                                    <div style={{ fontSize: '12px', color: '#065f46', fontWeight: '500', marginBottom: '4px' }}>💰 Cash Received</div>
-                                                    <div style={{ fontSize: '20px', fontWeight: '700', color: '#047857' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || 0)}</div>
-                                                    {state.selectedBill.paymentAdjustmentType && <div style={{ fontSize: '11px', marginTop: '6px', color: '#047857' }}>Type: {state.selectedBill.paymentAdjustmentType === 'Cheque' ? '💳 Cheque' : state.selectedBill.paymentAdjustmentType === 'Bank Transfer' ? '🏦 Bank Transfer' : state.selectedBill.paymentAdjustmentType === 'bag_to_box' ? '📦 Bag to Box' : state.selectedBill.paymentAdjustmentType === 'bill_to_bill' ? '📄 Bill Transfer' : state.selectedBill.paymentAdjustmentType === 'bad_debt' ? '⚠️ Bad Debt' : '💰 Cash'}</div>}
-                                                </div>
-                                                {state.selectedBill.creditAmount > 0 && <div style={{ padding: '12px 16px', background: '#fef3c7', borderRadius: '12px', borderLeft: '3px solid #f59e0b' }}><div style={{ fontSize: '12px', color: '#92400e', fontWeight: '500' }}>💳 Credit Taken</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#b45309' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</div></div>}
-                                            </div>
-                                        </div>
+
                                         {selectedBillDebtor && selectedBillDebtor.remaining_amount > 0 && selectedBillDebtor.credit_amount !== selectedBillDebtor.paid_amount && (
                                             <div style={{ marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '14px', borderLeft: '4px solid #f59e0b' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
@@ -2442,10 +2634,10 @@ export default function PrintedBills() {
                                                 <span>Total Payable:</span>
                                                 <span style={{ fontFamily: 'monospace', color: '#dc2626' }}>Rs. {formatDecimal(state.selectedBill.totalAmount)}</span>
                                             </div>
-                                            {(state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0) && (
+                                            {(state.selectedBill && (state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0 || getTotalReceived(state.selectedBill) > 0)) && (
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#059669', fontWeight: '600' }}>
-                                                    <span>Cash Given:</span>
-                                                    <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.cashPayments || state.selectedBill.givenAmount)}</span>
+                                                    <span>💰 Total Received:</span>
+                                                    <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(getTotalReceived(state.selectedBill))}</span>
                                                 </div>
                                             )}
                                             {state.selectedBill.creditAmount > 0 && (
@@ -2456,27 +2648,143 @@ export default function PrintedBills() {
                                             )}
                                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: '16px', color: '#dc2626', fontWeight: '700', background: '#fef2f2', borderRadius: '12px', marginTop: '8px' }}>
                                                 <span>💰 Remaining:</span>
-                                                <span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - (state.selectedBill.cashPayments || state.selectedBill.givenAmount || 0)))}</span>
+                                                <span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - getTotalReceived(state.selectedBill)))}</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Payment Section */}
+                                    {/* Payment Section */}
                                     <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '20px', padding: '24px', marginBottom: '16px' }}>
                                         <div style={{ fontSize: '14px', fontWeight: '600', color: '#92400e', marginBottom: '16px' }}>💰 Enter Payment Amount</div>
                                         <input type="number" value={state.givenAmountInput} onChange={(e) => setState(prev => ({ ...prev, givenAmountInput: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }} />
+
+                                        {/* Payment Method Buttons */}
                                         <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
                                             <button onClick={async () => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else await processPayment(amt); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💵 Cash</button>
                                             <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingChequeAmount: amt, showChequeModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💳 Cheque</button>
                                             <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingBankToBankAmount: amt, showBankToBankModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#ec489a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>🏦 Transfer</button>
                                             <button onClick={handleCreditPayment} disabled={state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0} style={{ flex: 1, padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 0.5 : 1 }}>💳 Credit</button>
                                         </div>
-                                    </div>
 
+                                        {/* Adjustment Type Selection Buttons */}
+                                        <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '2px dashed #fbbf24' }}>
+                                            <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '12px' }}>🔧 OR Select Adjustment Type:</div>
+                                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                                <button
+                                                    onClick={() => handleAdjustmentTypeSelect('bag_to_box')}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '12px',
+                                                        background: state.adjustmentType === 'bag_to_box' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white',
+                                                        color: state.adjustmentType === 'bag_to_box' ? 'white' : '#475569',
+                                                        border: state.adjustmentType === 'bag_to_box' ? 'none' : '2px solid #e2e8f0',
+                                                        borderRadius: '10px',
+                                                        fontWeight: '600',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <span>📦</span> Bag to Box
+                                                </button>
+                                                <button
+                                                    onClick={() => handleAdjustmentTypeSelect('bill_to_bill')}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '12px',
+                                                        background: state.adjustmentType === 'bill_to_bill' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'white',
+                                                        color: state.adjustmentType === 'bill_to_bill' ? 'white' : '#475569',
+                                                        border: state.adjustmentType === 'bill_to_bill' ? 'none' : '2px solid #e2e8f0',
+                                                        borderRadius: '10px',
+                                                        fontWeight: '600',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <span>📄</span> Bill to Bill
+                                                </button>
+                                                <button
+                                                    onClick={() => handleAdjustmentTypeSelect('bad_debt')}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '12px',
+                                                        background: state.adjustmentType === 'bad_debt' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'white',
+                                                        color: state.adjustmentType === 'bad_debt' ? 'white' : '#475569',
+                                                        border: state.adjustmentType === 'bad_debt' ? 'none' : '2px solid #e2e8f0',
+                                                        borderRadius: '10px',
+                                                        fontWeight: '600',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <span>⚠️</span> Bad Debt
+                                                </button>
+                                            </div>
+
+                                            {/* Conditional Form Fields for Adjustments */}
+                                            {state.adjustmentType === 'bag_to_box' && (
+                                                <div style={{ marginTop: '16px', padding: '16px', background: '#fef3c7', borderRadius: '12px' }}>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                                                        <input type="number" placeholder="Number of Bags" value={state.bagCount} onChange={(e) => setState(prev => ({ ...prev, bagCount: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                        <input type="number" placeholder="Value per Bag (Rs.)" value={state.bagValue} onChange={(e) => setState(prev => ({ ...prev, bagValue: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                        <input type="number" placeholder="Number of Boxes" value={state.boxCount} onChange={(e) => setState(prev => ({ ...prev, boxCount: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                        <input type="number" placeholder="Value per Box (Rs.)" value={state.boxValue} onChange={(e) => setState(prev => ({ ...prev, boxValue: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                    </div>
+                                                    <div style={{ fontSize: '12px', color: '#92400e' }}>Adjustment Amount: Rs. {calculateBagToBoxAdjustment().toFixed(2)}</div>
+                                                </div>
+                                            )}
+
+                                            {state.adjustmentType === 'bill_to_bill' && (
+                                                <div style={{ marginTop: '16px', padding: '16px', background: '#dbeafe', borderRadius: '12px' }}>
+                                                    <input type="text" placeholder="Customer Code" value={state.customerCodeField} onChange={(e) => setState(prev => ({ ...prev, customerCodeField: e.target.value.toUpperCase() }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                    <input type="text" placeholder="Customer Bill No" value={state.customerBillNo} onChange={(e) => setState(prev => ({ ...prev, customerBillNo: e.target.value }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                    <input type="number" placeholder="Bill Amount (Rs.)" value={state.customerBillValue} onChange={(e) => setState(prev => ({ ...prev, customerBillValue: e.target.value }))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                </div>
+                                            )}
+
+                                            {state.adjustmentType === 'bad_debt' && (
+                                                <div style={{ marginTop: '16px', padding: '16px', background: '#fee2e2', borderRadius: '12px' }}>
+                                                    <input type="text" placeholder="Bad Debt Name/Reference" value={state.badDebtName} onChange={(e) => setState(prev => ({ ...prev, badDebtName: e.target.value }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                    <input type="number" placeholder="Bad Debt Amount (Rs.)" value={state.badDebtAmount} onChange={(e) => setState(prev => ({ ...prev, badDebtAmount: e.target.value }))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                </div>
+                                            )}
+
+                                            {/* Apply Adjustment Button */}
+                                            <button
+                                                onClick={handleAdjustmentPayment}
+                                                disabled={state.isPrinting || !state.givenAmountInput}
+                                                style={{
+                                                    width: '100%',
+                                                    marginTop: '16px',
+                                                    padding: '14px',
+                                                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '12px',
+                                                    fontWeight: '600',
+                                                    cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer',
+                                                    opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1
+                                                }}
+                                            >
+                                                ✅ Apply {state.adjustmentType === 'bag_to_box' ? 'Bag to Box' : state.adjustmentType === 'bill_to_bill' ? 'Bill to Bill' : 'Bad Debt'} Adjustment
+                                            </button>
+                                        </div>
+                                    </div>
                                     {/* Action Buttons */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         <button onClick={handlePrintWithoutUpdate} disabled={state.isPrinting} style={{ width: '100%', padding: '14px', background: '#64748b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting ? 'not-allowed' : 'pointer' }}>🖨️ Re-print Bill</button>
-                                        <button onClick={() => setState(prev => ({ ...prev, showAdjustmentModal: true }))} style={{ width: '100%', padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>🔧 Payment Adjustment</button>
                                         <button onClick={handleViewPaymentHistory} style={{ width: '100%', padding: '14px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}>📜 View Payment History</button>
                                     </div>
                                 </>
