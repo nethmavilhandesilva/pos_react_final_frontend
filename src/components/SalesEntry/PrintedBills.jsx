@@ -93,7 +93,7 @@ const processBillData = (salesData) => {
 };
 
 // ==================== CUSTOMER TYPE SELECTOR ====================
-const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, billCustomerCode = null, billNo = null }) => {
+const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, billCustomerCode = null, billNo = null, selectedBillDebtor = null }) => {
     const [showDebtorConfirm, setShowDebtorConfirm] = useState(false);
     const [customerCode, setCustomerCode] = useState('');
     const [loading, setLoading] = useState(false);
@@ -103,6 +103,9 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
     const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
     const [selectedFromDropdown, setSelectedFromDropdown] = useState(false);
     const [customersLoaded, setCustomersLoaded] = useState(false);
+
+    // Check if bill has an existing debtor number
+    const billHasDebtor = selectedBillDebtor?.Debtor_no;
 
     useEffect(() => { fetchAllCustomers(); }, []);
     useEffect(() => { if (showDebtorConfirm && !customersLoaded) fetchAllCustomers(); }, [showDebtorConfirm]);
@@ -215,8 +218,8 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
 
     const handleSkip = () => { setShowDebtorConfirm(false); resetCustomerState(); };
 
-    // Check if no type is selected
-    const noTypeSelected = !selectedType;
+    // Check if no type is selected AND there's no existing debtor
+    const noTypeSelected = !selectedType && !billHasDebtor;
 
     return (
         <>
@@ -225,14 +228,14 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button
                         onClick={() => onSelect('walking')}
-                        disabled={disabled}
+                        disabled={disabled || !!billHasDebtor}
                         style={{
                             flex: 1, padding: '10px',
                             background: selectedType === 'walking' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white',
                             color: selectedType === 'walking' ? 'white' : '#475569',
                             border: selectedType === 'walking' ? 'none' : '2px solid #e2e8f0',
                             borderRadius: '10px',
-                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            cursor: (disabled || billHasDebtor) ? 'not-allowed' : 'pointer',
                             fontWeight: '600',
                             fontSize: '12px',
                             display: 'flex',
@@ -240,21 +243,21 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                             justifyContent: 'center',
                             gap: '6px',
                             transition: 'all 0.2s',
-                            opacity: disabled ? 0.6 : 1
+                            opacity: (disabled || billHasDebtor) ? 0.6 : 1
                         }}
                     >
                         🚶 Walking Customer
                     </button>
                     <button
                         onClick={() => setShowDebtorConfirm(true)}
-                        disabled={disabled}
+                        disabled={disabled || !!billHasDebtor}
                         style={{
                             flex: 1, padding: '10px',
-                            background: selectedType === 'debtor' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'white',
-                            color: selectedType === 'debtor' ? 'white' : '#475569',
-                            border: selectedType === 'debtor' ? 'none' : '2px solid #e2e8f0',
+                            background: (selectedType === 'debtor' || billHasDebtor) ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'white',
+                            color: (selectedType === 'debtor' || billHasDebtor) ? 'white' : '#475569',
+                            border: (selectedType === 'debtor' || billHasDebtor) ? 'none' : '2px solid #e2e8f0',
                             borderRadius: '10px',
-                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            cursor: (disabled || billHasDebtor) ? 'not-allowed' : 'pointer',
                             fontWeight: '600',
                             fontSize: '12px',
                             display: 'flex',
@@ -262,18 +265,29 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                             justifyContent: 'center',
                             gap: '6px',
                             transition: 'all 0.2s',
-                            opacity: disabled ? 0.6 : 1
+                            opacity: (disabled || billHasDebtor) ? 0.6 : 1
                         }}
                     >
                         📋 Debtor
                     </button>
                 </div>
-                {noTypeSelected && (
+
+                {/* Show warning only when no type selected AND no existing debtor */}
+                {noTypeSelected && !billHasDebtor && (
                     <div style={{ fontSize: '10px', color: '#dc2626', marginTop: '8px', textAlign: 'center', fontWeight: '500' }}>
                         ⚠️ Please select customer type to continue
                     </div>
                 )}
-                {!noTypeSelected && (
+
+                {/* Show success message when bill has existing debtor */}
+                {billHasDebtor && (
+                    <div style={{ fontSize: '10px', color: '#059669', marginTop: '8px', textAlign: 'center', fontWeight: '500', background: '#d1fae5', padding: '6px', borderRadius: '8px' }}>
+                        ✅ Debtor Bill - Customer Type: Debtor (Auto-selected)
+                    </div>
+                )}
+
+                {/* Show selected type message when not auto-selected */}
+                {!noTypeSelected && !billHasDebtor && (
                     <div style={{ fontSize: '10px', color: '#0369a1', marginTop: '8px', textAlign: 'center' }}>
                         ✅ Customer type selected: {selectedType === 'walking' ? 'Walking Customer' : 'Debtor'}
                     </div>
@@ -314,7 +328,6 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         </>
     );
 };
-
 // ==================== DEBTOR FORM MODAL ====================
 const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null }) => {
     const [formData, setFormData] = useState({ name: '', ID_NO: '', telephone_no: '', address: '', credit_limit: '', profile_pic: null, nic_front: null, nic_back: null });
@@ -1218,16 +1231,6 @@ export default function PrintedBills() {
         customerCodeField: '', customerBillNo: '', customerBillValue: '',
         badDebtName: '', badDebtAmount: ''
     });
-    // Add this useEffect after your state declarations (around line where other useEffects are)
-    useEffect(() => {
-        if (state.givenAmountInput) {
-            setState(prev => ({
-                ...prev,
-                customerBillValue: state.givenAmountInput,
-                badDebtAmount: state.givenAmountInput
-            }));
-        }
-    }, [state.givenAmountInput]);
     const [selectedBillDebtor, setSelectedBillDebtor] = useState(null);
     const [user, setUser] = useState(null);
 
@@ -1371,6 +1374,15 @@ export default function PrintedBills() {
             setArchivedData(prev => ({ ...prev, isLoading: false }));
         }
     };
+    // Auto-set customer type to 'debtor' when a bill with existing debtor is selected
+    useEffect(() => {
+        if (selectedBillDebtor && selectedBillDebtor.Debtor_no) {
+            // If bill has a debtor number, automatically set customer type to debtor
+            if (state.customerType !== 'debtor') {
+                setState(prev => ({ ...prev, customerType: 'debtor' }));
+            }
+        }
+    }, [selectedBillDebtor]);
 
     const resetToCurrentSales = () => {
         setViewOldBills(false);
@@ -1387,6 +1399,55 @@ export default function PrintedBills() {
         localStorage.removeItem('printedBills_endDate');
         localStorage.removeItem('printedBills_dataSource');
     };
+    // Auto-populate givenAmountInput based on adjustment type and values
+    useEffect(() => {
+        if (!state.selectedBill) return;
+
+        let calculatedAmount = 0;
+
+        if (state.adjustmentType === 'bag_to_box') {
+            // Calculate bag to box adjustment amount
+            const bagTotal = (parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0);
+            const boxTotal = (parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0);
+            calculatedAmount = bagTotal + boxTotal;
+
+            // Only auto-fill if there are valid values entered
+            if (state.bagCount || state.boxCount || state.bagValue || state.boxValue) {
+                setState(prev => ({
+                    ...prev,
+                    givenAmountInput: calculatedAmount.toString()
+                }));
+            }
+        }
+        else if (state.adjustmentType === 'bill_to_bill') {
+            calculatedAmount = parseFloat(state.customerBillValue) || 0;
+
+            if (state.customerBillValue) {
+                setState(prev => ({
+                    ...prev,
+                    givenAmountInput: calculatedAmount.toString()
+                }));
+            }
+        }
+        else if (state.adjustmentType === 'bad_debt') {
+            calculatedAmount = parseFloat(state.badDebtAmount) || 0;
+
+            if (state.badDebtAmount) {
+                setState(prev => ({
+                    ...prev,
+                    givenAmountInput: calculatedAmount.toString()
+                }));
+            }
+        }
+    }, [
+        state.adjustmentType,
+        state.bagCount,
+        state.bagValue,
+        state.boxCount,
+        state.boxValue,
+        state.customerBillValue,
+        state.badDebtAmount
+    ]);
 
     const handleBillClick = async (bill) => {
         // If clicking the same bill, clear it
@@ -1418,7 +1479,18 @@ export default function PrintedBills() {
             setSelectedBillDebtor(null);
         }
     };
+    // Add this useEffect after your state declarations (around line where other useEffects are)
 
+    useEffect(() => {
+        // Only sync if the adjustment type is selected and amount is not empty
+        if (state.givenAmountInput && state.givenAmountInput !== "0") {
+            setState(prev => ({
+                ...prev,
+                customerBillValue: state.givenAmountInput,
+                badDebtAmount: state.givenAmountInput
+            }));
+        }
+    }, [state.givenAmountInput]);
 
     // Save filter states whenever they change
     useEffect(() => {
@@ -1515,7 +1587,7 @@ export default function PrintedBills() {
         if (saved && state.pendingDebtorBill) {
             setState(prev => ({
                 ...prev,
-                customerType: null,  // ✅ Reset to null, not 'walking'
+                customerType: 'debtor',  // ✅ Set to 'debtor' instead of null
                 showDebtorForm: false,
                 pendingDebtorBill: null
             }));
@@ -1523,6 +1595,18 @@ export default function PrintedBills() {
             const debtorMessage = debtorNo ? `\nDebtor Number: ${debtorNo}` : '';
             const billMessage = state.pendingDebtorBill.billNo ? `\nBill No: ${state.pendingDebtorBill.billNo}` : '';
             alert(message + debtorMessage + billMessage);
+
+            // Refresh the selected bill's debtor data
+            if (state.selectedBill?.billNo === state.pendingDebtorBill.billNo) {
+                try {
+                    const response = await api.get(`/debtors/${state.pendingDebtorBill.billNo}`);
+                    if (response.data.success && response.data.data) {
+                        setSelectedBillDebtor(response.data.data);
+                    }
+                } catch (e) {
+                    console.log('Error fetching new debtor data:', e);
+                }
+            }
         } else {
             setState(prev => ({
                 ...prev,
@@ -1531,6 +1615,26 @@ export default function PrintedBills() {
             }));
         }
     };
+    // Refresh debtor data when a debtor is saved
+    useEffect(() => {
+        if (state.pendingDebtorBill?.billNo && !state.showDebtorForm) {
+            // If we just closed the debtor form and we have a pending bill, refresh its debtor data
+            const refreshDebtor = async () => {
+                try {
+                    const response = await api.get(`/debtors/${state.pendingDebtorBill.billNo}`);
+                    if (response.data.success && response.data.data) {
+                        setSelectedBillDebtor(response.data.data);
+                        // Auto-set customer type to debtor
+                        setState(prev => ({ ...prev, customerType: 'debtor' }));
+                    }
+                } catch (e) {
+                    console.log('No debtor record found after save');
+                }
+            };
+            refreshDebtor();
+        }
+    }, [state.showDebtorForm, state.pendingDebtorBill]);
+
     const handlePrintWithoutUpdate = async () => {
         if (!state.selectedBill?.sales?.length) { alert("No sales data found."); return; }
         setState(prev => ({ ...prev, isPrinting: true }));
@@ -2487,101 +2591,48 @@ export default function PrintedBills() {
                     <div style={{ background: 'white', borderRadius: '24px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 35px -10px rgba(0,0,0,0.15)' }}>
                         {/* Customer Type Selector */}
                         <div style={{ padding: '20px 24px 0', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
-                            <CustomerTypeSelector selectedType={state.customerType} onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))} disabled={state.isPrinting} onDebtorClick={(code, billNo) => setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: { customerCode: code, billNo } }))} billCustomerCode={state.selectedBill?.customerCode} billNo={state.selectedBill?.billNo} />
+                            <CustomerTypeSelector
+                                selectedType={state.customerType}
+                                onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))}
+                                disabled={state.isPrinting}
+                                onDebtorClick={(code, billNo) => setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: { customerCode: code, billNo } }))}
+                                billCustomerCode={state.selectedBill?.customerCode}
+                                billNo={state.selectedBill?.billNo}
+                                selectedBillDebtor={selectedBillDebtor}
+                            />
                         </div>
 
-                        {/* Header */}
-
-                        {/* Scrollable Content - DISABLED if no customer type selected */}
-                        <div style={{
-                            flex: 1,
-                            overflowY: 'auto',
-                            padding: '24px',
-                            background: '#f8fafc',
-                            position: 'relative',
-                            opacity: !state.customerType ? 0.5 : 1,
-                            pointerEvents: !state.customerType ? 'none' : 'auto'
-                        }}>
+                        {/* Scrollable Content */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc', position: 'relative', opacity: !state.customerType ? 0.5 : 1, pointerEvents: !state.customerType ? 'none' : 'auto' }}>
                             {!state.customerType && (
-                                <div style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    background: 'rgba(200, 200, 200, 0.3)',
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    zIndex: 10,
-                                    borderRadius: '20px'
-                                }}>
-                                    <div style={{
-                                        background: 'white',
-                                        padding: '15px 25px',
-                                        borderRadius: '12px',
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                        textAlign: 'center'
-                                    }}>
+                                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(200,200,200,0.3)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10, borderRadius: '20px' }}>
+                                    <div style={{ background: 'white', padding: '15px 25px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', textAlign: 'center' }}>
                                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔒</div>
                                         <div style={{ fontSize: '14px', fontWeight: '600', color: '#475569' }}>Select customer type above to continue</div>
                                     </div>
                                 </div>
                             )}
+
                             {state.selectedBill ? (
                                 <>
                                     {/* Bill Info Card */}
                                     <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
-                                            <div>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Bill Number</div>
-                                                <div style={{ fontSize: '24px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>#{state.selectedBill.billNo}</div>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Customer</div>
-                                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBill.customerCode}</div>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Status</div>
-                                                <span style={{ display: 'inline-block', padding: '6px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: '600', background: state.selectedBill.givenAmountApplied === 'Y' ? '#10b981' : '#f59e0b', color: 'white' }}>
-                                                    {state.selectedBill.givenAmountApplied === 'Y' ? '✓ PAID' : '⏳ PENDING'}
-                                                </span>
-                                            </div>
+                                            <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Bill Number</div><div style={{ fontSize: '24px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>#{state.selectedBill.billNo}</div></div>
+                                            <div><div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Customer</div><div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>{state.selectedBill.customerCode}</div></div>
+                                            <div><span style={{ display: 'inline-block', padding: '6px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: '600', background: state.selectedBill.givenAmountApplied === 'Y' ? '#10b981' : '#f59e0b', color: 'white' }}>{state.selectedBill.givenAmountApplied === 'Y' ? '✓ PAID' : '⏳ PENDING'}</span></div>
                                         </div>
-
-                                        {/* Display Debtor Number if available */}
                                         {selectedBillDebtor && selectedBillDebtor.Debtor_no && (
-                                            <div style={{
-                                                marginTop: '12px',
-                                                padding: '10px 12px',
-                                                background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)',
-                                                borderRadius: '10px',
-                                                borderLeft: '4px solid #8b5cf6',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '8px'
-                                            }}>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#6d28d9' }}>
-                                                    📋 Debtor Number:
-                                                </div>
-                                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#5b21b6', fontFamily: 'monospace' }}>
-                                                    {selectedBillDebtor.Debtor_no}
-                                                </div>
+                                            <div style={{ marginTop: '12px', padding: '10px 12px', background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)', borderRadius: '10px', borderLeft: '4px solid #8b5cf6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#6d28d9' }}>📋 Debtor Number:</div>
+                                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#5b21b6', fontFamily: 'monospace' }}>{selectedBillDebtor.Debtor_no}</div>
                                             </div>
                                         )}
-
-
                                         {selectedBillDebtor && selectedBillDebtor.remaining_amount > 0 && selectedBillDebtor.credit_amount !== selectedBillDebtor.paid_amount && (
                                             <div style={{ marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '14px', borderLeft: '4px solid #f59e0b' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                                                    <div>
-                                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '4px' }}>⚠️ Outstanding Debt</div>
-                                                        <div style={{ fontSize: '22px', fontWeight: '700', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillDebtor.remaining_amount)}</div>
-                                                        <div style={{ fontSize: '11px', color: '#78350f' }}>Any payment applied to this debt first</div>
-                                                    </div>
-                                                    <div style={{ padding: '6px 12px', background: selectedBillDebtor.status === 'paid' ? '#10b981' : selectedBillDebtor.status === 'partial' ? '#f59e0b' : '#ef4444', borderRadius: '30px', color: 'white', fontSize: '11px', fontWeight: '600' }}>
-                                                        {selectedBillDebtor.status === 'paid' ? 'PAID' : selectedBillDebtor.status === 'partial' ? 'PARTIAL' : 'PENDING'}
-                                                    </div>
+                                                    <div><div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '4px' }}>⚠️ Outstanding Debt</div><div style={{ fontSize: '22px', fontWeight: '700', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillDebtor.remaining_amount)}</div><div style={{ fontSize: '11px', color: '#78350f' }}>Any payment applied to this debt first</div></div>
+                                                    <div style={{ padding: '6px 12px', background: selectedBillDebtor.status === 'paid' ? '#10b981' : selectedBillDebtor.status === 'partial' ? '#f59e0b' : '#ef4444', borderRadius: '30px', color: 'white', fontSize: '11px', fontWeight: '600' }}>{selectedBillDebtor.status === 'paid' ? 'PAID' : selectedBillDebtor.status === 'partial' ? 'PARTIAL' : 'PENDING'}</div>
                                                 </div>
                                             </div>
                                         )}
@@ -2592,29 +2643,8 @@ export default function PrintedBills() {
                                         <div style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}><span>📋</span> Items List</div>
                                         <div style={{ overflowX: 'auto' }}>
                                             <table style={{ width: '100%', fontSize: '14px', borderCollapse: 'collapse' }}>
-                                                <thead>
-                                                    <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
-                                                        <th style={{ padding: '14px 12px', textAlign: 'left' }}>Item</th>
-                                                        <th style={{ padding: '14px 12px', textAlign: 'right' }}>Kg</th>
-                                                        <th style={{ padding: '14px 12px', textAlign: 'right' }}>Price</th>
-                                                        <th style={{ padding: '14px 12px', textAlign: 'center' }}>Packs</th>
-                                                        <th style={{ padding: '14px 12px', textAlign: 'right' }}>Total</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {state.selectedBill.sales.map((s, i) => {
-                                                        const total = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0);
-                                                        return (
-                                                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                                <td style={{ padding: '14px 12px', fontWeight: '500' }}>{s.item_name}<div style={{ fontSize: '11px', color: '#94a3b8' }}>{s.supplier_code || 'ASW'}</div></td>
-                                                                <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.weight)}</td>
-                                                                <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.price_per_kg)}</td>
-                                                                <td style={{ padding: '14px 12px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '2px 10px', borderRadius: '20px', fontSize: '12px' }}>{s.packs}</span></td>
-                                                                <td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', color: '#059669', fontFamily: 'monospace' }}>Rs. {formatDecimal(total)}</td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
+                                                <thead><tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}><th style={{ padding: '14px 12px', textAlign: 'left' }}>Item</th><th style={{ padding: '14px 12px', textAlign: 'right' }}>Kg</th><th style={{ padding: '14px 12px', textAlign: 'right' }}>Price</th><th style={{ padding: '14px 12px', textAlign: 'center' }}>Packs</th><th style={{ padding: '14px 12px', textAlign: 'right' }}>Total</th></tr></thead>
+                                                <tbody>{state.selectedBill.sales.map((s, i) => { const total = (parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0); return (<tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '14px 12px', fontWeight: '500' }}>{s.item_name}<div style={{ fontSize: '11px', color: '#94a3b8' }}>{s.supplier_code || 'ASW'}</div></td><td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.weight)}</td><td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(s.price_per_kg)}</td><td style={{ padding: '14px 12px', textAlign: 'center' }}><span style={{ background: '#f1f5f9', padding: '2px 10px', borderRadius: '20px', fontSize: '12px' }}>{s.packs}</span></td><td style={{ padding: '14px 12px', textAlign: 'right', fontWeight: '700', color: '#059669', fontFamily: 'monospace' }}>Rs. {formatDecimal(total)}</td></tr>); })}</tbody>
                                             </table>
                                         </div>
                                     </div>
@@ -2622,44 +2652,20 @@ export default function PrintedBills() {
                                     {/* Totals Card */}
                                     <div style={{ padding: '24px', background: 'white', borderRadius: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}>
-                                                <span>Subtotal:</span>
-                                                <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}>
-                                                <span>Bag Charges:</span>
-                                                <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.packs) || 0) * (parseFloat(s.CustomerPackCost) || 0)), 0))}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', fontWeight: '700', fontSize: '18px', borderTop: '2px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}>
-                                                <span>Total Payable:</span>
-                                                <span style={{ fontFamily: 'monospace', color: '#dc2626' }}>Rs. {formatDecimal(state.selectedBill.totalAmount)}</span>
-                                            </div>
-                                            {(state.selectedBill && (state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0 || getTotalReceived(state.selectedBill) > 0)) && (
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#059669', fontWeight: '600' }}>
-                                                    <span>💰 Total Received:</span>
-                                                    <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(getTotalReceived(state.selectedBill))}</span>
-                                                </div>
-                                            )}
-                                            {state.selectedBill.creditAmount > 0 && (
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#d97706', fontWeight: '600' }}>
-                                                    <span>Credit Taken:</span>
-                                                    <span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</span>
-                                                </div>
-                                            )}
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: '16px', color: '#dc2626', fontWeight: '700', background: '#fef2f2', borderRadius: '12px', marginTop: '8px' }}>
-                                                <span>💰 Remaining:</span>
-                                                <span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - getTotalReceived(state.selectedBill)))}</span>
-                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Subtotal:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0))}</span></div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#475569' }}><span>Bag Charges:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.sales.reduce((sum, s) => sum + ((parseFloat(s.packs) || 0) * (parseFloat(s.CustomerPackCost) || 0)), 0))}</span></div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', fontWeight: '700', fontSize: '18px', borderTop: '2px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}><span>Total Payable:</span><span style={{ fontFamily: 'monospace', color: '#dc2626' }}>Rs. {formatDecimal(state.selectedBill.totalAmount)}</span></div>
+                                            {(state.selectedBill && (state.selectedBill.cashPayments > 0 || state.selectedBill.givenAmount > 0 || getTotalReceived(state.selectedBill) > 0)) && (<div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#059669', fontWeight: '600' }}><span>💰 Total Received:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(getTotalReceived(state.selectedBill))}</span></div>)}
+                                            {state.selectedBill.creditAmount > 0 && (<div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px', color: '#d97706', fontWeight: '600' }}><span>Credit Taken:</span><span style={{ fontFamily: 'monospace' }}>Rs. {formatDecimal(state.selectedBill.creditAmount)}</span></div>)}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: '16px', color: '#dc2626', fontWeight: '700', background: '#fef2f2', borderRadius: '12px', marginTop: '8px' }}><span>💰 Remaining:</span><span style={{ fontFamily: 'monospace', fontSize: '18px' }}>Rs. {formatDecimal(Math.max(0, state.selectedBill.totalAmount - getTotalReceived(state.selectedBill)))}</span></div>
                                         </div>
                                     </div>
 
                                     {/* Payment Section */}
-                                    {/* Payment Section */}
                                     <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '20px', padding: '24px', marginBottom: '16px' }}>
                                         <div style={{ fontSize: '14px', fontWeight: '600', color: '#92400e', marginBottom: '16px' }}>💰 Enter Payment Amount</div>
-                                        <input type="number" value={state.givenAmountInput} onChange={(e) => setState(prev => ({ ...prev, givenAmountInput: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }} />
+                                       <input type="number" value={state.givenAmountInput} onChange={(e) => setState(prev => ({ ...prev, givenAmountInput: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }} />
 
-                                        {/* Payment Method Buttons */}
                                         <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
                                             <button onClick={async () => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else await processPayment(amt); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💵 Cash</button>
                                             <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingChequeAmount: amt, showChequeModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💳 Cheque</button>
@@ -2671,69 +2677,11 @@ export default function PrintedBills() {
                                         <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '2px dashed #fbbf24' }}>
                                             <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '12px' }}>🔧 OR Select Adjustment Type:</div>
                                             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                                                <button
-                                                    onClick={() => handleAdjustmentTypeSelect('bag_to_box')}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '12px',
-                                                        background: state.adjustmentType === 'bag_to_box' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white',
-                                                        color: state.adjustmentType === 'bag_to_box' ? 'white' : '#475569',
-                                                        border: state.adjustmentType === 'bag_to_box' ? 'none' : '2px solid #e2e8f0',
-                                                        borderRadius: '10px',
-                                                        fontWeight: '600',
-                                                        cursor: 'pointer',
-                                                        fontSize: '12px',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        gap: '6px'
-                                                    }}
-                                                >
-                                                    <span>📦</span> Bag to Box
-                                                </button>
-                                                <button
-                                                    onClick={() => handleAdjustmentTypeSelect('bill_to_bill')}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '12px',
-                                                        background: state.adjustmentType === 'bill_to_bill' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'white',
-                                                        color: state.adjustmentType === 'bill_to_bill' ? 'white' : '#475569',
-                                                        border: state.adjustmentType === 'bill_to_bill' ? 'none' : '2px solid #e2e8f0',
-                                                        borderRadius: '10px',
-                                                        fontWeight: '600',
-                                                        cursor: 'pointer',
-                                                        fontSize: '12px',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        gap: '6px'
-                                                    }}
-                                                >
-                                                    <span>📄</span> Bill to Bill
-                                                </button>
-                                                <button
-                                                    onClick={() => handleAdjustmentTypeSelect('bad_debt')}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '12px',
-                                                        background: state.adjustmentType === 'bad_debt' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'white',
-                                                        color: state.adjustmentType === 'bad_debt' ? 'white' : '#475569',
-                                                        border: state.adjustmentType === 'bad_debt' ? 'none' : '2px solid #e2e8f0',
-                                                        borderRadius: '10px',
-                                                        fontWeight: '600',
-                                                        cursor: 'pointer',
-                                                        fontSize: '12px',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        gap: '6px'
-                                                    }}
-                                                >
-                                                    <span>⚠️</span> Bad Debt
-                                                </button>
+                                                <button onClick={() => handleAdjustmentTypeSelect('bag_to_box')} style={{ flex: 1, padding: '12px', background: state.adjustmentType === 'bag_to_box' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white', color: state.adjustmentType === 'bag_to_box' ? 'white' : '#475569', border: state.adjustmentType === 'bag_to_box' ? 'none' : '2px solid #e2e8f0', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}><span>📦</span> Bag to Box</button>
+                                                <button onClick={() => handleAdjustmentTypeSelect('bill_to_bill')} style={{ flex: 1, padding: '12px', background: state.adjustmentType === 'bill_to_bill' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'white', color: state.adjustmentType === 'bill_to_bill' ? 'white' : '#475569', border: state.adjustmentType === 'bill_to_bill' ? 'none' : '2px solid #e2e8f0', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}><span>📄</span> Bill to Bill</button>
+                                                <button onClick={() => handleAdjustmentTypeSelect('bad_debt')} style={{ flex: 1, padding: '12px', background: state.adjustmentType === 'bad_debt' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'white', color: state.adjustmentType === 'bad_debt' ? 'white' : '#475569', border: state.adjustmentType === 'bad_debt' ? 'none' : '2px solid #e2e8f0', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}><span>⚠️</span> Bad Debt</button>
                                             </div>
 
-                                            {/* Conditional Form Fields for Adjustments */}
                                             {state.adjustmentType === 'bag_to_box' && (
                                                 <div style={{ marginTop: '16px', padding: '16px', background: '#fef3c7', borderRadius: '12px' }}>
                                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
@@ -2761,27 +2709,10 @@ export default function PrintedBills() {
                                                 </div>
                                             )}
 
-                                            {/* Apply Adjustment Button */}
-                                            <button
-                                                onClick={handleAdjustmentPayment}
-                                                disabled={state.isPrinting || !state.givenAmountInput}
-                                                style={{
-                                                    width: '100%',
-                                                    marginTop: '16px',
-                                                    padding: '14px',
-                                                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                                                    color: 'white',
-                                                    border: 'none',
-                                                    borderRadius: '12px',
-                                                    fontWeight: '600',
-                                                    cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer',
-                                                    opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1
-                                                }}
-                                            >
-                                                ✅ Apply {state.adjustmentType === 'bag_to_box' ? 'Bag to Box' : state.adjustmentType === 'bill_to_bill' ? 'Bill to Bill' : 'Bad Debt'} Adjustment
-                                            </button>
+                                            <button onClick={handleAdjustmentPayment} disabled={state.isPrinting} style={{ width: '100%', marginTop: '16px', padding: '14px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1 }}>✅ Apply {state.adjustmentType === 'bag_to_box' ? 'Bag to Box' : state.adjustmentType === 'bill_to_bill' ? 'Bill to Bill' : 'Bad Debt'} Adjustment</button>
                                         </div>
                                     </div>
+
                                     {/* Action Buttons */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         <button onClick={handlePrintWithoutUpdate} disabled={state.isPrinting} style={{ width: '100%', padding: '14px', background: '#64748b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting ? 'not-allowed' : 'pointer' }}>🖨️ Re-print Bill</button>
@@ -2796,7 +2727,6 @@ export default function PrintedBills() {
                             )}
                         </div>
                     </div>
-
                     {/* RIGHT: Pending Payment */}
                     <div style={styles.panel}>
                         <div style={styles.panelHeader}><h2 style={styles.panelTitle}><span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%' }}></span>{dataSource === 'sales_history' ? 'Archived Pending' : 'Pending Payment'}</h2></div>
