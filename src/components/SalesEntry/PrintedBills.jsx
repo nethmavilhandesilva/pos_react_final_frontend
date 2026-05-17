@@ -772,7 +772,14 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
     if (!isOpen) return null;
 
     const calculateBagToBoxAdjustment = () => {
-        return ((parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0)) + ((parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0));
+        const amount = ((parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0)) +
+            ((parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0));
+        const maxAllowed = state.selectedBill ? (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0)) : Infinity;
+        if (amount > maxAllowed) {
+            setTimeout(() => alert(`Adjustment amount cannot exceed remaining bill amount of Rs. ${formatDecimal(maxAllowed)}`), 100);
+            return 0;
+        }
+        return amount;
     };
 
     const handleConfirm = () => {
@@ -1402,52 +1409,39 @@ export default function PrintedBills() {
     // Auto-populate givenAmountInput based on adjustment type and values
     useEffect(() => {
         if (!state.selectedBill) return;
-
         let calculatedAmount = 0;
+        const maxAmount = state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0);
 
         if (state.adjustmentType === 'bag_to_box') {
-            // Calculate bag to box adjustment amount
             const bagTotal = (parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0);
             const boxTotal = (parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0);
             calculatedAmount = bagTotal + boxTotal;
-
-            // Only auto-fill if there are valid values entered
-            if (state.bagCount || state.boxCount || state.bagValue || state.boxValue) {
-                setState(prev => ({
-                    ...prev,
-                    givenAmountInput: calculatedAmount.toString()
-                }));
+            if ((state.bagCount || state.boxCount || state.bagValue || state.boxValue) && calculatedAmount <= maxAmount) {
+                setState(prev => ({ ...prev, givenAmountInput: calculatedAmount.toString() }));
+            } else if (calculatedAmount > maxAmount) {
+                alert(`Adjustment amount exceeds limit! Maximum: Rs. ${formatDecimal(maxAmount)}`);
+                setState(prev => ({ ...prev, bagCount: '', boxCount: '', bagValue: '', boxValue: '', givenAmountInput: "" }));
             }
         }
         else if (state.adjustmentType === 'bill_to_bill') {
             calculatedAmount = parseFloat(state.customerBillValue) || 0;
-
-            if (state.customerBillValue) {
-                setState(prev => ({
-                    ...prev,
-                    givenAmountInput: calculatedAmount.toString()
-                }));
+            if (state.customerBillValue && calculatedAmount <= maxAmount) {
+                setState(prev => ({ ...prev, givenAmountInput: calculatedAmount.toString() }));
+            } else if (calculatedAmount > maxAmount) {
+                alert(`Bill amount exceeds limit! Maximum: Rs. ${formatDecimal(maxAmount)}`);
+                setState(prev => ({ ...prev, customerBillValue: "", givenAmountInput: "" }));
             }
         }
         else if (state.adjustmentType === 'bad_debt') {
             calculatedAmount = parseFloat(state.badDebtAmount) || 0;
-
-            if (state.badDebtAmount) {
-                setState(prev => ({
-                    ...prev,
-                    givenAmountInput: calculatedAmount.toString()
-                }));
+            if (state.badDebtAmount && calculatedAmount <= maxAmount) {
+                setState(prev => ({ ...prev, givenAmountInput: calculatedAmount.toString() }));
+            } else if (calculatedAmount > maxAmount) {
+                alert(`Bad debt amount exceeds limit! Maximum: Rs. ${formatDecimal(maxAmount)}`);
+                setState(prev => ({ ...prev, badDebtAmount: "", givenAmountInput: "" }));
             }
         }
-    }, [
-        state.adjustmentType,
-        state.bagCount,
-        state.bagValue,
-        state.boxCount,
-        state.boxValue,
-        state.customerBillValue,
-        state.badDebtAmount
-    ]);
+    }, [state.adjustmentType, state.bagCount, state.bagValue, state.boxCount, state.boxValue, state.customerBillValue, state.badDebtAmount]);
 
     const handleBillClick = async (bill) => {
         // If clicking the same bill, clear it
@@ -1480,10 +1474,14 @@ export default function PrintedBills() {
         }
     };
     // Add this useEffect after your state declarations (around line where other useEffects are)
-
     useEffect(() => {
-        // Only sync if the adjustment type is selected and amount is not empty
         if (state.givenAmountInput && state.givenAmountInput !== "0") {
+            const num = parseFloat(state.givenAmountInput);
+            const maxAmount = state.selectedBill ? (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0)) : Infinity;
+            if (state.selectedBill && num > maxAmount) {
+                alert(`Amount cannot exceed Rs. ${formatDecimal(maxAmount)}`);
+                return;
+            }
             setState(prev => ({
                 ...prev,
                 customerBillValue: state.givenAmountInput,
@@ -2664,7 +2662,22 @@ export default function PrintedBills() {
                                     {/* Payment Section */}
                                     <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '20px', padding: '24px', marginBottom: '16px' }}>
                                         <div style={{ fontSize: '14px', fontWeight: '600', color: '#92400e', marginBottom: '16px' }}>💰 Enter Payment Amount</div>
-                                       <input type="number" value={state.givenAmountInput} onChange={(e) => setState(prev => ({ ...prev, givenAmountInput: e.target.value }))} placeholder="0.00" disabled={state.isPrinting} style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }} />
+                                        <input
+                                            type="number"
+                                            value={state.givenAmountInput}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (val === "") return setState(prev => ({ ...prev, givenAmountInput: "" }));
+                                                let num = parseFloat(val);
+                                                if (state.selectedBill && num > (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))) {
+                                                    alert(`Maximum allowed: Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))}`);
+                                                    return;
+                                                }
+                                                setState(prev => ({ ...prev, givenAmountInput: val }));
+                                            }}
+                                            placeholder="0.00" disabled={state.isPrinting}
+                                            style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }}
+                                        />
 
                                         <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
                                             <button onClick={async () => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else await processPayment(amt); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💵 Cash</button>
@@ -2698,14 +2711,44 @@ export default function PrintedBills() {
                                                 <div style={{ marginTop: '16px', padding: '16px', background: '#dbeafe', borderRadius: '12px' }}>
                                                     <input type="text" placeholder="Customer Code" value={state.customerCodeField} onChange={(e) => setState(prev => ({ ...prev, customerCodeField: e.target.value.toUpperCase() }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                                                     <input type="text" placeholder="Customer Bill No" value={state.customerBillNo} onChange={(e) => setState(prev => ({ ...prev, customerBillNo: e.target.value }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
-                                                    <input type="number" placeholder="Bill Amount (Rs.)" value={state.customerBillValue} onChange={(e) => setState(prev => ({ ...prev, customerBillValue: e.target.value }))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Bill Amount (Rs.)"
+                                                        value={state.customerBillValue}
+                                                        onChange={(e) => {
+                                                            let val = e.target.value;
+                                                            if (val === "") return setState(prev => ({ ...prev, customerBillValue: "" }));
+                                                            let num = parseFloat(val);
+                                                            if (state.selectedBill && num > (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))) {
+                                                                alert(`Maximum allowed: Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))}`);
+                                                                return;
+                                                            }
+                                                            setState(prev => ({ ...prev, customerBillValue: val }));
+                                                        }}
+                                                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                    />
                                                 </div>
                                             )}
 
                                             {state.adjustmentType === 'bad_debt' && (
                                                 <div style={{ marginTop: '16px', padding: '16px', background: '#fee2e2', borderRadius: '12px' }}>
                                                     <input type="text" placeholder="Bad Debt Name/Reference" value={state.badDebtName} onChange={(e) => setState(prev => ({ ...prev, badDebtName: e.target.value }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
-                                                    <input type="number" placeholder="Bad Debt Amount (Rs.)" value={state.badDebtAmount} onChange={(e) => setState(prev => ({ ...prev, badDebtAmount: e.target.value }))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Bad Debt Amount (Rs.)"
+                                                        value={state.badDebtAmount}
+                                                        onChange={(e) => {
+                                                            let val = e.target.value;
+                                                            if (val === "") return setState(prev => ({ ...prev, badDebtAmount: "" }));
+                                                            let num = parseFloat(val);
+                                                            if (state.selectedBill && num > (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))) {
+                                                                alert(`Maximum allowed: Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))}`);
+                                                                return;
+                                                            }
+                                                            setState(prev => ({ ...prev, badDebtAmount: val }));
+                                                        }}
+                                                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                    />
                                                 </div>
                                             )}
 
