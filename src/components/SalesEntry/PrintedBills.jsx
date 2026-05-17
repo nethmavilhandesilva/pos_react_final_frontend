@@ -1114,6 +1114,7 @@ export default function PrintedBills() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const refreshTimeoutRef = useRef(null);
     const isMountedRef = useRef(true);
+    const modalOpenRef = useRef(false);
 
     // Replace your existing useEffect with this one
     useEffect(() => {
@@ -1264,72 +1265,7 @@ export default function PrintedBills() {
         return ((parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0)) +
             ((parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0));
     };
-    // Silent refresh function - updates data without showing loading skeleton
 
-    const silentRefresh = useCallback(async () => {
-        if (!isMountedRef.current) return;
-
-        setIsRefreshing(true);
-        try {
-            // Always refresh current sales data
-            const [salesRes, customersRes] = await Promise.all([
-                api.get(routes.getAllSales),
-                api.get(routes.customers)
-            ]);
-
-            const salesData = salesRes.data.sales || salesRes.data || [];
-            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
-            const { pendingBills, appliedBills } = processBillData(salesData);
-
-            // Only update if component is still mounted
-            if (isMountedRef.current) {
-                setState(prev => ({
-                    ...prev,
-                    pendingBills,
-                    appliedBills,
-                    customers: customersData,
-                    isLoading: false
-                }));
-
-                // ✅ ALSO refresh archived data if we're currently viewing old bills
-                if (viewOldBills && startDate && endDate) {
-                    try {
-                        const archivedResponse = await api.get(routes.getArchivedSales, {
-                            params: { start_date: startDate, end_date: endDate }
-                        });
-                        if (archivedResponse.data.success) {
-                            const { pendingBills: archivedPending, appliedBills: archivedApplied } = processBillData(archivedResponse.data.sales || []);
-                            setArchivedData({
-                                pendingBills: archivedPending,
-                                appliedBills: archivedApplied,
-                                isLoading: false
-                            });
-                        }
-                    } catch (archivedError) {
-                        console.error("Error refreshing archived data:", archivedError);
-                    }
-                }
-
-                // If there's a selected bill, refresh its debtor data silently
-                if (prev.selectedBill) {
-                    try {
-                        const debtorResponse = await api.get(`/debtors/${prev.selectedBill.billNo}`);
-                        if (debtorResponse.data.success && debtorResponse.data.data) {
-                            setSelectedBillDebtor(debtorResponse.data.data);
-                        }
-                    } catch (e) {
-                        // No debtor record, that's fine
-                    }
-                }
-            }
-        } catch (error) {
-            console.error("Silent refresh error:", error);
-        } finally {
-            if (isMountedRef.current) {
-                setIsRefreshing(false);
-            }
-        }
-    }, [viewOldBills, startDate, endDate]); // Add dependencies
 
     const handleAdjustmentPayment = async () => {
         let paymentAmount = parseFloat(state.givenAmountInput);
@@ -2154,6 +2090,76 @@ export default function PrintedBills() {
         const q = state.appliedSearchQuery.toLowerCase();
         return currentAppliedBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
     }, [currentAppliedBills, state.appliedSearchQuery]);
+
+    // Silent refresh function - updates data without showing loading skeleton
+
+    const silentRefresh = useCallback(async () => {
+        // Don't refresh if modal is open to prevent flickering
+        if (modalOpenRef.current) return;
+
+        if (!isMountedRef.current) return;
+
+        setIsRefreshing(true);
+        try {
+            // Always refresh current sales data
+            const [salesRes, customersRes] = await Promise.all([
+                api.get(routes.getAllSales),
+                api.get(routes.customers)
+            ]);
+
+            const salesData = salesRes.data.sales || salesRes.data || [];
+            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+            const { pendingBills, appliedBills } = processBillData(salesData);
+
+            // Only update if component is still mounted
+            if (isMountedRef.current) {
+                setState(prev => ({
+                    ...prev,
+                    pendingBills,
+                    appliedBills,
+                    customers: customersData,
+                    isLoading: false
+                }));
+
+                // ✅ ALSO refresh archived data if we're currently viewing old bills
+                if (viewOldBills && startDate && endDate) {
+                    try {
+                        const archivedResponse = await api.get(routes.getArchivedSales, {
+                            params: { start_date: startDate, end_date: endDate }
+                        });
+                        if (archivedResponse.data.success) {
+                            const { pendingBills: archivedPending, appliedBills: archivedApplied } = processBillData(archivedResponse.data.sales || []);
+                            setArchivedData({
+                                pendingBills: archivedPending,
+                                appliedBills: archivedApplied,
+                                isLoading: false
+                            });
+                        }
+                    } catch (archivedError) {
+                        console.error("Error refreshing archived data:", archivedError);
+                    }
+                }
+
+                // If there's a selected bill, refresh its debtor data silently
+                if (prev.selectedBill) {
+                    try {
+                        const debtorResponse = await api.get(`/debtors/${prev.selectedBill.billNo}`);
+                        if (debtorResponse.data.success && debtorResponse.data.data) {
+                            setSelectedBillDebtor(debtorResponse.data.data);
+                        }
+                    } catch (e) {
+                        // No debtor record, that's fine
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Silent refresh error:", error);
+        } finally {
+            if (isMountedRef.current) {
+                setIsRefreshing(false);
+            }
+        }
+    }, [viewOldBills, startDate, endDate]); // REMOVE filterPendingBills and filterAppliedBills from dependencies
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
@@ -2446,13 +2452,306 @@ export default function PrintedBills() {
             setState(prev => ({ ...prev, customerType: 'walking' }));
         }
     }, [viewOldBills]); // This runs whenever viewOldBills changes
+    // Replace the stats calculation in your component (around line 1430) with this:
+
     const stats = useMemo(() => {
         const pendingAmount = filterPendingBills.reduce((sum, b) => sum + b.totalAmount, 0);
         const appliedAmount = filterAppliedBills.reduce((sum, b) => sum + b.totalAmount, 0);
-        const pendingGiven = filterPendingBills.reduce((sum, b) => sum + (b.givenAmount || 0), 0);
-        const appliedGiven = filterAppliedBills.reduce((sum, b) => sum + (b.givenAmount || 0), 0);
-        return { totalPending: filterPendingBills.length, totalApplied: filterAppliedBills.length, totalAmount: pendingAmount + appliedAmount, totalGiven: pendingGiven + appliedGiven };
+        const pendingGiven = filterPendingBills.reduce((sum, b) => {
+            // Exclude Credit payments from given amount
+            const history = b.paymentHistory || b.payment_history;
+            if (history) {
+                let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                if (Array.isArray(payments)) {
+                    const nonCreditGiven = payments.reduce((total, p) => {
+                        if (p.method !== 'Credit') {
+                            return total + (parseFloat(p.amount) || 0);
+                        }
+                        return total;
+                    }, 0);
+                    return sum + nonCreditGiven;
+                }
+            }
+            // Fallback to original givenAmount but ensure it excludes credit
+            const given = b.givenAmount || 0;
+            const credit = b.creditAmount || 0;
+            return sum + Math.max(0, given - credit);
+        }, 0);
+
+        const appliedGiven = filterAppliedBills.reduce((sum, b) => {
+            // Exclude Credit payments from given amount
+            const history = b.paymentHistory || b.payment_history;
+            if (history) {
+                let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                if (Array.isArray(payments)) {
+                    const nonCreditGiven = payments.reduce((total, p) => {
+                        if (p.method !== 'Credit') {
+                            return total + (parseFloat(p.amount) || 0);
+                        }
+                        return total;
+                    }, 0);
+                    return sum + nonCreditGiven;
+                }
+            }
+            const given = b.givenAmount || 0;
+            const credit = b.creditAmount || 0;
+            return sum + Math.max(0, given - credit);
+        }, 0);
+
+        return {
+            totalPending: filterPendingBills.length,
+            totalApplied: filterAppliedBills.length,
+            totalAmount: pendingAmount + appliedAmount,
+            totalGiven: pendingGiven + appliedGiven
+        };
     }, [filterPendingBills, filterAppliedBills]);
+
+    // Add this state for the summary popup (add with your other useState declarations around line 1130)
+    const [showAdjustmentSummary, setShowAdjustmentSummary] = useState(false);
+    const [adjustmentTotals, setAdjustmentTotals] = useState({
+        bag_to_box: 0,
+        bill_to_bill: 0,
+        bad_debt: 0,
+        total: 0
+    });
+
+    // Add this function to calculate adjustment totals (add near your other functions)
+    const calculateAdjustmentTotals = useCallback(() => {
+        const totals = {
+            bag_to_box: 0,
+            bill_to_bill: 0,
+            bad_debt: 0,
+            total: 0
+        };
+
+        // Combine pending and applied bills
+        const allBills = [...filterPendingBills, ...filterAppliedBills];
+
+        allBills.forEach(bill => {
+            const history = bill.paymentHistory || bill.payment_history;
+            if (history) {
+                let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                if (Array.isArray(payments)) {
+                    payments.forEach(payment => {
+                        if (payment.method === 'bag_to_box') {
+                            totals.bag_to_box += parseFloat(payment.amount) || 0;
+                            totals.total += parseFloat(payment.amount) || 0;
+                        } else if (payment.method === 'bill_to_bill') {
+                            totals.bill_to_bill += parseFloat(payment.amount) || 0;
+                            totals.total += parseFloat(payment.amount) || 0;
+                        } else if (payment.method === 'bad_debt') {
+                            totals.bad_debt += parseFloat(payment.amount) || 0;
+                            totals.total += parseFloat(payment.amount) || 0;
+                        }
+                    });
+                }
+            }
+        });
+
+        setAdjustmentTotals(totals);
+    }, [filterPendingBills, filterAppliedBills]);
+
+    // Add this effect to recalculate when bills change
+    useEffect(() => {
+        calculateAdjustmentTotals();
+    }, [filterPendingBills, filterAppliedBills, calculateAdjustmentTotals]);
+
+    // Add this component for the summary popup (add before the return statement)
+    const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
+        if (!isOpen) return null;
+
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 20001
+            }} onClick={onClose}>
+                <div style={{
+                    backgroundColor: 'white',
+                    borderRadius: '20px',
+                    width: '400px',
+                    maxWidth: '90%',
+                    padding: '24px',
+                    animation: 'slideUp 0.3s ease'
+                }} onClick={e => e.stopPropagation()}>
+                    <div style={{
+                        textAlign: 'center',
+                        marginBottom: '20px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #e2e8f0'
+                    }}>
+                        <span style={{ fontSize: '40px' }}>📊</span>
+                        <h3 style={{ margin: '8px 0 0', fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>
+                            Payment Adjustments Summary
+                        </h3>
+                    </div>
+
+                    <div style={{ marginBottom: '20px' }}>
+                        {/* Bag to Box */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '12px 16px',
+                            marginBottom: '10px',
+                            background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                            borderRadius: '12px',
+                            borderLeft: '4px solid #f59e0b'
+                        }}>
+                            <div>
+                                <span style={{ fontSize: '20px', marginRight: '8px' }}>📦</span>
+                                <span style={{ fontWeight: '600', color: '#92400e' }}>Bag to Box Conversion</span>
+                            </div>
+                            <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
+                                Rs. {formatDecimal(totals.bag_to_box)}
+                            </div>
+                        </div>
+
+                        {/* Bill to Bill */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '12px 16px',
+                            marginBottom: '10px',
+                            background: 'linear-gradient(135deg, #dbeafe, #bfdbfe)',
+                            borderRadius: '12px',
+                            borderLeft: '4px solid #3b82f6'
+                        }}>
+                            <div>
+                                <span style={{ fontSize: '20px', marginRight: '8px' }}>📄</span>
+                                <span style={{ fontWeight: '600', color: '#1e40af' }}>Bill to Bill Transfer</span>
+                            </div>
+                            <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
+                                Rs. {formatDecimal(totals.bill_to_bill)}
+                            </div>
+                        </div>
+
+                        {/* Bad Debt */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '12px 16px',
+                            marginBottom: '10px',
+                            background: 'linear-gradient(135deg, #fee2e2, #fecaca)',
+                            borderRadius: '12px',
+                            borderLeft: '4px solid #ef4444'
+                        }}>
+                            <div>
+                                <span style={{ fontSize: '20px', marginRight: '8px' }}>⚠️</span>
+                                <span style={{ fontWeight: '600', color: '#991b1b' }}>Bad Debt Write-off</span>
+                            </div>
+                            <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
+                                Rs. {formatDecimal(totals.bad_debt)}
+                            </div>
+                        </div>
+
+                        {/* Total */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '16px',
+                            marginTop: '12px',
+                            background: '#1e293b',
+                            borderRadius: '12px',
+                            color: 'white'
+                        }}>
+                            <div>
+                                <span style={{ fontSize: '20px', marginRight: '8px' }}>💰</span>
+                                <span style={{ fontWeight: '700' }}>Total Adjustments</span>
+                            </div>
+                            <div style={{ fontSize: '20px', fontWeight: '800' }}>
+                                Rs. {formatDecimal(totals.total)}
+                            </div>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={onClose}
+                        style={{
+                            width: '100%',
+                            padding: '12px',
+                            background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '14px'
+                        }}
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    // Add this CSS animation to your styles object (add at the end of styles object)
+    const styleWithAnimation = {
+        ...styles,
+        statBox: {
+            ...styles.statBox,
+            cursor: 'pointer',
+            transition: 'transform 0.2s, box-shadow 0.2s',
+            ':hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 8px 16px rgba(0,0,0,0.1)'
+            }
+        }
+    };
+
+    // Then replace your stats row section (around line 1900) with this:
+
+    <div style={styles.statsRow}>
+        <div style={styles.statBox}>
+            <div style={styles.statLabel}>Pending</div>
+            <div style={styles.statNumber}>{stats.totalPending}</div>
+            <div style={styles.statSub}>bills awaiting payment</div>
+        </div>
+        <div style={styles.statBox}>
+            <div style={styles.statLabel}>Completed</div>
+            <div style={styles.statNumber}>{stats.totalApplied}</div>
+            <div style={styles.statSub}>bills paid</div>
+        </div>
+        <div style={styles.statBox}>
+            <div style={styles.statLabel}>Total Sales</div>
+            <div style={styles.statNumber}>Rs. {formatDecimal(stats.totalAmount)}</div>
+            <div style={styles.statSub}>all bills total</div>
+        </div>
+        <div
+            style={{ ...styles.statBox, cursor: 'pointer' }}
+            onClick={() => setShowAdjustmentSummary(true)}
+            onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.1)';
+            }}
+            onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+            }}
+        >
+            <div style={styles.statLabel}>
+                Total Received
+                <span style={{ fontSize: '10px', marginLeft: '4px', color: '#64748b' }}>(Excl. Credit) 📊</span>
+            </div>
+            <div style={styles.statNumber}>Rs. {formatDecimal(stats.totalGiven)}</div>
+            <div style={styles.statSub}>amount received (click for adjustment summary)</div>
+        </div>
+    </div>
+
+    // Add the modal just before the closing </div> of your main component (around line 2150, before the closing </div> of the app)
+
     const handleCreditPayment = async () => {
         // Get the amount from input field
         let paymentAmount = parseFloat(state.givenAmountInput);
@@ -2890,11 +3189,46 @@ export default function PrintedBills() {
                 </div>
 
                 {/* Stats Cards */}
+
                 <div style={styles.statsRow}>
-                    <div style={styles.statBox}><div style={styles.statLabel}>Pending</div><div style={styles.statNumber}>{stats.totalPending}</div><div style={styles.statSub}>bills awaiting payment</div></div>
-                    <div style={styles.statBox}><div style={styles.statLabel}>Completed</div><div style={styles.statNumber}>{stats.totalApplied}</div><div style={styles.statSub}>bills paid</div></div>
-                    <div style={styles.statBox}><div style={styles.statLabel}>Total Amount</div><div style={styles.statNumber}>Rs. {formatDecimal(stats.totalAmount)}</div><div style={styles.statSub}>all bills total</div></div>
-                    <div style={styles.statBox}><div style={styles.statLabel}>Total Given</div><div style={styles.statNumber}>Rs. {formatDecimal(stats.totalGiven)}</div><div style={styles.statSub}>amount received</div></div>
+                    <div style={styles.statBox}>
+                        <div style={styles.statLabel}>Pending</div>
+                        <div style={styles.statNumber}>{stats.totalPending}</div>
+                        <div style={styles.statSub}>bills awaiting payment</div>
+                    </div>
+                    <div style={styles.statBox}>
+                        <div style={styles.statLabel}>Completed</div>
+                        <div style={styles.statNumber}>{stats.totalApplied}</div>
+                        <div style={styles.statSub}>bills paid</div>
+                    </div>
+                    <div style={styles.statBox}>
+                        <div style={styles.statLabel}>Total Sales</div>
+                        <div style={styles.statNumber}>Rs. {formatDecimal(stats.totalAmount)}</div>
+                        <div style={styles.statSub}>all bills total</div>
+                    </div>
+                    {/* UPDATED: This card now has click handler */}
+                    <div
+                        style={{ ...styles.statBox, cursor: 'pointer' }}
+                        onClick={() => {
+                            modalOpenRef.current = true;
+                            setShowAdjustmentSummary(true);
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+                        }}
+                    >
+                        <div style={styles.statLabel}>
+                            Total Received
+                            <span style={{ fontSize: '10px', marginLeft: '4px', color: '#64748b' }}>(Excl. Credit) 📊</span>
+                        </div>
+                        <div style={styles.statNumber}>Rs. {formatDecimal(stats.totalGiven)}</div>
+                        <div style={styles.statSub}>amount received (click for summary)</div>
+                    </div>
                 </div>
             </div>
 
@@ -2930,6 +3264,15 @@ export default function PrintedBills() {
             <SalesReportModal isOpen={modals.salesReport} onClose={() => toggleModal('salesReport')} />
             <GrnReportModal isOpen={modals.grnReport} onClose={() => toggleModal('grnReport')} />
             <DayProcessModal isOpen={modals.dayProcess} onClose={() => toggleModal('dayProcess')} />
+
+          <AdjustmentSummaryModal
+    isOpen={showAdjustmentSummary}
+    onClose={() => {
+        modalOpenRef.current = false;
+        setShowAdjustmentSummary(false);
+    }}
+    totals={adjustmentTotals}
+/>
         </div>
     );
 }
