@@ -774,9 +774,11 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCo
     const calculateBagToBoxAdjustment = () => {
         const amount = ((parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0)) +
             ((parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0));
-        const maxAllowed = state.selectedBill ? (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0)) : Infinity;
-        if (amount > maxAllowed) {
-            setTimeout(() => alert(`Adjustment amount cannot exceed remaining bill amount of Rs. ${formatDecimal(maxAllowed)}`), 100);
+        const maxAmount = selectedBillDebtor?.remaining_amount > 0
+            ? selectedBillDebtor.remaining_amount
+            : (state.selectedBill ? (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0)) : Infinity);
+        if (amount > maxAmount) {
+            setTimeout(() => alert(`Adjustment amount cannot exceed maximum allowed amount of Rs. ${formatDecimal(maxAmount)}`), 100);
             return 0;
         }
         return amount;
@@ -1410,7 +1412,9 @@ export default function PrintedBills() {
     useEffect(() => {
         if (!state.selectedBill) return;
         let calculatedAmount = 0;
-        const maxAmount = state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0);
+        const maxAmount = selectedBillDebtor?.remaining_amount > 0
+            ? selectedBillDebtor.remaining_amount
+            : (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0));
 
         if (state.adjustmentType === 'bag_to_box') {
             const bagTotal = (parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0);
@@ -1418,7 +1422,7 @@ export default function PrintedBills() {
             calculatedAmount = bagTotal + boxTotal;
             if ((state.bagCount || state.boxCount || state.bagValue || state.boxValue) && calculatedAmount <= maxAmount) {
                 setState(prev => ({ ...prev, givenAmountInput: calculatedAmount.toString() }));
-            } else if (calculatedAmount > maxAmount) {
+            } else if (calculatedAmount > maxAmount && (state.bagCount || state.boxCount)) {
                 alert(`Adjustment amount exceeds limit! Maximum: Rs. ${formatDecimal(maxAmount)}`);
                 setState(prev => ({ ...prev, bagCount: '', boxCount: '', bagValue: '', boxValue: '', givenAmountInput: "" }));
             }
@@ -1427,7 +1431,7 @@ export default function PrintedBills() {
             calculatedAmount = parseFloat(state.customerBillValue) || 0;
             if (state.customerBillValue && calculatedAmount <= maxAmount) {
                 setState(prev => ({ ...prev, givenAmountInput: calculatedAmount.toString() }));
-            } else if (calculatedAmount > maxAmount) {
+            } else if (calculatedAmount > maxAmount && state.customerBillValue) {
                 alert(`Bill amount exceeds limit! Maximum: Rs. ${formatDecimal(maxAmount)}`);
                 setState(prev => ({ ...prev, customerBillValue: "", givenAmountInput: "" }));
             }
@@ -1436,12 +1440,12 @@ export default function PrintedBills() {
             calculatedAmount = parseFloat(state.badDebtAmount) || 0;
             if (state.badDebtAmount && calculatedAmount <= maxAmount) {
                 setState(prev => ({ ...prev, givenAmountInput: calculatedAmount.toString() }));
-            } else if (calculatedAmount > maxAmount) {
+            } else if (calculatedAmount > maxAmount && state.badDebtAmount) {
                 alert(`Bad debt amount exceeds limit! Maximum: Rs. ${formatDecimal(maxAmount)}`);
                 setState(prev => ({ ...prev, badDebtAmount: "", givenAmountInput: "" }));
             }
         }
-    }, [state.adjustmentType, state.bagCount, state.bagValue, state.boxCount, state.boxValue, state.customerBillValue, state.badDebtAmount]);
+    }, [state.adjustmentType, state.bagCount, state.bagValue, state.boxCount, state.boxValue, state.customerBillValue, state.badDebtAmount, selectedBillDebtor]);
 
     const handleBillClick = async (bill) => {
         // If clicking the same bill, clear it
@@ -1477,7 +1481,9 @@ export default function PrintedBills() {
     useEffect(() => {
         if (state.givenAmountInput && state.givenAmountInput !== "0") {
             const num = parseFloat(state.givenAmountInput);
-            const maxAmount = state.selectedBill ? (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0)) : Infinity;
+            const maxAmount = selectedBillDebtor?.remaining_amount > 0
+                ? selectedBillDebtor.remaining_amount
+                : (state.selectedBill ? (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0)) : Infinity);
             if (state.selectedBill && num > maxAmount) {
                 alert(`Amount cannot exceed Rs. ${formatDecimal(maxAmount)}`);
                 return;
@@ -1488,7 +1494,7 @@ export default function PrintedBills() {
                 badDebtAmount: state.givenAmountInput
             }));
         }
-    }, [state.givenAmountInput]);
+    }, [state.givenAmountInput, selectedBillDebtor]);
 
     // Save filter states whenever they change
     useEffect(() => {
@@ -2669,9 +2675,15 @@ export default function PrintedBills() {
                                                 let val = e.target.value;
                                                 if (val === "") return setState(prev => ({ ...prev, givenAmountInput: "" }));
                                                 let num = parseFloat(val);
-                                                if (state.selectedBill && num > (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))) {
-                                                    alert(`Maximum allowed: Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))}`);
-                                                    return;
+                                                if (state.selectedBill) {
+                                                    // If there's outstanding debt, use that as max, otherwise use remaining bill amount
+                                                    const maxAmount = selectedBillDebtor?.remaining_amount > 0
+                                                        ? selectedBillDebtor.remaining_amount
+                                                        : (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0));
+                                                    if (num > maxAmount) {
+                                                        alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
+                                                        return;
+                                                    }
                                                 }
                                                 setState(prev => ({ ...prev, givenAmountInput: val }));
                                             }}
@@ -2719,9 +2731,14 @@ export default function PrintedBills() {
                                                             let val = e.target.value;
                                                             if (val === "") return setState(prev => ({ ...prev, customerBillValue: "" }));
                                                             let num = parseFloat(val);
-                                                            if (state.selectedBill && num > (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))) {
-                                                                alert(`Maximum allowed: Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))}`);
-                                                                return;
+                                                            if (state.selectedBill) {
+                                                                const maxAmount = selectedBillDebtor?.remaining_amount > 0
+                                                                    ? selectedBillDebtor.remaining_amount
+                                                                    : (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0));
+                                                                if (num > maxAmount) {
+                                                                    alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
+                                                                    return;
+                                                                }
                                                             }
                                                             setState(prev => ({ ...prev, customerBillValue: val }));
                                                         }}
@@ -2741,9 +2758,14 @@ export default function PrintedBills() {
                                                             let val = e.target.value;
                                                             if (val === "") return setState(prev => ({ ...prev, badDebtAmount: "" }));
                                                             let num = parseFloat(val);
-                                                            if (state.selectedBill && num > (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))) {
-                                                                alert(`Maximum allowed: Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))}`);
-                                                                return;
+                                                            if (state.selectedBill) {
+                                                                const maxAmount = selectedBillDebtor?.remaining_amount > 0
+                                                                    ? selectedBillDebtor.remaining_amount
+                                                                    : (state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0));
+                                                                if (num > maxAmount) {
+                                                                    alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
+                                                                    return;
+                                                                }
                                                             }
                                                             setState(prev => ({ ...prev, badDebtAmount: val }));
                                                         }}
