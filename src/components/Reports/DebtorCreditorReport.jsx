@@ -88,13 +88,37 @@ const DebtorCreditorReport = () => {
     };
 
     const formatDate = (date) => {
-        if (!date) return 'N/A';
-        return new Date(date).toLocaleDateString('en-GB', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
-    };
+    if (!date) {
+        console.log('No date provided');
+        return 'N/A';
+    }
+    
+    // If it's an object with a date property
+    if (typeof date === 'object' && date.date) {
+        date = date.date;
+    }
+    
+    // Try to parse the date
+    let parsedDate;
+    try {
+        parsedDate = new Date(date);
+        
+        // Check if valid
+        if (isNaN(parsedDate.getTime())) {
+            console.warn('Invalid date value:', date);
+            return 'N/A';
+        }
+    } catch (error) {
+        console.error('Date parsing error:', error);
+        return 'N/A';
+    }
+    
+    return parsedDate.toLocaleDateString('en-GB', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+    });
+};
 
     // Helper function to get image URL
     const getImageUrl = (imagePath) => {
@@ -565,7 +589,7 @@ const DebtorCreditorReport = () => {
                                                         <strong>{bill.bill_no}</strong>
                                                     </td>
                                                     <td style={styles.detailsTd}>
-                                                        {formatDate(bill.created_at)}
+                                                        {formatDate(bill.date)}
                                                     </td>
                                                     <td style={styles.detailsTd}>
                                                         <strong>{formatCurrency(bill.total_amount)}</strong>
