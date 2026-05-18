@@ -58,6 +58,9 @@ const processBillData = (salesData) => {
         }
 
         let creditAmount = 0, cashPayments = 0, totalGivenAmount = 0;
+
+        // IMPORTANT: Only include payments that belong to THIS SPECIFIC bill
+        // The payment_history is already per bill from the database
         paymentHistory.forEach(payment => {
             const amount = parseFloat(payment.amount) || 0;
             totalGivenAmount += amount;
@@ -65,8 +68,9 @@ const processBillData = (salesData) => {
             else if (['Cash', 'Cheque', 'Bank Transfer'].includes(payment.method)) cashPayments += amount;
         });
 
-        const finalGivenAmount = totalGivenAmount || sale.given_amount || 0;
-        const finalCashPayments = cashPayments || sale.given_amount || 0;
+        // Use only the totalGivenAmount from this bill's payment history
+        const finalGivenAmount = totalGivenAmount;
+        const finalCashPayments = cashPayments;
         const finalCreditAmount = creditAmount;
 
         const isApplied = sale.given_amount_applied === 'Y';
@@ -74,10 +78,17 @@ const processBillData = (salesData) => {
 
         if (!targetMap[billNo]) {
             targetMap[billNo] = {
-                billNo, customerCode: sale.customer_code, sales: [], totalAmount: 0,
-                givenAmount: finalGivenAmount, cashPayments: finalCashPayments, creditAmount: finalCreditAmount,
-                givenAmountApplied: sale.given_amount_applied || 'N', paymentAdjustmentType: sale.payment_adjustment_type || null,
-                createdAt: sale.created_at, chequeDetails: sale.cheq_no ? { cheq_no: sale.cheq_no, cheq_date: sale.cheq_date, bank_name: sale.bank_name } : null,
+                billNo,
+                customerCode: sale.customer_code,
+                sales: [],
+                totalAmount: 0,
+                givenAmount: finalGivenAmount,  // Now ONLY this bill's payments
+                cashPayments: finalCashPayments,  // Now ONLY this bill's cash payments
+                creditAmount: finalCreditAmount,  // Now ONLY this bill's credit payments
+                givenAmountApplied: sale.given_amount_applied || 'N',
+                paymentAdjustmentType: sale.payment_adjustment_type || null,
+                createdAt: sale.created_at,
+                chequeDetails: sale.cheq_no ? { cheq_no: sale.cheq_no, cheq_date: sale.cheq_date, bank_name: sale.bank_name } : null,
                 transferDetails: sale.transfer_reference_no ? { reference_no: sale.transfer_reference_no, transfer_date: sale.transfer_date } : null,
                 paymentHistory
             };
@@ -93,7 +104,7 @@ const processBillData = (salesData) => {
 };
 
 // ==================== CUSTOMER TYPE SELECTOR ====================
-const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, billCustomerCode = null, billNo = null, selectedBillDebtor = null, customers = [] }) => {
+const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, onUnlockScreen, billCustomerCode = null, billNo = null, selectedBillDebtor = null, customers = [], viewOldBills = false }) => {
     const [showDebtorConfirm, setShowDebtorConfirm] = useState(false);
     const [customerCode, setCustomerCode] = useState('');
     const [loading, setLoading] = useState(false);
@@ -215,8 +226,9 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     ? `✅ New debtor record created for Bill #${billNo}\n📋 Debtor Number: ${debtorNo}`
                     : `✅ Using EXISTING Debtor!\n📋 Customer: ${code}\n📋 Debtor Number: ${debtorNo || 'N/A'}`);
                 setShowDebtorConfirm(false);
-                onSelect('walking');
                 resetCustomerState();
+                // ✅ ADD THIS - Call onUnlockScreen to let parent know screen should be unlocked
+                if (onUnlockScreen) onUnlockScreen();
             } else if (customerData.exists) {
                 const confirmNew = window.confirm(`⚠️ Customer "${code}" exists but not selected from dropdown.\nDo you want to CREATE a NEW debtor record?`);
                 if (confirmNew) {
@@ -224,22 +236,29 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     setShowDebtorConfirm(false);
                     onDebtorClick(code, billNo);
                     resetCustomerState();
+                    // ✅ ADD THIS - Call onUnlockScreen to let parent know screen should be unlocked
+                    if (onUnlockScreen) onUnlockScreen();
                 } else {
                     await api.put(routes.updateDebtorStatus, { short_name: code, customer_id: selectedCustomerId, Debtor: 'Y', bill_no: billNo });
                     alert(`✅ Using EXISTING debtor record for "${code}".`);
                     setShowDebtorConfirm(false);
-                    onSelect('walking');
                     resetCustomerState();
+                    // ✅ ADD THIS - Call onUnlockScreen to let parent know screen should be unlocked
+                    if (onUnlockScreen) onUnlockScreen();
                 }
             } else {
                 setShowDebtorConfirm(false);
                 onDebtorClick(code, billNo);
                 resetCustomerState();
             }
-        } catch (error) { console.error('Error:', error); alert('Failed to check customer.'); }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to check customer.');
+            setShowDebtorConfirm(false);
+            resetCustomerState();
+        }
         finally { setLoading(false); }
     };
-
     const resetCustomerState = () => {
         setCustomerCode('');
         setMatchingCustomers([]);
@@ -252,6 +271,9 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
     // Check if no type is selected AND there's no existing debtor
     const noTypeSelected = !selectedType && !billHasDebtor;
 
+    // For old bills, we don't show the warning or block functionality
+    const shouldShowWarning = !viewOldBills && noTypeSelected && !billHasDebtor;
+
     return (
         <>
             <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)', borderRadius: '12px', border: '2px solid #bae6fd' }}>
@@ -259,14 +281,14 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button
                         onClick={() => onSelect('walking')}
-                        disabled={disabled || !!billHasDebtor}
+                        disabled={disabled || (!!billHasDebtor && !viewOldBills)}
                         style={{
                             flex: 1, padding: '10px',
                             background: selectedType === 'walking' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white',
                             color: selectedType === 'walking' ? 'white' : '#475569',
                             border: selectedType === 'walking' ? 'none' : '2px solid #e2e8f0',
                             borderRadius: '10px',
-                            cursor: (disabled || billHasDebtor) ? 'not-allowed' : 'pointer',
+                            cursor: (disabled || (!!billHasDebtor && !viewOldBills)) ? 'not-allowed' : 'pointer',
                             fontWeight: '600',
                             fontSize: '12px',
                             display: 'flex',
@@ -274,21 +296,20 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                             justifyContent: 'center',
                             gap: '6px',
                             transition: 'all 0.2s',
-                            opacity: (disabled || billHasDebtor) ? 0.6 : 1
+                            opacity: (disabled || (!!billHasDebtor && !viewOldBills)) ? 0.6 : 1
                         }}
                     >
                         🚶 Walking Customer
                     </button>
                     <button
                         onClick={() => setShowDebtorConfirm(true)}
-                        disabled={disabled || !!billHasDebtor}
+                        disabled={disabled || (!!billHasDebtor && !viewOldBills)}
                         style={{
                             flex: 1, padding: '10px',
-                            background: (selectedType === 'debtor' || billHasDebtor) ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'white',
-                            color: (selectedType === 'debtor' || billHasDebtor) ? 'white' : '#475569',
-                            border: (selectedType === 'debtor' || billHasDebtor) ? 'none' : '2px solid #e2e8f0',
-                            borderRadius: '10px',
-                            cursor: (disabled || billHasDebtor) ? 'not-allowed' : 'pointer',
+                            background: selectedType === 'debtor' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'white',
+                            color: selectedType === 'debtor' ? 'white' : '#475569',
+                            border: selectedType === 'debtor' ? 'none' : '2px solid #e2e8f0',
+                            cursor: (disabled || (!!billHasDebtor && !viewOldBills)) ? 'not-allowed' : 'pointer',
                             fontWeight: '600',
                             fontSize: '12px',
                             display: 'flex',
@@ -296,15 +317,15 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                             justifyContent: 'center',
                             gap: '6px',
                             transition: 'all 0.2s',
-                            opacity: (disabled || billHasDebtor) ? 0.6 : 1
+                            opacity: (disabled || (!!billHasDebtor && !viewOldBills)) ? 0.6 : 1
                         }}
                     >
                         📋 Debtor
                     </button>
                 </div>
 
-                {/* Show warning only when no type selected AND no existing debtor */}
-                {noTypeSelected && !billHasDebtor && (
+                {/* Show warning ONLY when NOT viewing old bills AND no type selected AND no existing debtor */}
+                {shouldShowWarning && (
                     <div style={{ fontSize: '10px', color: '#dc2626', marginTop: '8px', textAlign: 'center', fontWeight: '500' }}>
                         ⚠️ Please select customer type to continue
                     </div>
@@ -317,8 +338,8 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     </div>
                 )}
 
-                {/* Show selected type message when not auto-selected */}
-                {!noTypeSelected && !billHasDebtor && (
+                {/* Show selected type message when not auto-selected and not viewing old bills */}
+                {!noTypeSelected && !billHasDebtor && !viewOldBills && (
                     <div style={{ fontSize: '10px', color: '#0369a1', marginTop: '8px', textAlign: 'center' }}>
                         ✅ Customer type selected: {selectedType === 'walking' ? 'Walking Customer' : 'Debtor'}
                     </div>
@@ -1190,11 +1211,13 @@ export default function PrintedBills() {
         if (!bill) return 0;
 
         let total = 0;
+        // Use the payment history that belongs to this bill
         const history = bill.paymentHistory || bill.payment_history;
         if (history) {
             let payments = typeof history === 'string' ? JSON.parse(history) : history;
             if (Array.isArray(payments)) {
                 payments.forEach(p => {
+                    // Exclude Credit payments from total received
                     if (p.method !== 'Credit') {
                         total += parseFloat(p.amount) || 0;
                     }
@@ -1211,37 +1234,6 @@ export default function PrintedBills() {
         return totals;
     };
 
-    // Initial fetch and setup auto-refresh every 3 seconds
-    useEffect(() => {
-        isMountedRef.current = true;
-
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) setUser(JSON.parse(storedUser));
-
-        // Initial load with loading indicator
-        const initialLoad = async () => {
-            setState(prev => ({ ...prev, isLoading: true }));
-            await silentRefresh();
-        };
-        initialLoad();
-
-        // Set up interval for silent refresh every 3 seconds
-        const intervalId = setInterval(() => {
-            // Only refresh if we're not already refreshing and component is mounted
-            if (!isRefreshing && isMountedRef.current) {
-                silentRefresh();
-            }
-        }, 3000); // 3 seconds
-
-        // Cleanup on unmount
-        return () => {
-            isMountedRef.current = false;
-            if (refreshTimeoutRef.current) {
-                clearTimeout(refreshTimeoutRef.current);
-            }
-            clearInterval(intervalId);
-        };
-    }, []);
     // Report Modal States
     const [modals, setModals] = useState({
         itemReport: false, weightReport: false, grnSaleReport: false, salesAdjustmentReport: false,
@@ -1434,15 +1426,6 @@ export default function PrintedBills() {
             setArchivedData(prev => ({ ...prev, isLoading: false }));
         }
     };
-    // Auto-set customer type to 'debtor' when a bill with existing debtor is selected
-    useEffect(() => {
-        if (selectedBillDebtor && selectedBillDebtor.Debtor_no) {
-            // If bill has a debtor number, automatically set customer type to debtor
-            if (state.customerType !== 'debtor') {
-                setState(prev => ({ ...prev, customerType: 'debtor' }));
-            }
-        }
-    }, [selectedBillDebtor]);
 
     const resetToCurrentSales = () => {
         setViewOldBills(false);
@@ -1451,7 +1434,7 @@ export default function PrintedBills() {
         setDataSource('sales');
         setArchivedData({ pendingBills: [], appliedBills: [], isLoading: false });
         // Reset customer type to null when going back to current bills
-        setState(prev => ({ ...prev, customerType: null }));
+        setState(prev => ({ ...prev, customerType: null }));  // ← Keep this one, it's fine (sets to null, not auto-selecting)
         fetchSalesData();
         // Clear saved filter states from localStorage
         localStorage.removeItem('printedBills_viewOldBills');
@@ -1504,7 +1487,8 @@ export default function PrintedBills() {
                 ...prev,
                 selectedBill: null,
                 givenAmountInput: "",
-                isUpdatingCompletedBill: false
+                isUpdatingCompletedBill: false,
+                customerType: null
             }));
             setSelectedBillDebtor(null);
             return;
@@ -1516,12 +1500,18 @@ export default function PrintedBills() {
             givenAmountInput: "",
             isUpdatingCompletedBill: bill.givenAmountApplied === 'Y'
         }));
+
         try {
             const response = await api.get(`/debtors/${bill.billNo}`);
             if (response.data.success && response.data.data) {
                 setSelectedBillDebtor(response.data.data);
+                // Auto-set customer type to debtor if bill has a debtor record
+                if (response.data.data.Debtor_no) {
+                    setState(prev => ({ ...prev, customerType: 'debtor' }));
+                }
             } else {
                 setSelectedBillDebtor(null);
+                // Don't auto-set customer type - user must select
             }
         } catch (e) {
             setSelectedBillDebtor(null);
@@ -1589,7 +1579,7 @@ export default function PrintedBills() {
                 selectedBill: null,
                 givenAmountInput: "",
                 isUpdatingCompletedBill: false,
-                customerType: null  // Clear customer type as well
+                customerType: null
             }));
             setSelectedBillDebtor(null);
             return;
@@ -1598,9 +1588,15 @@ export default function PrintedBills() {
         // First, show the bill details in the middle screen
         handleBillClick(bill);
 
-        // Then check if customer type is selected - if not, just show bill but don't process debtor logic
+        // Check if bill already has a debtor record
+        if (selectedBillDebtor?.Debtor_no) {
+            // Bill already has debtor, auto-select debtor type
+            setState(prev => ({ ...prev, customerType: 'debtor' }));
+            return;
+        }
+
+        // If customer type is not selected, don't process debtor logic - user must select manually
         if (!state.customerType) {
-            // Bill details are shown, but payment section is locked via opacity/pointerEvents
             return;
         }
 
@@ -1625,10 +1621,7 @@ export default function PrintedBills() {
                     console.log('Updated customer as Debtor');
                 }
             } else {
-                // Customer not found - Show a message but DO NOT open the form automatically
                 console.log('Customer not found, showing message');
-                alert(`Customer "${bill.customerCode}" not found. Please register this customer as a debtor using the "Debtor" button above.`);
-                // REMOVED: setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: bill }));
             }
         } catch (error) {
             console.error('Error checking debtor:', error);
@@ -1640,7 +1633,7 @@ export default function PrintedBills() {
         if (saved && state.pendingDebtorBill) {
             setState(prev => ({
                 ...prev,
-                customerType: 'debtor',
+                // DON'T reset customerType to null - keep it as debtor
                 showDebtorForm: false,
                 pendingDebtorBill: null
             }));
@@ -1658,6 +1651,8 @@ export default function PrintedBills() {
                     const response = await api.get(`/debtors/${state.pendingDebtorBill.billNo}`);
                     if (response.data.success && response.data.data) {
                         setSelectedBillDebtor(response.data.data);
+                        // Set customer type to debtor after successful debtor creation
+                        setState(prev => ({ ...prev, customerType: 'debtor' }));
                     }
                 } catch (e) {
                     console.log('Error fetching new debtor data:', e);
@@ -1672,6 +1667,7 @@ export default function PrintedBills() {
         }
     };
     // Refresh debtor data when a debtor is saved
+    // Refresh debtor data when a debtor is saved
     useEffect(() => {
         if (state.pendingDebtorBill?.billNo && !state.showDebtorForm) {
             // If we just closed the debtor form and we have a pending bill, refresh its debtor data
@@ -1680,7 +1676,7 @@ export default function PrintedBills() {
                     const response = await api.get(`/debtors/${state.pendingDebtorBill.billNo}`);
                     if (response.data.success && response.data.data) {
                         setSelectedBillDebtor(response.data.data);
-                        // Auto-set customer type to debtor
+                        // Set customer type to debtor after successful debtor creation
                         setState(prev => ({ ...prev, customerType: 'debtor' }));
                     }
                 } catch (e) {
@@ -2493,57 +2489,19 @@ export default function PrintedBills() {
             return () => clearTimeout(delayDebounce);
         }
     }, [startDate, endDate, viewOldBills]);
-    // Add this useEffect after your existing state declarations
-    useEffect(() => {
-        // When View Old Bills is clicked, automatically select Walking Customer
-        if (viewOldBills) {
-            setState(prev => ({ ...prev, customerType: 'walking' }));
-        }
-    }, [viewOldBills]); // This runs whenever viewOldBills changes
-    // Replace the stats calculation in your component (around line 1430) with this:
 
+    // Replace the stats calculation in your component (around line 1430) with this:
     const stats = useMemo(() => {
         const pendingAmount = filterPendingBills.reduce((sum, b) => sum + b.totalAmount, 0);
         const appliedAmount = filterAppliedBills.reduce((sum, b) => sum + b.totalAmount, 0);
+
         const pendingGiven = filterPendingBills.reduce((sum, b) => {
-            // Exclude Credit payments from given amount
-            const history = b.paymentHistory || b.payment_history;
-            if (history) {
-                let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                if (Array.isArray(payments)) {
-                    const nonCreditGiven = payments.reduce((total, p) => {
-                        if (p.method !== 'Credit') {
-                            return total + (parseFloat(p.amount) || 0);
-                        }
-                        return total;
-                    }, 0);
-                    return sum + nonCreditGiven;
-                }
-            }
-            // Fallback to original givenAmount but ensure it excludes credit
-            const given = b.givenAmount || 0;
-            const credit = b.creditAmount || 0;
-            return sum + Math.max(0, given - credit);
+            // Use getTotalReceived for consistency
+            return sum + getTotalReceived(b);
         }, 0);
 
         const appliedGiven = filterAppliedBills.reduce((sum, b) => {
-            // Exclude Credit payments from given amount
-            const history = b.paymentHistory || b.payment_history;
-            if (history) {
-                let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                if (Array.isArray(payments)) {
-                    const nonCreditGiven = payments.reduce((total, p) => {
-                        if (p.method !== 'Credit') {
-                            return total + (parseFloat(p.amount) || 0);
-                        }
-                        return total;
-                    }, 0);
-                    return sum + nonCreditGiven;
-                }
-            }
-            const given = b.givenAmount || 0;
-            const credit = b.creditAmount || 0;
-            return sum + Math.max(0, given - credit);
+            return sum + getTotalReceived(b);
         }, 0);
 
         return {
@@ -2557,19 +2515,25 @@ export default function PrintedBills() {
     // Add this state for the summary popup (add with your other useState declarations around line 1130)
     const [showAdjustmentSummary, setShowAdjustmentSummary] = useState(false);
     const [adjustmentTotals, setAdjustmentTotals] = useState({
+        cash: 0,
+        cheque: 0,
+        bank_transfer: 0,
+        credit: 0,
         bag_to_box: 0,
         bill_to_bill: 0,
-        bad_debt: 0,
-        total: 0
+        bad_debt: 0
     });
 
-    // Add this function to calculate adjustment totals (add near your other functions)
-    const calculateAdjustmentTotals = useCallback(() => {
+    // Add this function to calculate payment totals (add near your other functions)
+    const calculatePaymentTotals = useCallback(() => {
         const totals = {
+            cash: 0,
+            cheque: 0,
+            bank_transfer: 0,
+            credit: 0,
             bag_to_box: 0,
             bill_to_bill: 0,
-            bad_debt: 0,
-            total: 0
+            bad_debt: 0
         };
 
         // Combine pending and applied bills
@@ -2581,15 +2545,31 @@ export default function PrintedBills() {
                 let payments = typeof history === 'string' ? JSON.parse(history) : history;
                 if (Array.isArray(payments)) {
                     payments.forEach(payment => {
-                        if (payment.method === 'bag_to_box') {
-                            totals.bag_to_box += parseFloat(payment.amount) || 0;
-                            totals.total += parseFloat(payment.amount) || 0;
-                        } else if (payment.method === 'bill_to_bill') {
-                            totals.bill_to_bill += parseFloat(payment.amount) || 0;
-                            totals.total += parseFloat(payment.amount) || 0;
-                        } else if (payment.method === 'bad_debt') {
-                            totals.bad_debt += parseFloat(payment.amount) || 0;
-                            totals.total += parseFloat(payment.amount) || 0;
+                        const amount = parseFloat(payment.amount) || 0;
+                        switch (payment.method) {
+                            case 'Cash':
+                                totals.cash += amount;
+                                break;
+                            case 'Cheque':
+                                totals.cheque += amount;
+                                break;
+                            case 'Bank Transfer':
+                                totals.bank_transfer += amount;
+                                break;
+                            case 'Credit':
+                                totals.credit += amount;
+                                break;
+                            case 'bag_to_box':
+                                totals.bag_to_box += amount;
+                                break;
+                            case 'bill_to_bill':
+                                totals.bill_to_bill += amount;
+                                break;
+                            case 'bad_debt':
+                                totals.bad_debt += amount;
+                                break;
+                            default:
+                                break;
                         }
                     });
                 }
@@ -2601,150 +2581,60 @@ export default function PrintedBills() {
 
     // Add this effect to recalculate when bills change
     useEffect(() => {
-        calculateAdjustmentTotals();
-    }, [filterPendingBills, filterAppliedBills, calculateAdjustmentTotals]);
+        calculatePaymentTotals();  // <- CHANGE THIS LINE
+    }, [filterPendingBills, filterAppliedBills, calculatePaymentTotals]);
 
     // Add this component for the summary popup (add before the return statement)
     const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
         if (!isOpen) return null;
 
+        const totalReceived = (totals.cash || 0) + (totals.cheque || 0) + (totals.bank_transfer || 0) + (totals.bag_to_box || 0) + (totals.bill_to_bill || 0) + (totals.bad_debt || 0);
+        const totalWithCredit = totalReceived + (totals.credit || 0);
+
+        const paymentItems = [
+            { icon: '💰', label: 'Cash Payments', value: totals.cash, color: '#10b981', bg: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' },
+            { icon: '💳', label: 'Cheque Payments', value: totals.cheque, color: '#8b5cf6', bg: 'linear-gradient(135deg, #ede9fe, #ddd6fe)' },
+            { icon: '🏦', label: 'Bank Transfer Payments', value: totals.bank_transfer, color: '#ec489a', bg: 'linear-gradient(135deg, #fce7f3, #fbcfe8)' },
+            { icon: '💳', label: 'Credit Payments (Debt)', value: totals.credit, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
+            { icon: '📦', label: 'Bag to Box Conversion', value: totals.bag_to_box, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
+            { icon: '📄', label: 'Bill to Bill Transfer', value: totals.bill_to_bill, color: '#3b82f6', bg: 'linear-gradient(135deg, #dbeafe, #bfdbfe)' },
+            { icon: '⚠️', label: 'Bad Debt Write-off', value: totals.bad_debt, color: '#ef4444', bg: 'linear-gradient(135deg, #fee2e2, #fecaca)' }
+        ];
+
         return (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.6)',
-                backdropFilter: 'blur(4px)',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                zIndex: 20001
-            }} onClick={onClose}>
-                <div style={{
-                    backgroundColor: 'white',
-                    borderRadius: '20px',
-                    width: '400px',
-                    maxWidth: '90%',
-                    padding: '24px',
-                    animation: 'slideUp 0.3s ease'
-                }} onClick={e => e.stopPropagation()}>
-                    <div style={{
-                        textAlign: 'center',
-                        marginBottom: '20px',
-                        paddingBottom: '12px',
-                        borderBottom: '2px solid #e2e8f0'
-                    }}>
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20001 }} onClick={onClose}>
+                <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '450px', maxWidth: '90%', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ textAlign: 'center', marginBottom: '20px', paddingBottom: '12px', borderBottom: '2px solid #e2e8f0' }}>
                         <span style={{ fontSize: '40px' }}>📊</span>
-                        <h3 style={{ margin: '8px 0 0', fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>
-                            Payment Adjustments Summary
-                        </h3>
+                        <h3 style={{ margin: '8px 0 0', fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Payment Summary</h3>
                     </div>
 
                     <div style={{ marginBottom: '20px' }}>
-                        {/* Bag to Box */}
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '12px 16px',
-                            marginBottom: '10px',
-                            background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
-                            borderRadius: '12px',
-                            borderLeft: '4px solid #f59e0b'
-                        }}>
-                            <div>
-                                <span style={{ fontSize: '20px', marginRight: '8px' }}>📦</span>
-                                <span style={{ fontWeight: '600', color: '#92400e' }}>Bag to Box Conversion</span>
+                        {paymentItems.map((item, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', marginBottom: '10px', background: item.bg, borderRadius: '12px', borderLeft: `4px solid ${item.color}` }}>
+                                <div><span style={{ fontSize: '20px', marginRight: '8px' }}>{item.icon}</span><span style={{ fontWeight: '600', color: item.color === '#10b981' ? '#065f46' : item.color === '#8b5cf6' ? '#5b21b6' : item.color === '#ec489a' ? '#9d174d' : item.color === '#f59e0b' ? '#92400e' : item.color === '#3b82f6' ? '#1e40af' : '#991b1b' }}>{item.label}</span></div>
+                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>Rs. {formatDecimal(item.value || 0)}</div>
                             </div>
-                            <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
-                                Rs. {formatDecimal(totals.bag_to_box)}
-                            </div>
+                        ))}
+
+                        <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '16px 0' }}></div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'linear-gradient(135deg, #10b981, #059669)', borderRadius: '12px', color: 'white', marginBottom: '10px' }}>
+                            <div><span style={{ fontSize: '20px', marginRight: '8px' }}>💰</span><span style={{ fontWeight: '700' }}>Total Received (All except Credit)</span></div>
+                            <div style={{ fontSize: '20px', fontWeight: '800' }}>Rs. {formatDecimal(totalReceived)}</div>
                         </div>
 
-                        {/* Bill to Bill */}
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '12px 16px',
-                            marginBottom: '10px',
-                            background: 'linear-gradient(135deg, #dbeafe, #bfdbfe)',
-                            borderRadius: '12px',
-                            borderLeft: '4px solid #3b82f6'
-                        }}>
-                            <div>
-                                <span style={{ fontSize: '20px', marginRight: '8px' }}>📄</span>
-                                <span style={{ fontWeight: '600', color: '#1e40af' }}>Bill to Bill Transfer</span>
-                            </div>
-                            <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
-                                Rs. {formatDecimal(totals.bill_to_bill)}
-                            </div>
-                        </div>
-
-                        {/* Bad Debt */}
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '12px 16px',
-                            marginBottom: '10px',
-                            background: 'linear-gradient(135deg, #fee2e2, #fecaca)',
-                            borderRadius: '12px',
-                            borderLeft: '4px solid #ef4444'
-                        }}>
-                            <div>
-                                <span style={{ fontSize: '20px', marginRight: '8px' }}>⚠️</span>
-                                <span style={{ fontWeight: '600', color: '#991b1b' }}>Bad Debt Write-off</span>
-                            </div>
-                            <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
-                                Rs. {formatDecimal(totals.bad_debt)}
-                            </div>
-                        </div>
-
-                        {/* Total */}
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '16px',
-                            marginTop: '12px',
-                            background: '#1e293b',
-                            borderRadius: '12px',
-                            color: 'white'
-                        }}>
-                            <div>
-                                <span style={{ fontSize: '20px', marginRight: '8px' }}>💰</span>
-                                <span style={{ fontWeight: '700' }}>Total Adjustments</span>
-                            </div>
-                            <div style={{ fontSize: '20px', fontWeight: '800' }}>
-                                Rs. {formatDecimal(totals.total)}
-                            </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: '#1e293b', borderRadius: '12px', color: 'white' }}>
+                            <div><span style={{ fontSize: '20px', marginRight: '8px' }}>📊</span><span style={{ fontWeight: '700' }}>Total Including Credit</span></div>
+                            <div style={{ fontSize: '20px', fontWeight: '800' }}>Rs. {formatDecimal(totalWithCredit)}</div>
                         </div>
                     </div>
 
-                    <button
-                        onClick={onClose}
-                        style={{
-                            width: '100%',
-                            padding: '12px',
-                            background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontWeight: '600',
-                            fontSize: '14px'
-                        }}
-                    >
-                        Close
-                    </button>
+                    <button onClick={onClose} style={{ width: '100%', padding: '12px', background: 'linear-gradient(135deg, #667eea, #764ba2)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}>Close</button>
                 </div>
             </div>
         );
     };
-
     // Add this CSS animation to your styles object (add at the end of styles object)
     const styleWithAnimation = {
         ...styles,
@@ -2867,7 +2757,7 @@ export default function PrintedBills() {
                                 // Switching from Current Bills to Old Bills
                                 setViewOldBills(true);
                                 // Auto-select Walking Customer when viewing old bills
-                                setState(prev => ({ ...prev, customerType: 'walking' }));
+                                //    setState(prev => ({ ...prev, customerType: 'walking' }));
 
                                 // Don't fetch immediately - let user select dates first
                                 // Just show the date pickers
@@ -3025,25 +2915,32 @@ export default function PrintedBills() {
                             <CustomerTypeSelector
                                 selectedType={state.customerType}
                                 onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))}
+                                onUnlockScreen={() => {
+                                    
+                                    
+                                    setState(prev => ({ ...prev, customerType: 'debtor' }));
+                                }}
                                 disabled={state.isPrinting}
                                 onDebtorClick={(code, billNo) => setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: { customerCode: code, billNo } }))}
                                 billCustomerCode={state.selectedBill?.customerCode}
                                 billNo={state.selectedBill?.billNo}
                                 selectedBillDebtor={selectedBillDebtor}
                                 customers={state.customers}
+                                viewOldBills={viewOldBills}
                             />
                         </div>
 
                         {/* Scrollable Content */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc', position: 'relative', opacity: !state.customerType ? 0.5 : 1, pointerEvents: !state.customerType ? 'none' : 'auto' }}>
-                            {!state.customerType && (
-                                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(200,200,200,0.3)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10, borderRadius: '20px' }}>
-                                    <div style={{ background: 'white', padding: '15px 25px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', textAlign: 'center' }}>
-                                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔒</div>
-                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#475569' }}>Select customer type above to continue</div>
-                                    </div>
-                                </div>
-                            )}
+
+                        <div style={{
+                            flex: 1,
+                            overflowY: 'auto',
+                            padding: '24px',
+                            background: '#f8fafc',
+                            position: 'relative',
+                            opacity: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 0.5 : 1,  // ← MODIFY THIS LINE
+                            pointerEvents: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 'none' : 'auto'  // ← MODIFY THIS LINE
+                        }}>
 
                             {state.selectedBill ? (
                                 <>
@@ -3260,6 +3157,7 @@ export default function PrintedBills() {
                         style={{ ...styles.statBox, cursor: 'pointer' }}
                         onClick={() => {
                             modalOpenRef.current = true;
+                            calculatePaymentTotals();
                             setShowAdjustmentSummary(true);
                         }}
                         onMouseEnter={(e) => {
