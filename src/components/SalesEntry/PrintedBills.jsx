@@ -93,24 +93,31 @@ const processBillData = (salesData) => {
 };
 
 // ==================== CUSTOMER TYPE SELECTOR ====================
-const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, billCustomerCode = null, billNo = null, selectedBillDebtor = null }) => {
+const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, billCustomerCode = null, billNo = null, selectedBillDebtor = null, customers = [] }) => {
     const [showDebtorConfirm, setShowDebtorConfirm] = useState(false);
     const [customerCode, setCustomerCode] = useState('');
     const [loading, setLoading] = useState(false);
     const [matchingCustomers, setMatchingCustomers] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
-    const [allCustomers, setAllCustomers] = useState([]);
+    const [allCustomers, setAllCustomers] = useState(customers);
     const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
     const [selectedFromDropdown, setSelectedFromDropdown] = useState(false);
-    const [customersLoaded, setCustomersLoaded] = useState(false);
+    const [customersLoaded, setCustomersLoaded] = useState(!!customers.length);
 
     // Check if bill has an existing debtor number
     const billHasDebtor = selectedBillDebtor?.Debtor_no;
 
-    useEffect(() => { fetchAllCustomers(); }, []);
-    useEffect(() => { if (showDebtorConfirm && !customersLoaded) fetchAllCustomers(); }, [showDebtorConfirm]);
+    // Update allCustomers when customers prop changes
+    useEffect(() => {
+        setAllCustomers(customers);
+        if (customers.length) {
+            setCustomersLoaded(true);
+        }
+    }, [customers]);
 
     const fetchAllCustomers = async () => {
+        if (customers.length && customersLoaded) return;
+
         setIsLoadingCustomers(true);
         try {
             const response = await api.get(routes.customers);
@@ -124,25 +131,49 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         finally { setIsLoadingCustomers(false); }
     };
 
+    // Initial fetch if no customers from parent
+    useEffect(() => {
+        if (!customers.length && !customersLoaded) {
+            fetchAllCustomers();
+        }
+    }, []);
+
+    // Fetch customers when modal opens if needed
+    useEffect(() => {
+        if (showDebtorConfirm && !customersLoaded) fetchAllCustomers();
+    }, [showDebtorConfirm]);
+
+    // Auto-populate customer code when modal opens
     useEffect(() => {
         if (showDebtorConfirm && billCustomerCode) {
             setCustomerCode(billCustomerCode);
             setSelectedFromDropdown(false);
             const timer = setTimeout(() => {
-                if (allCustomers.length) searchMatchingCustomers(billCustomerCode);
-            }, 200);
+                if (allCustomers.length) {
+                    searchMatchingCustomers(billCustomerCode);
+                }
+            }, 100);
             return () => clearTimeout(timer);
         }
     }, [showDebtorConfirm, billCustomerCode, allCustomers.length]);
 
     const searchMatchingCustomers = (searchTerm) => {
-        if (!searchTerm?.trim()) { setMatchingCustomers([]); setShowSuggestions(false); return; }
-        const term = searchTerm.toUpperCase();
-        const matches = allCustomers.filter(c => (c.short_name || '').toUpperCase() === term || (c.short_name || '').toUpperCase().startsWith(term)).slice(0, 10);
+        if (!searchTerm?.trim()) {
+            setMatchingCustomers([]);
+            setShowSuggestions(false);
+            return;
+        }
+        // Get only the FIRST character of the search term
+        const firstLetter = searchTerm.charAt(0).toUpperCase();
+
+        // Find ALL customers whose short_name STARTS WITH that first letter
+        const matches = allCustomers.filter(c =>
+            (c.short_name || '').toUpperCase().startsWith(firstLetter)
+        ).slice(0, 15);
+
         setMatchingCustomers(matches);
         setShowSuggestions(matches.length > 0);
     };
-
     const handleCustomerCodeChange = (e) => {
         const value = e.target.value.toUpperCase();
         setCustomerCode(value);
@@ -310,14 +341,21 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 20001, maxHeight: '300px', overflowY: 'auto', marginTop: '4px' }}>
                                     {matchingCustomers.map((c, i) => (
                                         <div key={i} onClick={() => handleSelectCustomer(c)} style={{ padding: '12px 14px', cursor: 'pointer', borderBottom: i < matchingCustomers.length - 1 ? '1px solid #f1f5f9' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div><div style={{ fontWeight: 'bold' }}>{c.short_name}</div><div style={{ fontSize: '11px', color: '#64748b' }}>{c.name || 'No name'}</div></div>
-                                            <div style={{ background: c.Debtor === 'Y' ? '#fef3c7' : '#f1f5f9', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', color: c.Debtor === 'Y' ? '#92400e' : '#64748b' }}>{c.Debtor === 'Y' ? `📋 Debtor: ${c.Debtor_no || 'N/A'}` : '👤 Regular'}</div>
+                                            <div>
+                                                <div style={{ fontWeight: 'bold' }}>{c.short_name}</div>
+                                                <div style={{ fontSize: '11px', color: '#64748b' }}>{c.name || 'No name'}</div>
+                                            </div>
+                                            <div style={{ background: c.Debtor === 'Y' ? '#fef3c7' : '#f1f5f9', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', color: c.Debtor === 'Y' ? '#92400e' : '#64748b' }}>
+                                                {c.Debtor === 'Y' ? `📋 Debtor: ${c.Debtor_no || 'N/A'}` : '👤 Regular'}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                             )}
                         </div>
-                        <div style={{ background: '#e0f2fe', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px' }}><strong>📌 How it works:</strong><br />• <strong>Select from dropdown</strong> → Use existing customer (same Debtor No)<br />• <strong>Type & click Continue</strong> → Create NEW debtor (different Debtor No)</div>
+                        <div style={{ background: '#e0f2fe', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px' }}>
+                            <strong>📌 How it works:</strong><br />• <strong>Select from dropdown</strong> → Use existing customer (same Debtor No)<br />• <strong>Type & click Continue</strong> → Create NEW debtor (different Debtor No)
+                        </div>
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                             <button onClick={handleSkip} style={{ padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Cancel</button>
                             <button onClick={() => handleCheckCustomerWithCode(customerCode)} disabled={loading} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '13px', opacity: loading ? 0.6 : 1 }}>{loading ? 'Checking...' : 'Continue'}</button>
@@ -1357,7 +1395,15 @@ export default function PrintedBills() {
             setState(prev => ({ ...prev, pendingBills, appliedBills, customers: customersData, isLoading: false }));
         } catch (error) { console.error("Error fetching data:", error); setState(prev => ({ ...prev, isLoading: false })); }
     };
-
+    const refreshCustomersList = useCallback(async () => {
+        try {
+            const response = await api.get(routes.customers);
+            const customersData = response.data.data || response.data.customers || response.data || [];
+            setState(prev => ({ ...prev, customers: customersData }));
+        } catch (error) {
+            console.error('Error refreshing customers:', error);
+        }
+    }, []);
     const fetchArchivedSales = async (isFromStorage = false) => {
         if (!startDate || !endDate) {
             return;
@@ -1564,7 +1610,7 @@ export default function PrintedBills() {
             return;
         }
 
-        // For debtor type, process debtor registration if needed
+        // For debtor type, check if customer exists but DO NOT open debtor form automatically
         try {
             const response = await api.get(`${routes.checkCustomer}/${bill.customerCode}`);
             const data = response.data;
@@ -1579,15 +1625,14 @@ export default function PrintedBills() {
                     console.log('Updated customer as Debtor');
                 }
             } else {
-                console.log('Customer not found, showing debtor form');
-                setState(prev => ({
-                    ...prev,
-                    showDebtorForm: true,
-                    pendingDebtorBill: bill
-                }));
+                // Customer not found - Show a message but DO NOT open the form automatically
+                console.log('Customer not found, showing message');
+                alert(`Customer "${bill.customerCode}" not found. Please register this customer as a debtor using the "Debtor" button above.`);
+                // REMOVED: setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: bill }));
             }
         } catch (error) {
             console.error('Error checking debtor:', error);
+            alert('Error checking customer. Please try again.');
         }
     };
     const handleDebtorSave = async (saved, debtorNo = null) => {
@@ -1595,7 +1640,7 @@ export default function PrintedBills() {
         if (saved && state.pendingDebtorBill) {
             setState(prev => ({
                 ...prev,
-                customerType: 'debtor',  // ✅ Set to 'debtor' instead of null
+                customerType: 'debtor',
                 showDebtorForm: false,
                 pendingDebtorBill: null
             }));
@@ -1603,6 +1648,9 @@ export default function PrintedBills() {
             const debtorMessage = debtorNo ? `\nDebtor Number: ${debtorNo}` : '';
             const billMessage = state.pendingDebtorBill.billNo ? `\nBill No: ${state.pendingDebtorBill.billNo}` : '';
             alert(message + debtorMessage + billMessage);
+
+            // Refresh customers list after saving new debtor
+            await refreshCustomersList();
 
             // Refresh the selected bill's debtor data
             if (state.selectedBill?.billNo === state.pendingDebtorBill.billNo) {
@@ -2982,6 +3030,7 @@ export default function PrintedBills() {
                                 billCustomerCode={state.selectedBill?.customerCode}
                                 billNo={state.selectedBill?.billNo}
                                 selectedBillDebtor={selectedBillDebtor}
+                                customers={state.customers}
                             />
                         </div>
 
@@ -3265,14 +3314,14 @@ export default function PrintedBills() {
             <GrnReportModal isOpen={modals.grnReport} onClose={() => toggleModal('grnReport')} />
             <DayProcessModal isOpen={modals.dayProcess} onClose={() => toggleModal('dayProcess')} />
 
-          <AdjustmentSummaryModal
-    isOpen={showAdjustmentSummary}
-    onClose={() => {
-        modalOpenRef.current = false;
-        setShowAdjustmentSummary(false);
-    }}
-    totals={adjustmentTotals}
-/>
+            <AdjustmentSummaryModal
+                isOpen={showAdjustmentSummary}
+                onClose={() => {
+                    modalOpenRef.current = false;
+                    setShowAdjustmentSummary(false);
+                }}
+                totals={adjustmentTotals}
+            />
         </div>
     );
 }
