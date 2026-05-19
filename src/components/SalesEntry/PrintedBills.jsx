@@ -1434,7 +1434,8 @@ export default function PrintedBills() {
         setDataSource('sales');
         setArchivedData({ pendingBills: [], appliedBills: [], isLoading: false });
         // Reset customer type to null when going back to current bills
-        setState(prev => ({ ...prev, customerType: null }));  // ← Keep this one, it's fine (sets to null, not auto-selecting)
+        setState(prev => ({ ...prev, customerType: null, selectedBill: null }));  // ← Also clear selectedBill
+        setSelectedBillDebtor(null);
         fetchSalesData();
         // Clear saved filter states from localStorage
         localStorage.removeItem('printedBills_viewOldBills');
@@ -1488,25 +1489,27 @@ export default function PrintedBills() {
                 selectedBill: null,
                 givenAmountInput: "",
                 isUpdatingCompletedBill: false,
-                customerType: null
+                customerType: null  // ← Reset customer type
             }));
             setSelectedBillDebtor(null);
             return;
         }
 
+        // Reset customer type when clicking a new bill
         setState(prev => ({
             ...prev,
             selectedBill: bill,
             givenAmountInput: "",
-            isUpdatingCompletedBill: bill.givenAmountApplied === 'Y'
+            isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
+            customerType: null  // ← ALWAYS reset to null when clicking a new bill
         }));
 
         try {
             const response = await api.get(`/debtors/${bill.billNo}`);
             if (response.data.success && response.data.data) {
                 setSelectedBillDebtor(response.data.data);
-                // Auto-set customer type to debtor if bill has a debtor record
-                if (response.data.data.Debtor_no) {
+                // Only auto-set to debtor if bill has a debtor record AND we're not viewing old bills
+                if (response.data.data.Debtor_no && !viewOldBills) {
                     setState(prev => ({ ...prev, customerType: 'debtor' }));
                 }
             } else {
@@ -1584,6 +1587,12 @@ export default function PrintedBills() {
             setSelectedBillDebtor(null);
             return;
         }
+
+        // Reset customer type when clicking a new bill through this handler
+        setState(prev => ({
+            ...prev,
+            customerType: null  // ← ALWAYS reset first
+        }));
 
         // First, show the bill details in the middle screen
         handleBillClick(bill);
@@ -2109,7 +2118,8 @@ export default function PrintedBills() {
                     showChequeModal: false,
                     showBankToBankModal: false,
                     showAdjustmentModal: false,
-                    pendingBankToBankAmount: 0
+                    pendingBankToBankAmount: 0,
+                    customerType: null
                 }));
             }
         } catch (error) {
@@ -2607,7 +2617,7 @@ export default function PrintedBills() {
         return (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20001 }} onClick={onClose}>
                 <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '450px', maxWidth: '90%', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:'10px', marginBottom:'20px', paddingBottom:'12px', borderBottom:'2px solid #e2e8f0' }}><span style={{ fontSize:'40px', lineHeight:1 }}>📊</span><h3 style={{ margin:0, fontSize:'20px', fontWeight:'700', color:'#1e293b' }}>Payment Summary</h3></div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '20px', paddingBottom: '12px', borderBottom: '2px solid #e2e8f0' }}><span style={{ fontSize: '40px', lineHeight: 1 }}>📊</span><h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Payment Summary</h3></div>
                     <div style={{ marginBottom: '20px' }}>
                         {paymentItems.map((item, idx) => (
                             <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', marginBottom: '10px', background: item.bg, borderRadius: '12px', borderLeft: `4px solid ${item.color}` }}>
@@ -2890,7 +2900,7 @@ export default function PrintedBills() {
                 <div style={styles.threeColumns}>
                     {/* LEFT: Completed Payments */}
                     <div style={styles.panel}>
-                       <div style={styles.panelHeader}><h2 style={{ ...styles.panelTitle, display:'flex', alignItems:'center', whiteSpace:'nowrap' }}><span style={{ width:'10px', height:'10px', background:'#10b981', borderRadius:'50%' }}></span>{dataSource === 'sales_history' ? 'Archived Completed' : 'Completed Payments'}<span style={{ fontSize:'11px', marginLeft:'8px' }}></span></h2></div>
+                        <div style={styles.panelHeader}><h2 style={{ ...styles.panelTitle, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}><span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%' }}></span>{dataSource === 'sales_history' ? 'Archived Completed' : 'Completed Payments'}<span style={{ fontSize: '11px', marginLeft: '8px' }}></span></h2></div>
                         <div style={{ padding: '12px 16px 0' }}><input type="text" placeholder="🔍 Search completed bills..." value={state.appliedSearchQuery} onChange={(e) => setState(prev => ({ ...prev, appliedSearchQuery: e.target.value.toUpperCase() }))} style={styles.searchInput} /></div>
                         <div style={styles.panelContent}>
                             {filterAppliedBills.length === 0 ? <EmptyStateComponent message="No completed bills" /> : filterAppliedBills.map(bill => (
