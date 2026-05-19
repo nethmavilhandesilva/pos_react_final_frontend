@@ -2136,7 +2136,6 @@ export default function PrintedBills() {
     }, [currentAppliedBills, state.appliedSearchQuery]);
 
     // Silent refresh function - updates data without showing loading skeleton
-
     const silentRefresh = useCallback(async () => {
         // Don't refresh if modal is open to prevent flickering
         if (modalOpenRef.current) return;
@@ -2165,7 +2164,7 @@ export default function PrintedBills() {
                     isLoading: false
                 }));
 
-                // ✅ ALSO refresh archived data if we're currently viewing old bills
+                // ✅ CRITICAL FIX: Always refresh archived data when viewing old bills
                 if (viewOldBills && startDate && endDate) {
                     try {
                         const archivedResponse = await api.get(routes.getArchivedSales, {
@@ -2173,11 +2172,15 @@ export default function PrintedBills() {
                         });
                         if (archivedResponse.data.success) {
                             const { pendingBills: archivedPending, appliedBills: archivedApplied } = processBillData(archivedResponse.data.sales || []);
+
+                            // Update archivedData state - this will refresh the UI
                             setArchivedData({
                                 pendingBills: archivedPending,
                                 appliedBills: archivedApplied,
                                 isLoading: false
                             });
+
+                            console.log(`Archived data refreshed: ${archivedPending.length} pending, ${archivedApplied.length} applied bills`);
                         }
                     } catch (archivedError) {
                         console.error("Error refreshing archived data:", archivedError);
@@ -2203,7 +2206,7 @@ export default function PrintedBills() {
                 setIsRefreshing(false);
             }
         }
-    }, [viewOldBills, startDate, endDate]); // REMOVE filterPendingBills and filterAppliedBills from dependencies
+    }, [viewOldBills, startDate, endDate]);
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
@@ -2604,11 +2607,7 @@ export default function PrintedBills() {
         return (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20001 }} onClick={onClose}>
                 <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '450px', maxWidth: '90%', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-                    <div style={{ textAlign: 'center', marginBottom: '20px', paddingBottom: '12px', borderBottom: '2px solid #e2e8f0' }}>
-                        <span style={{ fontSize: '40px' }}>📊</span>
-                        <h3 style={{ margin: '8px 0 0', fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Payment Summary</h3>
-                    </div>
-
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:'10px', marginBottom:'20px', paddingBottom:'12px', borderBottom:'2px solid #e2e8f0' }}><span style={{ fontSize:'40px', lineHeight:1 }}>📊</span><h3 style={{ margin:0, fontSize:'20px', fontWeight:'700', color:'#1e293b' }}>Payment Summary</h3></div>
                     <div style={{ marginBottom: '20px' }}>
                         {paymentItems.map((item, idx) => (
                             <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', marginBottom: '10px', background: item.bg, borderRadius: '12px', borderLeft: `4px solid ${item.color}` }}>
@@ -2620,7 +2619,7 @@ export default function PrintedBills() {
                         <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '16px 0' }}></div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'linear-gradient(135deg, #10b981, #059669)', borderRadius: '12px', color: 'white', marginBottom: '10px' }}>
-                            <div><span style={{ fontSize: '20px', marginRight: '8px' }}>💰</span><span style={{ fontWeight: '700' }}>Total Received (All except Credit)</span></div>
+                            <div><span style={{ fontSize: '20px', marginRight: '8px' }}>💰</span><span style={{ fontWeight: '700' }}>Total Received</span></div>
                             <div style={{ fontSize: '20px', fontWeight: '800' }}>Rs. {formatDecimal(totalReceived)}</div>
                         </div>
 
@@ -2891,7 +2890,7 @@ export default function PrintedBills() {
                 <div style={styles.threeColumns}>
                     {/* LEFT: Completed Payments */}
                     <div style={styles.panel}>
-                        <div style={styles.panelHeader}><h2 style={styles.panelTitle}><span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%' }}></span>{dataSource === 'sales_history' ? 'Archived Completed' : 'Completed Payments'}<span style={{ fontSize: '11px', marginLeft: '8px' }}>(Right-click to delete)</span></h2></div>
+                       <div style={styles.panelHeader}><h2 style={{ ...styles.panelTitle, display:'flex', alignItems:'center', whiteSpace:'nowrap' }}><span style={{ width:'10px', height:'10px', background:'#10b981', borderRadius:'50%' }}></span>{dataSource === 'sales_history' ? 'Archived Completed' : 'Completed Payments'}<span style={{ fontSize:'11px', marginLeft:'8px' }}></span></h2></div>
                         <div style={{ padding: '12px 16px 0' }}><input type="text" placeholder="🔍 Search completed bills..." value={state.appliedSearchQuery} onChange={(e) => setState(prev => ({ ...prev, appliedSearchQuery: e.target.value.toUpperCase() }))} style={styles.searchInput} /></div>
                         <div style={styles.panelContent}>
                             {filterAppliedBills.length === 0 ? <EmptyStateComponent message="No completed bills" /> : filterAppliedBills.map(bill => (
@@ -2916,8 +2915,8 @@ export default function PrintedBills() {
                                 selectedType={state.customerType}
                                 onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))}
                                 onUnlockScreen={() => {
-                                    
-                                    
+
+
                                     setState(prev => ({ ...prev, customerType: 'debtor' }));
                                 }}
                                 disabled={state.isPrinting}
