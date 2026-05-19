@@ -394,10 +394,34 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     const [previewImages, setPreviewImages] = useState({ profile_pic: null, nic_front: null, nic_back: null });
     const [generatedDebtorNo, setGeneratedDebtorNo] = useState(null);
 
-    useEffect(() => { if (isOpen && customerCode) setGeneratedDebtorNo(null); }, [isOpen, customerCode]);
+    // Create refs for all form fields
+    const nameRef = useRef(null);
+    const idNoRef = useRef(null);
+    const telephoneRef = useRef(null);
+    const addressRef = useRef(null);
+    const creditLimitRef = useRef(null);
+    const profilePicRef = useRef(null);
+    const nicFrontRef = useRef(null);
+    const nicBackRef = useRef(null);
+    const skipButtonRef = useRef(null);
+    const saveButtonRef = useRef(null);
+
+    useEffect(() => { 
+        if (isOpen && customerCode) {
+            setGeneratedDebtorNo(null);
+            // Auto-focus the name field when modal opens
+            setTimeout(() => {
+                if (nameRef.current) {
+                    nameRef.current.focus();
+                }
+            }, 100);
+        }
+    }, [isOpen, customerCode]);
+    
     if (!isOpen) return null;
 
     const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    
     const handleFileChange = (e) => {
         const { name, files } = e.target;
         if (files[0]) {
@@ -436,6 +460,58 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         finally { setLoading(false); }
     };
 
+    // Handle Enter key navigation
+    const handleKeyPress = (e, nextFieldRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextFieldRef && nextFieldRef.current) {
+                setTimeout(() => {
+                    nextFieldRef.current.focus();
+                }, 50);
+            }
+        }
+    };
+
+    // Handle Enter key for textarea
+    const handleTextareaKeyPress = (e, nextFieldRef) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (nextFieldRef && nextFieldRef.current) {
+                setTimeout(() => {
+                    nextFieldRef.current.focus();
+                }, 50);
+            }
+        }
+    };
+
+    // Handle Enter key for file inputs (they behave differently)
+    const handleFileKeyPress = (e, nextFieldRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextFieldRef && nextFieldRef.current) {
+                setTimeout(() => {
+                    nextFieldRef.current.focus();
+                }, 50);
+            }
+        }
+    };
+
+    // Handle Enter key for last field - submit the form
+    const handleLastFieldKeyPress = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleSubmit();
+        }
+    };
+
+    // Handle button Enter key
+    const handleButtonKeyPress = (e, action) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            action();
+        }
+    };
+
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10001 }} onClick={onClose}>
             <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', maxWidth: '90%', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
@@ -446,151 +522,140 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                     {generatedDebtorNo && <div style={{ background: '#d1fae5', padding: '12px', borderRadius: '10px', marginBottom: '16px', textAlign: 'center' }}><div style={{ fontSize: '12px', color: '#065f46' }}>Debtor Number</div><div style={{ fontSize: '20px', fontWeight: 'bold', color: '#047857' }}>{generatedDebtorNo}</div></div>}
                     <div style={{ background: '#fef3c7', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px', color: '#92400e' }}>⚠️ Customer "{customerCode}" not found. Please provide information to register as Debtor.<br /><small>All fields are optional. A unique Debtor Number will be automatically generated.{billNo && <><br /><small>This debtor will be linked to Bill No: {billNo}</small></>}</small></div>
 
-                    {/* Text fields with enter key navigation */}
+                    {/* Full Name Field */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Full Name</label>
                         <input
+                            ref={nameRef}
                             type="text"
                             name="name"
                             value={formData.name}
                             onChange={handleChange}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    document.querySelector('input[name="ID_NO"]').focus();
-                                }
-                            }}
+                            onKeyPress={(e) => handleKeyPress(e, idNoRef)}
+                            autoFocus
                             style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
                         />
                     </div>
 
+                    {/* ID Number Field */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>ID Number</label>
                         <input
+                            ref={idNoRef}
                             type="text"
                             name="ID_NO"
                             value={formData.ID_NO}
                             onChange={handleChange}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    document.querySelector('input[name="telephone_no"]').focus();
-                                }
-                            }}
+                            onKeyPress={(e) => handleKeyPress(e, telephoneRef)}
                             style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
                         />
                     </div>
 
+                    {/* Telephone Number Field */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Telephone Number</label>
                         <input
+                            ref={telephoneRef}
                             type="text"
                             name="telephone_no"
                             value={formData.telephone_no}
                             onChange={handleChange}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    document.querySelector('textarea[name="address"]').focus();
-                                }
-                            }}
+                            onKeyPress={(e) => handleKeyPress(e, addressRef)}
                             style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
                         />
                     </div>
 
+                    {/* Address Field */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Address</label>
                         <textarea
+                            ref={addressRef}
                             name="address"
                             value={formData.address}
                             onChange={handleChange}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    document.querySelector('input[name="credit_limit"]').focus();
-                                }
-                            }}
+                            onKeyPress={(e) => handleTextareaKeyPress(e, creditLimitRef)}
                             rows="2"
                             style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', resize: 'vertical' }}
                         />
                     </div>
 
+                    {/* Credit Limit Field */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Credit Limit (Rs.)</label>
                         <input
+                            ref={creditLimitRef}
                             type="number"
                             name="credit_limit"
                             value={formData.credit_limit}
                             onChange={handleChange}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    document.querySelector('input[name="profile_pic_file"]')?.focus();
-                                }
-                            }}
+                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
                             style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
                         />
                     </div>
 
-                    {/* File upload fields - Enter key skips to next or submits on last */}
+                    {/* Profile Picture Field */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>Profile Picture</label>
                         <input
+                            ref={profilePicRef}
                             type="file"
                             name="profile_pic"
                             onChange={handleFileChange}
                             accept="image/jpeg,image/jpg,image/png"
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    document.querySelector('input[name="nic_front"]').focus();
-                                }
-                            }}
+                            onKeyPress={(e) => handleFileKeyPress(e, nicFrontRef)}
                             style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                         />
                         {previewImages.profile_pic && <img src={previewImages.profile_pic} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
                     </div>
 
+                    {/* NIC Front Field */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>NIC Front</label>
                         <input
+                            ref={nicFrontRef}
                             type="file"
                             name="nic_front"
                             onChange={handleFileChange}
                             accept="image/jpeg,image/jpg,image/png"
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    document.querySelector('input[name="nic_back"]').focus();
-                                }
-                            }}
+                            onKeyPress={(e) => handleFileKeyPress(e, nicBackRef)}
                             style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                         />
                         {previewImages.nic_front && <img src={previewImages.nic_front} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
                     </div>
 
+                    {/* NIC Back Field (Last Field - Submits on Enter) */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>NIC Back</label>
                         <input
+                            ref={nicBackRef}
                             type="file"
                             name="nic_back"
                             onChange={handleFileChange}
                             accept="image/jpeg,image/jpg,image/png"
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    // On last field, submit the form
-                                    handleSubmit();
-                                }
-                            }}
+                            onKeyPress={(e) => handleLastFieldKeyPress(e)}
                             style={{ width: '100%', padding: '6px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                         />
                         {previewImages.nic_back && <img src={previewImages.nic_back} alt="Preview" style={{ marginTop: '6px', maxWidth: '100%', maxHeight: '80px', borderRadius: '6px' }} />}
                     </div>
                 </div>
                 <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc', borderRadius: '0 0 20px 20px' }}>
-                    <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Skip</button>
-                    <button onClick={handleSubmit} disabled={loading} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', opacity: loading ? 0.6 : 1 }}>{loading ? 'Saving...' : 'Save & Continue'}</button>
+                    <button 
+                        ref={skipButtonRef}
+                        onClick={onClose} 
+                        onKeyPress={(e) => handleButtonKeyPress(e, onClose)}
+                        style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}
+                    >
+                        Skip
+                    </button>
+                    <button 
+                        ref={saveButtonRef}
+                        onClick={handleSubmit} 
+                        disabled={loading} 
+                        onKeyPress={(e) => handleButtonKeyPress(e, handleSubmit)}
+                        style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', opacity: loading ? 0.6 : 1 }}
+                    >
+                        {loading ? 'Saving...' : 'Save & Continue'}
+                    </button>
                 </div>
             </div>
         </div>
@@ -598,7 +663,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
 };
 
 // ==================== BANK ACCOUNT SELECTOR ====================
-const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) => {
+const BankAccountSelector = React.forwardRef(({ selectedAccountId, onSelect, disabled = false, onKeyDown }, ref) => {
     const [banks, setBanks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -621,14 +686,20 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) 
     return (
         <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '13px', color: '#334155' }}>Select Bank Account <span style={{ color: '#ef4444' }}>*</span></label>
-            <select value={selectedAccountId || ''} onChange={(e) => onSelect(e.target.value ? parseInt(e.target.value) : null)} disabled={disabled} style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', background: 'white', cursor: 'pointer' }}>
+            <select
+                ref={ref}  // ← THIS IS THE KEY CHANGE - forward the ref to the select element
+                value={selectedAccountId || ''}
+                onChange={(e) => onSelect(e.target.value ? parseInt(e.target.value) : null)}
+                onKeyDown={onKeyDown}  // ← Add this to handle Enter key
+                disabled={disabled}
+                style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', background: 'white', cursor: 'pointer' }}
+            >
                 <option value="">-- Select Bank Account --</option>
                 {banks.map(bank => (<option key={bank.id} value={bank.id}>{bank.bank_name} - {bank.branch} (Acc: {bank.account_no})</option>))}
             </select>
         </div>
     );
-};
-
+});
 // ==================== PAYMENT HISTORY MODAL ====================
 const PaymentHistoryModal = ({ isOpen, onClose, payments, totalPaid, totalBill, remaining }) => {
     if (!isOpen) return null;
@@ -706,6 +777,12 @@ const formatCurrency = (amount) => `Rs. ${formatDecimal(amount)}`;
 // ==================== CHEQUE MODAL ====================
 const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
     const [chequeDetails, setChequeDetails] = useState({ cheq_date: '', cheq_no: '', bank_account_id: null });
+
+    // Create refs for each input field
+    const dateInputRef = useRef(null);
+    const chequeNoInputRef = useRef(null);
+    const bankSelectRef = useRef(null);
+
     if (!isOpen) return null;
 
     const handleSubmit = () => {
@@ -715,6 +792,27 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
         }
         onConfirm(chequeDetails);
         setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
+    };
+
+    // Handle Enter key for input fields
+    const handleKeyPress = (e, nextFieldRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextFieldRef && nextFieldRef.current) {
+                // Small delay to ensure focus works
+                setTimeout(() => {
+                    nextFieldRef.current.focus();
+                }, 50);
+            }
+        }
+    };
+    // Handle Enter key for select element (works differently)
+    const handleSelectKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            // On the last field, submit the form
+            handleSubmit();
+        }
     };
 
     return (
@@ -728,17 +826,46 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
                     <div style={{ fontWeight: '600', fontSize: '12px' }}>Payment Amount</div>
                     <div style={{ fontSize: '22px', fontWeight: '800' }}>Rs. {amount.toFixed(2)}</div>
                 </div>
+
+                {/* Cheque Date Field */}
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>📅 Cheque Date <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input type="date" name="cheq_date" value={chequeDetails.cheq_date} onChange={(e) => setChequeDetails(prev => ({ ...prev, cheq_date: e.target.value }))} style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px' }} />
+                    <input
+                        ref={dateInputRef}
+                        type="date"
+                        name="cheq_date"
+                        value={chequeDetails.cheq_date}
+                        onChange={(e) => setChequeDetails(prev => ({ ...prev, cheq_date: e.target.value }))}
+                        onKeyPress={(e) => handleKeyPress(e, chequeNoInputRef)}
+                        autoFocus
+                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px' }}
+                    />
                 </div>
+
+                {/* Cheque Number Field */}
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>🔢 Cheque Number <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input type="text" name="cheq_no" value={chequeDetails.cheq_no} onChange={(e) => setChequeDetails(prev => ({ ...prev, cheq_no: e.target.value }))} placeholder="Enter cheque number" style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px' }} />
+                    <input
+                        ref={chequeNoInputRef}
+                        type="text"
+                        name="cheq_no"
+                        value={chequeDetails.cheq_no}
+                        onChange={(e) => setChequeDetails(prev => ({ ...prev, cheq_no: e.target.value }))}
+                        onKeyPress={(e) => handleKeyPress(e, bankSelectRef)}  // ← Focus will go to bankSelectRef
+                        placeholder="Enter cheque number"
+                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px' }}
+                    />
                 </div>
-                <div style={{ marginBottom: '18px' }}>
-                    <BankAccountSelector selectedAccountId={chequeDetails.bank_account_id} onSelect={(bankId) => setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }))} disabled={false} />
-                </div>
+
+                {/* Bank Account Selector Field - NO div wrapper, pass ref directly */}
+                <BankAccountSelector
+                    ref={bankSelectRef}  // ← Pass ref directly to the component
+                    selectedAccountId={chequeDetails.bank_account_id}
+                    onSelect={(bankId) => setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }))}
+                    disabled={false}
+                    onKeyDown={handleSelectKeyDown}
+                />
+
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                     <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}>Cancel</button>
                     <button onClick={handleSubmit} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}>Confirm Payment</button>
@@ -747,12 +874,17 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
         </div>
     );
 };
-
 // ==================== BANK TO BANK MODAL ====================
 const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, customerName }) => {
     const [transferDetails, setTransferDetails] = useState({ bank_account_id: null, reference_no: '', transfer_date: new Date().toISOString().split('T')[0], notes: '' });
     const [banks, setBanks] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    // Create refs for form fields
+    const bankSelectRef = useRef(null);
+    const referenceNoRef = useRef(null);
+    const transferDateRef = useRef(null);
+    const notesRef = useRef(null);
 
     useEffect(() => { if (isOpen) fetchBanks(); }, [isOpen]);
 
@@ -774,6 +906,33 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
         setTransferDetails({ bank_account_id: null, reference_no: '', transfer_date: new Date().toISOString().split('T')[0], notes: '' });
     };
 
+    // Handle Enter key navigation
+    const handleKeyPress = (e, nextFieldRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextFieldRef && nextFieldRef.current) {
+                setTimeout(() => {
+                    nextFieldRef.current.focus();
+                }, 50);
+            }
+        }
+    };
+
+    // Handle Enter key for select element
+    const handleSelectKeyDown = (e, nextFieldRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextFieldRef && nextFieldRef.current) {
+                setTimeout(() => {
+                    nextFieldRef.current.focus();
+                }, 50);
+            } else {
+                // If no next field, submit the form
+                handleSubmit();
+            }
+        }
+    };
+
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
             <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', maxWidth: '90%', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
@@ -785,25 +944,69 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                         <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '10px' }}>💰 Payment Details</div>
                         <div style={{ fontSize: '13px' }}><strong>Amount:</strong> Rs. {amount.toFixed(2)}<br /><strong>Customer:</strong> {customerName || customerCode}</div>
                     </div>
+
+                    {/* Bank Account Selector */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>🏦 Select Bank Account <span style={{ color: '#ef4444' }}>*</span></label>
-                        <select value={transferDetails.bank_account_id || ''} onChange={(e) => setTransferDetails(prev => ({ ...prev, bank_account_id: e.target.value ? parseInt(e.target.value) : null }))} disabled={loading} style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}>
+                        <select
+                            ref={bankSelectRef}
+                            value={transferDetails.bank_account_id || ''}
+                            onChange={(e) => setTransferDetails(prev => ({ ...prev, bank_account_id: e.target.value ? parseInt(e.target.value) : null }))}
+                            onKeyDown={(e) => handleSelectKeyDown(e, referenceNoRef)}
+                            disabled={loading}
+                            autoFocus
+                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}
+                        >
                             <option value="">-- Select Bank Account --</option>
                             {banks.map(bank => (<option key={bank.id} value={bank.id}>{bank.bank_name} - {bank.branch} (Acc: {bank.account_no})</option>))}
                         </select>
                     </div>
+
+                    {/* Transaction Reference Number */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>🔢 Transaction Reference Number <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input type="text" value={transferDetails.reference_no} onChange={(e) => setTransferDetails(prev => ({ ...prev, reference_no: e.target.value }))} placeholder="Enter transaction ID" style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }} />
+                        <input
+                            ref={referenceNoRef}
+                            type="text"
+                            value={transferDetails.reference_no}
+                            onChange={(e) => setTransferDetails(prev => ({ ...prev, reference_no: e.target.value }))}
+                            onKeyPress={(e) => handleKeyPress(e, transferDateRef)}
+                            placeholder="Enter transaction ID"
+                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}
+                        />
                     </div>
+
+                    {/* Transfer Date */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>📅 Transfer Date <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input type="date" value={transferDetails.transfer_date} onChange={(e) => setTransferDetails(prev => ({ ...prev, transfer_date: e.target.value }))} style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }} />
+                        <input
+                            ref={transferDateRef}
+                            type="date"
+                            value={transferDetails.transfer_date}
+                            onChange={(e) => setTransferDetails(prev => ({ ...prev, transfer_date: e.target.value }))}
+                            onKeyPress={(e) => handleKeyPress(e, notesRef)}
+                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}
+                        />
                     </div>
+
+                    {/* Notes (Optional) */}
                     <div style={{ marginBottom: '24px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>📝 Notes (Optional)</label>
-                        <textarea value={transferDetails.notes} onChange={(e) => setTransferDetails(prev => ({ ...prev, notes: e.target.value }))} rows="3" style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', resize: 'vertical' }} />
+                        <textarea
+                            ref={notesRef}
+                            value={transferDetails.notes}
+                            onChange={(e) => setTransferDetails(prev => ({ ...prev, notes: e.target.value }))}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSubmit();
+                                }
+                            }}
+                            rows="3"
+                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', resize: 'vertical' }}
+                        />
                     </div>
+
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
                         <button onClick={onClose} style={{ padding: '10px 24px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Cancel</button>
                         <button onClick={handleSubmit} style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #ec489a, #db2777)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Confirm Transfer</button>
@@ -813,8 +1016,6 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
         </div>
     );
 };
-
-// ==================== PAYMENT ADJUSTMENT MODAL ====================
 // ==================== PAYMENT ADJUSTMENT MODAL ====================
 const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, customerCode, originalBillTotal }) => {
     const [adjustmentType, setAdjustmentType] = useState('bag_to_box');
@@ -1174,6 +1375,16 @@ export default function PrintedBills() {
     const refreshTimeoutRef = useRef(null);
     const isMountedRef = useRef(true);
     const modalOpenRef = useRef(false);
+    //use efects to enter key navigation
+    const bagCountRef = useRef(null);
+    const bagValueRef = useRef(null);
+    const boxCountRef = useRef(null);
+    const boxValueRef = useRef(null);
+    const customerCodeRef = useRef(null);
+    const customerBillNoRef = useRef(null);
+    const customerBillValueRef = useRef(null);
+    const badDebtNameRef = useRef(null);
+    const badDebtAmountRef = useRef(null);
 
     // Replace your existing useEffect with this one
     useEffect(() => {
@@ -1225,6 +1436,25 @@ export default function PrintedBills() {
             }
         }
         return total;
+    };
+    // Handle Enter key navigation for adjustment fields
+    const handleAdjustmentKeyPress = (e, nextFieldRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextFieldRef && nextFieldRef.current) {
+                setTimeout(() => {
+                    nextFieldRef.current.focus();
+                }, 50);
+            }
+        }
+    };
+
+    // Handle Enter key for the last field to submit
+    const handleLastFieldKeyPress = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAdjustmentPayment();
+        }
     };
     const getAdjustmentTotals = (history) => {
         let totals = { bag_to_box: 0, bill_to_bill: 0, bad_debt: 0 };
@@ -3044,10 +3274,43 @@ export default function PrintedBills() {
                                             {state.adjustmentType === 'bag_to_box' && (
                                                 <div style={{ marginTop: '16px', padding: '16px', background: '#fef3c7', borderRadius: '12px' }}>
                                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                                                        <input type="number" placeholder="Number of Bags" value={state.bagCount} onChange={(e) => setState(prev => ({ ...prev, bagCount: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
-                                                        <input type="number" placeholder="Value per Bag (Rs.)" value={state.bagValue} onChange={(e) => setState(prev => ({ ...prev, bagValue: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
-                                                        <input type="number" placeholder="Number of Boxes" value={state.boxCount} onChange={(e) => setState(prev => ({ ...prev, boxCount: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
-                                                        <input type="number" placeholder="Value per Box (Rs.)" value={state.boxValue} onChange={(e) => setState(prev => ({ ...prev, boxValue: e.target.value }))} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                                                        <input
+                                                            ref={bagCountRef}
+                                                            type="number"
+                                                            placeholder="Number of Bags"
+                                                            value={state.bagCount}
+                                                            onChange={(e) => setState(prev => ({ ...prev, bagCount: e.target.value }))}
+                                                            onKeyPress={(e) => handleAdjustmentKeyPress(e, bagValueRef)}
+                                                            autoFocus={state.adjustmentType === 'bag_to_box'}
+                                                            style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                        />
+                                                        <input
+                                                            ref={bagValueRef}
+                                                            type="number"
+                                                            placeholder="Value per Bag (Rs.)"
+                                                            value={state.bagValue}
+                                                            onChange={(e) => setState(prev => ({ ...prev, bagValue: e.target.value }))}
+                                                            onKeyPress={(e) => handleAdjustmentKeyPress(e, boxCountRef)}
+                                                            style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                        />
+                                                        <input
+                                                            ref={boxCountRef}
+                                                            type="number"
+                                                            placeholder="Number of Boxes"
+                                                            value={state.boxCount}
+                                                            onChange={(e) => setState(prev => ({ ...prev, boxCount: e.target.value }))}
+                                                            onKeyPress={(e) => handleAdjustmentKeyPress(e, boxValueRef)}
+                                                            style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                        />
+                                                        <input
+                                                            ref={boxValueRef}
+                                                            type="number"
+                                                            placeholder="Value per Box (Rs.)"
+                                                            value={state.boxValue}
+                                                            onChange={(e) => setState(prev => ({ ...prev, boxValue: e.target.value }))}
+                                                            onKeyPress={(e) => handleLastFieldKeyPress(e)}
+                                                            style={{ padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                        />
                                                     </div>
                                                     <div style={{ fontSize: '12px', color: '#92400e' }}>Adjustment Amount: Rs. {calculateBagToBoxAdjustment().toFixed(2)}</div>
                                                 </div>
@@ -3055,9 +3318,27 @@ export default function PrintedBills() {
 
                                             {state.adjustmentType === 'bill_to_bill' && (
                                                 <div style={{ marginTop: '16px', padding: '16px', background: '#dbeafe', borderRadius: '12px' }}>
-                                                    <input type="text" placeholder="Customer Code" value={state.customerCodeField} onChange={(e) => setState(prev => ({ ...prev, customerCodeField: e.target.value.toUpperCase() }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
-                                                    <input type="text" placeholder="Customer Bill No" value={state.customerBillNo} onChange={(e) => setState(prev => ({ ...prev, customerBillNo: e.target.value }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                                                     <input
+                                                        ref={customerCodeRef}
+                                                        type="text"
+                                                        placeholder="Customer Code"
+                                                        value={state.customerCodeField}
+                                                        onChange={(e) => setState(prev => ({ ...prev, customerCodeField: e.target.value.toUpperCase() }))}
+                                                        onKeyPress={(e) => handleAdjustmentKeyPress(e, customerBillNoRef)}
+                                                        autoFocus={state.adjustmentType === 'bill_to_bill'}
+                                                        style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                    />
+                                                    <input
+                                                        ref={customerBillNoRef}
+                                                        type="text"
+                                                        placeholder="Customer Bill No"
+                                                        value={state.customerBillNo}
+                                                        onChange={(e) => setState(prev => ({ ...prev, customerBillNo: e.target.value }))}
+                                                        onKeyPress={(e) => handleAdjustmentKeyPress(e, customerBillValueRef)}
+                                                        style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                    />
+                                                    <input
+                                                        ref={customerBillValueRef}
                                                         type="number"
                                                         placeholder="Bill Amount (Rs.)"
                                                         value={state.customerBillValue}
@@ -3076,6 +3357,7 @@ export default function PrintedBills() {
                                                             }
                                                             setState(prev => ({ ...prev, customerBillValue: val }));
                                                         }}
+                                                        onKeyPress={(e) => handleLastFieldKeyPress(e)}
                                                         style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                                     />
                                                 </div>
@@ -3083,8 +3365,18 @@ export default function PrintedBills() {
 
                                             {state.adjustmentType === 'bad_debt' && (
                                                 <div style={{ marginTop: '16px', padding: '16px', background: '#fee2e2', borderRadius: '12px' }}>
-                                                    <input type="text" placeholder="Bad Debt Name/Reference" value={state.badDebtName} onChange={(e) => setState(prev => ({ ...prev, badDebtName: e.target.value }))} style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                                                     <input
+                                                        ref={badDebtNameRef}
+                                                        type="text"
+                                                        placeholder="Bad Debt Name/Reference"
+                                                        value={state.badDebtName}
+                                                        onChange={(e) => setState(prev => ({ ...prev, badDebtName: e.target.value }))}
+                                                        onKeyPress={(e) => handleAdjustmentKeyPress(e, badDebtAmountRef)}
+                                                        autoFocus={state.adjustmentType === 'bad_debt'}
+                                                        style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                                    />
+                                                    <input
+                                                        ref={badDebtAmountRef}
                                                         type="number"
                                                         placeholder="Bad Debt Amount (Rs.)"
                                                         value={state.badDebtAmount}
@@ -3103,14 +3395,22 @@ export default function PrintedBills() {
                                                             }
                                                             setState(prev => ({ ...prev, badDebtAmount: val }));
                                                         }}
+                                                        onKeyPress={(e) => handleLastFieldKeyPress(e)}
                                                         style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                                     />
                                                 </div>
                                             )}
 
-                                            <button onClick={handleAdjustmentPayment} disabled={state.isPrinting} style={{ width: '100%', marginTop: '16px', padding: '14px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1 }}>✅ Apply {state.adjustmentType === 'bag_to_box' ? 'Bag to Box' : state.adjustmentType === 'bill_to_bill' ? 'Bill to Bill' : 'Bad Debt'} Adjustment</button>
+                                            <button
+                                                onClick={handleAdjustmentPayment}
+                                                disabled={state.isPrinting}
+                                                style={{ width: '100%', marginTop: '16px', padding: '14px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1 }}
+                                            >
+                                                ✅ Apply {state.adjustmentType === 'bag_to_box' ? 'Bag to Box' : state.adjustmentType === 'bill_to_bill' ? 'Bill to Bill' : 'Bad Debt'} Adjustment
+                                            </button>
                                         </div>
                                     </div>
+
 
                                     {/* Action Buttons */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
