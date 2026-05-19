@@ -406,7 +406,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     const skipButtonRef = useRef(null);
     const saveButtonRef = useRef(null);
 
-    useEffect(() => { 
+    useEffect(() => {
         if (isOpen && customerCode) {
             setGeneratedDebtorNo(null);
             // Auto-focus the name field when modal opens
@@ -417,11 +417,11 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             }, 100);
         }
     }, [isOpen, customerCode]);
-    
+
     if (!isOpen) return null;
 
     const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    
+
     const handleFileChange = (e) => {
         const { name, files } = e.target;
         if (files[0]) {
@@ -639,18 +639,18 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                     </div>
                 </div>
                 <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc', borderRadius: '0 0 20px 20px' }}>
-                    <button 
+                    <button
                         ref={skipButtonRef}
-                        onClick={onClose} 
+                        onClick={onClose}
                         onKeyPress={(e) => handleButtonKeyPress(e, onClose)}
                         style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}
                     >
                         Skip
                     </button>
-                    <button 
+                    <button
                         ref={saveButtonRef}
-                        onClick={handleSubmit} 
-                        disabled={loading} 
+                        onClick={handleSubmit}
+                        disabled={loading}
                         onKeyPress={(e) => handleButtonKeyPress(e, handleSubmit)}
                         style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', opacity: loading ? 0.6 : 1 }}
                     >
@@ -1604,7 +1604,8 @@ export default function PrintedBills() {
             customerBillValue: '',
             badDebtName: '',
             badDebtAmount: '',
-            adjustmentType: 'bag_to_box'
+            adjustmentType: 'bag_to_box',
+            customerType: null
         }));
     };
 
@@ -1719,19 +1720,19 @@ export default function PrintedBills() {
                 selectedBill: null,
                 givenAmountInput: "",
                 isUpdatingCompletedBill: false,
-                customerType: null  // ← Reset customer type
+                customerType: null  // Reset customer type
             }));
             setSelectedBillDebtor(null);
             return;
         }
 
-        // Reset customer type when clicking a new bill
+        // Reset customer type FIRST when clicking a new bill
         setState(prev => ({
             ...prev,
             selectedBill: bill,
             givenAmountInput: "",
             isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
-            customerType: null  // ← ALWAYS reset to null when clicking a new bill
+            customerType: null  // ALWAYS reset to null when clicking a new bill
         }));
 
         try {
@@ -1744,10 +1745,11 @@ export default function PrintedBills() {
                 }
             } else {
                 setSelectedBillDebtor(null);
-                // Don't auto-set customer type - user must select
+                // customerType remains null - user must select manually
             }
         } catch (e) {
             setSelectedBillDebtor(null);
+            // customerType remains null - user must select manually
         }
     };
     // Add this useEffect after your state declarations (around line where other useEffects are)
@@ -1818,54 +1820,41 @@ export default function PrintedBills() {
             return;
         }
 
-        // Reset customer type when clicking a new bill through this handler
+        // Reset customer type and selectedBill first
         setState(prev => ({
             ...prev,
-            customerType: null  // ← ALWAYS reset first
+            selectedBill: null,
+            customerType: null
         }));
 
-        // First, show the bill details in the middle screen
-        handleBillClick(bill);
+        // Clear debtor data
+        setSelectedBillDebtor(null);
 
-        // Check if bill already has a debtor record
-        if (selectedBillDebtor?.Debtor_no) {
-            // Bill already has debtor, auto-select debtor type
-            setState(prev => ({ ...prev, customerType: 'debtor' }));
-            return;
-        }
+        // Small delay to ensure state is cleared before setting new bill
+        setTimeout(async () => {
+            // Set the new bill with customerType null
+            setState(prev => ({
+                ...prev,
+                selectedBill: bill,
+                givenAmountInput: "",
+                isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
+                customerType: null
+            }));
 
-        // If customer type is not selected, don't process debtor logic - user must select manually
-        if (!state.customerType) {
-            return;
-        }
-
-        // If customer type is selected, proceed with debtor processing
-        if (state.customerType === 'walking') {
-            // Walking customer - no additional processing needed
-            return;
-        }
-
-        // For debtor type, check if customer exists but DO NOT open debtor form automatically
-        try {
-            const response = await api.get(`${routes.checkCustomer}/${bill.customerCode}`);
-            const data = response.data;
-            console.log('Customer check response:', data);
-
-            if (data.exists) {
-                if (data.customer && data.customer.Debtor !== 'Y') {
-                    await api.put(routes.updateDebtorStatus, {
-                        short_name: bill.customerCode,
-                        Debtor: 'Y'
-                    });
-                    console.log('Updated customer as Debtor');
+            // Check for debtor record
+            try {
+                const response = await api.get(`/debtors/${bill.billNo}`);
+                if (response.data.success && response.data.data && response.data.data.Debtor_no) {
+                    setSelectedBillDebtor(response.data.data);
+                    // Only auto-select debtor if not viewing old bills
+                    if (!viewOldBills) {
+                        setState(prev => ({ ...prev, customerType: 'debtor' }));
+                    }
                 }
-            } else {
-                console.log('Customer not found, showing message');
+            } catch (e) {
+                setSelectedBillDebtor(null);
             }
-        } catch (error) {
-            console.error('Error checking debtor:', error);
-            alert('Error checking customer. Please try again.');
-        }
+        }, 50);
     };
     const handleDebtorSave = async (saved, debtorNo = null) => {
         console.log('Debtor save callback:', saved, 'Debtor No:', debtorNo);
