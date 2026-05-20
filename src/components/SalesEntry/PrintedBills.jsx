@@ -388,8 +388,19 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
     );
 };
 // ==================== DEBTOR FORM MODAL ====================
+// ==================== DEBTOR FORM MODAL ====================
 const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null }) => {
-    const [formData, setFormData] = useState({ name: '', ID_NO: '', telephone_no: '', address: '', credit_limit: '', profile_pic: null, nic_front: null, nic_back: null });
+    const [formData, setFormData] = useState({
+        name: '',
+        ID_NO: '',
+        telephone_no: '',
+        address: '',
+        credit_limit: '',
+        credit_period: '',  // Keep as string
+        profile_pic: null,
+        nic_front: null,
+        nic_back: null
+    });
     const [loading, setLoading] = useState(false);
     const [previewImages, setPreviewImages] = useState({ profile_pic: null, nic_front: null, nic_back: null });
     const [generatedDebtorNo, setGeneratedDebtorNo] = useState(null);
@@ -400,6 +411,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     const telephoneRef = useRef(null);
     const addressRef = useRef(null);
     const creditLimitRef = useRef(null);
+    const creditPeriodRef = useRef(null);
     const profilePicRef = useRef(null);
     const nicFrontRef = useRef(null);
     const nicBackRef = useRef(null);
@@ -409,6 +421,19 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     useEffect(() => {
         if (isOpen && customerCode) {
             setGeneratedDebtorNo(null);
+            // Reset form data when modal opens
+            setFormData({
+                name: '',
+                ID_NO: '',
+                telephone_no: '',
+                address: '',
+                credit_limit: '',
+                credit_period: '',
+                profile_pic: null,
+                nic_front: null,
+                nic_back: null
+            });
+            setPreviewImages({ profile_pic: null, nic_front: null, nic_back: null });
             // Auto-focus the name field when modal opens
             setTimeout(() => {
                 if (nameRef.current) {
@@ -420,7 +445,14 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
 
     if (!isOpen) return null;
 
-    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+        // Debug log
+        if (name === 'credit_period') {
+            console.log('Credit period changed:', value);
+        }
+    };
 
     const handleFileChange = (e) => {
         const { name, files } = e.target;
@@ -442,21 +474,56 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
             if (formData.address) formDataToSend.append('address', formData.address);
             if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
+            
+            // DEBUG: Log credit period value
+            console.log('=== CREDIT PERIOD DEBUG ===');
+            console.log('Raw credit_period value:', formData.credit_period);
+            console.log('Credit period type:', typeof formData.credit_period);
+            console.log('Credit period length:', formData.credit_period?.length);
+            
+            // Append credit_period only if it has a value
+            if (formData.credit_period && formData.credit_period.trim() !== '') {
+                const trimmedValue = formData.credit_period.trim();
+                formDataToSend.append('credit_period', trimmedValue);
+                console.log('✅ Appending credit_period:', trimmedValue);
+            } else {
+                console.log('⚠️ Credit period is empty, not appending');
+            }
+            
             formDataToSend.append('Debtor', 'Y');
             if (billNo) formDataToSend.append('bill_no', billNo);
             if (formData.profile_pic) formDataToSend.append('profile_pic', formData.profile_pic);
             if (formData.nic_front) formDataToSend.append('nic_front', formData.nic_front);
             if (formData.nic_back) formDataToSend.append('nic_back', formData.nic_back);
 
-            const response = await api.post('/customers', formDataToSend, { headers: { 'Content-Type': 'multipart/form-data' } });
+            // Log all FormData entries for debugging
+            console.log('=== ALL FORM DATA BEING SENT ===');
+            for (let pair of formDataToSend.entries()) {
+                console.log(pair[0] + ':', pair[1]);
+            }
+
+            const response = await api.post('/customers', formDataToSend, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            console.log('Response from server:', response.data);
+
             if (response.status === 200 || response.status === 201) {
                 const debtorNo = response.data.Debtor_no;
                 setGeneratedDebtorNo(debtorNo);
-                alert(`Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`);
+                const message = `Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`;
+                if (formData.credit_period) {
+                    message + `\nCredit Period: ${formData.credit_period}`;
+                }
+                alert(message);
                 onSave(true, debtorNo);
                 onClose();
             }
-        } catch (error) { console.error('Error saving debtor:', error); alert('Failed to save debtor information.'); }
+        } catch (error) {
+            console.error('Error saving debtor:', error);
+            console.error('Error response:', error.response?.data);
+            alert('Failed to save debtor information. Please check the console for details.');
+        }
         finally { setLoading(false); }
     };
 
@@ -516,11 +583,23 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10001 }} onClick={onClose}>
             <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', maxWidth: '90%', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
                 <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '20px 20px 0 0' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}><span>📝</span> Register Debtor: {customerCode}{billNo && <span style={{ fontSize: '12px' }}>(Bill: {billNo})</span>}</h3>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>📝</span> Register Debtor: {customerCode}
+                        {billNo && <span style={{ fontSize: '12px' }}>(Bill: {billNo})</span>}
+                    </h3>
                 </div>
                 <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-                    {generatedDebtorNo && <div style={{ background: '#d1fae5', padding: '12px', borderRadius: '10px', marginBottom: '16px', textAlign: 'center' }}><div style={{ fontSize: '12px', color: '#065f46' }}>Debtor Number</div><div style={{ fontSize: '20px', fontWeight: 'bold', color: '#047857' }}>{generatedDebtorNo}</div></div>}
-                    <div style={{ background: '#fef3c7', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px', color: '#92400e' }}>⚠️ Customer "{customerCode}" not found. Please provide information to register as Debtor.<br /><small>All fields are optional. A unique Debtor Number will be automatically generated.{billNo && <><br /><small>This debtor will be linked to Bill No: {billNo}</small></>}</small></div>
+                    {generatedDebtorNo && (
+                        <div style={{ background: '#d1fae5', padding: '12px', borderRadius: '10px', marginBottom: '16px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '12px', color: '#065f46' }}>Debtor Number</div>
+                            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#047857' }}>{generatedDebtorNo}</div>
+                        </div>
+                    )}
+                    <div style={{ background: '#fef3c7', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px', color: '#92400e' }}>
+                        ⚠️ Customer "{customerCode}" not found. Please provide information to register as Debtor.
+                        <br /><small>All fields are optional. A unique Debtor Number will be automatically generated.
+                            {billNo && <><br /><small>This debtor will be linked to Bill No: {billNo}</small></>}</small>
+                    </div>
 
                     {/* Full Name Field */}
                     <div style={{ marginBottom: '12px' }}>
@@ -588,9 +667,37 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                             name="credit_limit"
                             value={formData.credit_limit}
                             onChange={handleChange}
-                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
+                            onKeyPress={(e) => handleKeyPress(e, creditPeriodRef)}
                             style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
                         />
+                    </div>
+
+                    {/* Credit Period Field - FIXED: Now as text input */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>
+                            Credit Period
+                            <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>(Optional)</span>
+                        </label>
+                        <input
+                            ref={creditPeriodRef}
+                            type="text"
+                            name="credit_period"
+                            value={formData.credit_period}
+                            onChange={handleChange}
+                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
+                            placeholder="e.g., 2 days, 1 week, 30 days, 1 month"
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                backgroundColor: 'white'
+                            }}
+                        />
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                            💡 Examples: "2 days", "1 week", "30 days", "1 month", "2 months", "90 days"
+                        </div>
                     </div>
 
                     {/* Profile Picture Field */}
@@ -661,7 +768,6 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         </div>
     );
 };
-
 // ==================== BANK ACCOUNT SELECTOR ====================
 const BankAccountSelector = React.forwardRef(({ selectedAccountId, onSelect, disabled = false, onKeyDown }, ref) => {
     const [banks, setBanks] = useState([]);
@@ -1631,13 +1737,23 @@ export default function PrintedBills() {
         if (!startDate || !endDate) {
             return;
         }
+
+        // ALWAYS refresh current data before loading archived bills
+        if (viewOldBills) {
+            await refreshBeforeLoadingOldBills();
+        }
+
         setArchivedData(prev => ({ ...prev, isLoading: true }));
         try {
-            const response = await api.get(routes.getArchivedSales, { params: { start_date: startDate, end_date: endDate } });
+            const response = await api.get(routes.getArchivedSales, {
+                params: { start_date: startDate, end_date: endDate }
+            });
+
             if (response.data.success) {
                 const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
                 setArchivedData({ pendingBills, appliedBills, isLoading: false });
                 setDataSource('sales_history');
+
                 // Save to localStorage
                 localStorage.setItem('printedBills_startDate', startDate);
                 localStorage.setItem('printedBills_endDate', endDate);
@@ -1657,7 +1773,37 @@ export default function PrintedBills() {
             setArchivedData(prev => ({ ...prev, isLoading: false }));
         }
     };
+    // Add this function near your other functions (around line 1400)
+    const refreshBeforeLoadingOldBills = async () => {
+        try {
+            console.log('🔄 Refreshing current data before loading old bills...');
 
+            // Fetch current sales data
+            const [salesRes, customersRes] = await Promise.all([
+                api.get(routes.getAllSales),
+                api.get(routes.customers)
+            ]);
+
+            const salesData = salesRes.data.sales || salesRes.data || [];
+            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+            const { pendingBills, appliedBills } = processBillData(salesData);
+
+            // Update current state
+            setState(prev => ({
+                ...prev,
+                pendingBills,
+                appliedBills,
+                customers: customersData,
+                isLoading: false
+            }));
+
+            console.log('✅ Current data refreshed successfully');
+            return true;
+        } catch (error) {
+            console.error('❌ Error refreshing current data:', error);
+            return false;
+        }
+    };
     const resetToCurrentSales = () => {
         setViewOldBills(false);
         setStartDate('');
@@ -3055,10 +3201,12 @@ export default function PrintedBills() {
                                 />
                             </div>
                             <button
-                                onClick={() => {
+                                onClick={async () => {
                                     if (startDate && endDate) {
+                                        // Add refresh here too
                                         setArchivedData(prev => ({ ...prev, isLoading: true }));
-                                        fetchArchivedSales();
+                                        await refreshBeforeLoadingOldBills(); // Refresh current data first
+                                        await fetchArchivedSales(); // Then fetch archived
                                     } else {
                                         alert('Please select both start and end dates');
                                     }
