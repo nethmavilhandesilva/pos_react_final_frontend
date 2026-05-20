@@ -474,13 +474,13 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
             if (formData.address) formDataToSend.append('address', formData.address);
             if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
-            
+
             // DEBUG: Log credit period value
             console.log('=== CREDIT PERIOD DEBUG ===');
             console.log('Raw credit_period value:', formData.credit_period);
             console.log('Credit period type:', typeof formData.credit_period);
             console.log('Credit period length:', formData.credit_period?.length);
-            
+
             // Append credit_period only if it has a value
             if (formData.credit_period && formData.credit_period.trim() !== '') {
                 const trimmedValue = formData.credit_period.trim();
@@ -489,7 +489,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             } else {
                 console.log('⚠️ Credit period is empty, not appending');
             }
-            
+
             formDataToSend.append('Debtor', 'Y');
             if (billNo) formDataToSend.append('bill_no', billNo);
             if (formData.profile_pic) formDataToSend.append('profile_pic', formData.profile_pic);
@@ -1492,6 +1492,8 @@ export default function PrintedBills() {
     const badDebtNameRef = useRef(null);
     const badDebtAmountRef = useRef(null);
 
+
+
     // Replace your existing useEffect with this one
     useEffect(() => {
         isMountedRef.current = true;
@@ -1509,7 +1511,6 @@ export default function PrintedBills() {
         // Set up interval for silent refresh every 2 seconds
         const intervalId = setInterval(() => {
             // Only refresh if we're not already refreshing and component is mounted
-            // REMOVED: && !viewOldBills - Now refreshes even when viewing old bills
             if (!isRefreshing && isMountedRef.current) {
                 silentRefresh();
             }
@@ -1524,6 +1525,7 @@ export default function PrintedBills() {
             clearInterval(intervalId);
         };
     }, []); // Empty dependency array - runs once on mount
+
     const getTotalReceived = (bill) => {
         if (!bill) return 0;
 
@@ -1606,6 +1608,22 @@ export default function PrintedBills() {
         customerCodeField: '', customerBillNo: '', customerBillValue: '',
         badDebtName: '', badDebtAmount: ''
     });
+    // Add these refs to track current values for silent refresh
+    const viewOldBillsRef = useRef(viewOldBills);
+    const startDateRef = useRef(startDate);
+    const endDateRef = useRef(endDate);
+    // Update refs when state changes
+    useEffect(() => {
+        viewOldBillsRef.current = viewOldBills;
+    }, [viewOldBills]);
+
+    useEffect(() => {
+        startDateRef.current = startDate;
+    }, [startDate]);
+
+    useEffect(() => {
+        endDateRef.current = endDate;
+    }, [endDate]);
     const [selectedBillDebtor, setSelectedBillDebtor] = useState(null);
     const [user, setUser] = useState(null);
 
@@ -2539,11 +2557,16 @@ export default function PrintedBills() {
                     isLoading: false
                 }));
 
-                // ✅ CRITICAL FIX: Always refresh archived data when viewing old bills
-                if (viewOldBills && startDate && endDate) {
+                // ✅ FIXED: Use refs to get the latest values
+                const currentViewOldBills = viewOldBillsRef.current;
+                const currentStartDate = startDateRef.current;
+                const currentEndDate = endDateRef.current;
+
+                // Always refresh archived data when viewing old bills AND dates are selected
+                if (currentViewOldBills && currentStartDate && currentEndDate) {
                     try {
                         const archivedResponse = await api.get(routes.getArchivedSales, {
-                            params: { start_date: startDate, end_date: endDate }
+                            params: { start_date: currentStartDate, end_date: currentEndDate }
                         });
                         if (archivedResponse.data.success) {
                             const { pendingBills: archivedPending, appliedBills: archivedApplied } = processBillData(archivedResponse.data.sales || []);
@@ -2581,7 +2604,7 @@ export default function PrintedBills() {
                 setIsRefreshing(false);
             }
         }
-    }, [viewOldBills, startDate, endDate]);
+    }, []); // Empty dependency array - function never recreates
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
