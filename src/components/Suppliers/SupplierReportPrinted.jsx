@@ -1144,6 +1144,8 @@ export default function SupplierReport() {
     const refreshTimeoutRef = useRef(null);
     const isMountedRef = useRef(true);
 
+   
+
     const processingPaymentRef = useRef(false);
     const lastPaymentDataRef = useRef(null);
 
@@ -1243,8 +1245,8 @@ export default function SupplierReport() {
                 let pending = response.data.unprinted || [];
                 let completed = response.data.printed || [];
 
-                // Process pending bills - calculate correct paid amount from payment_details
-                pending = pending.map(item => {
+                // Process all bills - calculate correct paid amount and credit amount
+                const processBill = (item) => {
                     let paymentDetails = item.payment_details;
                     if (typeof paymentDetails === 'string') {
                         try {
@@ -1255,57 +1257,68 @@ export default function SupplierReport() {
                     }
 
                     let totalPaidExcludingCredit = 0;
+                    let totalCreditAmount = 0;
+
                     if (Array.isArray(paymentDetails)) {
                         paymentDetails.forEach(payment => {
-                            if (payment.method !== 'Credit') {
-                                totalPaidExcludingCredit += parseFloat(payment.amount) || 0;
+                            const amount = parseFloat(payment.amount) || 0;
+                            if (payment.method === 'Credit') {
+                                totalCreditAmount += amount;
+                            } else {
+                                totalPaidExcludingCredit += amount;
                             }
                         });
                     }
 
-                    return {
-                        ...item,
-                        loan_amount: totalPaidExcludingCredit,
-                        payment_details: paymentDetails
-                    };
-                });
+                    const totalAmount = parseFloat(item.total_amount) || 0;
+                    // Calculate remaining after actual payments (excluding credit)
+                    const remainingAfterPayments = Math.max(0, totalAmount - totalPaidExcludingCredit);
+                    // Net payable = total amount - actual payments + credit amount (credit is owed TO supplier)
+                    const netRemaining = remainingAfterPayments + totalCreditAmount;
 
-                // Process completed bills similarly
-                completed = completed.map(item => {
-                    let paymentDetails = item.payment_details;
-                    if (typeof paymentDetails === 'string') {
-                        try {
-                            paymentDetails = JSON.parse(paymentDetails);
-                        } catch (e) {
-                            paymentDetails = [];
-                        }
-                    }
-
-                    let totalPaidExcludingCredit = 0;
-                    if (Array.isArray(paymentDetails)) {
-                        paymentDetails.forEach(payment => {
-                            if (payment.method !== 'Credit') {
-                                totalPaidExcludingCredit += parseFloat(payment.amount) || 0;
-                            }
-                        });
-                    }
+                    // A bill is FULLY SETTLED when netRemaining <= 0 (no money owed by or to supplier)
+                    const isFullySettled = netRemaining <= 0;
 
                     return {
                         ...item,
-                        loan_amount: totalPaidExcludingCredit,
-                        payment_details: paymentDetails
+                        loan_amount: totalPaidExcludingCredit, // Actual money received
+                        credit_amount: totalCreditAmount, // Money owed TO supplier
+                        net_remaining: netRemaining, // Net amount to be settled
+                        payment_details: paymentDetails,
+                        is_fully_settled: isFullySettled
                     };
-                });
+                };
 
-                console.log('Fetched data:', { pendingCount: pending.length, completedCount: completed.length });
+                // Process all bills
+                const processedPending = pending.map(processBill);
+                const processedCompleted = completed.map(processBill);
+
+                // Separate into Not Settled and Fully Settled based on net_remaining
+                // IMPORTANT: A bill is FULLY SETTLED if net_remaining <= 0, regardless of credit amount
+                const notSettled = processedPending.filter(item => !item.is_fully_settled);
+                // Fully settled includes:
+                // 1. All completed bills (printed) that are fully settled
+                // 2. Any pending bills that have become fully settled (net_remaining <= 0)
+                const fullySettled = [
+                    ...processedCompleted.filter(item => item.is_fully_settled),
+                    ...processedPending.filter(item => item.is_fully_settled)
+                ];
+
+                console.log('Fetched data:', {
+                    originalPending: pending.length,
+                    originalCompleted: completed.length,
+                    notSettledCount: notSettled.length,
+                    fullySettledCount: fullySettled.length,
+                    fullySettledFromPending: processedPending.filter(item => item.is_fully_settled).length
+                });
 
                 setState(prev => ({
                     ...prev,
-                    pendingSuppliers: pending,
-                    completedSuppliers: completed,
+                    pendingSuppliers: notSettled,
+                    completedSuppliers: fullySettled,
                     isLoading: false
                 }));
-                return { pending, completed, totalLoansFound: response.data.total_loans_found || 0 };
+                return { pending: notSettled, completed: fullySettled, totalLoansFound: response.data.total_loans_found || 0 };
             }
         } catch (error) {
             console.error("Error fetching supplier data:", error);
@@ -2430,11 +2443,17 @@ export default function SupplierReport() {
             return sum + totalAmt;
         }, 0);
 
+        const totalCreditOutstanding = [...state.pendingSuppliers].reduce((sum, supplier) => {
+            const creditAmt = parseFloat(supplier.credit_amount) || 0;
+            return sum + creditAmt;
+        }, 0);
+
         return {
             totalPending: filterPendingSuppliers.length,
             totalCompleted: filterCompletedSuppliers.length,
             totalGiven: totalGiven,
-            totalAmount: totalAmount
+            totalAmount: totalAmount,
+            totalCreditOutstanding: totalCreditOutstanding
         };
     }, [filterPendingSuppliers, filterCompletedSuppliers, state.pendingSuppliers, state.completedSuppliers]);
 
@@ -2507,6 +2526,21 @@ export default function SupplierReport() {
                                                 <div style={styles.billRight}>
                                                     <div style={styles.billTotal}>Rs. {formatDecimal(remaining)}</div>
                                                     {item.loan_amount > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(item.loan_amount)}</div>}
+                                                    {item.credit_amount > 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#dc2626', marginTop: '2px' }}>
+                                                            ⚠️ Debtor Balance: Rs. {formatDecimal(item.credit_amount)}
+                                                        </div>
+                                                    )}
+                                                    {item.net_remaining > 0 && item.credit_amount === 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
+                                                            Remaining: Rs. {formatDecimal(item.net_remaining)}
+                                                        </div>
+                                                    )}
+                                                    {item.net_remaining > 0 && item.credit_amount > 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#ef4444', marginTop: '2px', fontWeight: 'bold' }}>
+                                                            Net Payable: Rs. {formatDecimal(item.net_remaining)}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -2720,8 +2754,8 @@ export default function SupplierReport() {
                                             </div>
                                         </div>
 
-                                        {/* Financial Summary Card */}
-                                        <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', padding: '12px', background: '#f8fafc', borderRadius: '12px' }}>
+                                        {/* Financial Summary Card with Credit Amount */}
+                                        <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: selectedBillCreditor && selectedBillCreditor.credit_amount > 0 ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: '12px', padding: '12px', background: '#f8fafc', borderRadius: '12px' }}>
                                             <div style={{ textAlign: 'center' }}>
                                                 <div style={{ fontSize: '10px', color: '#64748b' }}>💰 Total Bill</div>
                                                 <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#dc2626' }}>Rs. {formatDecimal(totalPayable)}</div>
@@ -2736,6 +2770,17 @@ export default function SupplierReport() {
                                                     Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount))}
                                                 </div>
                                             </div>
+                                            {selectedBillCreditor && selectedBillCreditor.credit_amount > 0 && (
+                                                <div style={{ textAlign: 'center' }}>
+                                                    <div style={{ fontSize: '10px', color: '#64748b' }}>⚠️ Credit Payable</div>
+                                                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: selectedBillCreditor.remaining_amount > 0 ? '#dc2626' : '#10b981' }}>
+                                                        Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
+                                                    </div>
+                                                    {selectedBillCreditor.remaining_amount === 0 && (
+                                                        <div style={{ fontSize: '9px', color: '#10b981' }}>✓ Settled</div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {isViewingHistory && (
@@ -2856,11 +2901,11 @@ export default function SupplierReport() {
                                         </div>
                                     )}
 
-                                    {/* Credit Information Section */}
-                                    {selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
+                                    {/* Credit Information Section - Shows for any bill with credit amount */}
+                                    {selectedBillCreditor && selectedBillCreditor.credit_amount > 0 && (
                                         <div style={{ marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '14px', borderLeft: '4px solid #f59e0b' }}>
                                             <div style={{ fontSize: '13px', fontWeight: '700', color: '#92400e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span>⚠️</span> Outstanding Credit (Payable to Supplier)
+                                                <span>⚠️</span> Credit Information (Payable to Supplier)
                                             </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', fontSize: '12px' }}>
                                                 <div>
@@ -2873,7 +2918,9 @@ export default function SupplierReport() {
                                                 </div>
                                                 <div>
                                                     <div style={{ color: '#78350f' }}>Remaining Payable:</div>
-                                                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}</div>
+                                                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: selectedBillCreditor.remaining_amount > 0 ? '#dc2626' : '#10b981' }}>
+                                                        Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
+                                                    </div>
                                                 </div>
                                                 <div>
                                                     <div style={{ color: '#78350f' }}>Status:</div>
@@ -2890,25 +2937,18 @@ export default function SupplierReport() {
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div style={{ fontSize: '11px', marginTop: '12px', padding: '8px', background: '#fef3c7', borderRadius: '8px', color: '#92400e' }}>
-                                                ⚠️ This amount is payable TO the supplier! Use the payment options above to settle.
-                                            </div>
+                                            {selectedBillCreditor.remaining_amount > 0 && (
+                                                <div style={{ fontSize: '11px', marginTop: '12px', padding: '8px', background: '#fef3c7', borderRadius: '8px', color: '#92400e' }}>
+                                                    ⚠️ This amount is payable TO the supplier! Use the payment options above to settle.
+                                                </div>
+                                            )}
+                                            {selectedBillCreditor.remaining_amount === 0 && selectedBillCreditor.credit_amount > 0 && (
+                                                <div style={{ fontSize: '11px', marginTop: '12px', padding: '8px', background: '#d1fae5', borderRadius: '8px', color: '#065f46' }}>
+                                                    ✅ Credit fully settled! No amount payable to supplier.
+                                                </div>
+                                            )}
                                         </div>
                                     )}
-
-                                    {selectedBillCreditor && (() => {
-                                        const creditAmount = parseFloat(selectedBillCreditor.credit_amount) || 0;
-                                        const paidAmount = parseFloat(selectedBillCreditor.paid_amount) || 0;
-                                        const isFullyPaid = creditAmount === paidAmount && creditAmount > 0;
-                                        return isFullyPaid ? (
-                                            <div style={{ marginTop: '16px', padding: '12px', background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)', borderRadius: '12px', borderLeft: '4px solid #10b981' }}>
-                                                <div style={{ fontSize: '13px', color: '#065f46', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <span>✅</span> Credit Fully Settled!
-                                                    <div style={{ fontSize: '11px', marginLeft: 'auto' }}>Credit Amount: Rs. {formatDecimal(creditAmount)} | Paid: Rs. {formatDecimal(paidAmount)}</div>
-                                                </div>
-                                            </div>
-                                        ) : null;
-                                    })()}
 
                                     {/* Action Buttons */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
@@ -2981,6 +3021,7 @@ export default function SupplierReport() {
                         <div style={styles.statNumber}>Rs. {formatDecimal(stats.totalAmount)}</div>
                         <div style={styles.statSub}>all bills total</div>
                     </div>
+
                     <div
                         style={{ ...styles.statBox, cursor: 'pointer' }}
                         onClick={() => {
