@@ -1117,6 +1117,7 @@ export default function SupplierReport() {
     const [isViewingHistory, setIsViewingHistory] = useState(false);
     const [historyDateRange, setHistoryDateRange] = useState({ startDate: '', endDate: '' });
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [isMiddlePanelLocked, setIsMiddlePanelLocked] = useState(true);
 
     const [state, setState] = useState({
         pendingSuppliers: [], completedSuppliers: [], selectedSupplier: null, selectedBillNo: null, supplierDetails: [],
@@ -1186,6 +1187,9 @@ export default function SupplierReport() {
             }
         }
         return total;
+    };
+    const unlockMiddlePanel = () => {
+        setIsMiddlePanelLocked(false);
     };
     // Helper function to calculate total Credit amount from payment_details
     const calculateTotalCreditAmount = (paymentDetails) => {
@@ -1508,10 +1512,25 @@ export default function SupplierReport() {
     }, []); // Empty dependency array - runs once on mount
 
     const handleModeChange = (mode) => {
+        // First unlock the panel when a mode is selected
+        setIsMiddlePanelLocked(false);
+
         setState(prev => ({ ...prev, selectedMode: mode }));
         if (mode === 'creditor') {
-            if (!state.selectedSupplier) { alert('Please select a supplier/bill first before marking as creditor.'); setState(prev => ({ ...prev, selectedMode: 'walking_seller' })); return; }
-            if (!state.selectedBillNo) { alert('Please select a bill that has a bill number.'); setState(prev => ({ ...prev, selectedMode: 'walking_seller' })); return; }
+            if (!state.selectedSupplier) {
+                alert('Please select a supplier/bill first before marking as creditor.');
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                // Re-lock if no supplier selected
+                setIsMiddlePanelLocked(true);
+                return;
+            }
+            if (!state.selectedBillNo) {
+                alert('Please select a bill that has a bill number.');
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                // Re-lock if no bill selected
+                setIsMiddlePanelLocked(true);
+                return;
+            }
             setSelectedBillForCreditor({ supplierCode: state.selectedSupplier, billNo: state.selectedBillNo });
             setShowCreditorModal(true);
         }
@@ -1577,6 +1596,7 @@ export default function SupplierReport() {
         if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
             setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
             setSelectedBillCreditor(null);
+            setIsMiddlePanelLocked(true);
             return;
         }
         setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
@@ -1602,6 +1622,9 @@ export default function SupplierReport() {
             const total = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
             let currentPaid = 0;
             let paymentBreakdown = [];
+
+            // Variable to track if bill has a creditor number
+            let hasCreditor = false;
 
             if (billNo) {
                 try {
@@ -1631,9 +1654,32 @@ export default function SupplierReport() {
             if (billNo) {
                 const creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
                 setSelectedBillCreditor(creditorInfo);
+                // FIXED: Check multiple possible property names for creditor number
+                // Log the creditorInfo to see what properties are available
+                console.log('Creditor Info:', creditorInfo);
+
+                // Check for creditor number in various possible properties
+                hasCreditor = creditorInfo && (
+                    creditorInfo.creditor_no ||
+                    creditorInfo.creditorNo ||
+                    creditorInfo.Creditor_no ||
+                    creditorInfo.creditor_number ||
+                    creditorInfo.CreditorNo
+                );
+
+                // Also check if the bill itself has a creditor flag
+                if (!hasCreditor && creditorInfo && creditorInfo.Creditor === 'Y') {
+                    hasCreditor = true;
+                }
             } else {
                 setSelectedBillCreditor(null);
             }
+
+            // IMPORTANT: Only lock the panel if there is NO creditor number
+            // If the bill already has a creditor number, keep it unlocked
+            console.log('Has Creditor:', hasCreditor);
+            console.log('Setting isMiddlePanelLocked to:', !hasCreditor);
+            setIsMiddlePanelLocked(!hasCreditor);
 
             setState(prev => ({
                 ...prev,
@@ -1648,6 +1694,7 @@ export default function SupplierReport() {
             console.error('Error fetching supplier details:', error);
             setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
             setSelectedBillCreditor(null);
+            setIsMiddlePanelLocked(true);
         }
     };
     const generateBillContent = async (billNo) => {
@@ -2469,24 +2516,187 @@ export default function SupplierReport() {
                     </div>
 
                     {/* ENHANCED MIDDLE PANEL - Supplier Details */}
-                    <div style={{ background: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-                        <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderBottom: '1px solid rgba(255,255,255,0.2)', borderRadius: '20px 20px 0 0' }}>
-                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                                <button onClick={() => handleModeChange('walking_seller')} style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', background: state.selectedMode === 'walking_seller' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>🚶 Walking Seller</button>
-                                <button onClick={() => handleModeChange('creditor')} style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', background: state.selectedMode === 'creditor' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>💰 Creditor Mode</button>
+                    <div style={{ background: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', position: 'relative' }}>
+                        {/* Lock Overlay - Show when panel is locked AND a supplier is selected */}
+                        {isMiddlePanelLocked && state.selectedSupplier && (
+                            <div style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                                backdropFilter: 'blur(8px)',
+                                zIndex: 1000,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                borderRadius: '20px',
+                                pointerEvents: 'auto'
+                            }}>
+                                <div style={{
+                                    textAlign: 'center',
+                                    color: 'white',
+                                    padding: '30px',
+                                    background: 'rgba(0,0,0,0.7)',
+                                    borderRadius: '20px',
+                                    maxWidth: '80%'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+                                    <h3 style={{ color: 'white', marginBottom: '12px' }}>Panel Locked</h3>
+                                    <p style={{ color: '#cbd5e1', marginBottom: '20px', fontSize: '14px' }}>
+                                        Please select a mode below to unlock the panel and process payments.
+                                    </p>
+                                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                        <button
+                                            onClick={() => handleModeChange('walking_seller')}
+                                            style={{
+                                                padding: '10px 24px',
+                                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '10px',
+                                                cursor: 'pointer',
+                                                fontWeight: '600',
+                                                fontSize: '14px'
+                                            }}
+                                        >
+                                            🚶 Walking Seller Mode
+                                        </button>
+                                        <button
+                                            onClick={() => handleModeChange('creditor')}
+                                            style={{
+                                                padding: '10px 24px',
+                                                background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '10px',
+                                                cursor: 'pointer',
+                                                fontWeight: '600',
+                                                fontSize: '14px'
+                                            }}
+                                        >
+                                            💰 Creditor Mode
+                                        </button>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setState(prev => ({
+                                                ...prev,
+                                                selectedSupplier: null,
+                                                selectedBillNo: null,
+                                                supplierDetails: [],
+                                                paymentAmount: "",
+                                                currentPaidAmount: 0,
+                                                paymentBreakdown: [],
+                                                currentBillTotal: 0
+                                            }));
+                                            setSelectedBillCreditor(null);
+                                            setIsMiddlePanelLocked(true);
+                                        }}
+                                        style={{
+                                            padding: '10px 24px',
+                                            background: 'rgba(255,255,255,0.2)',
+                                            color: 'white',
+                                            border: '1px solid rgba(255,255,255,0.3)',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            fontWeight: '600',
+                                            fontSize: '14px',
+                                            marginTop: '16px'
+                                        }}
+                                    >
+                                        ✕ Clear Selection
+                                    </button>
+                                </div>
                             </div>
+                        )}
+
+                        <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderBottom: '1px solid rgba(255,255,255,0.2)', borderRadius: '20px 20px 0 0' }}>
+                            {/* Mode buttons - Always visible */}
+                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                                <button
+                                    onClick={() => handleModeChange('walking_seller')}
+                                    style={{
+                                        padding: '4px 10px',
+                                        fontSize: '11px',
+                                        borderRadius: '20px',
+                                        border: '1px solid rgba(255,255,255,0.3)',
+                                        background: state.selectedMode === 'walking_seller' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
+                                        color: 'white',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    🚶 Walking Seller
+                                </button>
+                                <button
+                                    onClick={() => handleModeChange('creditor')}
+                                    style={{
+                                        padding: '4px 10px',
+                                        fontSize: '11px',
+                                        borderRadius: '20px',
+                                        border: '1px solid rgba(255,255,255,0.3)',
+                                        background: state.selectedMode === 'creditor' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
+                                        color: 'white',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    💰 Creditor Mode
+                                </button>
+                            </div>
+
+                            {/* Lock indicator when panel is locked */}
+                            {isMiddlePanelLocked && state.selectedSupplier && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    marginBottom: '12px',
+                                    padding: '6px 12px',
+                                    background: 'rgba(0,0,0,0.3)',
+                                    borderRadius: '20px',
+                                    width: 'fit-content'
+                                }}>
+                                    <span style={{ fontSize: '12px' }}>🔒</span>
+                                    <span style={{ fontSize: '11px', color: '#e2e8f0' }}>Select a mode above to unlock</span>
+                                </div>
+                            )}
+
                             <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'white', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <span style={{ width: '10px', height: '10px', background: '#fbbf24', borderRadius: '50%', boxShadow: '0 0 8px #fbbf24' }}></span>
                                 Supplier Details
                                 {state.selectedSupplier && (
                                     <button style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '12px', padding: '4px 12px', borderRadius: '20px', marginLeft: 'auto' }}
-                                        onClick={() => setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }))}>
+                                        onClick={() => {
+                                            setState(prev => ({
+                                                ...prev,
+                                                selectedSupplier: null,
+                                                selectedBillNo: null,
+                                                supplierDetails: [],
+                                                paymentAmount: "",
+                                                currentPaidAmount: 0,
+                                                paymentBreakdown: [],
+                                                currentBillTotal: 0
+                                            }));
+                                            setSelectedBillCreditor(null);
+                                            setIsMiddlePanelLocked(true);
+                                        }}>
                                         ✕ Clear
                                     </button>
                                 )}
                             </h2>
                         </div>
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' }}>
+
+                        <div style={{
+                            flex: 1,
+                            overflowY: 'auto',
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+                            opacity: isMiddlePanelLocked && state.selectedSupplier ? 0.3 : 1,
+                            pointerEvents: isMiddlePanelLocked && state.selectedSupplier ? 'none' : 'auto',
+                            transition: 'opacity 0.3s ease'
+                        }}>
                             {state.selectedSupplier ? (
                                 <>
                                     {/* Enhanced Supplier Info Card */}
