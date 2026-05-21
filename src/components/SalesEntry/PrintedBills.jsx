@@ -388,7 +388,6 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
     );
 };
 // ==================== DEBTOR FORM MODAL ====================
-// ==================== DEBTOR FORM MODAL ====================
 const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null }) => {
     const [formData, setFormData] = useState({
         name: '',
@@ -2530,72 +2529,72 @@ export default function PrintedBills() {
 
     // Silent refresh function - updates data without showing loading skeleton
     const silentRefresh = useCallback(async () => {
-        // Don't refresh if modal is open to prevent flickering
-        if (modalOpenRef.current) return;
-
         if (!isMountedRef.current) return;
 
         setIsRefreshing(true);
         try {
-            // Always refresh current sales data
-            const [salesRes, customersRes] = await Promise.all([
-                api.get(routes.getAllSales),
-                api.get(routes.customers)
-            ]);
+            let url = routes.getSuppliers;
+            const params = new URLSearchParams();
 
-            const salesData = salesRes.data.sales || salesRes.data || [];
-            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
-            const { pendingBills, appliedBills } = processBillData(salesData);
+            // Use refs to avoid stale closures
+            if (viewHistoryRef.current && historyStartDateRef.current && historyEndDateRef.current) {
+                url = routes.getOldBillsSummary;
+                params.append('use_history', 'true');
+                params.append('date_filtered', 'true');
+                params.append('start_date', historyStartDateRef.current);
+                params.append('end_date', historyEndDateRef.current);
+            }
 
-            // Only update if component is still mounted
-            if (isMountedRef.current) {
+            console.log('Silent refreshing supplier data...');
+            const response = await api.get(`${url}?${params.toString()}`);
+
+            if (response.data && isMountedRef.current) {
+                const pending = response.data.unprinted || [];
+                const completed = response.data.printed || [];
+
+                // Update state without changing isLoading (so no loading skeleton)
                 setState(prev => ({
                     ...prev,
-                    pendingBills,
-                    appliedBills,
-                    customers: customersData,
-                    isLoading: false
+                    pendingSuppliers: pending,
+                    completedSuppliers: completed,
                 }));
 
-                // ✅ FIXED: Use refs to get the latest values
-                const currentViewOldBills = viewOldBillsRef.current;
-                const currentStartDate = startDateRef.current;
-                const currentEndDate = endDateRef.current;
-
-                // Always refresh archived data when viewing old bills AND dates are selected
-                if (currentViewOldBills && currentStartDate && currentEndDate) {
+                // If there's a selected supplier, refresh its details silently
+                if (state.selectedSupplier && isMountedRef.current) {
                     try {
-                        const archivedResponse = await api.get(routes.getArchivedSales, {
-                            params: { start_date: currentStartDate, end_date: currentEndDate }
-                        });
-                        if (archivedResponse.data.success) {
-                            const { pendingBills: archivedPending, appliedBills: archivedApplied } = processBillData(archivedResponse.data.sales || []);
+                        let detailsUrl;
+                        const useHistoryParam = viewHistoryRef.current && historyStartDateRef.current && historyEndDateRef.current;
 
-                            // Update archivedData state - this will refresh the UI
-                            setArchivedData({
-                                pendingBills: archivedPending,
-                                appliedBills: archivedApplied,
-                                isLoading: false
-                            });
-
-                            console.log(`Archived data refreshed: ${archivedPending.length} pending, ${archivedApplied.length} applied bills`);
+                        if (state.selectedBillNo) {
+                            detailsUrl = `${routes.getSupplierBillDetails}/${state.selectedBillNo}/details?supplier_code=${state.selectedSupplier}`;
+                            if (useHistoryParam) {
+                                detailsUrl += `&use_history=true&start_date=${historyStartDateRef.current}&end_date=${historyEndDateRef.current}`;
+                            }
+                        } else {
+                            detailsUrl = `${routes.getUnprintedDetails}/${state.selectedSupplier}`;
+                            if (useHistoryParam) {
+                                detailsUrl += `?use_history=true&start_date=${historyStartDateRef.current}&end_date=${historyEndDateRef.current}`;
+                            }
                         }
-                    } catch (archivedError) {
-                        console.error("Error refreshing archived data:", archivedError);
+
+                        const detailsResponse = await api.get(detailsUrl);
+                        if (detailsResponse.data && isMountedRef.current) {
+                            const salesData = detailsResponse.data.sales || detailsResponse.data;
+                            const total = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+                            // Update selected supplier details without showing loading
+                            setState(prev => ({
+                                ...prev,
+                                supplierDetails: salesData || [],
+                                currentBillTotal: total
+                            }));
+                        }
+                    } catch (detailsError) {
+                        console.error('Error refreshing supplier details:', detailsError);
                     }
                 }
 
-                // If there's a selected bill, refresh its debtor data silently
-                if (prev.selectedBill) {
-                    try {
-                        const debtorResponse = await api.get(`/debtors/${prev.selectedBill.billNo}`);
-                        if (debtorResponse.data.success && debtorResponse.data.data) {
-                            setSelectedBillDebtor(debtorResponse.data.data);
-                        }
-                    } catch (e) {
-                        // No debtor record, that's fine
-                    }
-                }
+                console.log(`Silent refresh complete: ${pending.length} pending, ${completed.length} completed`);
             }
         } catch (error) {
             console.error("Silent refresh error:", error);
@@ -2604,7 +2603,7 @@ export default function PrintedBills() {
                 setIsRefreshing(false);
             }
         }
-    }, []); // Empty dependency array - function never recreates
+    }, [state.selectedSupplier, state.selectedBillNo]);
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
