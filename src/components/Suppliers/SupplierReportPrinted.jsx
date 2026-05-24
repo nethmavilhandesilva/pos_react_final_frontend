@@ -1144,8 +1144,6 @@ export default function SupplierReport() {
     const refreshTimeoutRef = useRef(null);
     const isMountedRef = useRef(true);
 
-   
-
     const processingPaymentRef = useRef(false);
     const lastPaymentDataRef = useRef(null);
 
