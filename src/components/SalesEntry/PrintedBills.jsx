@@ -232,9 +232,10 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
             ? `✅ Customer "${customer.short_name}" selected!\n📋 Debtor Number: ${customer.Debtor_no}`
             : `👤 Customer "${customer.short_name}" selected!`;
         alert(msg);
+
+        // Call this to process the customer selection and unlock the screen
         setTimeout(() => handleCheckCustomerWithCode(customer.short_name, true, customer), 100);
     };
-
     // UPDATED FUNCTION: Update customer code and debtor_no for all records with same bill_no
     const updateCustomerCodeAndDebtorForBill = async (newCustomerCode, newDebtorNo, originalCustomerCode) => {
         setUpdatingCustomerCode(true);
@@ -347,7 +348,18 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     : `✅ Using EXISTING Debtor!\n📋 Customer: ${code}\n📋 Debtor Number: ${debtorNo || 'N/A'}`);
                 setShowDebtorConfirm(false);
                 resetCustomerState();
-                if (onUnlockScreen) onUnlockScreen();
+
+                // ✅ IMPORTANT: Call onSelect to set the customer type to 'debtor'
+                if (onSelect) {
+                    console.log('Setting customer type to debtor via onSelect');
+                    onSelect('debtor');
+                }
+
+                // Also call onUnlockScreen as backup
+                if (onUnlockScreen) {
+                    console.log('Calling onUnlockScreen after successful debtor selection');
+                    onUnlockScreen();
+                }
             } else if (customerData.exists) {
                 const confirmNew = window.confirm(`⚠️ Customer "${code}" exists but not selected from dropdown.\nDo you want to CREATE a NEW debtor record?`);
                 if (confirmNew) {
@@ -364,7 +376,16 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     setShowDebtorConfirm(false);
                     onDebtorClick(code, billNo);
                     resetCustomerState();
-                    if (onUnlockScreen) onUnlockScreen();
+
+                    // ✅ IMPORTANT: Call onSelect to set customer type
+                    if (onSelect) {
+                        console.log('Setting customer type to debtor via onSelect (new debtor)');
+                        onSelect('debtor');
+                    }
+                    if (onUnlockScreen) {
+                        console.log('Calling onUnlockScreen after new debtor creation');
+                        onUnlockScreen();
+                    }
                 } else {
                     // First update the customer code if it's different
                     if (isDifferentCustomer) {
@@ -384,7 +405,16 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                     alert(`✅ Using EXISTING debtor record for "${code}".`);
                     setShowDebtorConfirm(false);
                     resetCustomerState();
-                    if (onUnlockScreen) onUnlockScreen();
+
+                    // ✅ IMPORTANT: Call onSelect to set customer type
+                    if (onSelect) {
+                        console.log('Setting customer type to debtor via onSelect (existing)');
+                        onSelect('debtor');
+                    }
+                    if (onUnlockScreen) {
+                        console.log('Calling onUnlockScreen after using existing debtor');
+                        onUnlockScreen();
+                    }
                 }
             } else {
                 // First update the customer code if it's different
@@ -399,6 +429,16 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
                 setShowDebtorConfirm(false);
                 onDebtorClick(code, billNo);
                 resetCustomerState();
+
+                // ✅ IMPORTANT: Call onSelect to set customer type
+                if (onSelect) {
+                    console.log('Setting customer type to debtor via onSelect (new registration)');
+                    onSelect('debtor');
+                }
+                if (onUnlockScreen) {
+                    console.log('Calling onUnlockScreen for new customer registration');
+                    onUnlockScreen();
+                }
             }
         } catch (error) {
             console.error('Error:', error);
@@ -408,7 +448,6 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         }
         finally { setLoading(false); }
     };
-
     const resetCustomerState = () => {
         setCustomerCode('');
         setMatchingCustomers([]);
@@ -429,28 +468,7 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
             <div style={{ marginBottom: '20px', padding: '12px 16px', background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)', borderRadius: '12px', border: '2px solid #bae6fd' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '700', fontSize: '12px', color: '#0369a1' }}>👤 Customer Type</label>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                        onClick={() => onSelect('walking')}
-                        disabled={disabled || (!!billHasDebtor && !viewOldBills) || updatingCustomerCode}
-                        style={{
-                            flex: 1, padding: '10px',
-                            background: selectedType === 'walking' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white',
-                            color: selectedType === 'walking' ? 'white' : '#475569',
-                            border: selectedType === 'walking' ? 'none' : '2px solid #e2e8f0',
-                            borderRadius: '10px',
-                            cursor: (disabled || (!!billHasDebtor && !viewOldBills) || updatingCustomerCode) ? 'not-allowed' : 'pointer',
-                            fontWeight: '600',
-                            fontSize: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px',
-                            transition: 'all 0.2s',
-                            opacity: (disabled || (!!billHasDebtor && !viewOldBills) || updatingCustomerCode) ? 0.6 : 1
-                        }}
-                    >
-                        🚶 Walking Customer
-                    </button>
+                    <button onClick={() => { onSelect('walking'); if (billNo) { localStorage.setItem(`customer_type_${billNo}`, 'walking'); } if (onUnlockScreen) onUnlockScreen(); }} disabled={disabled || (!!billHasDebtor && !viewOldBills) || updatingCustomerCode} style={{ flex: 1, padding: '10px', background: selectedType === 'walking' ? 'linear-gradient(135deg, #10b981, #059669)' : 'white', color: selectedType === 'walking' ? 'white' : '#475569', border: selectedType === 'walking' ? 'none' : '2px solid #e2e8f0', borderRadius: '10px', cursor: (disabled || (!!billHasDebtor && !viewOldBills) || updatingCustomerCode) ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.2s', opacity: (disabled || (!!billHasDebtor && !viewOldBills) || updatingCustomerCode) ? 0.6 : 1 }}>🚶 Walking Customer</button>
                     <button
                         onClick={() => setShowDebtorConfirm(true)}
                         disabled={disabled || (!!billHasDebtor && !viewOldBills) || updatingCustomerCode}
@@ -1660,59 +1678,59 @@ export default function PrintedBills() {
 
 
 
- // Replace your existing useEffect with this one
-useEffect(() => {
-    isMountedRef.current = true;
+    // Replace your existing useEffect with this one
+    useEffect(() => {
+        isMountedRef.current = true;
 
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) setUser(JSON.parse(storedUser));
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) setUser(JSON.parse(storedUser));
 
-    // Initial load with loading indicator
-    const initialLoad = async () => {
-        setState(prev => ({ ...prev, isLoading: true }));
-        await fetchSalesData();
-        setState(prev => ({ ...prev, isLoading: false }));
+        // Initial load with loading indicator
+        const initialLoad = async () => {
+            setState(prev => ({ ...prev, isLoading: true }));
+            await fetchSalesData();
+            setState(prev => ({ ...prev, isLoading: false }));
+        };
+        initialLoad();
+
+        // Set up interval for silent refresh every 3 seconds
+        const intervalId = setInterval(() => {
+            // Only refresh if:
+            // 1. Not already refreshing
+            // 2. Component is mounted
+            // 3. No modal is open
+            if (!isRefreshing && isMountedRef.current && !modalOpenRef.current) {
+                silentRefresh();
+            }
+        }, 3000); // 3 seconds
+
+        // Cleanup on unmount
+        return () => {
+            isMountedRef.current = false;
+            if (refreshTimeoutRef.current) {
+                clearTimeout(refreshTimeoutRef.current);
+            }
+            clearInterval(intervalId);
+        };
+    }, []); // Empty dependency array - runs once on mount
+    const getTotalReceived = (bill) => {
+        if (!bill) return 0;
+
+        let total = 0;
+        const history = bill.paymentHistory || bill.payment_history;
+        if (history) {
+            let payments = typeof history === 'string' ? JSON.parse(history) : history;
+            if (Array.isArray(payments)) {
+                payments.forEach(p => {
+                    // Exclude Credit payments from total received (they're debt, not actual received cash)
+                    if (p.method !== 'Credit') {
+                        total += parseFloat(p.amount) || 0;
+                    }
+                });
+            }
+        }
+        return total;
     };
-    initialLoad();
-
-    // Set up interval for silent refresh every 3 seconds
-    const intervalId = setInterval(() => {
-        // Only refresh if:
-        // 1. Not already refreshing
-        // 2. Component is mounted
-        // 3. No modal is open
-        if (!isRefreshing && isMountedRef.current && !modalOpenRef.current) {
-            silentRefresh();
-        }
-    }, 3000); // 3 seconds
-
-    // Cleanup on unmount
-    return () => {
-        isMountedRef.current = false;
-        if (refreshTimeoutRef.current) {
-            clearTimeout(refreshTimeoutRef.current);
-        }
-        clearInterval(intervalId);
-    };
-}, []); // Empty dependency array - runs once on mount
-   const getTotalReceived = (bill) => {
-    if (!bill) return 0;
-
-    let total = 0;
-    const history = bill.paymentHistory || bill.payment_history;
-    if (history) {
-        let payments = typeof history === 'string' ? JSON.parse(history) : history;
-        if (Array.isArray(payments)) {
-            payments.forEach(p => {
-                // Exclude Credit payments from total received (they're debt, not actual received cash)
-                if (p.method !== 'Credit') {
-                    total += parseFloat(p.amount) || 0;
-                }
-            });
-        }
-    }
-    return total;
-};
     const getRemainingBillAmount = (bill) => {
         if (!bill) return 0;
 
@@ -2178,56 +2196,27 @@ useEffect(() => {
             return;
         }
 
-        // Reset customer type FIRST when clicking a new bill
+        // IMPORTANT: Clear debtor data IMMEDIATELY when selecting a new bill
+        setSelectedBillDebtor(null);
+
+        // Reset customer type and selected bill details cleanly
         setState(prev => ({
             ...prev,
             selectedBill: bill,
             givenAmountInput: "",
             isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
-            customerType: null
+            customerType: null // FIX: Keep it clean until user interactively selects a type
         }));
 
+        // Then fetch debtor data asynchronously
         try {
             const response = await api.get(`/debtors/${bill.billNo}`);
             if (response.data.success && response.data.data) {
                 const debtorData = response.data.data;
                 setSelectedBillDebtor(debtorData);
-
-                // IMPORTANT: Update the selected bill's remainingCredit with the debtor's remaining amount
-                setState(prev => ({
-                    ...prev,
-                    selectedBill: {
-                        ...prev.selectedBill,
-                        remainingCredit: debtorData.remaining_amount || 0,
-                        creditAmount: debtorData.credit_amount || prev.selectedBill?.creditAmount || 0
-                    }
-                }));
-
-                // Only auto-set to debtor if bill has a debtor record AND we're not viewing old bills
-                if (debtorData.Debtor_no && !viewOldBills) {
-                    setState(prev => ({ ...prev, customerType: 'debtor' }));
-                }
-            } else {
-                setSelectedBillDebtor(null);
-                // No debtor record, set remainingCredit to 0
-                setState(prev => ({
-                    ...prev,
-                    selectedBill: {
-                        ...prev.selectedBill,
-                        remainingCredit: 0
-                    }
-                }));
             }
         } catch (e) {
             console.log('Error fetching debtor:', e);
-            setSelectedBillDebtor(null);
-            setState(prev => ({
-                ...prev,
-                selectedBill: {
-                    ...prev.selectedBill,
-                    remainingCredit: 0
-                }
-            }));
         }
     };
     // Add this useEffect after your state declarations (around line where other useEffects are)
@@ -2280,7 +2269,7 @@ useEffect(() => {
         } catch (error) { console.error('Error deleting payments:', error); alert('Failed to reverse payments.'); }
         finally { setState(prev => ({ ...prev, isPrinting: false, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null })); }
     };
-    const checkAndHandleDebtor = async (bill) => {
+ const checkAndHandleDebtor = async (bill) => {
         console.log('Checking debtor for:', bill.customerCode, 'Customer type:', state.customerType);
 
         // If clicking the same bill that's already selected, clear everything
@@ -2296,6 +2285,9 @@ useEffect(() => {
             return;
         }
 
+        // Clear debtor data immediately
+        setSelectedBillDebtor(null);
+
         // Reset customer type and selectedBill first
         setState(prev => ({
             ...prev,
@@ -2303,18 +2295,15 @@ useEffect(() => {
             customerType: null
         }));
 
-        // Clear debtor data
-        setSelectedBillDebtor(null);
-
-        // Small delay to ensure state is cleared before setting new bill
+        // Small delay to ensure state is completely cleared before configuring the new bill selection
         setTimeout(async () => {
-            // Set the new bill with customerType null
+            // FIX: Remove the localStorage fallback here to prevent stale 'walking' data auto-populating
             setState(prev => ({
                 ...prev,
                 selectedBill: bill,
                 givenAmountInput: "",
                 isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
-                customerType: null
+                customerType: null // <-- Always start clean, let the user click manually
             }));
 
             // Check for debtor record
@@ -2859,136 +2848,136 @@ useEffect(() => {
         return currentAppliedBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
     }, [currentAppliedBills, state.appliedSearchQuery]);
 
-   // Silent refresh function - updates data without showing loading skeleton
-const silentRefresh = useCallback(async () => {
-    if (!isMountedRef.current) return;
+    // Silent refresh function - updates data without showing loading skeleton
+    const silentRefresh = useCallback(async () => {
+        if (!isMountedRef.current) return;
 
-    // Don't refresh if a modal is open
-    if (modalOpenRef.current) {
-        console.log('Modal is open, skipping silent refresh');
-        return;
-    }
+        // Don't refresh if a modal is open
+        if (modalOpenRef.current) {
+            console.log('Modal is open, skipping silent refresh');
+            return;
+        }
 
-    setIsRefreshing(true);
-    try {
-        // Check if we're viewing old bills
-        const isViewingOldBills = viewOldBillsRef.current;
-        const hasDateRange = startDateRef.current && endDateRef.current;
+        setIsRefreshing(true);
+        try {
+            // Check if we're viewing old bills
+            const isViewingOldBills = viewOldBillsRef.current;
+            const hasDateRange = startDateRef.current && endDateRef.current;
 
-        if (isViewingOldBills && hasDateRange) {
-            // REFRESH ARCHIVED/OLD BILLS DATA
-            console.log('🔄 Silent refreshing archived sales data...', {
-                startDate: startDateRef.current,
-                endDate: endDateRef.current
-            });
-
-            const response = await api.get(routes.getArchivedSales, {
-                params: {
-                    start_date: startDateRef.current,
-                    end_date: endDateRef.current
-                }
-            });
-
-            if (!isMountedRef.current) return;
-
-            if (response.data.success) {
-                const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-
-                // For archived pending bills: false (show full credit)
-                // For archived applied bills (completed): true (show actual remaining credit)
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
-
-                // Update archived data
-                setArchivedData({
-                    pendingBills: updatedPending,
-                    appliedBills: updatedApplied,
-                    isLoading: false
+            if (isViewingOldBills && hasDateRange) {
+                // REFRESH ARCHIVED/OLD BILLS DATA
+                console.log('🔄 Silent refreshing archived sales data...', {
+                    startDate: startDateRef.current,
+                    endDate: endDateRef.current
                 });
 
-                console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-            }
-        } else {
-            // REFRESH CURRENT SALES DATA
-            console.log('🔄 Silent refreshing current sales data...');
+                const response = await api.get(routes.getArchivedSales, {
+                    params: {
+                        start_date: startDateRef.current,
+                        end_date: endDateRef.current
+                    }
+                });
 
-            // Fetch fresh sales data
-            const [salesRes, customersRes] = await Promise.all([
-                api.get(routes.getAllSales),
-                api.get(routes.customers)
-            ]);
+                if (!isMountedRef.current) return;
 
-            if (!isMountedRef.current) return;
+                if (response.data.success) {
+                    const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
 
-            const salesData = salesRes.data.sales || salesRes.data || [];
-            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
-            const { pendingBills, appliedBills } = processBillData(salesData);
+                    // For archived pending bills: false (show full credit)
+                    // For archived applied bills (completed): true (show actual remaining credit)
+                    const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
+                    const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
 
-            // For pending bills: false (always show full credit amount, not reduced)
-            // For applied bills (completed): true (show actual remaining credit from debtor table)
-            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
-            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
+                    // Update archived data
+                    setArchivedData({
+                        pendingBills: updatedPending,
+                        appliedBills: updatedApplied,
+                        isLoading: false
+                    });
 
-            // Update state without changing isLoading (so no loading skeleton)
-            setState(prev => ({
-                ...prev,
-                pendingBills: updatedPending,
-                appliedBills: updatedApplied,
-                customers: customersData,
-            }));
-
-            // If there's a selected bill, update its data silently
-            if (state.selectedBill && isMountedRef.current) {
-                const isApplied = state.selectedBill.givenAmountApplied === 'Y';
-                const updatedBillsList = isApplied ? updatedApplied : updatedPending;
-                const updatedBill = updatedBillsList.find(b => b.billNo === state.selectedBill.billNo);
-
-                if (updatedBill && updatedBill !== state.selectedBill) {
-                    setState(prev => ({
-                        ...prev,
-                        selectedBill: {
-                            ...prev.selectedBill,
-                            remainingCredit: updatedBill.remainingCredit,
-                            creditAmount: updatedBill.creditAmount,
-                            givenAmount: updatedBill.givenAmount,
-                            cashPayments: updatedBill.cashPayments,
-                            totalAmount: updatedBill.totalAmount
-                        }
-                    }));
+                    console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
                 }
+            } else {
+                // REFRESH CURRENT SALES DATA
+                console.log('🔄 Silent refreshing current sales data...');
 
-                // Also refresh debtor data for selected bill
-                try {
-                    const debtorResponse = await api.get(`/debtors/${state.selectedBill.billNo}`);
-                    if (debtorResponse.data.success && debtorResponse.data.data) {
-                        const debtorData = debtorResponse.data.data;
-                        setSelectedBillDebtor(debtorData);
+                // Fetch fresh sales data
+                const [salesRes, customersRes] = await Promise.all([
+                    api.get(routes.getAllSales),
+                    api.get(routes.customers)
+                ]);
 
+                if (!isMountedRef.current) return;
+
+                const salesData = salesRes.data.sales || salesRes.data || [];
+                const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+                const { pendingBills, appliedBills } = processBillData(salesData);
+
+                // For pending bills: false (always show full credit amount, not reduced)
+                // For applied bills (completed): true (show actual remaining credit from debtor table)
+                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
+                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
+
+                // Update state without changing isLoading (so no loading skeleton)
+                setState(prev => ({
+                    ...prev,
+                    pendingBills: updatedPending,
+                    appliedBills: updatedApplied,
+                    customers: customersData,
+                }));
+
+                // If there's a selected bill, update its data silently
+                if (state.selectedBill && isMountedRef.current) {
+                    const isApplied = state.selectedBill.givenAmountApplied === 'Y';
+                    const updatedBillsList = isApplied ? updatedApplied : updatedPending;
+                    const updatedBill = updatedBillsList.find(b => b.billNo === state.selectedBill.billNo);
+
+                    if (updatedBill && updatedBill !== state.selectedBill) {
                         setState(prev => ({
                             ...prev,
                             selectedBill: {
                                 ...prev.selectedBill,
-                                remainingCredit: debtorData.remaining_amount || 0,
-                                creditAmount: debtorData.credit_amount || prev.selectedBill?.creditAmount || 0
+                                remainingCredit: updatedBill.remainingCredit,
+                                creditAmount: updatedBill.creditAmount,
+                                givenAmount: updatedBill.givenAmount,
+                                cashPayments: updatedBill.cashPayments,
+                                totalAmount: updatedBill.totalAmount
                             }
                         }));
                     }
-                } catch (debtorError) {
-                    console.log('Error refreshing debtor data:', debtorError);
+
+                    // Also refresh debtor data for selected bill
+                    try {
+                        const debtorResponse = await api.get(`/debtors/${state.selectedBill.billNo}`);
+                        if (debtorResponse.data.success && debtorResponse.data.data) {
+                            const debtorData = debtorResponse.data.data;
+                            setSelectedBillDebtor(debtorData);
+
+                            setState(prev => ({
+                                ...prev,
+                                selectedBill: {
+                                    ...prev.selectedBill,
+                                    remainingCredit: debtorData.remaining_amount || 0,
+                                    creditAmount: debtorData.credit_amount || prev.selectedBill?.creditAmount || 0
+                                }
+                            }));
+                        }
+                    } catch (debtorError) {
+                        console.log('Error refreshing debtor data:', debtorError);
+                    }
                 }
+
+                console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
             }
 
-            console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
+        } catch (error) {
+            console.error("Silent refresh error:", error);
+        } finally {
+            if (isMountedRef.current) {
+                setIsRefreshing(false);
+            }
         }
-
-    } catch (error) {
-        console.error("Silent refresh error:", error);
-    } finally {
-        if (isMountedRef.current) {
-            setIsRefreshing(false);
-        }
-    }
-}, [state.selectedBill, updateCreditAmountsFromDebtorTable]);
+    }, [state.selectedBill, updateCreditAmountsFromDebtorTable]);
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
@@ -3661,11 +3650,7 @@ const silentRefresh = useCallback(async () => {
                             <CustomerTypeSelector
                                 selectedType={state.customerType}
                                 onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))}
-                                onUnlockScreen={() => {
-
-
-                                    setState(prev => ({ ...prev, customerType: 'debtor' }));
-                                }}
+                                onUnlockScreen={null} // Removed the forced 'debtor' state override here
                                 disabled={state.isPrinting}
                                 onDebtorClick={(code, billNo) => setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: { customerCode: code, billNo } }))}
                                 billCustomerCode={state.selectedBill?.customerCode}
@@ -3677,17 +3662,7 @@ const silentRefresh = useCallback(async () => {
                         </div>
 
                         {/* Scrollable Content */}
-
-                        <div style={{
-                            flex: 1,
-                            overflowY: 'auto',
-                            padding: '24px',
-                            background: '#f8fafc',
-                            position: 'relative',
-                            opacity: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 0.5 : 1,  // ← MODIFY THIS LINE
-                            pointerEvents: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 'none' : 'auto'  // ← MODIFY THIS LINE
-                        }}>
-
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc', position: 'relative', opacity: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 0.5 : 1, pointerEvents: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 'none' : 'auto' }}>
                             {state.selectedBill ? (
                                 <>
                                     {/* Bill Info Card */}
@@ -3822,7 +3797,7 @@ const silentRefresh = useCallback(async () => {
                                             <button onClick={async () => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else await processPayment(amt); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💵 Cash</button>
                                             <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingChequeAmount: amt, showChequeModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💳 Cheque</button>
                                             <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingBankToBankAmount: amt, showBankToBankModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#ec489a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>🏦 Transfer</button>
-                                            <button onClick={handleCreditPayment} disabled={state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0} style={{ flex: 1, padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 ? 0.5 : 1 }}>💳 Credit</button>
+                                            <button onClick={handleCreditPayment} disabled={state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 || state.customerType === 'walking'} style={{ flex: 1, padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: (state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 || state.customerType === 'walking') ? 'not-allowed' : 'pointer', opacity: (state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 || state.customerType === 'walking') ? 0.5 : 1 }}>💳 Credit</button>
                                         </div>
 
                                         {/* Adjustment Type Selection Buttons */}
