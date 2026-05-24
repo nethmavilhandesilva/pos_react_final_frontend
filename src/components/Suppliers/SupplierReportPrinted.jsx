@@ -1315,8 +1315,7 @@ export default function SupplierReport() {
                 let pending = response.data.unprinted || [];
                 let completed = response.data.printed || [];
 
-                // Process all bills - calculate correct paid amount and credit amount
-                const processBill = (item) => {
+                const processBill = async (item) => {
                     let paymentDetails = item.payment_details;
                     if (typeof paymentDetails === 'string') {
                         try {
@@ -1327,48 +1326,66 @@ export default function SupplierReport() {
                     }
 
                     let totalPaidExcludingCredit = 0;
-                    let totalCreditAmount = 0;
 
+                    // Calculate actual payments from payment_details
                     if (Array.isArray(paymentDetails)) {
                         paymentDetails.forEach(payment => {
                             const amount = parseFloat(payment.amount) || 0;
-                            if (payment.method === 'Credit') {
-                                totalCreditAmount += amount;
-                            } else {
+                            if (payment.method !== 'Credit') {
                                 totalPaidExcludingCredit += amount;
                             }
                         });
                     }
 
+                    // Fetch credit amount from creditors table for this bill
+                    let totalCreditAmount = 0;
+                    try {
+                        const creditorResponse = await api.get(`/creditors/${item.supplier_bill_no}?supplier_code=${item.supplier_code}`);
+                        if (creditorResponse.data.success && creditorResponse.data.data) {
+                            totalCreditAmount = parseFloat(creditorResponse.data.data.credit_amount) || 0;
+                        }
+                    } catch (creditorError) {
+                        // No credit record found, that's fine
+                        console.log(`No credit record for bill ${item.supplier_bill_no}`);
+                    }
+
                     const totalAmount = parseFloat(item.total_amount) || 0;
-                    // Calculate remaining after actual payments (excluding credit)
+
+                    // ✅ FIX: A bill is FULLY SETTLED when:
+                    // 1. Actual payments (excluding credit) >= total amount, OR
+                    // 2. Credit amount >= total amount (even if no actual payments made)
+                    const isFullySettled = totalPaidExcludingCredit >= totalAmount || totalCreditAmount >= totalAmount;
+
+                    // Calculate remaining after actual payments
                     const remainingAfterPayments = Math.max(0, totalAmount - totalPaidExcludingCredit);
-                    // Net payable = total amount - actual payments + credit amount (credit is owed TO supplier)
+
+                    // Net remaining includes credit (what's owed TO supplier)
                     const netRemaining = remainingAfterPayments + totalCreditAmount;
 
-                    // A bill is FULLY SETTLED when netRemaining <= 0 (no money owed by or to supplier)
-                    const isFullySettled = netRemaining <= 0;
+                    console.log(`Processing bill ${item.supplier_code} - Bill No: ${item.supplier_bill_no}`, {
+                        totalAmount,
+                        totalPaidExcludingCredit,
+                        totalCreditAmount,
+                        isFullySettled,
+                        netRemaining
+                    });
 
                     return {
                         ...item,
                         loan_amount: totalPaidExcludingCredit, // Actual money received
                         credit_amount: totalCreditAmount, // Money owed TO supplier
-                        net_remaining: netRemaining, // Net amount to be settled
+                        net_remaining: netRemaining, // Net amount to be settled (including credit)
                         payment_details: paymentDetails,
                         is_fully_settled: isFullySettled
                     };
                 };
 
-                // Process all bills
-                const processedPending = pending.map(processBill);
-                const processedCompleted = completed.map(processBill);
+                // Process all bills - using Promise.all for async operations
+                const processedPending = await Promise.all(pending.map(processBill));
+                const processedCompleted = await Promise.all(completed.map(processBill));
 
-                // Separate into Not Settled and Fully Settled based on net_remaining
-                // IMPORTANT: A bill is FULLY SETTLED if net_remaining <= 0, regardless of credit amount
+                // Separate into Not Settled and Fully Settled
                 const notSettled = processedPending.filter(item => !item.is_fully_settled);
-                // Fully settled includes:
-                // 1. All completed bills (printed) that are fully settled
-                // 2. Any pending bills that have become fully settled (net_remaining <= 0)
                 const fullySettled = [
                     ...processedCompleted.filter(item => item.is_fully_settled),
                     ...processedPending.filter(item => item.is_fully_settled)
@@ -1379,7 +1396,14 @@ export default function SupplierReport() {
                     originalCompleted: completed.length,
                     notSettledCount: notSettled.length,
                     fullySettledCount: fullySettled.length,
-                    fullySettledFromPending: processedPending.filter(item => item.is_fully_settled).length
+                    fullySettledFromPending: processedPending.filter(item => item.is_fully_settled).length,
+                    movedToFullySettled: processedPending.filter(item => item.is_fully_settled).map(item => ({
+                        code: item.supplier_code,
+                        billNo: item.supplier_bill_no,
+                        totalAmount: item.total_amount,
+                        paidExcludingCredit: item.loan_amount,
+                        creditAmount: item.credit_amount
+                    }))
                 });
 
                 setState(prev => ({
@@ -1494,60 +1518,60 @@ export default function SupplierReport() {
         }
     };
 
-   const fetchPaymentHistory = async (supplierCode, billNo) => {
-    try {
-        let url = routes.paymentHistory;
-        const params = new URLSearchParams();
-        params.append('code', supplierCode);
-        params.append('bill_no', billNo || '');
-        if (isViewingHistory && historyDateRange.startDate && historyDateRange.endDate) {
-            params.append('use_history', 'true');
-            params.append('start_date', historyDateRange.startDate);
-            params.append('end_date', historyDateRange.endDate);
-        }
-        const response = await api.get(`${url}?${params.toString()}`);
-        if (response.data.success) {
-            const payments = response.data.data.payments || [];
-            const uniquePayments = [];
-            const seenIds = new Set();
-            for (const payment of payments) {
-                const uniqueKey = `${payment.amount}-${payment.method}-${new Date(payment.date).getTime()}`;
-                if (!seenIds.has(uniqueKey)) { 
-                    seenIds.add(uniqueKey); 
-                    uniquePayments.push(payment); 
-                }
+    const fetchPaymentHistory = async (supplierCode, billNo) => {
+        try {
+            let url = routes.paymentHistory;
+            const params = new URLSearchParams();
+            params.append('code', supplierCode);
+            params.append('bill_no', billNo || '');
+            if (isViewingHistory && historyDateRange.startDate && historyDateRange.endDate) {
+                params.append('use_history', 'true');
+                params.append('start_date', historyDateRange.startDate);
+                params.append('end_date', historyDateRange.endDate);
             }
-            
-            // ✅ FIX: Calculate total paid from the actual payments array
-            // Exclude 'Credit' method payments if needed (since credit is payable TO supplier)
-            const calculatedTotalPaid = uniquePayments.reduce((total, payment) => {
-                // Only add non-credit payments to total paid
-                if (payment.method !== 'Credit') {
-                    return total + (parseFloat(payment.amount) || 0);
+            const response = await api.get(`${url}?${params.toString()}`);
+            if (response.data.success) {
+                const payments = response.data.data.payments || [];
+                const uniquePayments = [];
+                const seenIds = new Set();
+                for (const payment of payments) {
+                    const uniqueKey = `${payment.amount}-${payment.method}-${new Date(payment.date).getTime()}`;
+                    if (!seenIds.has(uniqueKey)) {
+                        seenIds.add(uniqueKey);
+                        uniquePayments.push(payment);
+                    }
                 }
-                return total;
-            }, 0);
-            
-            // Also get remaining balance from the response or calculate it
-            const totalBillAmount = response.data.data.total_bill_amount || 
-                                   (response.data.data.total_paid + response.data.data.remaining_balance);
-            const remainingBalance = response.data.data.remaining_balance || 
-                                    (totalBillAmount - calculatedTotalPaid);
-            
-            setState(prev => ({
-                ...prev,
-                currentPayments: uniquePayments,
-                paymentHistoryTotalPaid: calculatedTotalPaid, // Use calculated value
-                paymentHistoryTotalBill: totalBillAmount,
-                paymentHistoryRemaining: remainingBalance,
-                showPaymentHistoryModal: true
-            }));
+
+                // ✅ FIX: Calculate total paid from the actual payments array
+                // Exclude 'Credit' method payments if needed (since credit is payable TO supplier)
+                const calculatedTotalPaid = uniquePayments.reduce((total, payment) => {
+                    // Only add non-credit payments to total paid
+                    if (payment.method !== 'Credit') {
+                        return total + (parseFloat(payment.amount) || 0);
+                    }
+                    return total;
+                }, 0);
+
+                // Also get remaining balance from the response or calculate it
+                const totalBillAmount = response.data.data.total_bill_amount ||
+                    (response.data.data.total_paid + response.data.data.remaining_balance);
+                const remainingBalance = response.data.data.remaining_balance ||
+                    (totalBillAmount - calculatedTotalPaid);
+
+                setState(prev => ({
+                    ...prev,
+                    currentPayments: uniquePayments,
+                    paymentHistoryTotalPaid: calculatedTotalPaid, // Use calculated value
+                    paymentHistoryTotalBill: totalBillAmount,
+                    paymentHistoryRemaining: remainingBalance,
+                    showPaymentHistoryModal: true
+                }));
+            }
+        } catch (error) {
+            console.error('Failed to fetch payment history:', error);
+            alert('Failed to fetch payment history');
         }
-    } catch (error) {
-        console.error('Failed to fetch payment history:', error);
-        alert('Failed to fetch payment history');
-    }
-};
+    };
 
     const fetchDetailedReport = async (supplierCode) => {
         setIsLoadingReport(true);
@@ -2616,19 +2640,53 @@ export default function SupplierReport() {
                                                 <div style={styles.billRight}>
                                                     <div style={styles.billTotal}>Rs. {formatDecimal(remaining)}</div>
                                                     {item.loan_amount > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(item.loan_amount)}</div>}
+
+                                                    {/* Show credit amount prominently if it exists */}
                                                     {item.credit_amount > 0 && (
-                                                        <div style={{ fontSize: '10px', color: '#dc2626', marginTop: '2px' }}>
-                                                            ⚠️ Debtor Balance: Rs. {formatDecimal(item.credit_amount)}
+                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
                                                         </div>
                                                     )}
+
+                                                    {/* If credit has covered the full bill amount */}
+                                                    {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount === 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
+                                                            ✅ Bill Covered by Credit
+                                                        </div>
+                                                    )}
+
+                                                    {/* If credit has covered the full bill and there's also actual payments */}
+                                                    {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount > 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
+                                                            ✅ Bill Fully Covered
+                                                        </div>
+                                                    )}
+
+                                                    {/* Only show remaining if there's actual amount left to pay (excluding credit) */}
                                                     {item.net_remaining > 0 && item.credit_amount === 0 && (
                                                         <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
                                                             Remaining: Rs. {formatDecimal(item.net_remaining)}
                                                         </div>
                                                     )}
-                                                    {item.net_remaining > 0 && item.credit_amount > 0 && (
+
+                                                    {/* If there's credit but no remaining payment, show that bill is covered but credit outstanding */}
+                                                    {item.net_remaining > 0 && item.credit_amount > 0 && item.loan_amount >= (item.total_amount - 0.01) && (
+                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
+                                                        </div>
+                                                    )}
+
+                                                    {/* If there's both remaining payment and credit */}
+                                                    {item.net_remaining > 0 && item.credit_amount > 0 && item.loan_amount < (item.total_amount - 0.01) && item.credit_amount < (item.total_amount - 0.01) && (
                                                         <div style={{ fontSize: '10px', color: '#ef4444', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            Net Payable: Rs. {formatDecimal(item.net_remaining)}
+                                                            Due: Rs. {formatDecimal(item.net_remaining)} (Incl. Credit)
+                                                        </div>
+                                                    )}
+
+                                                    {/* If credit alone covers the bill but no actual payments */}
+                                                    {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount === 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
                                                         </div>
                                                     )}
                                                 </div>
@@ -3062,8 +3120,16 @@ export default function SupplierReport() {
                                             onContextMenu={(e) => handleContextMenu(e, item.supplier_code, item.supplier_bill_no)}>
                                             <div style={styles.billRow}>
                                                 <div style={styles.billLeft}>
-                                                    <div style={styles.billNo}>{item.supplier_code}</div>
-                                                    <div style={styles.billCustomer}>Bill: {item.supplier_bill_no || 'N/A'}</div>
+                                                    <div style={styles.billNo}>
+                                                        {item.supplier_code} - Bill: {item.supplier_bill_no || 'N/A'}
+                                                    </div>
+                                                    {/* Show credit amount if any */}
+                                                    {item.credit_amount > 0 && (
+                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
+                                                        </div>
+                                                    )}
+
                                                     {isHistory && <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>📜 History</div>}
                                                 </div>
                                             </div>
