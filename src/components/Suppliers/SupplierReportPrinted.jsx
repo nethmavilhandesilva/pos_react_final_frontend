@@ -2288,18 +2288,56 @@ export default function SupplierReport() {
         }
     };
     const processCreditSettlementPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null) => {
-        if (!state.selectedSupplier || !selectedBillCreditor) { alert("No credit record found to settle"); return; }
+        if (!state.selectedSupplier || !selectedBillCreditor) {
+            alert("No credit record found to settle");
+            return;
+        }
+
+        console.log('🟣 PROCESS CREDIT SETTLEMENT PAYMENT CALLED', {
+            paymentAmount,
+            selectedBillNo: state.selectedBillNo,
+            selectedSupplier: state.selectedSupplier,
+            remainingCredit: selectedBillCreditor.remaining_amount
+        });
+
         setState(prev => ({ ...prev, isPrinting: true }));
+
         try {
             let paymentMethod = 'Cash', paymentMethodForCreditor = 'cash';
-            if (isBankTransfer) { paymentMethod = 'Bank Transfer'; paymentMethodForCreditor = 'bank_transfer'; }
-            else if (isCheque) { paymentMethod = 'Cheque'; paymentMethodForCreditor = 'cheque'; }
+            if (isBankTransfer) {
+                paymentMethod = 'Bank Transfer';
+                paymentMethodForCreditor = 'bank_transfer';
+            } else if (isCheque) {
+                paymentMethod = 'Cheque';
+                paymentMethodForCreditor = 'cheque';
+            }
 
-            if (paymentAmount > selectedBillCreditor.remaining_amount) { alert(`Amount exceeds remaining credit!`); setState(prev => ({ ...prev, isPrinting: false })); return; }
+            if (paymentAmount > selectedBillCreditor.remaining_amount) {
+                alert(`Amount exceeds remaining credit! Remaining: Rs. ${formatDecimal(selectedBillCreditor.remaining_amount)}`);
+                setState(prev => ({ ...prev, isPrinting: false }));
+                return;
+            }
 
-            const updateResponse = await api.put('/creditors/update-payment', { bill_no: state.selectedBillNo, payment_amount: paymentAmount, payment_method: paymentMethodForCreditor });
+            console.log('🟢 Calling creditor update payment API', {
+                bill_no: state.selectedBillNo,
+                payment_amount: paymentAmount,
+                payment_method: paymentMethodForCreditor
+            });
+
+            // ✅ Call the creditor update payment endpoint
+            const updateResponse = await api.put('/creditors/update-payment', {
+                bill_no: state.selectedBillNo,
+                payment_amount: paymentAmount,
+                payment_method: paymentMethodForCreditor
+            });
+
+            console.log('📦 Creditor update response:', updateResponse.data);
+
             if (updateResponse.data.success) {
                 const updatedCreditor = updateResponse.data.data;
+                console.log('✅ Creditor updated successfully', updatedCreditor);
+
+                // Also record this payment in the loan record
                 const totalPayableAmt = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
                 const currentPaid = state.currentPaidAmount;
                 const newTotalPaid = currentPaid + paymentAmount;
@@ -2311,8 +2349,12 @@ export default function SupplierReport() {
                     amount: paymentAmount,
                     method: paymentMethod,
                     running_balance: newRemaining,
-                    reference: paymentMethod === 'Cash' ? 'Cash Payment' : (chequeDetails?.cheq_no || bankTransferDetails?.reference_no || ''),
-                    details: { creditor_settlement: true, previous_credit_remaining: selectedBillCreditor.remaining_amount, new_credit_remaining: updatedCreditor.remaining_amount }
+                    reference: `Credit Settlement - ${paymentMethod}`,
+                    details: {
+                        creditor_settlement: true,
+                        previous_credit_remaining: selectedBillCreditor.remaining_amount,
+                        new_credit_remaining: updatedCreditor.remaining_amount
+                    }
                 };
 
                 const allPaymentDetails = [...state.paymentBreakdown, paymentRecord];
@@ -2327,13 +2369,32 @@ export default function SupplierReport() {
                     use_history: isViewingHistory
                 };
 
-                if (isCheque && chequeDetails) { payload.bank_name = chequeDetails.bank_name; payload.cheque_no = chequeDetails.cheq_no; payload.realized_date = chequeDetails.cheq_date; payload.bank_account_id = chequeDetails.bank_account_id; }
-                else if (isBankTransfer && bankTransferDetails) { payload.bank_account_id = bankTransferDetails.bank_account_id; payload.transfer_reference_no = bankTransferDetails.reference_no; payload.transfer_date = bankTransferDetails.transfer_date; payload.transfer_notes = bankTransferDetails.notes; }
+                if (isCheque && chequeDetails) {
+                    payload.bank_name = chequeDetails.bank_name;
+                    payload.cheque_no = chequeDetails.cheq_no;
+                    payload.realized_date = chequeDetails.cheq_date;
+                    payload.bank_account_id = chequeDetails.bank_account_id;
+                } else if (isBankTransfer && bankTransferDetails) {
+                    payload.bank_account_id = bankTransferDetails.bank_account_id;
+                    payload.transfer_reference_no = bankTransferDetails.reference_no;
+                    payload.transfer_date = bankTransferDetails.transfer_date;
+                    payload.transfer_notes = bankTransferDetails.notes;
+                }
 
-                const response = await api.post('/supplier-loan', payload);
-                if (response.data.success) {
+                console.log('🟢 Creating loan record for credit settlement');
+                const loanResponse = await api.post('/supplier-loan', payload);
+
+                if (loanResponse.data.success) {
+                    // Refresh data
                     await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-                    alert(updatedCreditor.remaining_amount <= 0 ? `✅ CREDIT FULLY SETTLED!` : `✓ CREDIT PAYMENT RECORDED!`);
+                    await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
+
+                    const message = updatedCreditor.remaining_amount <= 0
+                        ? `✅ CREDIT FULLY SETTLED!\nAmount: Rs. ${formatDecimal(paymentAmount)}\nPayment Method: ${paymentMethod}`
+                        : `✓ CREDIT PAYMENT RECORDED!\nAmount: Rs. ${formatDecimal(paymentAmount)}\nRemaining Credit: Rs. ${formatDecimal(updatedCreditor.remaining_amount)}`;
+
+                    alert(message);
+
                     setState(prev => ({
                         ...prev,
                         selectedSupplier: null,
@@ -2348,11 +2409,15 @@ export default function SupplierReport() {
                         currentBillTotal: 0
                     }));
                     setSelectedBillCreditor(null);
+                } else {
+                    throw new Error('Failed to record loan payment');
                 }
+            } else {
+                throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
             }
         } catch (error) {
-            console.error('Failed to process credit payment:', error);
-            alert('Failed to process payment: ' + (error.response?.data?.message || error.message));
+            console.error('❌ Failed to process credit payment:', error);
+            alert('Failed to process credit payment: ' + (error.response?.data?.message || error.message));
             setState(prev => ({ ...prev, isPrinting: false }));
         }
     };
@@ -2676,12 +2741,7 @@ export default function SupplierReport() {
                                                         </div>
                                                     )}
 
-                                                    {/* If there's both remaining payment and credit */}
-                                                    {item.net_remaining > 0 && item.credit_amount > 0 && item.loan_amount < (item.total_amount - 0.01) && item.credit_amount < (item.total_amount - 0.01) && (
-                                                        <div style={{ fontSize: '10px', color: '#ef4444', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            Due: Rs. {formatDecimal(item.net_remaining)} (Incl. Credit)
-                                                        </div>
-                                                    )}
+                                                   
 
                                                     {/* If credit alone covers the bill but no actual payments */}
                                                     {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount === 0 && (
@@ -2980,7 +3040,8 @@ export default function SupplierReport() {
                                     {(state.selectedSupplier && (!state.isUpdatingCompletedBill || (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0))) && (
                                         <div style={styles.paymentBox}>
                                             <div style={{ fontSize: '14px', fontWeight: '700', color: '#92400e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span>💰</span> Enter Payment Amount
+                                                <span>💰</span>
+                                                {selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 ? 'Settle Credit Amount' : 'Enter Payment Amount'}
                                                 {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
                                                     <span style={{ fontSize: '11px', marginLeft: '8px', color: '#d97706', background: '#fef3c7', padding: '2px 8px', borderRadius: '20px' }}>
                                                         Settle Credit Payable: Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
@@ -3022,7 +3083,45 @@ export default function SupplierReport() {
                                                 </button>
                                                 <button onClick={handleChequePayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0} style={{ ...styles.chequePaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💳 Cheque</button>
                                                 <button onClick={handleBankToBankPayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0} style={{ ...styles.bankToBankPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>🏦 Bank Transfer</button>
-                                                <button onClick={handleCreditPayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0 || state.isUpdatingCompletedBill} style={{ flex: 1, padding: '12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0 || state.isUpdatingCompletedBill) ? 'not-allowed' : 'pointer', opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0 || state.isUpdatingCompletedBill) ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>💳 Credit</button>
+                                                <button
+                                                    onClick={() => {
+                                                        if (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+                                                            // This is a credit settlement payment
+                                                            const amount = parseFloat(state.paymentAmount);
+                                                            if (amount === 0 || isNaN(amount)) {
+                                                                alert("Please enter an amount");
+                                                                return;
+                                                            }
+                                                            if (amount > selectedBillCreditor.remaining_amount) {
+                                                                alert(`Amount exceeds remaining credit! Max: Rs. ${formatDecimal(selectedBillCreditor.remaining_amount)}`);
+                                                                return;
+                                                            }
+                                                            processCreditSettlementPayment(amount);
+                                                        } else {
+                                                            // Normal credit payment (taking credit)
+                                                            handleCreditPayment();
+                                                        }
+                                                    }}
+                                                    disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '12px',
+                                                        background: selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 ? '#10b981' : '#f59e0b',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '12px',
+                                                        fontWeight: '600',
+                                                        fontSize: '13px',
+                                                        cursor: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 'not-allowed' : 'pointer',
+                                                        opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '8px'
+                                                    }}
+                                                >
+                                                    {selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 ? '💰 Settle Credit' : '💳 Credit'}
+                                                </button>
                                             </div>
 
                                             {/* Three Adjustment Buttons - Row 2 */}
