@@ -1660,7 +1660,7 @@ export default function PrintedBills() {
 
 
 
-   // Replace your existing useEffect with this one
+ // Replace your existing useEffect with this one
 useEffect(() => {
     isMountedRef.current = true;
 
@@ -1675,13 +1675,16 @@ useEffect(() => {
     };
     initialLoad();
 
-    // Set up interval for silent refresh every 5 seconds (increased from 2 seconds)
+    // Set up interval for silent refresh every 3 seconds
     const intervalId = setInterval(() => {
-        // Only refresh if we're not already refreshing, component is mounted, and no modal is open
+        // Only refresh if:
+        // 1. Not already refreshing
+        // 2. Component is mounted
+        // 3. No modal is open
         if (!isRefreshing && isMountedRef.current && !modalOpenRef.current) {
             silentRefresh();
         }
-    }, 5000); // Changed to 5 seconds to reduce server load
+    }, 3000); // 3 seconds
 
     // Cleanup on unmount
     return () => {
@@ -1692,29 +1695,47 @@ useEffect(() => {
         clearInterval(intervalId);
     };
 }, []); // Empty dependency array - runs once on mount
+   const getTotalReceived = (bill) => {
+    if (!bill) return 0;
 
-    const getTotalReceived = (bill) => {
-        if (!bill) return 0;
-
-        let total = 0;
-        const history = bill.paymentHistory || bill.payment_history;
-        if (history) {
-            let payments = typeof history === 'string' ? JSON.parse(history) : history;
-            if (Array.isArray(payments)) {
-                payments.forEach(p => {
-                    // Exclude Credit payments from total received (they're debt, not actual received cash)
-                    if (p.method !== 'Credit') {
-                        total += parseFloat(p.amount) || 0;
-                    }
-                });
-            }
+    let total = 0;
+    const history = bill.paymentHistory || bill.payment_history;
+    if (history) {
+        let payments = typeof history === 'string' ? JSON.parse(history) : history;
+        if (Array.isArray(payments)) {
+            payments.forEach(p => {
+                // Exclude Credit payments from total received (they're debt, not actual received cash)
+                if (p.method !== 'Credit') {
+                    total += parseFloat(p.amount) || 0;
+                }
+            });
         }
-        return total;
-    };
-
+    }
+    return total;
+};
     const getRemainingBillAmount = (bill) => {
         if (!bill) return 0;
-        return Math.max(0, bill.totalAmount - getTotalReceived(bill));
+
+        // Check if this is a completed bill (in applied section)
+        const isAppliedSection = bill.givenAmountApplied === 'Y';
+
+        if (isAppliedSection) {
+            // COMPLETED SECTION: Maximum allowed is the unsettled credit amount
+            return bill.remainingCredit || 0;
+        } else {
+            // PENDING SECTION: Maximum allowed is bill total - all payments (including credit)
+            let totalAllPayments = 0;
+            const history = bill.paymentHistory || bill.payment_history;
+            if (history) {
+                let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                if (Array.isArray(payments)) {
+                    payments.forEach(p => {
+                        totalAllPayments += parseFloat(p.amount) || 0;
+                    });
+                }
+            }
+            return Math.max(0, bill.totalAmount - totalAllPayments);
+        }
     };
     // Handle Enter key navigation for adjustment fields
     const handleAdjustmentKeyPress = (e, nextFieldRef) => {
@@ -2838,20 +2859,58 @@ useEffect(() => {
         return currentAppliedBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
     }, [currentAppliedBills, state.appliedSearchQuery]);
 
-    // Silent refresh function - updates data without showing loading skeleton
-    // Silent refresh function - updates data without showing loading skeleton
-    const silentRefresh = useCallback(async () => {
-        if (!isMountedRef.current) return;
+   // Silent refresh function - updates data without showing loading skeleton
+const silentRefresh = useCallback(async () => {
+    if (!isMountedRef.current) return;
 
-        // Don't refresh if a modal is open
-        if (modalOpenRef.current) {
-            console.log('Modal is open, skipping silent refresh');
-            return;
-        }
+    // Don't refresh if a modal is open
+    if (modalOpenRef.current) {
+        console.log('Modal is open, skipping silent refresh');
+        return;
+    }
 
-        setIsRefreshing(true);
-        try {
-            console.log('🔄 Silent refreshing sales data...');
+    setIsRefreshing(true);
+    try {
+        // Check if we're viewing old bills
+        const isViewingOldBills = viewOldBillsRef.current;
+        const hasDateRange = startDateRef.current && endDateRef.current;
+
+        if (isViewingOldBills && hasDateRange) {
+            // REFRESH ARCHIVED/OLD BILLS DATA
+            console.log('🔄 Silent refreshing archived sales data...', {
+                startDate: startDateRef.current,
+                endDate: endDateRef.current
+            });
+
+            const response = await api.get(routes.getArchivedSales, {
+                params: {
+                    start_date: startDateRef.current,
+                    end_date: endDateRef.current
+                }
+            });
+
+            if (!isMountedRef.current) return;
+
+            if (response.data.success) {
+                const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
+
+                // For archived pending bills: false (show full credit)
+                // For archived applied bills (completed): true (show actual remaining credit)
+                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
+                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
+
+                // Update archived data
+                setArchivedData({
+                    pendingBills: updatedPending,
+                    appliedBills: updatedApplied,
+                    isLoading: false
+                });
+
+                console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
+            }
+        } else {
+            // REFRESH CURRENT SALES DATA
+            console.log('🔄 Silent refreshing current sales data...');
 
             // Fetch fresh sales data
             const [salesRes, customersRes] = await Promise.all([
@@ -2919,16 +2978,17 @@ useEffect(() => {
                 }
             }
 
-            console.log(`✅ Silent refresh complete: ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-
-        } catch (error) {
-            console.error("Silent refresh error:", error);
-        } finally {
-            if (isMountedRef.current) {
-                setIsRefreshing(false);
-            }
+            console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
         }
-    }, [state.selectedBill, updateCreditAmountsFromDebtorTable]);
+
+    } catch (error) {
+        console.error("Silent refresh error:", error);
+    } finally {
+        if (isMountedRef.current) {
+            setIsRefreshing(false);
+        }
+    }
+}, [state.selectedBill, updateCreditAmountsFromDebtorTable]);
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
