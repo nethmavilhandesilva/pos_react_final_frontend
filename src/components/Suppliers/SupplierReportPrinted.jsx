@@ -1769,12 +1769,30 @@ export default function SupplierReport() {
             }
 
             const salesData = response.data.sales || response.data;
-            const total = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+            // Calculate total from sales data
+            let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+            // Get the actual bill total from the supplier item in state
+            let actualBillTotal = calculatedTotal;
+
+            // Find the bill in completedSuppliers to get the correct total amount
+            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            if (billFromState && billFromState.total_amount) {
+                actualBillTotal = parseFloat(billFromState.total_amount);
+            }
+
+            const total = actualBillTotal;
+
             let currentPaid = 0;
             let paymentBreakdown = [];
 
             // Variable to track if bill has a creditor number
             let hasCreditor = false;
+            let isFullySettledByCredit = false;
 
             if (billNo) {
                 try {
@@ -1791,7 +1809,28 @@ export default function SupplierReport() {
                         if (typeof paymentBreakdown === 'string') {
                             paymentBreakdown = JSON.parse(paymentBreakdown);
                         }
-                        setState(prev => ({ ...prev, isUpdatingCompletedBill: (total - currentPaid) <= 0 }));
+
+                        // Check if credit has covered the bill
+                        const creditorInfoForCheck = await checkBillCreditorStatus(billNo, supplierCode);
+                        const creditAmount = creditorInfoForCheck ? parseFloat(creditorInfoForCheck.credit_amount) || 0 : 0;
+                        // CRITICAL: Use the correct total amount for comparison
+                        isFullySettledByCredit = creditAmount >= total;
+
+                        // Set isUpdatingCompletedBill to true if either:
+                        // 1. Actual payments cover the bill, OR
+                        // 2. Credit amount covers the bill
+                        const isActuallyFullySettled = (total - currentPaid) <= 0 || isFullySettledByCredit;
+
+                        console.log('🔍 handleSupplierClick - Setting isUpdatingCompletedBill:', {
+                            total,
+                            currentPaid,
+                            actualRemaining: total - currentPaid,
+                            creditAmount,
+                            isFullySettledByCredit,
+                            isActuallyFullySettled
+                        });
+
+                        setState(prev => ({ ...prev, isUpdatingCompletedBill: isActuallyFullySettled }));
                     } else {
                         setState(prev => ({ ...prev, isUpdatingCompletedBill: false }));
                     }
@@ -1804,8 +1843,6 @@ export default function SupplierReport() {
             if (billNo) {
                 const creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
                 setSelectedBillCreditor(creditorInfo);
-                // FIXED: Check multiple possible property names for creditor number
-                // Log the creditorInfo to see what properties are available
                 console.log('Creditor Info:', creditorInfo);
 
                 // Check for creditor number in various possible properties
@@ -1826,7 +1863,6 @@ export default function SupplierReport() {
             }
 
             // IMPORTANT: Only lock the panel if there is NO creditor number
-            // If the bill already has a creditor number, keep it unlocked
             console.log('Has Creditor:', hasCreditor);
             console.log('Setting isMiddlePanelLocked to:', !hasCreditor);
             setIsMiddlePanelLocked(!hasCreditor);
@@ -2316,11 +2352,18 @@ export default function SupplierReport() {
             return;
         }
 
+        // CRITICAL: Only allow credit settlement when the bill is in Fully Settled section
+        if (!state.isUpdatingCompletedBill) {
+            alert("⚠️ Credit can only be settled when the bill is in the 'Fully Settled' section.\n\nPlease complete the bill payment first, then the credit will become available for settlement.");
+            return;
+        }
+
         console.log('🟣 PROCESS CREDIT SETTLEMENT PAYMENT CALLED', {
             paymentAmount,
             selectedBillNo: state.selectedBillNo,
             selectedSupplier: state.selectedSupplier,
-            remainingCredit: selectedBillCreditor.remaining_amount
+            remainingCredit: selectedBillCreditor.remaining_amount,
+            isUpdatingCompletedBill: state.isUpdatingCompletedBill
         });
 
         setState(prev => ({ ...prev, isPrinting: true }));
@@ -2444,7 +2487,6 @@ export default function SupplierReport() {
             setState(prev => ({ ...prev, isPrinting: false }));
         }
     };
-
     const handleCashPayment = async () => {
         console.log('🔵 CASH PAYMENT BUTTON CLICKED at:', new Date().toISOString());
         const amount = parseFloat(state.paymentAmount);
@@ -2489,9 +2531,25 @@ export default function SupplierReport() {
         }
     };
     const handleChequePayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true })); };
-    const handleChequeConfirm = async (details) => await processPayment(state.pendingChequeAmount, true, details);
+    const handleChequeConfirm = async (details) => {
+        const amount = state.pendingChequeAmount;
+        // Check if this is credit settlement
+        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+            await processCreditSettlementPayment(amount, true, details);
+        } else {
+            await processPayment(amount, true, details);
+        }
+    };
     const handleBankToBankPayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingBankToBankAmount: amount, showBankToBankModal: true })); };
-    const handleBankToBankConfirm = async (details) => await processPayment(state.pendingBankToBankAmount, false, null, true, details);
+    const handleBankToBankConfirm = async (details) => {
+        const amount = state.pendingBankToBankAmount;
+        // Check if this is credit settlement
+        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+            await processCreditSettlementPayment(amount, false, null, true, details);
+        } else {
+            await processPayment(amount, false, null, true, details);
+        }
+    };
 
     const handleCreditPayment = async () => {
         let paymentAmount = parseFloat(state.paymentAmount);
@@ -3062,10 +3120,12 @@ export default function SupplierReport() {
                                         <div style={styles.paymentBox}>
                                             <div style={{ fontSize: '14px', fontWeight: '700', color: '#92400e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <span>💰</span>
-                                                {selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 ? 'Settle Credit Amount' : 'Enter Payment Amount'}
+                                                {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0
+                                                    ? 'Settle Credit (Payable to Supplier)'
+                                                    : 'Enter Payment Amount'}
                                                 {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
                                                     <span style={{ fontSize: '11px', marginLeft: '8px', color: '#d97706', background: '#fef3c7', padding: '2px 8px', borderRadius: '20px' }}>
-                                                        Settle Credit Payable: Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
+                                                        Remaining Credit: Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
                                                     </span>
                                                 )}
                                             </div>
@@ -3079,7 +3139,9 @@ export default function SupplierReport() {
                                                         return;
                                                     }
                                                     let num = parseFloat(val);
-                                                    const maxAmount = selectedBillCreditor?.remaining_amount > 0
+                                                    // For fully settled bills with credit, max is remaining credit amount
+                                                    // For not settled bills, max is remaining bill amount
+                                                    const maxAmount = (state.isUpdatingCompletedBill && selectedBillCreditor?.remaining_amount > 0)
                                                         ? selectedBillCreditor.remaining_amount
                                                         : Math.max(0, totalPayable - state.currentPaidAmount);
                                                     if (num > maxAmount && maxAmount > 0) {
@@ -3093,64 +3155,127 @@ export default function SupplierReport() {
                                                 style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }}
                                             />
 
+                                            {/* Payment Buttons - Cash, Cheque, Bank Transfer */}
                                             <div style={styles.paymentButtonsContainer}>
                                                 <button
                                                     data-payment-type="cash"
-                                                    onClick={handleCashPayment}
+                                                    onClick={async () => {
+                                                        const amount = parseFloat(state.paymentAmount);
+                                                        if (amount === 0 || isNaN(amount)) {
+                                                            alert("Please enter an amount");
+                                                            return;
+                                                        }
+
+                                                        // Debug log to see what's happening
+                                                        console.log('🔍 CASH BUTTON CONDITION CHECK:', {
+                                                            isUpdatingCompletedBill: state.isUpdatingCompletedBill,
+                                                            hasSelectedBillCreditor: !!selectedBillCreditor,
+                                                            remainingAmount: selectedBillCreditor?.remaining_amount,
+                                                            shouldSettleCredit: state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0
+                                                        });
+
+                                                        // If bill is fully settled and has credit, settle credit
+                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+                                                            console.log('✅ CREDIT SETTLEMENT PATH - Calling processCreditSettlementPayment');
+                                                            await processCreditSettlementPayment(amount);
+                                                        } else {
+                                                            console.log('❌ NORMAL PAYMENT PATH - Calling handleCashPayment');
+                                                            await handleCashPayment();
+                                                        }
+                                                    }}
                                                     disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0 || window.cashPaymentProcessing}
                                                     style={{ ...styles.cashPaymentBtn, opacity: (state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0 || window.cashPaymentProcessing) ? 0.5 : 1 }}
                                                 >
                                                     💵 Cash
                                                 </button>
-                                                <button onClick={handleChequePayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0} style={{ ...styles.chequePaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>💳 Cheque</button>
-                                                <button onClick={handleBankToBankPayment} disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0} style={{ ...styles.bankToBankPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}>🏦 Bank Transfer</button>
                                                 <button
-                                                    onClick={() => {
-                                                        if (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                                                            // This is a credit settlement payment
-                                                            const amount = parseFloat(state.paymentAmount);
-                                                            if (amount === 0 || isNaN(amount)) {
-                                                                alert("Please enter an amount");
-                                                                return;
-                                                            }
-                                                            if (amount > selectedBillCreditor.remaining_amount) {
-                                                                alert(`Amount exceeds remaining credit! Max: Rs. ${formatDecimal(selectedBillCreditor.remaining_amount)}`);
-                                                                return;
-                                                            }
-                                                            processCreditSettlementPayment(amount);
+                                                    onClick={async () => {
+                                                        const amount = parseFloat(state.paymentAmount);
+                                                        if (amount === 0 || isNaN(amount)) {
+                                                            alert("Please enter an amount");
+                                                            return;
+                                                        }
+                                                        // If bill is fully settled and has credit, settle credit
+                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+                                                            setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true }));
                                                         } else {
-                                                            // Normal credit payment (taking credit)
-                                                            handleCreditPayment();
+                                                            handleChequePayment();
                                                         }
                                                     }}
                                                     disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '12px',
-                                                        background: selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 ? '#10b981' : '#f59e0b',
-                                                        color: 'white',
-                                                        border: 'none',
-                                                        borderRadius: '12px',
-                                                        fontWeight: '600',
-                                                        fontSize: '13px',
-                                                        cursor: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 'not-allowed' : 'pointer',
-                                                        opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        gap: '8px'
-                                                    }}
+                                                    style={{ ...styles.chequePaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}
                                                 >
-                                                    {selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 ? '💰 Settle Credit' : '💳 Credit'}
+                                                    💳 Cheque
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        const amount = parseFloat(state.paymentAmount);
+                                                        if (amount === 0 || isNaN(amount)) {
+                                                            alert("Please enter an amount");
+                                                            return;
+                                                        }
+                                                        // If bill is fully settled and has credit, settle credit
+                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+                                                            setState(prev => ({ ...prev, pendingBankToBankAmount: amount, showBankToBankModal: true }));
+                                                        } else {
+                                                            handleBankToBankPayment();
+                                                        }
+                                                    }}
+                                                    disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0}
+                                                    style={{ ...styles.bankToBankPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}
+                                                >
+                                                    🏦 Bank Transfer
                                                 </button>
                                             </div>
 
-                                            {/* Three Adjustment Buttons - Row 2 */}
-                                            <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
-                                                <button onClick={handleBagToBoxAdjustment} disabled={state.isPrinting} style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><span>📦</span> Bag to Box</button>
-                                                <button onClick={handleBillToBillAdjustment} disabled={state.isPrinting} style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><span>📄</span> Bill to Bill</button>
-                                                <button onClick={handleBadDebtAdjustment} disabled={state.isPrinting} style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #ef4444, #dc2626)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><span>⚠️</span> Bad Debt</button>
-                                            </div>
+                                            {/* CREDIT BUTTON - Available in BOTH sections (Not Settled AND Fully Settled) */}
+                                            <button
+                                                onClick={handleCreditPayment}
+                                                disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0}
+                                                style={{
+                                                    width: '100%',
+                                                    marginTop: '12px',
+                                                    padding: '12px',
+                                                    background: '#f59e0b',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '12px',
+                                                    fontWeight: '600',
+                                                    fontSize: '13px',
+                                                    cursor: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 'not-allowed' : 'pointer',
+                                                    opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '8px'
+                                                }}
+                                            >
+                                                💳 Take Credit (Payable to Supplier)
+                                            </button>
+
+                                            {/* Credit Info Message - Only show when bill is fully settled and has credit */}
+                                            {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
+                                                <div style={{
+                                                    marginTop: '12px',
+                                                    padding: '10px',
+                                                    background: '#dbeafe',
+                                                    borderRadius: '8px',
+                                                    fontSize: '12px',
+                                                    color: '#1e40af',
+                                                    textAlign: 'center'
+                                                }}>
+                                                    💡 This bill is fully paid. Use Cash/Cheque/Bank Transfer above to settle credit payable to supplier.
+                                                </div>
+                                            )}
+
+                                            {/* Three Adjustment Buttons - Row 2 (Only show for Not Settled bills) */}
+                                            {!state.isUpdatingCompletedBill && (
+                                                <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
+                                                    <button onClick={handleBagToBoxAdjustment} disabled={state.isPrinting} style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><span>📦</span> Bag to Box</button>
+                                                    <button onClick={handleBillToBillAdjustment} disabled={state.isPrinting} style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><span>📄</span> Bill to Bill</button>
+                                                    <button onClick={handleBadDebtAdjustment} disabled={state.isPrinting} style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #ef4444, #dc2626)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><span>⚠️</span> Bad Debt</button>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -3264,7 +3389,7 @@ export default function SupplierReport() {
                                                         {item.supplier_code} - Bill: {item.supplier_bill_no || 'N/A'}
                                                     </div>
 
-                                                  
+
                                                     {/* Show if credit is fully settled */}
                                                     {isCreditFullySettled && (
                                                         <div style={{
