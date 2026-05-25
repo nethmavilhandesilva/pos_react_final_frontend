@@ -3389,6 +3389,21 @@ export default function SupplierReport() {
                                                         {item.supplier_code} - Bill: {item.supplier_bill_no || 'N/A'}
                                                     </div>
 
+                                                    {hasRemainingCredit && (
+                                                        <div style={{
+                                                            fontSize: '10px',
+                                                            color: '#dc2626',
+                                                            marginTop: '4px',
+                                                            fontWeight: 'bold',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            whiteSpace: 'nowrap'   // 👈 this forces single line
+                                                        }}>
+                                                            <span>⚠️</span>
+                                                            <span>Credit: Rs. {formatDecimal(remainingCreditAmount)}</span>
+                                                        </div>
+                                                    )}
 
                                                     {/* Show if credit is fully settled */}
                                                     {isCreditFullySettled && (
@@ -3403,21 +3418,6 @@ export default function SupplierReport() {
                                                         }}>
                                                             <span>✅</span>
                                                             <span>Credit Fully Settled</span>
-                                                        </div>
-                                                    )}
-
-                                                    {/* Show total credit amount for reference (optional) */}
-                                                    {item.credit_amount > 0 && hasRemainingCredit && (
-                                                        <div style={{
-                                                            fontSize: '9px',
-                                                            color: '#8b5cf6',
-                                                            marginTop: '2px',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '4px'
-                                                        }}>
-                                                            <span>💳</span>
-                                                            <span>Credit: Rs. {formatDecimal(item.credit_amount)}</span>
                                                         </div>
                                                     )}
                                                     {isHistory && (
