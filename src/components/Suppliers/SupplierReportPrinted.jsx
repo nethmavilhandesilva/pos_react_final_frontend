@@ -740,18 +740,20 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 }
                 await api.post('/creditors/create-with-supplier', { bill_no: billNo, supplier_code: supplierCode, credit_amount: 0, creditor_no: selectedSupplierData.Creditor_no });
                 alert(`✅ Creditor record created for Bill #${billNo}\n📋 Supplier: ${supplierCode}`);
+                // ✅ Pass the supplier data back
                 onConfirm(selectedSupplierData);
                 onClose();
             } else {
                 setShowSupplierForm(true);
             }
-        } catch (error) { alert('Error: ' + (error.response?.data?.message || error.message)); }
-        finally { setLoading(false); }
+        } catch (error) {
+            alert('Error: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+        }
     };
-
     const handleCreateSupplier = async () => {
         const submitData = new FormData();
-        // Use supplierCode from state, not from formData
         submitData.append('code', supplierCode.toUpperCase());
         submitData.append('name', formData.name);
         submitData.append('dob', formData.dob);
@@ -770,15 +772,16 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 await api.post('/creditors/create-with-supplier', { bill_no: billNo, supplier_code: supplierCode.toUpperCase(), credit_amount: 0, creditor_no: response.data.Creditor_no });
             }
             alert(`Supplier registered as Creditor successfully!\nCreditor Number: ${response.data.Creditor_no}`);
+            // ✅ Pass the created supplier data back
             onConfirm(response.data.supplier);
             onClose();
         } catch (error) {
             console.error('Error:', error);
             alert('Error creating supplier: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
         }
-        finally { setLoading(false); }
     };
-
     if (showSupplierForm) {
         return (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 20001, overflowY: 'auto' }} onClick={onClose}>
@@ -1337,12 +1340,19 @@ export default function SupplierReport() {
                         });
                     }
 
-                    // Fetch credit amount from creditors table for this bill
+                    // Fetch credit amount and remaining amount from creditors table for this bill
                     let totalCreditAmount = 0;
+                    let creditorRemainingAmount = 0;
+                    let creditorPaidAmount = 0;
+                    let creditorStatus = '';
+
                     try {
                         const creditorResponse = await api.get(`/creditors/${item.supplier_bill_no}?supplier_code=${item.supplier_code}`);
                         if (creditorResponse.data.success && creditorResponse.data.data) {
                             totalCreditAmount = parseFloat(creditorResponse.data.data.credit_amount) || 0;
+                            creditorRemainingAmount = parseFloat(creditorResponse.data.data.remaining_amount) || 0;
+                            creditorPaidAmount = parseFloat(creditorResponse.data.data.paid_amount) || 0;
+                            creditorStatus = creditorResponse.data.data.status || '';
                         }
                     } catch (creditorError) {
                         // No credit record found, that's fine
@@ -1366,6 +1376,9 @@ export default function SupplierReport() {
                         totalAmount,
                         totalPaidExcludingCredit,
                         totalCreditAmount,
+                        creditorRemainingAmount,
+                        creditorPaidAmount,
+                        creditorStatus,
                         isFullySettled,
                         netRemaining
                     });
@@ -1374,6 +1387,9 @@ export default function SupplierReport() {
                         ...item,
                         loan_amount: totalPaidExcludingCredit, // Actual money received
                         credit_amount: totalCreditAmount, // Money owed TO supplier
+                        creditor_remaining_amount: creditorRemainingAmount, // Remaining amount to pay TO supplier
+                        creditor_paid_amount: creditorPaidAmount, // Already paid TO supplier
+                        creditor_status: creditorStatus, // Status of credit (pending, partial, paid)
                         net_remaining: netRemaining, // Net amount to be settled (including credit)
                         payment_details: paymentDetails,
                         is_fully_settled: isFullySettled
@@ -1402,7 +1418,8 @@ export default function SupplierReport() {
                         billNo: item.supplier_bill_no,
                         totalAmount: item.total_amount,
                         paidExcludingCredit: item.loan_amount,
-                        creditAmount: item.credit_amount
+                        creditAmount: item.credit_amount,
+                        creditorRemainingAmount: item.creditor_remaining_amount
                     }))
                 });
 
@@ -1716,7 +1733,13 @@ export default function SupplierReport() {
     const handleCreditorConfirm = async (supplier) => {
         alert(`Supplier ${supplier.code} marked as creditor successfully!`);
         await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-        handleSupplierClick(supplier.code, null);
+
+        // ✅ IMPORTANT: After marking as creditor, unlock the panel and refresh the selected supplier
+        setIsMiddlePanelLocked(false);
+
+        // Also update the selected supplier to reflect it's now a creditor
+        // This will trigger a refresh of the supplier details
+        await handleSupplierClick(supplier.code, state.selectedBillNo);
     };
 
     const handleSupplierClick = async (supplierCode, billNo = null) => {
@@ -2741,8 +2764,6 @@ export default function SupplierReport() {
                                                         </div>
                                                     )}
 
-                                                   
-
                                                     {/* If credit alone covers the bill but no actual payments */}
                                                     {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount === 0 && (
                                                         <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
@@ -3201,19 +3222,39 @@ export default function SupplierReport() {
 
                     {/* RIGHT PANEL - Fully Settled */}
                     <div style={styles.panel}>
-                        <div style={styles.panelHeader}><h2 style={styles.panelTitle}><span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%' }}></span>Fully Settled</h2></div>
-                        <div style={{ padding: '12px 16px 0 16px' }}><input type="text" placeholder="🔍 Search settled..." value={state.searchCompletedQuery} onChange={(e) => setState(prev => ({ ...prev, searchCompletedQuery: e.target.value.toUpperCase() }))} style={styles.searchInput} /></div>
+                        <div style={styles.panelHeader}>
+                            <h2 style={styles.panelTitle}>
+                                <span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%' }}></span>
+                                Fully Settled
+                            </h2>
+                        </div>
+                        <div style={{ padding: '12px 16px 0 16px' }}>
+                            <input
+                                type="text"
+                                placeholder="🔍 Search settled..."
+                                value={state.searchCompletedQuery}
+                                onChange={(e) => setState(prev => ({ ...prev, searchCompletedQuery: e.target.value.toUpperCase() }))}
+                                style={styles.searchInput}
+                            />
+                        </div>
                         <div style={styles.panelContent}>
-                            {filterCompletedSuppliers.length === 0 ? <EmptyState message="No settled payments" /> :
+                            {filterCompletedSuppliers.length === 0 ?
+                                <EmptyState message="No settled payments" /> :
                                 filterCompletedSuppliers.map((item, index) => {
                                     const isHistory = item.is_history;
+                                    // Get remaining amount from creditor data (this is what's still payable TO the supplier)
+                                    const remainingCreditAmount = item.creditor_remaining_amount || 0;
+                                    const hasRemainingCredit = remainingCreditAmount > 0;
+                                    const isCreditFullySettled = item.credit_amount > 0 && remainingCreditAmount === 0;
+
                                     return (
                                         <div key={index}
                                             style={{
                                                 ...styles.billItem,
                                                 ...styles.billApplied,
                                                 ...(state.selectedSupplier === item.supplier_code && state.selectedBillNo === item.supplier_bill_no ? styles.billSelected : {}),
-                                                borderLeft: isHistory ? '4px solid #8b5cf6' : 'none'
+                                                borderLeft: isHistory ? '4px solid #8b5cf6' : 'none',
+                                                ...(hasRemainingCredit ? { borderRight: '3px solid #f59e0b' } : {})
                                             }}
                                             onClick={() => handleSupplierClick(item.supplier_code, item.supplier_bill_no)}
                                             onContextMenu={(e) => handleContextMenu(e, item.supplier_code, item.supplier_bill_no)}>
@@ -3222,19 +3263,49 @@ export default function SupplierReport() {
                                                     <div style={styles.billNo}>
                                                         {item.supplier_code} - Bill: {item.supplier_bill_no || 'N/A'}
                                                     </div>
-                                                    {/* Show credit amount if any */}
-                                                    {item.credit_amount > 0 && (
-                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
+
+                                                  
+                                                    {/* Show if credit is fully settled */}
+                                                    {isCreditFullySettled && (
+                                                        <div style={{
+                                                            fontSize: '10px',
+                                                            color: '#10b981',
+                                                            marginTop: '2px',
+                                                            fontWeight: 'bold',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}>
+                                                            <span>✅</span>
+                                                            <span>Credit Fully Settled</span>
                                                         </div>
                                                     )}
 
-                                                    {isHistory && <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>📜 History</div>}
+                                                    {/* Show total credit amount for reference (optional) */}
+                                                    {item.credit_amount > 0 && hasRemainingCredit && (
+                                                        <div style={{
+                                                            fontSize: '9px',
+                                                            color: '#8b5cf6',
+                                                            marginTop: '2px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}>
+                                                            <span>💳</span>
+                                                            <span>Credit: Rs. {formatDecimal(item.credit_amount)}</span>
+                                                        </div>
+                                                    )}
+                                                    {isHistory && (
+                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>
+                                                            📜 History
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
                                     );
-                                })}
+                                })
+                            }
                         </div>
                     </div>
                 </div>
@@ -3300,7 +3371,21 @@ export default function SupplierReport() {
             <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
             <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null }))} onConfirm={handleDeletePayment} supplierCode={state.deleteSupplierCode} billNo={state.deleteBillNo} />
             <DetailedReportModal isOpen={showDetailedReport} onClose={() => setShowDetailedReport(false)} data={detailedReportData} supplierCode={selectedReportSupplier} isLoading={isLoadingReport} />
-            {showCreditorModal && <CreditorModal isOpen={showCreditorModal} onClose={() => { setShowCreditorModal(false); setSelectedBillForCreditor({ supplierCode: '', billNo: null }); setState(prev => ({ ...prev, selectedMode: 'walking_seller' })); }} onConfirm={handleCreditorConfirm} supplierCode={selectedBillForCreditor.supplierCode} billNo={selectedBillForCreditor.billNo} />}
+            {showCreditorModal && (
+                <CreditorModal
+                    isOpen={showCreditorModal}
+                    onClose={() => {
+                        setShowCreditorModal(false);
+                        setSelectedBillForCreditor({ supplierCode: '', billNo: null });
+                        setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                        // ✅ Keep the panel unlocked even if cancelled, or re-lock if needed
+                        // setIsMiddlePanelLocked(true); // Uncomment if you want to lock on cancel
+                    }}
+                    onConfirm={handleCreditorConfirm}
+                    supplierCode={selectedBillForCreditor.supplierCode}
+                    billNo={selectedBillForCreditor.billNo}
+                />
+            )}
 
             {/* Adjustment Summary Modal */}
             <AdjustmentSummaryModal
