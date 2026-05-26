@@ -1742,147 +1742,150 @@ export default function SupplierReport() {
         await handleSupplierClick(supplier.code, state.selectedBillNo);
     };
 
-    const handleSupplierClick = async (supplierCode, billNo = null) => {
-        if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
-            setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
-            setSelectedBillCreditor(null);
-            setIsMiddlePanelLocked(true);
-            return;
+ const handleSupplierClick = async (supplierCode, billNo = null) => {
+    if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
+        setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
+        setSelectedBillCreditor(null);
+        setIsMiddlePanelLocked(true);
+        return;
+    }
+    setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
+    try {
+        let url, response;
+        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+
+        if (billNo) {
+            url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+            if (useHistoryParam) {
+                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+            }
+            response = await api.get(url);
+        } else {
+            url = `${routes.getUnprintedDetails}/${supplierCode}`;
+            if (useHistoryParam) {
+                url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+            }
+            response = await api.get(url);
         }
-        setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
-        try {
-            let url, response;
-            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
 
-            if (billNo) {
-                url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+        const salesData = response.data.sales || response.data;
+
+        // Calculate total from sales data
+        let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+        // Get the actual bill total from the supplier item in state
+        let actualBillTotal = calculatedTotal;
+
+        // Find the bill in completedSuppliers to get the correct total amount
+        const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+        );
+
+        if (billFromState && billFromState.total_amount) {
+            actualBillTotal = parseFloat(billFromState.total_amount);
+        }
+
+        const total = actualBillTotal;
+
+        let currentPaid = 0;
+        let paymentBreakdown = [];
+
+        // Variable to track if bill has a creditor number
+        let hasCreditor = false;
+        let creditAmount = 0;
+        let creditorRemainingAmount = 0;
+
+        if (billNo) {
+            try {
+                let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
                 if (useHistoryParam) {
-                    url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
                 }
-                response = await api.get(url);
-            } else {
-                url = `${routes.getUnprintedDetails}/${supplierCode}`;
-                if (useHistoryParam) {
-                    url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                response = await api.get(url);
-            }
-
-            const salesData = response.data.sales || response.data;
-
-            // Calculate total from sales data
-            let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-
-            // Get the actual bill total from the supplier item in state
-            let actualBillTotal = calculatedTotal;
-
-            // Find the bill in completedSuppliers to get the correct total amount
-            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            if (billFromState && billFromState.total_amount) {
-                actualBillTotal = parseFloat(billFromState.total_amount);
-            }
-
-            const total = actualBillTotal;
-
-            let currentPaid = 0;
-            let paymentBreakdown = [];
-
-            // Variable to track if bill has a creditor number
-            let hasCreditor = false;
-            let isFullySettledByCredit = false;
-
-            if (billNo) {
-                try {
-                    let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-                    if (useHistoryParam) {
-                        loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                const loanRes = await api.get(loanUrl);
+                if (loanRes.data) {
+                    // CRITICAL: Calculate paid amount from payment_details excluding Credit
+                    const paymentDetails = loanRes.data.payment_details || [];
+                    currentPaid = calculateTotalPaidExcludingCredit(paymentDetails);
+                    paymentBreakdown = paymentDetails;
+                    if (typeof paymentBreakdown === 'string') {
+                        paymentBreakdown = JSON.parse(paymentBreakdown);
                     }
-                    const loanRes = await api.get(loanUrl);
-                    if (loanRes.data) {
-                        // CRITICAL: Calculate paid amount from payment_details excluding Credit
-                        const paymentDetails = loanRes.data.payment_details || [];
-                        currentPaid = calculateTotalPaidExcludingCredit(paymentDetails);
-                        paymentBreakdown = paymentDetails;
-                        if (typeof paymentBreakdown === 'string') {
-                            paymentBreakdown = JSON.parse(paymentBreakdown);
-                        }
-
-                        // Check if credit has covered the bill
-                        const creditorInfoForCheck = await checkBillCreditorStatus(billNo, supplierCode);
-                        const creditAmount = creditorInfoForCheck ? parseFloat(creditorInfoForCheck.credit_amount) || 0 : 0;
-                        // CRITICAL: Use the correct total amount for comparison
-                        isFullySettledByCredit = creditAmount >= total;
-
-                        // Set isUpdatingCompletedBill to true if either:
-                        // 1. Actual payments cover the bill, OR
-                        // 2. Credit amount covers the bill
-                        const isActuallyFullySettled = (total - currentPaid) <= 0 || isFullySettledByCredit;
-
-                        console.log('🔍 handleSupplierClick - Setting isUpdatingCompletedBill:', {
-                            total,
-                            currentPaid,
-                            actualRemaining: total - currentPaid,
-                            creditAmount,
-                            isFullySettledByCredit,
-                            isActuallyFullySettled
-                        });
-
-                        setState(prev => ({ ...prev, isUpdatingCompletedBill: isActuallyFullySettled }));
-                    } else {
-                        setState(prev => ({ ...prev, isUpdatingCompletedBill: false }));
-                    }
-                } catch (loanError) {
-                    console.error('Error fetching loan details:', loanError);
-                    setState(prev => ({ ...prev, isUpdatingCompletedBill: false }));
                 }
+            } catch (loanError) {
+                console.error('Error fetching loan details:', loanError);
             }
+        }
 
-            if (billNo) {
-                const creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-                setSelectedBillCreditor(creditorInfo);
-                console.log('Creditor Info:', creditorInfo);
+        // Get creditor info
+        let creditorInfo = null;
+        if (billNo) {
+            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+            setSelectedBillCreditor(creditorInfo);
+            console.log('Creditor Info:', creditorInfo);
 
-                // Check for creditor number in various possible properties
-                hasCreditor = creditorInfo && (
-                    creditorInfo.creditor_no ||
-                    creditorInfo.creditorNo ||
-                    creditorInfo.Creditor_no ||
-                    creditorInfo.creditor_number ||
-                    creditorInfo.CreditorNo
-                );
-
-                // Also check if the bill itself has a creditor flag
-                if (!hasCreditor && creditorInfo && creditorInfo.Creditor === 'Y') {
+            if (creditorInfo) {
+                creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
+                creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
+                
+                // Check for creditor number
+                hasCreditor = creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no || creditorInfo.creditor_number || creditorInfo.CreditorNo;
+                if (!hasCreditor && creditorInfo.Creditor === 'Y') {
                     hasCreditor = true;
                 }
-            } else {
-                setSelectedBillCreditor(null);
             }
-
-            // IMPORTANT: Only lock the panel if there is NO creditor number
-            console.log('Has Creditor:', hasCreditor);
-            console.log('Setting isMiddlePanelLocked to:', !hasCreditor);
-            setIsMiddlePanelLocked(!hasCreditor);
-
-            setState(prev => ({
-                ...prev,
-                supplierDetails: salesData || [],
-                paymentAmount: (total - currentPaid).toString(),
-                currentPaidAmount: currentPaid,
-                paymentBreakdown: paymentBreakdown,
-                isPrinting: false,
-                currentBillTotal: total
-            }));
-        } catch (error) {
-            console.error('Error fetching supplier details:', error);
-            setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
+        } else {
             setSelectedBillCreditor(null);
-            setIsMiddlePanelLocked(true);
         }
-    };
+
+        // CRITICAL: Determine if this bill is fully settled (either by payments OR credit)
+        // A bill is considered "Fully Settled" for payment purposes if:
+        // 1. The actual payments (excluding credit) cover the total bill amount, OR
+        // 2. There is credit amount on the bill (meaning the supplier owes money)
+        //    This allows credit settlement payments to be made even if actual payments don't cover the bill
+        const actualRemaining = total - currentPaid;
+        const hasCreditAmount = creditAmount > 0;
+        const hasRemainingCredit = creditorRemainingAmount > 0;
+        
+        // Set isUpdatingCompletedBill to true if:
+        // 1. Actual payments cover the bill, OR
+        // 2. There is ANY credit amount on the bill (to allow credit settlement)
+        const isActuallyFullySettled = actualRemaining <= 0 || hasCreditAmount;
+        
+        console.log('🔍 handleSupplierClick - Setting isUpdatingCompletedBill:', {
+            total,
+            currentPaid,
+            actualRemaining,
+            creditAmount,
+            creditorRemainingAmount,
+            hasCreditAmount,
+            hasRemainingCredit,
+            isActuallyFullySettled
+        });
+
+        // IMPORTANT: Set isUpdatingCompletedBill to true if there's credit amount on the bill
+        // This allows credit settlement payments to be processed
+        setState(prev => ({ ...prev, isUpdatingCompletedBill: hasCreditAmount }));
+
+        console.log('Has Creditor:', hasCreditor);
+        console.log('Setting isMiddlePanelLocked to:', !hasCreditor);
+        setIsMiddlePanelLocked(!hasCreditor);
+
+        setState(prev => ({
+            ...prev,
+            supplierDetails: salesData || [],
+            paymentAmount: hasRemainingCredit ? creditorRemainingAmount.toString() : (Math.max(0, total - currentPaid).toString()),
+            currentPaidAmount: currentPaid,
+            paymentBreakdown: paymentBreakdown,
+            isPrinting: false,
+            currentBillTotal: total
+        }));
+    } catch (error) {
+        console.error('Error fetching supplier details:', error);
+        setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
+        setSelectedBillCreditor(null);
+        setIsMiddlePanelLocked(true);
+    }
+};
     const generateBillContent = async (billNo) => {
         try {
             const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
@@ -2009,343 +2012,425 @@ export default function SupplierReport() {
         }
     };
 
-    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
-        // ========== START OF DUPLICATE DETECTION LOGGING ==========
-        const callId = Math.random().toString(36).substr(2, 9);
-        console.log(`🟣 [${callId}] PROCESS PAYMENT CALLED at:`, new Date().toISOString());
-        console.log(`🟣 [${callId}] Payment amount:`, paymentAmount);
-        console.log(`🟣 [${callId}] Selected supplier:`, state.selectedSupplier);
-        console.log(`🟣 [${callId}] Selected billNo:`, state.selectedBillNo);
-        console.log(`🟣 [${callId}] isProcessingPayment state:`, isProcessingPayment);
-        console.log(`🟣 [${callId}] processingPaymentRef.current:`, processingPaymentRef.current);
+  const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
+    // ========== START OF DUPLICATE DETECTION LOGGING ==========
+    const callId = Math.random().toString(36).substr(2, 9);
+    console.log(`🟣 [${callId}] PROCESS PAYMENT CALLED at:`, new Date().toISOString());
+    console.log(`🟣 [${callId}] Payment amount:`, paymentAmount);
+    console.log(`🟣 [${callId}] Selected supplier:`, state.selectedSupplier);
+    console.log(`🟣 [${callId}] Selected billNo:`, state.selectedBillNo);
+    console.log(`🟣 [${callId}] isProcessingPayment state:`, isProcessingPayment);
+    console.log(`🟣 [${callId}] processingPaymentRef.current:`, processingPaymentRef.current);
 
-        // Check for duplicate within the last 5 seconds using window object
-        const now = Date.now();
-        if (window.lastPaymentTime && (now - window.lastPaymentTime) < 5000) {
-            console.log(`🔴 [${callId}] DUPLICATE DETECTED! Last payment was ${now - window.lastPaymentTime}ms ago`);
-            console.log(`🔴 [${callId}] Last amount: ${window.lastPaymentAmount}, Current amount: ${paymentAmount}`);
-            if (window.lastPaymentAmount === paymentAmount) {
-                console.log(`🔴 [${callId}] SAME AMOUNT - BLOCKING DUPLICATE`);
-                alert('Duplicate payment detected. Please wait a moment.');
-                processingPaymentRef.current = false;
-                setIsProcessingPayment(false);
-                return;
-            }
-        }
+    // Add this flag to track if this is a credit settlement payment
+    const isCreditSettlementPayment = state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0;
+    console.log(`🟣 [${callId}] Is Credit Settlement Payment:`, isCreditSettlementPayment);
+    console.log(`🟣 [${callId}] Credit Settlement Details - isUpdatingCompletedBill: ${state.isUpdatingCompletedBill}, hasCreditor: ${!!selectedBillCreditor}, remainingAmount: ${selectedBillCreditor?.remaining_amount || 0}`);
 
-        // Store this payment attempt
-        window.lastPaymentTime = now;
-        window.lastPaymentAmount = paymentAmount;
-        console.log(`🟢 [${callId}] Stored payment attempt in window object`);
-        // ========== END OF DUPLICATE DETECTION LOGGING ==========
-
-        // Create a unique key for this payment attempt
-        const paymentKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${Date.now()}`;
-        console.log(`🟢 [${callId}] Payment key:`, paymentKey);
-
-        // Check if we're already processing a payment
-        if (processingPaymentRef.current) {
-            console.log(`🔴 [${callId}] Payment already in progress (processingPaymentRef = true), ignoring duplicate call`);
-            alert('Payment is already being processed. Please wait...');
+    // Check for duplicate within the last 5 seconds using window object
+    const now = Date.now();
+    if (window.lastPaymentTime && (now - window.lastPaymentTime) < 5000) {
+        console.log(`🔴 [${callId}] DUPLICATE DETECTED! Last payment was ${now - window.lastPaymentTime}ms ago`);
+        console.log(`🔴 [${callId}] Last amount: ${window.lastPaymentAmount}, Current amount: ${paymentAmount}`);
+        if (window.lastPaymentAmount === paymentAmount) {
+            console.log(`🔴 [${callId}] SAME AMOUNT - BLOCKING DUPLICATE`);
+            alert('Duplicate payment detected. Please wait a moment.');
+            processingPaymentRef.current = false;
+            setIsProcessingPayment(false);
             return;
         }
+    }
 
-        // Check for duplicate within the last 3 seconds using ref
-        if (lastPaymentDataRef.current) {
-            const timeDiff = Date.now() - lastPaymentDataRef.current.timestamp;
-            const sameSupplier = lastPaymentDataRef.current.supplier === state.selectedSupplier;
-            const sameBill = lastPaymentDataRef.current.billNo === state.selectedBillNo;
-            const sameAmount = Math.abs(lastPaymentDataRef.current.amount - paymentAmount) < 0.01;
+    // Store this payment attempt
+    window.lastPaymentTime = now;
+    window.lastPaymentAmount = paymentAmount;
+    console.log(`🟢 [${callId}] Stored payment attempt in window object`);
+    // ========== END OF DUPLICATE DETECTION LOGGING ==========
 
-            console.log(`🟡 [${callId}] Last payment check - Time diff: ${timeDiff}ms, Same supplier: ${sameSupplier}, Same bill: ${sameBill}, Same amount: ${sameAmount}`);
+    // Create a unique key for this payment attempt
+    const paymentKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${Date.now()}`;
+    console.log(`🟢 [${callId}] Payment key:`, paymentKey);
 
-            if (timeDiff < 3000 && sameSupplier && sameBill && sameAmount) {
-                console.log(`🔴 [${callId}] DUPLICATE PAYMENT DETECTED within 3 seconds, ignoring`);
-                alert('Duplicate payment detected. Please wait a moment before trying again.');
-                return;
-            }
-        }
+    // Check if we're already processing a payment
+    if (processingPaymentRef.current) {
+        console.log(`🔴 [${callId}] Payment already in progress (processingPaymentRef = true), ignoring duplicate call`);
+        alert('Payment is already being processed. Please wait...');
+        return;
+    }
 
-        if (!state.selectedSupplier || state.isPrinting) {
-            console.log(`🔴 [${callId}] Invalid state - no supplier or is printing`);
+    // Check for duplicate within the last 3 seconds using ref
+    if (lastPaymentDataRef.current) {
+        const timeDiff = Date.now() - lastPaymentDataRef.current.timestamp;
+        const sameSupplier = lastPaymentDataRef.current.supplier === state.selectedSupplier;
+        const sameBill = lastPaymentDataRef.current.billNo === state.selectedBillNo;
+        const sameAmount = Math.abs(lastPaymentDataRef.current.amount - paymentAmount) < 0.01;
+
+        console.log(`🟡 [${callId}] Last payment check - Time diff: ${timeDiff}ms, Same supplier: ${sameSupplier}, Same bill: ${sameBill}, Same amount: ${sameAmount}`);
+
+        if (timeDiff < 3000 && sameSupplier && sameBill && sameAmount) {
+            console.log(`🔴 [${callId}] DUPLICATE PAYMENT DETECTED within 3 seconds, ignoring`);
+            alert('Duplicate payment detected. Please wait a moment before trying again.');
             return;
         }
+    }
 
-        // Set processing flag and store payment data
-        processingPaymentRef.current = true;
-        lastPaymentDataRef.current = {
-            timestamp: Date.now(),
-            supplier: state.selectedSupplier,
-            billNo: state.selectedBillNo,
-            amount: paymentAmount,
-            callId: callId
-        };
-        console.log(`🟢 [${callId}] Processing flags set, processingPaymentRef = true`);
+    if (!state.selectedSupplier || state.isPrinting) {
+        console.log(`🔴 [${callId}] Invalid state - no supplier or is printing`);
+        return;
+    }
 
-        // Disable the button immediately
-        setIsProcessingPayment(true);
-        setState(prev => ({ ...prev, isPrinting: true }));
-        console.log(`🟢 [${callId}] UI disabled, isPrinting set to true`);
+    // Set processing flag and store payment data
+    processingPaymentRef.current = true;
+    lastPaymentDataRef.current = {
+        timestamp: Date.now(),
+        supplier: state.selectedSupplier,
+        billNo: state.selectedBillNo,
+        amount: paymentAmount,
+        callId: callId
+    };
+    console.log(`🟢 [${callId}] Processing flags set, processingPaymentRef = true`);
 
-        try {
-            const totalPayable = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-            console.log(`🟢 [${callId}] Total payable:`, totalPayable);
+    // Disable the button immediately
+    setIsProcessingPayment(true);
+    setState(prev => ({ ...prev, isPrinting: true }));
+    console.log(`🟢 [${callId}] UI disabled, isPrinting set to true`);
 
-            // Check if loan exists
-            console.log(`🟢 [${callId}] Checking for existing loan...`);
-            const loanCheck = await findExistingLoanId(state.selectedSupplier, state.selectedBillNo);
-            console.log(`🟢 [${callId}] Loan check result - exists: ${loanCheck.exists}, id: ${loanCheck.id}, currentPaid: ${loanCheck.currentPaid}, paymentDetails length: ${loanCheck.paymentDetails.length}`);
+    try {
+        const totalPayable = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+        console.log(`🟢 [${callId}] Total payable:`, totalPayable);
 
-            let currentPaid = loanCheck.currentPaid;
-            let existingPaymentDetails = loanCheck.paymentDetails;
-            let existingLoanId = loanCheck.exists ? loanCheck.id : null;
+        // Check if loan exists
+        console.log(`🟢 [${callId}] Checking for existing loan...`);
+        const loanCheck = await findExistingLoanId(state.selectedSupplier, state.selectedBillNo);
+        console.log(`🟢 [${callId}] Loan check result - exists: ${loanCheck.exists}, id: ${loanCheck.id}, currentPaid: ${loanCheck.currentPaid}, paymentDetails length: ${loanCheck.paymentDetails.length}`);
 
-            // Ensure payment details is an array
-            if (typeof existingPaymentDetails === 'string') {
-                try {
-                    existingPaymentDetails = JSON.parse(existingPaymentDetails);
-                    console.log(`🟢 [${callId}] Parsed payment details from string, length: ${existingPaymentDetails.length}`);
-                } catch (e) {
-                    existingPaymentDetails = [];
-                }
-            }
-            if (!Array.isArray(existingPaymentDetails)) {
+        let currentPaid = loanCheck.currentPaid;
+        let existingPaymentDetails = loanCheck.paymentDetails;
+        let existingLoanId = loanCheck.exists ? loanCheck.id : null;
+
+        // Ensure payment details is an array
+        if (typeof existingPaymentDetails === 'string') {
+            try {
+                existingPaymentDetails = JSON.parse(existingPaymentDetails);
+                console.log(`🟢 [${callId}] Parsed payment details from string, length: ${existingPaymentDetails.length}`);
+            } catch (e) {
                 existingPaymentDetails = [];
             }
+        }
+        if (!Array.isArray(existingPaymentDetails)) {
+            existingPaymentDetails = [];
+        }
 
-            // CRITICAL: Check if this exact payment already exists in the database
-            console.log(`🟢 [${callId}] Checking for existing duplicate in ${existingPaymentDetails.length} existing payments`);
-            const duplicateInDb = existingPaymentDetails.some(p => {
-                const timeDiff = Math.abs(new Date(p.date).getTime() - Date.now());
-                const isDuplicate = p.amount === paymentAmount && timeDiff < 5000;
-                if (isDuplicate) {
-                    console.log(`🔴 [${callId}] Found duplicate in DB:`, { amount: p.amount, method: p.method, timeDiff, id: p.id });
+        // CRITICAL: Check if this exact payment already exists in the database
+        console.log(`🟢 [${callId}] Checking for existing duplicate in ${existingPaymentDetails.length} existing payments`);
+        const duplicateInDb = existingPaymentDetails.some(p => {
+            const timeDiff = Math.abs(new Date(p.date).getTime() - Date.now());
+            const isDuplicate = p.amount === paymentAmount && timeDiff < 5000;
+            if (isDuplicate) {
+                console.log(`🔴 [${callId}] Found duplicate in DB:`, { amount: p.amount, method: p.method, timeDiff, id: p.id });
+            }
+            return isDuplicate;
+        });
+
+        if (duplicateInDb) {
+            console.log(`🔴 [${callId}] DUPLICATE FOUND IN DATABASE - ABORTING`);
+            alert('This payment was already recorded. Please refresh the page.');
+            processingPaymentRef.current = false;
+            setIsProcessingPayment(false);
+            setState(prev => ({ ...prev, isPrinting: false }));
+            return;
+        }
+
+        console.log(`🟢 [${callId}] No duplicate found, proceeding with payment`);
+
+        const newTotalPaid = currentPaid + paymentAmount;
+        const isFullySettled = newTotalPaid >= totalPayable;
+        const newRemaining = Math.max(0, totalPayable - newTotalPaid);
+
+        let paymentMethod = 'Cash';
+        if (isAdjustment && adjustmentDetails) {
+            paymentMethod = adjustmentDetails.type === 'bag_to_box' ? 'bag_to_box' :
+                (adjustmentDetails.type === 'bill_to_bill' ? 'bill_to_bill' : 'bad_debt');
+        } else if (isBankTransfer) {
+            paymentMethod = 'Bank Transfer';
+        } else if (isCheque) {
+            paymentMethod = 'Cheque';
+        }
+
+        // Map payment method to creditor format
+        let paymentMethodForCreditor = 'cash';
+        if (paymentMethod === 'Cheque') paymentMethodForCreditor = 'cheque';
+        else if (paymentMethod === 'Bank Transfer') paymentMethodForCreditor = 'bank_transfer';
+        else if (paymentMethod === 'bag_to_box') paymentMethodForCreditor = 'bag_to_box';
+        else if (paymentMethod === 'bill_to_bill') paymentMethodForCreditor = 'bill_to_bill';
+        else if (paymentMethod === 'bad_debt') paymentMethodForCreditor = 'bad_debt';
+
+        // Create a truly unique ID using multiple sources
+        const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${performance.now()}-${Math.random()}-${callId}`;
+        const timestamp = Date.now();
+        console.log(`🟢 [${callId}] Created payment record with ID: ${uniqueId}`);
+
+        const paymentRecord = {
+            id: uniqueId,
+            date: new Date().toISOString(),
+            amount: paymentAmount,
+            method: paymentMethod,
+            running_balance: newRemaining,
+            reference: paymentMethod === 'Cash' ? `Cash Payment ${timestamp}` : (chequeDetails?.cheq_no || bankTransferDetails?.reference_no || adjustmentDetails?.reference),
+            details: {},
+            unique_timestamp: timestamp,
+            payment_index: existingPaymentDetails.length,
+            call_id: callId,
+            is_credit_settlement: isCreditSettlementPayment
+        };
+
+        if (isCheque && chequeDetails) {
+            paymentRecord.reference = chequeDetails.cheq_no;
+            paymentRecord.details = {
+                cheque_no: chequeDetails.cheq_no,
+                cheque_date: chequeDetails.cheq_date,
+                bank_account_id: chequeDetails.bank_account_id
+            };
+        } else if (isBankTransfer && bankTransferDetails) {
+            paymentRecord.reference = bankTransferDetails.reference_no;
+            paymentRecord.details = {
+                reference_no: bankTransferDetails.reference_no,
+                transfer_date: bankTransferDetails.transfer_date,
+                bank_account_id: bankTransferDetails.bank_account_id,
+                notes: bankTransferDetails.notes
+            };
+        } else if (isAdjustment && adjustmentDetails) {
+            if (adjustmentDetails.type === 'bag_to_box') {
+                paymentRecord.details = {
+                    bag_count: adjustmentDetails.bag_count,
+                    box_count: adjustmentDetails.box_count,
+                    bag_value: adjustmentDetails.bag_value,
+                    box_value: adjustmentDetails.box_value
+                };
+            } else if (adjustmentDetails.type === 'bill_to_bill') {
+                paymentRecord.details = {
+                    target_supplier_code: adjustmentDetails.target_supplier_code,
+                    target_supplier_bill_no: adjustmentDetails.target_supplier_bill_no,
+                    target_supplier_bill_value: adjustmentDetails.target_supplier_bill_value
+                };
+            } else if (adjustmentDetails.type === 'bad_debt') {
+                paymentRecord.details = {
+                    bad_debt_name: adjustmentDetails.bad_debt_name,
+                    bad_debt_amount: adjustmentDetails.bad_debt_amount
+                };
+            }
+        }
+
+        // Append new payment
+        const allPaymentDetails = [...existingPaymentDetails, paymentRecord];
+        console.log(`🟢 [${callId}] Appending payment, total payment details count: ${allPaymentDetails.length}`);
+
+        // ========== CRITICAL: Update creditor payment if this is a credit settlement ==========
+        let creditorUpdateSuccess = false;
+        let updatedCreditorData = null;
+        
+        if (isCreditSettlementPayment && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+            console.log(`🟢 [${callId}] CREDIT SETTLEMENT DETECTED! Updating creditor payment for bill ${state.selectedBillNo} with amount ${paymentAmount}`);
+            console.log(`🟢 [${callId}] Payment method for creditor: ${paymentMethodForCreditor}`);
+            console.log(`🟢 [${callId}] Current remaining credit: ${selectedBillCreditor.remaining_amount}`);
+            
+            try {
+                const updateResponse = await api.put('/creditors/update-payment', {
+                    bill_no: state.selectedBillNo,
+                    payment_amount: paymentAmount,
+                    payment_method: paymentMethodForCreditor
+                });
+
+                console.log(`🟢 [${callId}] Creditor update response:`, updateResponse.data);
+
+                if (updateResponse.data.success) {
+                    console.log(`✅ [${callId}] Creditor payment updated successfully`);
+                    creditorUpdateSuccess = true;
+                    updatedCreditorData = updateResponse.data.data;
+                    console.log(`✅ [${callId}] Updated creditor data - Remaining: ${updatedCreditorData?.remaining_amount}, Status: ${updatedCreditorData?.status}`);
+                } else {
+                    throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
                 }
-                return isDuplicate;
-            });
-
-            if (duplicateInDb) {
-                console.log(`🔴 [${callId}] DUPLICATE FOUND IN DATABASE - ABORTING`);
-                alert('This payment was already recorded. Please refresh the page.');
+            } catch (creditorError) {
+                console.error(`❌ [${callId}] Failed to update creditor payment:`, creditorError);
+                alert('Failed to update creditor payment: ' + (creditorError.response?.data?.message || creditorError.message));
                 processingPaymentRef.current = false;
                 setIsProcessingPayment(false);
                 setState(prev => ({ ...prev, isPrinting: false }));
                 return;
             }
-
-            console.log(`🟢 [${callId}] No duplicate found, proceeding with payment`);
-
-            const newTotalPaid = currentPaid + paymentAmount;
-            const isFullySettled = newTotalPaid >= totalPayable;
-            const newRemaining = Math.max(0, totalPayable - newTotalPaid);
-
-            let paymentMethod = 'Cash';
-            if (isAdjustment && adjustmentDetails) {
-                paymentMethod = adjustmentDetails.type === 'bag_to_box' ? 'bag_to_box' :
-                    (adjustmentDetails.type === 'bill_to_bill' ? 'bill_to_bill' : 'bad_debt');
-            } else if (isBankTransfer) {
-                paymentMethod = 'Bank Transfer';
-            } else if (isCheque) {
-                paymentMethod = 'Cheque';
+        } else {
+            console.log(`🟢 [${callId}] NOT a credit settlement payment. Skipping creditor update.`);
+            if (!state.isUpdatingCompletedBill) {
+                console.log(`🟢 [${callId}] Reason: isUpdatingCompletedBill is false`);
             }
+            if (!selectedBillCreditor) {
+                console.log(`🟢 [${callId}] Reason: selectedBillCreditor is null`);
+            }
+            if (selectedBillCreditor && selectedBillCreditor.remaining_amount <= 0) {
+                console.log(`🟢 [${callId}] Reason: remaining_amount is ${selectedBillCreditor.remaining_amount} (<= 0)`);
+            }
+        }
 
-            // Create a truly unique ID using multiple sources
-            const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${performance.now()}-${Math.random()}-${callId}`;
-            const timestamp = Date.now();
-            console.log(`🟢 [${callId}] Created payment record with ID: ${uniqueId}`);
+        let response;
 
-            const paymentRecord = {
-                id: uniqueId,
-                date: new Date().toISOString(),
-                amount: paymentAmount,
-                method: paymentMethod,
-                running_balance: newRemaining,
-                reference: paymentMethod === 'Cash' ? `Cash Payment ${timestamp}` : (chequeDetails?.cheq_no || bankTransferDetails?.reference_no || adjustmentDetails?.reference),
-                details: {},
-                unique_timestamp: timestamp,
-                payment_index: existingPaymentDetails.length,
-                call_id: callId
+        if (existingLoanId) {
+            console.log(`🟢 [${callId}] UPDATING existing loan record:`, existingLoanId);
+
+            const payload = {
+                code: state.selectedSupplier,
+                bill_no: state.selectedBillNo,
+                loan_amount: paymentAmount,
+                total_amount: totalPayable,
+                type: paymentMethod,
+                transaction_ids: state.supplierDetails.map(record => record.id),
+                payment_details: allPaymentDetails,
+                use_history: isViewingHistory,
+                is_credit_settlement: isCreditSettlementPayment
             };
 
             if (isCheque && chequeDetails) {
-                paymentRecord.reference = chequeDetails.cheq_no;
-                paymentRecord.details = {
-                    cheque_no: chequeDetails.cheq_no,
-                    cheque_date: chequeDetails.cheq_date,
-                    bank_account_id: chequeDetails.bank_account_id
-                };
+                payload.bank_name = chequeDetails.bank_name;
+                payload.cheque_no = chequeDetails.cheq_no;
+                payload.realized_date = chequeDetails.cheq_date;
+                payload.bank_account_id = chequeDetails.bank_account_id;
             } else if (isBankTransfer && bankTransferDetails) {
-                paymentRecord.reference = bankTransferDetails.reference_no;
-                paymentRecord.details = {
-                    reference_no: bankTransferDetails.reference_no,
-                    transfer_date: bankTransferDetails.transfer_date,
-                    bank_account_id: bankTransferDetails.bank_account_id,
-                    notes: bankTransferDetails.notes
-                };
+                payload.bank_account_id = bankTransferDetails.bank_account_id;
+                payload.transfer_reference_no = bankTransferDetails.reference_no;
+                payload.transfer_date = bankTransferDetails.transfer_date;
+                payload.transfer_notes = bankTransferDetails.notes;
             } else if (isAdjustment && adjustmentDetails) {
                 if (adjustmentDetails.type === 'bag_to_box') {
-                    paymentRecord.details = {
-                        bag_count: adjustmentDetails.bag_count,
-                        box_count: adjustmentDetails.box_count,
-                        bag_value: adjustmentDetails.bag_value,
-                        box_value: adjustmentDetails.box_value
-                    };
+                    payload.bag_count = adjustmentDetails.bag_count;
+                    payload.box_count = adjustmentDetails.box_count;
+                    payload.bag_value = adjustmentDetails.bag_value;
+                    payload.box_value = adjustmentDetails.box_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
                 } else if (adjustmentDetails.type === 'bill_to_bill') {
-                    paymentRecord.details = {
-                        target_supplier_code: adjustmentDetails.target_supplier_code,
-                        target_supplier_bill_no: adjustmentDetails.target_supplier_bill_no,
-                        target_supplier_bill_value: adjustmentDetails.target_supplier_bill_value
-                    };
+                    payload.target_supplier_code = adjustmentDetails.target_supplier_code;
+                    payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
+                    payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
                 } else if (adjustmentDetails.type === 'bad_debt') {
-                    paymentRecord.details = {
-                        bad_debt_name: adjustmentDetails.bad_debt_name,
-                        bad_debt_amount: adjustmentDetails.bad_debt_amount
-                    };
+                    payload.bad_debt_name = adjustmentDetails.bad_debt_name;
+                    payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
+                    payload.adjustment_amount = adjustmentDetails.amount;
                 }
             }
 
-            // Append new payment
-            const allPaymentDetails = [...existingPaymentDetails, paymentRecord];
-            console.log(`🟢 [${callId}] Appending payment, total payment details count: ${allPaymentDetails.length}`);
+            console.log(`🟢 [${callId}] Sending UPDATE request to /supplier-loan/${existingLoanId}`);
+            response = await api.put(`/supplier-loan/${existingLoanId}`, payload);
+        } else {
+            console.log(`🟢 [${callId}] CREATING new loan record`);
 
-            let response;
+            const payload = {
+                code: state.selectedSupplier,
+                bill_no: state.selectedBillNo,
+                loan_amount: paymentAmount,
+                total_amount: totalPayable,
+                type: paymentMethod,
+                transaction_ids: state.supplierDetails.map(record => record.id),
+                payment_details: allPaymentDetails,
+                use_history: isViewingHistory,
+                is_credit_settlement: isCreditSettlementPayment
+            };
 
-            if (existingLoanId) {
-                console.log(`🟢 [${callId}] UPDATING existing loan record:`, existingLoanId);
-
-                const payload = {
-                    code: state.selectedSupplier,
-                    bill_no: state.selectedBillNo,
-                    loan_amount: paymentAmount,
-                    total_amount: totalPayable,
-                    type: paymentMethod,
-                    transaction_ids: state.supplierDetails.map(record => record.id),
-                    payment_details: allPaymentDetails,
-                    use_history: isViewingHistory
-                };
-
-                if (isCheque && chequeDetails) {
-                    payload.bank_name = chequeDetails.bank_name;
-                    payload.cheque_no = chequeDetails.cheq_no;
-                    payload.realized_date = chequeDetails.cheq_date;
-                    payload.bank_account_id = chequeDetails.bank_account_id;
-                } else if (isBankTransfer && bankTransferDetails) {
-                    payload.bank_account_id = bankTransferDetails.bank_account_id;
-                    payload.transfer_reference_no = bankTransferDetails.reference_no;
-                    payload.transfer_date = bankTransferDetails.transfer_date;
-                    payload.transfer_notes = bankTransferDetails.notes;
-                } else if (isAdjustment && adjustmentDetails) {
-                    if (adjustmentDetails.type === 'bag_to_box') {
-                        payload.bag_count = adjustmentDetails.bag_count;
-                        payload.box_count = adjustmentDetails.box_count;
-                        payload.bag_value = adjustmentDetails.bag_value;
-                        payload.box_value = adjustmentDetails.box_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bill_to_bill') {
-                        payload.target_supplier_code = adjustmentDetails.target_supplier_code;
-                        payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
-                        payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bad_debt') {
-                        payload.bad_debt_name = adjustmentDetails.bad_debt_name;
-                        payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    }
+            if (isCheque && chequeDetails) {
+                payload.bank_name = chequeDetails.bank_name;
+                payload.cheque_no = chequeDetails.cheq_no;
+                payload.realized_date = chequeDetails.cheq_date;
+                payload.bank_account_id = chequeDetails.bank_account_id;
+            } else if (isBankTransfer && bankTransferDetails) {
+                payload.bank_account_id = bankTransferDetails.bank_account_id;
+                payload.transfer_reference_no = bankTransferDetails.reference_no;
+                payload.transfer_date = bankTransferDetails.transfer_date;
+                payload.transfer_notes = bankTransferDetails.notes;
+            } else if (isAdjustment && adjustmentDetails) {
+                if (adjustmentDetails.type === 'bag_to_box') {
+                    payload.bag_count = adjustmentDetails.bag_count;
+                    payload.box_count = adjustmentDetails.box_count;
+                    payload.bag_value = adjustmentDetails.bag_value;
+                    payload.box_value = adjustmentDetails.box_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                } else if (adjustmentDetails.type === 'bill_to_bill') {
+                    payload.target_supplier_code = adjustmentDetails.target_supplier_code;
+                    payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
+                    payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
+                    payload.adjustment_amount = adjustmentDetails.amount;
+                } else if (adjustmentDetails.type === 'bad_debt') {
+                    payload.bad_debt_name = adjustmentDetails.bad_debt_name;
+                    payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
+                    payload.adjustment_amount = adjustmentDetails.amount;
                 }
-
-                console.log(`🟢 [${callId}] Sending UPDATE request to /supplier-loan/${existingLoanId}`);
-                response = await api.put(`/supplier-loan/${existingLoanId}`, payload);
-            } else {
-                console.log(`🟢 [${callId}] CREATING new loan record`);
-
-                const payload = {
-                    code: state.selectedSupplier,
-                    bill_no: state.selectedBillNo,
-                    loan_amount: paymentAmount,
-                    total_amount: totalPayable,
-                    type: paymentMethod,
-                    transaction_ids: state.supplierDetails.map(record => record.id),
-                    payment_details: allPaymentDetails,
-                    use_history: isViewingHistory
-                };
-
-                if (isCheque && chequeDetails) {
-                    payload.bank_name = chequeDetails.bank_name;
-                    payload.cheque_no = chequeDetails.cheq_no;
-                    payload.realized_date = chequeDetails.cheq_date;
-                    payload.bank_account_id = chequeDetails.bank_account_id;
-                } else if (isBankTransfer && bankTransferDetails) {
-                    payload.bank_account_id = bankTransferDetails.bank_account_id;
-                    payload.transfer_reference_no = bankTransferDetails.reference_no;
-                    payload.transfer_date = bankTransferDetails.transfer_date;
-                    payload.transfer_notes = bankTransferDetails.notes;
-                } else if (isAdjustment && adjustmentDetails) {
-                    if (adjustmentDetails.type === 'bag_to_box') {
-                        payload.bag_count = adjustmentDetails.bag_count;
-                        payload.box_count = adjustmentDetails.box_count;
-                        payload.bag_value = adjustmentDetails.bag_value;
-                        payload.box_value = adjustmentDetails.box_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bill_to_bill') {
-                        payload.target_supplier_code = adjustmentDetails.target_supplier_code;
-                        payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
-                        payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bad_debt') {
-                        payload.bad_debt_name = adjustmentDetails.bad_debt_name;
-                        payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    }
-                }
-
-                console.log(`🟢 [${callId}] Sending CREATE request to /supplier-loan`);
-                response = await api.post('/supplier-loan', payload);
             }
 
-            if (response.data.success) {
-                console.log(`✅ [${callId}] Payment successful!`, response.data);
-
-                await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-                await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
-
-                if (isFullySettled && state.selectedBillNo) {
-                    const billContent = await generateBillContent(state.selectedBillNo);
-                    setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
-                }
-
-                alert(isFullySettled ?
-                    `✅ Payment Complete!\nPayment: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}` :
-                    `✓ Payment Added: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`);
-
-                setState(prev => ({
-                    ...prev,
-                    selectedSupplier: null,
-                    selectedBillNo: null,
-                    supplierDetails: [],
-                    paymentAmount: "",
-                    currentPaidAmount: 0,
-                    paymentBreakdown: [],
-                    showChequeModal: false,
-                    showBankToBankModal: false,
-                    showAdjustmentModal: false,
-                    isPrinting: false,
-                    currentBillTotal: 0
-                }));
-                setSelectedBillCreditor(null);
-            }
-        } catch (error) {
-            console.error(`❌ [${callId}] Failed to record payment:`, error);
-            alert('Failed to record payment: ' + (error.response?.data?.message || error.message));
-            setState(prev => ({ ...prev, isPrinting: false }));
-        } finally {
-            // Reset after 5 seconds
-            setTimeout(() => {
-                console.log(`🟢 [${callId}] Resetting processing flags`);
-                processingPaymentRef.current = false;
-                setIsProcessingPayment(false);
-            }, 5000);
+            console.log(`🟢 [${callId}] Sending CREATE request to /supplier-loan`);
+            response = await api.post('/supplier-loan', payload);
         }
-    };
+
+        if (response.data.success) {
+            console.log(`✅ [${callId}] Payment successful!`, response.data);
+
+            await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
+            await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
+
+            // Show appropriate success message
+            let successMessage = `✓ Payment Added: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`;
+            
+            if (isFullySettled && !isCreditSettlementPayment) {
+                successMessage = `✅ Payment Complete!\nPayment: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`;
+            }
+            
+            if (isCreditSettlementPayment && creditorUpdateSuccess) {
+                // Get updated creditor info to show remaining amount
+                const updatedCreditor = await checkBillCreditorStatus(state.selectedBillNo, state.selectedSupplier);
+                const remainingCredit = updatedCreditor?.remaining_amount || 0;
+                const totalCreditAmount = updatedCreditor?.credit_amount || 0;
+                const paidAmount = totalCreditAmount - remainingCredit;
+                
+                if (remainingCredit <= 0) {
+                    successMessage = `✅ CREDIT FULLY SETTLED!\n\nAmount: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}\nTotal Credit: Rs. ${formatDecimal(totalCreditAmount)}\nTotal Paid: Rs. ${formatDecimal(paidAmount)}`;
+                } else {
+                    successMessage = `✓ CREDIT PAYMENT RECORDED!\n\nAmount: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}\nRemaining Credit: Rs. ${formatDecimal(remainingCredit)}\nTotal Credit: Rs. ${formatDecimal(totalCreditAmount)}`;
+                }
+            }
+            
+            alert(successMessage);
+
+            if (isFullySettled && state.selectedBillNo && !isCreditSettlementPayment) {
+                const billContent = await generateBillContent(state.selectedBillNo);
+                setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
+            }
+
+            setState(prev => ({
+                ...prev,
+                selectedSupplier: null,
+                selectedBillNo: null,
+                supplierDetails: [],
+                paymentAmount: "",
+                currentPaidAmount: 0,
+                paymentBreakdown: [],
+                showChequeModal: false,
+                showBankToBankModal: false,
+                showAdjustmentModal: false,
+                isPrinting: false,
+                currentBillTotal: 0
+            }));
+            setSelectedBillCreditor(null);
+        }
+    } catch (error) {
+        console.error(`❌ [${callId}] Failed to record payment:`, error);
+        alert('Failed to record payment: ' + (error.response?.data?.message || error.message));
+        setState(prev => ({ ...prev, isPrinting: false }));
+    } finally {
+        // Reset after 5 seconds
+        setTimeout(() => {
+            console.log(`🟢 [${callId}] Resetting processing flags`);
+            processingPaymentRef.current = false;
+            setIsProcessingPayment(false);
+        }, 5000);
+    }
+};
     const processCreditSettlementPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null) => {
         if (!state.selectedSupplier || !selectedBillCreditor) {
             alert("No credit record found to settle");
@@ -2533,23 +2618,17 @@ export default function SupplierReport() {
     const handleChequePayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true })); };
     const handleChequeConfirm = async (details) => {
         const amount = state.pendingChequeAmount;
-        // Check if this is credit settlement
-        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-            await processCreditSettlementPayment(amount, true, details);
-        } else {
-            await processPayment(amount, true, details);
-        }
+        // Always use processPayment - it will detect if credit settlement is needed
+        await processPayment(amount, true, details);
+        setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }));
     };
     const handleBankToBankPayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingBankToBankAmount: amount, showBankToBankModal: true })); };
-    const handleBankToBankConfirm = async (details) => {
-        const amount = state.pendingBankToBankAmount;
-        // Check if this is credit settlement
-        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-            await processCreditSettlementPayment(amount, false, null, true, details);
-        } else {
-            await processPayment(amount, false, null, true, details);
-        }
-    };
+  const handleBankToBankConfirm = async (details) => {
+    const amount = state.pendingBankToBankAmount;
+    // Always use processPayment - it will detect if credit settlement is needed
+    await processPayment(amount, false, null, true, details);
+    setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }));
+};
 
     const handleCreditPayment = async () => {
         let paymentAmount = parseFloat(state.paymentAmount);
@@ -2630,33 +2709,33 @@ export default function SupplierReport() {
         }
     };
 
-    const handleApplyAdjustment = async (adjustmentData) => {
-        let adjustmentAmount = 0;
-        const adjustmentType = adjustmentData.adjustment_type;
+  const handleApplyAdjustment = async (adjustmentData) => {
+    let adjustmentAmount = 0;
+    const adjustmentType = adjustmentData.adjustment_type;
 
-        if (adjustmentType === 'bag_to_box') {
-            adjustmentAmount = Math.abs((adjustmentData.bag_count * adjustmentData.bag_value) + (adjustmentData.box_count * adjustmentData.box_value));
-        } else if (adjustmentType === 'bill_to_bill') {
-            adjustmentAmount = parseFloat(adjustmentData.target_supplier_bill_value) || 0;
-        } else if (adjustmentType === 'bad_debt') {
-            adjustmentAmount = parseFloat(adjustmentData.bad_debt_amount) || 0;
-        }
+    if (adjustmentType === 'bag_to_box') {
+        adjustmentAmount = Math.abs((adjustmentData.bag_count * adjustmentData.bag_value) + (adjustmentData.box_count * adjustmentData.box_value));
+    } else if (adjustmentType === 'bill_to_bill') {
+        adjustmentAmount = parseFloat(adjustmentData.target_supplier_bill_value) || 0;
+    } else if (adjustmentType === 'bad_debt') {
+        adjustmentAmount = parseFloat(adjustmentData.bad_debt_amount) || 0;
+    }
 
-        if (adjustmentAmount === 0) {
-            alert("Adjustment amount is zero");
-            return;
-        }
+    if (adjustmentAmount === 0) {
+        alert("Adjustment amount is zero");
+        return;
+    }
 
-        // Create adjustment details object with all needed fields
-        const adjustmentPayload = {
-            type: adjustmentType,
-            amount: adjustmentAmount,
-            ...adjustmentData
-        };
-
-        await processPayment(adjustmentAmount, false, null, false, null, true, adjustmentPayload);
-        setState(prev => ({ ...prev, showAdjustmentModal: false }));
+    // Create adjustment details object with all needed fields
+    const adjustmentPayload = {
+        type: adjustmentType,
+        amount: adjustmentAmount,
+        ...adjustmentData
     };
+
+    await processPayment(adjustmentAmount, false, null, false, null, true, adjustmentPayload);
+    setState(prev => ({ ...prev, showAdjustmentModal: false }));
+};
 
     const handleDeletePayment = async (supplierCode, billNo) => {
         setState(prev => ({ ...prev, isPrinting: true }));
@@ -2811,7 +2890,7 @@ export default function SupplierReport() {
                                                     {/* Only show remaining if there's actual amount left to pay (excluding credit) */}
                                                     {item.net_remaining > 0 && item.credit_amount === 0 && (
                                                         <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
-                                                            Remaining: Rs. {formatDecimal(item.net_remaining)}
+                                                            Remaining: Rs. {formatDecimal(totalPayable - state.currentPaidAmount)}
                                                         </div>
                                                     )}
 
@@ -3155,8 +3234,14 @@ export default function SupplierReport() {
                                                 style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }}
                                             />
 
-                                            {/* Payment Buttons - Cash, Cheque, Bank Transfer */}
-                                            <div style={styles.paymentButtonsContainer}>
+                                            {/* Payment Buttons - Cash, Cheque, Bank Transfer, Credit */}
+                                            <div style={{
+                                                display: 'flex',
+                                                gap: '8px',
+                                                width: '100%',
+                                                marginTop: '12px'
+                                            }}>
+                                                {/* CASH */}
                                                 <button
                                                     data-payment-type="cash"
                                                     onClick={async () => {
@@ -3165,29 +3250,31 @@ export default function SupplierReport() {
                                                             alert("Please enter an amount");
                                                             return;
                                                         }
-
-                                                        // Debug log to see what's happening
-                                                        console.log('🔍 CASH BUTTON CONDITION CHECK:', {
-                                                            isUpdatingCompletedBill: state.isUpdatingCompletedBill,
-                                                            hasSelectedBillCreditor: !!selectedBillCreditor,
-                                                            remainingAmount: selectedBillCreditor?.remaining_amount,
-                                                            shouldSettleCredit: state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0
-                                                        });
-
-                                                        // If bill is fully settled and has credit, settle credit
-                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                                                            console.log('✅ CREDIT SETTLEMENT PATH - Calling processCreditSettlementPayment');
-                                                            await processCreditSettlementPayment(amount);
-                                                        } else {
-                                                            console.log('❌ NORMAL PAYMENT PATH - Calling handleCashPayment');
-                                                            await handleCashPayment();
-                                                        }
+                                                        // Always use processPayment - it will detect if credit settlement is needed
+                                                        await processPayment(amount);
                                                     }}
-                                                    disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0 || window.cashPaymentProcessing}
-                                                    style={{ ...styles.cashPaymentBtn, opacity: (state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0 || window.cashPaymentProcessing) ? 0.5 : 1 }}
+                                                    disabled={
+                                                        state.isPrinting ||
+                                                        !state.paymentAmount ||
+                                                        parseFloat(state.paymentAmount) === 0 ||
+                                                        window.cashPaymentProcessing
+                                                    }
+                                                    style={{
+                                                        ...styles.cashPaymentBtn,
+                                                        flex: 1,
+                                                        opacity: (
+                                                            state.isPrinting ||
+                                                            !state.paymentAmount ||
+                                                            parseFloat(state.paymentAmount) === 0 ||
+                                                            window.cashPaymentProcessing
+                                                        ) ? 0.5 : 1
+                                                    }}
                                                 >
                                                     💵 Cash
                                                 </button>
+
+                                                {/* CHEQUE - Always uses processPayment via handleChequeConfirm */}
+                                                {/* CHEQUE */}
                                                 <button
                                                     onClick={async () => {
                                                         const amount = parseFloat(state.paymentAmount);
@@ -3195,18 +3282,29 @@ export default function SupplierReport() {
                                                             alert("Please enter an amount");
                                                             return;
                                                         }
-                                                        // If bill is fully settled and has credit, settle credit
-                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                                                            setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true }));
-                                                        } else {
-                                                            handleChequePayment();
-                                                        }
+                                                        setState(prev => ({
+                                                            ...prev,
+                                                            pendingChequeAmount: amount,
+                                                            showChequeModal: true
+                                                        }));
                                                     }}
-                                                    disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0}
-                                                    style={{ ...styles.chequePaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}
+                                                    disabled={
+                                                        state.isPrinting ||
+                                                        !state.paymentAmount ||
+                                                        parseFloat(state.paymentAmount) === 0
+                                                    }
+                                                    style={{
+                                                        ...styles.chequePaymentBtn,
+                                                        flex: 1,
+                                                        opacity: (!state.paymentAmount ||
+                                                            parseFloat(state.paymentAmount) === 0) ? 0.5 : 1
+                                                    }}
                                                 >
                                                     💳 Cheque
                                                 </button>
+
+                                                {/* BANK TRANSFER - Always uses processPayment via handleBankToBankConfirm */}
+                                                {/* BANK TRANSFER */}
                                                 <button
                                                     onClick={async () => {
                                                         const amount = parseFloat(state.paymentAmount);
@@ -3214,48 +3312,66 @@ export default function SupplierReport() {
                                                             alert("Please enter an amount");
                                                             return;
                                                         }
-                                                        // If bill is fully settled and has credit, settle credit
-                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                                                            setState(prev => ({ ...prev, pendingBankToBankAmount: amount, showBankToBankModal: true }));
-                                                        } else {
-                                                            handleBankToBankPayment();
-                                                        }
+                                                        setState(prev => ({
+                                                            ...prev,
+                                                            pendingBankToBankAmount: amount,
+                                                            showBankToBankModal: true
+                                                        }));
                                                     }}
-                                                    disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0}
-                                                    style={{ ...styles.bankToBankPaymentBtn, opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1 }}
+                                                    disabled={
+                                                        state.isPrinting ||
+                                                        !state.paymentAmount ||
+                                                        parseFloat(state.paymentAmount) === 0
+                                                    }
+                                                    style={{
+                                                        ...styles.bankToBankPaymentBtn,
+                                                        flex: 1,
+                                                        opacity: (!state.paymentAmount ||
+                                                            parseFloat(state.paymentAmount) === 0) ? 0.5 : 1
+                                                    }}
                                                 >
-                                                    🏦 Bank Transfer
+                                                    🏦 Transfer
                                                 </button>
+
+                                                {/* CREDIT - Only for not fully settled bills */}
+                                                {!state.isUpdatingCompletedBill && (
+                                                    <button
+                                                        onClick={handleCreditPayment}
+                                                        disabled={
+                                                            state.isPrinting ||
+                                                            !state.paymentAmount ||
+                                                            parseFloat(state.paymentAmount) === 0
+                                                        }
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: '12px',
+                                                            background: '#f59e0b',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '12px',
+                                                            fontWeight: '600',
+                                                            fontSize: '13px',
+                                                            cursor: (!state.paymentAmount ||
+                                                                parseFloat(state.paymentAmount) === 0)
+                                                                ? 'not-allowed'
+                                                                : 'pointer',
+                                                            opacity: (!state.paymentAmount ||
+                                                                parseFloat(state.paymentAmount) === 0)
+                                                                ? 0.5
+                                                                : 1,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            gap: '6px'
+                                                        }}
+                                                    >
+                                                        💳 Credit
+                                                    </button>
+                                                )}
                                             </div>
 
-                                            {/* CREDIT BUTTON - Available in BOTH sections (Not Settled AND Fully Settled) */}
-                                            {!state.isUpdatingCompletedBill && (
-                                                <button
-                                                    onClick={handleCreditPayment}
-                                                    disabled={state.isPrinting || !state.paymentAmount || parseFloat(state.paymentAmount) === 0}
-                                                    style={{
-                                                        width: '100%',
-                                                        marginTop: '12px',
-                                                        padding: '12px',
-                                                        background: '#f59e0b',
-                                                        color: 'white',
-                                                        border: 'none',
-                                                        borderRadius: '12px',
-                                                        fontWeight: '600',
-                                                        fontSize: '13px',
-                                                        cursor: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 'not-allowed' : 'pointer',
-                                                        opacity: (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) ? 0.5 : 1,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        gap: '8px'
-                                                    }}
-                                                >
-                                                    💳 Take Credit (Payable to Supplier)
-                                                </button>
-                                            )}
-
-                                            {/* Three Adjustment Buttons - Show for BOTH Not Settled AND Credit Settlement */}
+                                            {/* Three Adjustment Buttons - All use processPayment which handles credit settlement */}
+                                            {/* Three Adjustment Buttons - All use processPayment which handles credit settlement */}
                                             <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
                                                 <button
                                                     onClick={async () => {
@@ -3264,15 +3380,8 @@ export default function SupplierReport() {
                                                             alert("Please enter an amount");
                                                             return;
                                                         }
-                                                        // If this is credit settlement, pass to credit settlement with adjustment
-                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                                                            // For credit settlement with adjustment, we need to handle it differently
-                                                            // Since adjustments are for payments, we'll use the adjustment modal first
-                                                            setSelectedAdjustmentType('bag_to_box');
-                                                            setShowAdjustmentModal(true);
-                                                        } else {
-                                                            handleBagToBoxAdjustment();
-                                                        }
+                                                        setSelectedAdjustmentType('bag_to_box');
+                                                        setShowAdjustmentModal(true);
                                                     }}
                                                     disabled={state.isPrinting}
                                                     style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
@@ -3285,12 +3394,8 @@ export default function SupplierReport() {
                                                             alert("Please enter an amount");
                                                             return;
                                                         }
-                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                                                            setSelectedAdjustmentType('bill_to_bill');
-                                                            setShowAdjustmentModal(true);
-                                                        } else {
-                                                            handleBillToBillAdjustment();
-                                                        }
+                                                        setSelectedAdjustmentType('bill_to_bill');
+                                                        setShowAdjustmentModal(true);
                                                     }}
                                                     disabled={state.isPrinting}
                                                     style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
@@ -3303,19 +3408,14 @@ export default function SupplierReport() {
                                                             alert("Please enter an amount");
                                                             return;
                                                         }
-                                                        if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                                                            setSelectedAdjustmentType('bad_debt');
-                                                            setShowAdjustmentModal(true);
-                                                        } else {
-                                                            handleBadDebtAdjustment();
-                                                        }
+                                                        setSelectedAdjustmentType('bad_debt');
+                                                        setShowAdjustmentModal(true);
                                                     }}
                                                     disabled={state.isPrinting}
                                                     style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #ef4444, #dc2626)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                                     <span>⚠️</span> Bad Debt
                                                 </button>
                                             </div>
-
                                             {/* Credit Info Message - Only show when bill is fully settled and has credit */}
                                             {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
                                                 <div style={{
