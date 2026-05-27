@@ -1819,150 +1819,157 @@ export default function SupplierReport() {
         await handleSupplierClick(supplier.code, state.selectedBillNo);
     };
 
-    const handleSupplierClick = async (supplierCode, billNo = null) => {
-        if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
-            setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
-            setSelectedBillCreditor(null);
-            setIsMiddlePanelLocked(true);
-            return;
+ const handleSupplierClick = async (supplierCode, billNo = null) => {
+    if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
+        setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
+        setSelectedBillCreditor(null);
+        setIsMiddlePanelLocked(true);
+        return;
+    }
+    setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
+    try {
+        let url, response;
+        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+
+        if (billNo) {
+            url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+            if (useHistoryParam) {
+                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+            }
+            response = await api.get(url);
+        } else {
+            url = `${routes.getUnprintedDetails}/${supplierCode}`;
+            if (useHistoryParam) {
+                url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+            }
+            response = await api.get(url);
         }
-        setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
-        try {
-            let url, response;
-            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
 
-            if (billNo) {
-                url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+        const salesData = response.data.sales || response.data;
+
+        let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+        const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+        );
+
+        let actualBillTotal = calculatedTotal;
+        let creditAmount = 0;
+        let creditorRemainingAmount = 0;
+
+        if (billFromState && billFromState.total_amount) {
+            actualBillTotal = parseFloat(billFromState.total_amount);
+        }
+
+        const total = actualBillTotal;
+
+        let currentPaid = 0;
+        let paymentBreakdown = [];
+        let hasCreditor = false;
+
+        if (billNo) {
+            try {
+                let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
                 if (useHistoryParam) {
-                    url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
                 }
-                response = await api.get(url);
-            } else {
-                url = `${routes.getUnprintedDetails}/${supplierCode}`;
-                if (useHistoryParam) {
-                    url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                response = await api.get(url);
-            }
-
-            const salesData = response.data.sales || response.data;
-
-            // Calculate total from sales data
-            let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-
-            // Get the actual bill total from the supplier item in state
-            let actualBillTotal = calculatedTotal;
-
-            // Find the bill in completedSuppliers to get the correct total amount
-            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            if (billFromState && billFromState.total_amount) {
-                actualBillTotal = parseFloat(billFromState.total_amount);
-            }
-
-            const total = actualBillTotal;
-
-            let currentPaid = 0;
-            let paymentBreakdown = [];
-
-            // Variable to track if bill has a creditor number
-            let hasCreditor = false;
-            let creditAmount = 0;
-            let creditorRemainingAmount = 0;
-
-            if (billNo) {
-                try {
-                    let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-                    if (useHistoryParam) {
-                        loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                    }
-                    const loanRes = await api.get(loanUrl);
-                    if (loanRes.data) {
-                        // CRITICAL: Calculate paid amount from payment_details excluding Credit
-                        const paymentDetails = loanRes.data.payment_details || [];
-                        currentPaid = calculateTotalPaidExcludingCredit(paymentDetails);
+                const loanRes = await api.get(loanUrl);
+                if (loanRes.data) {
+                    const paymentDetails = loanRes.data.payment_details || [];
+                    if (typeof paymentDetails === 'string') {
+                        paymentBreakdown = JSON.parse(paymentDetails);
+                    } else {
                         paymentBreakdown = paymentDetails;
-                        if (typeof paymentBreakdown === 'string') {
-                            paymentBreakdown = JSON.parse(paymentBreakdown);
-                        }
                     }
-                } catch (loanError) {
-                    console.error('Error fetching loan details:', loanError);
-                }
-            }
-
-            // Get creditor info
-            let creditorInfo = null;
-            if (billNo) {
-                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-                setSelectedBillCreditor(creditorInfo);
-                console.log('Creditor Info:', creditorInfo);
-
-                if (creditorInfo) {
-                    creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
-                    creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
-
-                    // Check for creditor number
-                    hasCreditor = creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no || creditorInfo.creditor_number || creditorInfo.CreditorNo;
-                    if (!hasCreditor && creditorInfo.Creditor === 'Y') {
-                        hasCreditor = true;
+                    
+                    // Calculate total paid from ALL payment methods including Credit
+                    let totalPaidFromPayments = 0;
+                    if (Array.isArray(paymentBreakdown)) {
+                        paymentBreakdown.forEach(payment => {
+                            const amount = parseFloat(payment.amount) || 0;
+                            totalPaidFromPayments += amount;
+                            console.log(`Payment method: ${payment.method}, Amount: ${amount}`);
+                        });
                     }
+                    currentPaid = totalPaidFromPayments;
+                    console.log(`Total paid from ALL payments (including Credit): ${currentPaid}`);
                 }
-            } else {
-                setSelectedBillCreditor(null);
+            } catch (loanError) {
+                console.error('Error fetching loan details:', loanError);
             }
-
-            // CRITICAL: Determine if this bill is fully settled (either by payments OR credit)
-            // A bill is considered "Fully Settled" for payment purposes if:
-            // 1. The actual payments (excluding credit) cover the total bill amount, OR
-            // 2. There is credit amount on the bill (meaning the supplier owes money)
-            //    This allows credit settlement payments to be made even if actual payments don't cover the bill
-            const actualRemaining = total - currentPaid;
-            const hasCreditAmount = creditAmount > 0;
-            const hasRemainingCredit = creditorRemainingAmount > 0;
-
-            // Set isUpdatingCompletedBill to true if:
-            // 1. Actual payments cover the bill, OR
-            // 2. There is ANY credit amount on the bill (to allow credit settlement)
-            const isActuallyFullySettled = actualRemaining <= 0 || hasCreditAmount;
-
-            console.log('🔍 handleSupplierClick - Setting isUpdatingCompletedBill:', {
-                total,
-                currentPaid,
-                actualRemaining,
-                creditAmount,
-                creditorRemainingAmount,
-                hasCreditAmount,
-                hasRemainingCredit,
-                isActuallyFullySettled
-            });
-
-            // IMPORTANT: Set isUpdatingCompletedBill to true if there's credit amount on the bill
-            // This allows credit settlement payments to be processed
-            setState(prev => ({ ...prev, isUpdatingCompletedBill: hasCreditAmount }));
-
-            console.log('Has Creditor:', hasCreditor);
-            console.log('Setting isMiddlePanelLocked to:', !hasCreditor);
-            setIsMiddlePanelLocked(!hasCreditor);
-
-            setState(prev => ({
-                ...prev,
-                supplierDetails: salesData || [],
-                paymentAmount: hasRemainingCredit ? creditorRemainingAmount.toString() : (Math.max(0, total - currentPaid).toString()),
-                currentPaidAmount: currentPaid,
-                paymentBreakdown: paymentBreakdown,
-                isPrinting: false,
-                currentBillTotal: total
-            }));
-        } catch (error) {
-            console.error('Error fetching supplier details:', error);
-            setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
-            setSelectedBillCreditor(null);
-            setIsMiddlePanelLocked(true);
         }
-    };
+
+        // Get creditor info
+        let creditorInfo = null;
+        if (billNo) {
+            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+            setSelectedBillCreditor(creditorInfo);
+
+            if (creditorInfo) {
+                creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
+                creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
+
+                hasCreditor = creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no || creditorInfo.creditor_number || creditorInfo.CreditorNo;
+                if (!hasCreditor && creditorInfo.Creditor === 'Y') {
+                    hasCreditor = true;
+                }
+            }
+        } else {
+            setSelectedBillCreditor(null);
+        }
+
+        // CRITICAL: Check if this bill is from Not Settled section
+        const isFromNotSettled = state.pendingSuppliers.some(
+            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+        );
+
+        // Calculate the TOTAL remaining amount (including credit that has been given)
+        let totalRemainingAmount = 0;
+        let isUpdatingCompletedBill = false;
+
+        if (isFromNotSettled) {
+            // For Not Settled bills: remaining = (total bill amount - total paid from ALL payment methods)
+            // This includes Cash, Cheque, Bank Transfer, AND Credit payments
+            totalRemainingAmount = Math.max(0, total - currentPaid);
+            isUpdatingCompletedBill = false;
+            console.log('🔍 Not Settled Bill:');
+            console.log('   Total Bill:', total);
+            console.log('   Total Paid (including Credit):', currentPaid);
+            console.log('   Total Remaining:', totalRemainingAmount);
+            console.log('   Credit Amount Given:', creditAmount);
+        } else {
+            // For Fully Settled bills (from completed list)
+            totalRemainingAmount = creditorRemainingAmount;
+            isUpdatingCompletedBill = true;
+            console.log('🔍 Fully Settled Bill - Remaining Credit:', totalRemainingAmount);
+        }
+
+        console.log('Setting isUpdatingCompletedBill to:', isUpdatingCompletedBill);
+        setIsMiddlePanelLocked(!hasCreditor);
+
+        // Set the payment amount to the total remaining amount
+        const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
+
+        setState(prev => ({
+            ...prev,
+            supplierDetails: salesData || [],
+            paymentAmount: defaultPaymentAmount,
+            currentPaidAmount: currentPaid,
+            paymentBreakdown: paymentBreakdown,
+            isPrinting: false,
+            currentBillTotal: total,
+            isUpdatingCompletedBill: isUpdatingCompletedBill
+        }));
+        
+        console.log('✅ State updated - paymentAmount set to:', defaultPaymentAmount);
+        console.log('✅ State updated - currentPaidAmount set to:', currentPaid);
+    } catch (error) {
+        console.error('Error fetching supplier details:', error);
+        setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
+        setSelectedBillCreditor(null);
+        setIsMiddlePanelLocked(true);
+    }
+};
     const generateBillContent = async (billNo) => {
         try {
             const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
