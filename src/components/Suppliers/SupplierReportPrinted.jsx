@@ -1819,7 +1819,7 @@ export default function SupplierReport() {
         await handleSupplierClick(supplier.code, state.selectedBillNo);
     };
 
- const handleSupplierClick = async (supplierCode, billNo = null) => {
+const handleSupplierClick = async (supplierCode, billNo = null) => {
     if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
         setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
         setSelectedBillCreditor(null);
@@ -1882,17 +1882,27 @@ export default function SupplierReport() {
                         paymentBreakdown = paymentDetails;
                     }
                     
-                    // Calculate total paid from ALL payment methods including Credit
+                    // CRITICAL FIX: For Fully Settled bills, exclude Credit from total paid
+                    // Check if this bill is from Fully Settled section
+                    const isFromFullySettled = state.completedSuppliers.some(
+                        item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+                    );
+                    
                     let totalPaidFromPayments = 0;
                     if (Array.isArray(paymentBreakdown)) {
                         paymentBreakdown.forEach(payment => {
                             const amount = parseFloat(payment.amount) || 0;
-                            totalPaidFromPayments += amount;
-                            console.log(`Payment method: ${payment.method}, Amount: ${amount}`);
+                            // For Fully Settled bills, exclude Credit from Total Paid display
+                            if (isFromFullySettled && payment.method === 'Credit') {
+                                console.log(`Excluding Credit payment of Rs. ${amount} from Total Paid (Fully Settled bill)`);
+                            } else {
+                                totalPaidFromPayments += amount;
+                            }
+                            console.log(`Payment method: ${payment.method}, Amount: ${amount}, Included: ${!(isFromFullySettled && payment.method === 'Credit')}`);
                         });
                     }
                     currentPaid = totalPaidFromPayments;
-                    console.log(`Total paid from ALL payments (including Credit): ${currentPaid}`);
+                    console.log(`Total paid (excluding Credit for Fully Settled bills): ${currentPaid}`);
                 }
             } catch (loanError) {
                 console.error('Error fetching loan details:', loanError);
@@ -1918,27 +1928,31 @@ export default function SupplierReport() {
             setSelectedBillCreditor(null);
         }
 
-        // CRITICAL: Check if this bill is from Not Settled section
+        // CRITICAL: Check which section this bill belongs to
         const isFromNotSettled = state.pendingSuppliers.some(
             item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
         );
+        
+        const isFromFullySettled = state.completedSuppliers.some(
+            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+        );
 
-        // Calculate the TOTAL remaining amount (including credit that has been given)
+        // Calculate the TOTAL remaining amount
         let totalRemainingAmount = 0;
         let isUpdatingCompletedBill = false;
 
         if (isFromNotSettled) {
             // For Not Settled bills: remaining = (total bill amount - total paid from ALL payment methods)
             // This includes Cash, Cheque, Bank Transfer, AND Credit payments
-            totalRemainingAmount = Math.max(0, total - currentPaid);
+            const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+            totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
             isUpdatingCompletedBill = false;
             console.log('🔍 Not Settled Bill:');
             console.log('   Total Bill:', total);
-            console.log('   Total Paid (including Credit):', currentPaid);
+            console.log('   Total Paid (including Credit):', totalPaidIncludingCredit);
             console.log('   Total Remaining:', totalRemainingAmount);
-            console.log('   Credit Amount Given:', creditAmount);
-        } else {
-            // For Fully Settled bills (from completed list)
+        } else if (isFromFullySettled) {
+            // For Fully Settled bills: remaining = remaining credit amount (what's payable TO supplier)
             totalRemainingAmount = creditorRemainingAmount;
             isUpdatingCompletedBill = true;
             console.log('🔍 Fully Settled Bill - Remaining Credit:', totalRemainingAmount);
@@ -1954,7 +1968,7 @@ export default function SupplierReport() {
             ...prev,
             supplierDetails: salesData || [],
             paymentAmount: defaultPaymentAmount,
-            currentPaidAmount: currentPaid,
+            currentPaidAmount: currentPaid, // This now excludes Credit for Fully Settled bills
             paymentBreakdown: paymentBreakdown,
             isPrinting: false,
             currentBillTotal: total,
