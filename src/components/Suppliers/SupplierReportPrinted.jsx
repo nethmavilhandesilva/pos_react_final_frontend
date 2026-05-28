@@ -873,6 +873,26 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
     const [selectedSupplierData, setSelectedSupplierData] = useState(null);
     const [formData, setFormData] = useState({ code: '', name: '', dob: '', address: '', telephone_no: '', profile_pic: null, nic_front: null, nic_back: null });
 
+    // Refs for form fields in supplier form
+    const nameRef = useRef(null);
+    const dobRef = useRef(null);
+    const addressRef = useRef(null);
+    const telephoneRef = useRef(null);
+    const profilePicRef = useRef(null);
+    const nicFrontRef = useRef(null);
+    const nicBackRef = useRef(null);
+    const submitButtonRef = useRef(null);
+    const backButtonRef = useRef(null);
+
+    // Auto-focus name field when supplier form opens
+    useEffect(() => {
+        if (showSupplierForm && nameRef.current) {
+            setTimeout(() => {
+                nameRef.current.focus();
+            }, 100);
+        }
+    }, [showSupplierForm]);
+
     // IMPORTANT: Keep formData.code in sync with supplierCode
     useEffect(() => {
         if (supplierCode) {
@@ -935,7 +955,6 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 }
                 await api.post('/creditors/create-with-supplier', { bill_no: billNo, supplier_code: supplierCode, credit_amount: 0, creditor_no: selectedSupplierData.Creditor_no });
                 alert(`✅ Creditor record created for Bill #${billNo}\n📋 Supplier: ${supplierCode}`);
-                // ✅ Pass the supplier data back
                 onConfirm(selectedSupplierData);
                 onClose();
             } else {
@@ -947,6 +966,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
             setLoading(false);
         }
     };
+
     const handleCreateSupplier = async () => {
         const submitData = new FormData();
         submitData.append('code', supplierCode.toUpperCase());
@@ -967,7 +987,6 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 await api.post('/creditors/create-with-supplier', { bill_no: billNo, supplier_code: supplierCode.toUpperCase(), credit_amount: 0, creditor_no: response.data.Creditor_no });
             }
             alert(`Supplier registered as Creditor successfully!\nCreditor Number: ${response.data.Creditor_no}`);
-            // ✅ Pass the created supplier data back
             onConfirm(response.data.supplier);
             onClose();
         } catch (error) {
@@ -977,28 +996,135 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
             setLoading(false);
         }
     };
+
+    // Handle Enter key navigation
+    const handleKeyPress = (e, nextRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextRef && nextRef.current) {
+                nextRef.current.focus();
+            }
+        }
+    };
+
+    const handleLastFieldKeyPress = (e, isLastField = false) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (isLastField) {
+                if (submitButtonRef.current) {
+                    submitButtonRef.current.click();
+                }
+            } else if (submitButtonRef.current) {
+                submitButtonRef.current.focus();
+            }
+        }
+    };
+
     if (showSupplierForm) {
         return (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 20001, overflowY: 'auto' }} onClick={onClose}>
                 <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', maxWidth: '90%', margin: '50px auto', padding: '24px' }} onClick={(e) => e.stopPropagation()}>
                     <h3>Create New Supplier (Creditor)</h3>
                     {billNo && <div style={{ background: '#e0f2fe', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px' }}>📄 This will be linked to Bill No: {billNo}</div>}
-                    {/* Show the supplier code as read-only since it was already entered */}
                     <div style={{ marginBottom: '12px' }}>
                         <label>Supplier Code <span style={{ color: 'red' }}>*</span></label>
                         <input type="text" value={supplierCode} disabled style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px', background: '#f5f5f5' }} />
                     </div>
                     <form onSubmit={(e) => { e.preventDefault(); handleCreateSupplier(); }}>
-                        <input type="text" name="name" placeholder="Supplier Name *" required onChange={(e) => setFormData({ ...formData, name: e.target.value })} style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }} />
-                        <input type="date" name="dob" required onChange={(e) => setFormData({ ...formData, dob: e.target.value })} style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }} />
-                        <textarea name="address" placeholder="Address *" required onChange={(e) => setFormData({ ...formData, address: e.target.value })} style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }} />
-                        <input type="text" name="telephone_no" placeholder="Telephone No *" required onChange={(e) => setFormData({ ...formData, telephone_no: e.target.value })} style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }} />
-                        <input type="file" name="profile_pic" accept="image/*" onChange={(e) => setFormData({ ...formData, profile_pic: e.target.files[0] })} style={{ width: '100%', padding: '10px', margin: '8px 0' }} />
-                        <input type="file" name="nic_front" accept="image/*" onChange={(e) => setFormData({ ...formData, nic_front: e.target.files[0] })} style={{ width: '100%', padding: '10px', margin: '8px 0' }} />
-                        <input type="file" name="nic_back" accept="image/*" onChange={(e) => setFormData({ ...formData, nic_back: e.target.files[0] })} style={{ width: '100%', padding: '10px', margin: '8px 0' }} />
-                        <button type="submit" disabled={loading} style={{ padding: '12px 24px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', width: '100%', marginTop: '16px' }}>Create Supplier</button>
+                        <input
+                            ref={nameRef}
+                            type="text"
+                            name="name"
+                            placeholder="Supplier Name *"
+                            required
+                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                            onKeyPress={(e) => handleKeyPress(e, dobRef)}
+                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
+                        />
+                        <input
+                            ref={dobRef}
+                            type="date"
+                            name="dob"
+                            required
+                            onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                            onKeyPress={(e) => handleKeyPress(e, addressRef)}
+                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
+                        />
+                        <textarea
+                            ref={addressRef}
+                            name="address"
+                            placeholder="Address *"
+                            required
+                            rows="2"
+                            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                            onKeyPress={(e) => handleKeyPress(e, telephoneRef)}
+                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
+                        />
+                        <input
+                            ref={telephoneRef}
+                            type="text"
+                            name="telephone_no"
+                            placeholder="Telephone No *"
+                            required
+                            onChange={(e) => setFormData({ ...formData, telephone_no: e.target.value })}
+                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
+                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
+                        />
+                        <input
+                            ref={profilePicRef}
+                            type="file"
+                            name="profile_pic"
+                            accept="image/*"
+                            onChange={(e) => setFormData({ ...formData, profile_pic: e.target.files[0] })}
+                            onKeyPress={(e) => handleKeyPress(e, nicFrontRef)}
+                            style={{ width: '100%', padding: '10px', margin: '8px 0' }}
+                        />
+                        <input
+                            ref={nicFrontRef}
+                            type="file"
+                            name="nic_front"
+                            accept="image/*"
+                            onChange={(e) => setFormData({ ...formData, nic_front: e.target.files[0] })}
+                            onKeyPress={(e) => handleKeyPress(e, nicBackRef)}
+                            style={{ width: '100%', padding: '10px', margin: '8px 0' }}
+                        />
+                        <input
+                            ref={nicBackRef}
+                            type="file"
+                            name="nic_back"
+                            accept="image/*"
+                            onChange={(e) => setFormData({ ...formData, nic_back: e.target.files[0] })}
+                            onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
+                            style={{ width: '100%', padding: '10px', margin: '8px 0' }}
+                        />
+                        <button
+                            ref={submitButtonRef}
+                            type="submit"
+                            disabled={loading}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleCreateSupplier();
+                                }
+                            }}
+                            style={{ padding: '12px 24px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', width: '100%', marginTop: '16px' }}
+                        >
+                            {loading ? 'Saving...' : 'Create Supplier'}
+                        </button>
                     </form>
-                    <button onClick={() => setShowSupplierForm(false)} style={{ marginTop: '12px', padding: '8px', background: '#f1f5f9', border: 'none', borderRadius: '8px', width: '100%' }}>Back</button>
+                    <button
+                        ref={backButtonRef}
+                        onClick={() => setShowSupplierForm(false)}
+                        onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setShowSupplierForm(false);
+                            }
+                        }}
+                        style={{ marginTop: '12px', padding: '8px', background: '#f1f5f9', border: 'none', borderRadius: '8px', width: '100%', cursor: 'pointer' }}
+                    >
+                        Back
+                    </button>
                 </div>
             </div>
         );
