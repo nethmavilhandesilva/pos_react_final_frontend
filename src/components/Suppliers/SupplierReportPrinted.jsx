@@ -2164,16 +2164,33 @@ export default function SupplierReport() {
                     return total;
                 }, 0);
 
-                // Also get remaining balance from the response or calculate it
-                const totalBillAmount = response.data.data.total_bill_amount ||
-                    (response.data.data.total_paid + response.data.data.remaining_balance);
+                // ✅ FIX: Get total bill amount from response data
+                // Try multiple possible field names
+                let totalBillAmount = response.data.data.total_bill_amount ||
+                    response.data.data.total_amount ||
+                    response.data.data.bill_total ||
+                    0;
+
+                // If totalBillAmount is still 0, try to calculate from payments + remaining
+                if (totalBillAmount === 0) {
+                    const remainingBalance = response.data.data.remaining_balance || 0;
+                    totalBillAmount = calculatedTotalPaid + remainingBalance;
+                }
+
                 const remainingBalance = response.data.data.remaining_balance ||
                     (totalBillAmount - calculatedTotalPaid);
+
+                console.log('Payment History Data:', {
+                    totalBillAmount,
+                    calculatedTotalPaid,
+                    remainingBalance,
+                    payments: uniquePayments
+                });
 
                 setState(prev => ({
                     ...prev,
                     currentPayments: uniquePayments,
-                    paymentHistoryTotalPaid: calculatedTotalPaid, // Use calculated value
+                    paymentHistoryTotalPaid: calculatedTotalPaid,
                     paymentHistoryTotalBill: totalBillAmount,
                     paymentHistoryRemaining: remainingBalance,
                     showPaymentHistoryModal: true
@@ -3281,7 +3298,7 @@ export default function SupplierReport() {
             setState(prev => ({ ...prev, paymentAmount: calculatedAdjustmentAmount.toString() }));
         }
     }, [calculatedAdjustmentAmount, showAdjustmentModal]);
-    
+
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedSupplier || state.isPrinting) return;
         setState(prev => ({ ...prev, isPrinting: true }));
@@ -4289,7 +4306,14 @@ export default function SupplierReport() {
                 adjustmentType={selectedAdjustmentType}
                 onAmountCalculated={handleAdjustmentAmountCalculated}  // Add this line
             />
-            <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
+          <PaymentHistoryModal 
+    isOpen={state.showPaymentHistoryModal} 
+    onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} 
+    payments={state.currentPayments} 
+    totalPaid={state.paymentHistoryTotalPaid} 
+    totalBill={state.paymentHistoryTotalBill} 
+    remaining={state.paymentHistoryRemaining} 
+/>
             <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null }))} onConfirm={handleDeletePayment} supplierCode={state.deleteSupplierCode} billNo={state.deleteBillNo} />
             <DetailedReportModal isOpen={showDetailedReport} onClose={() => setShowDetailedReport(false)} data={detailedReportData} supplierCode={selectedReportSupplier} isLoading={isLoadingReport} />
             {showCreditorModal && (
