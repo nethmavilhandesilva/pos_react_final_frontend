@@ -462,7 +462,7 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) =
 };
 
 // ==================== PAYMENT ADJUSTMENT MODAL ====================
-const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCode, originalBillTotal, adjustmentType = 'bag_to_box' }) => {
+const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCode, originalBillTotal, adjustmentType = 'bag_to_box', onAmountCalculated }) => {
     const [bagCount, setBagCount] = useState('');
     const [boxCount, setBoxCount] = useState('');
     const [bagValue, setBagValue] = useState('');
@@ -485,6 +485,38 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
     const badDebtAmountRef = useRef(null);
     const cancelButtonRef = useRef(null);
     const confirmButtonRef = useRef(null);
+
+    // Effect to auto-calculate and send amount for bag_to_box
+    useEffect(() => {
+        if (adjustmentType === 'bag_to_box' && onAmountCalculated) {
+            const totalBagValue = (parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0);
+            const totalBoxValue = (parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0);
+            const amount = Math.abs(totalBagValue + totalBoxValue);
+            if (amount > 0) {
+                onAmountCalculated(amount);
+            }
+        }
+    }, [bagCount, bagValue, boxCount, boxValue, adjustmentType]);
+
+    // Effect for bill_to_bill
+    useEffect(() => {
+        if (adjustmentType === 'bill_to_bill' && onAmountCalculated) {
+            const amount = parseFloat(targetSupplierBillValue) || 0;
+            if (amount > 0) {
+                onAmountCalculated(amount);
+            }
+        }
+    }, [targetSupplierBillValue, adjustmentType]);
+
+    // Effect for bad_debt
+    useEffect(() => {
+        if (adjustmentType === 'bad_debt' && onAmountCalculated) {
+            const amount = parseFloat(badDebtAmount) || 0;
+            if (amount > 0) {
+                onAmountCalculated(amount);
+            }
+        }
+    }, [badDebtAmount, adjustmentType]);
 
     if (!isOpen) return null;
 
@@ -640,6 +672,11 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                             <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', padding: '16px', borderRadius: '12px' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600' }}>📊 Adjustment Summary</div>
                                 <div>Adjustment Amount: Rs. {Math.abs(calculateBagToBoxAdjustment()).toFixed(2)}</div>
+                                {Math.abs(calculateBagToBoxAdjustment()) > 0 && (
+                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#92400e' }}>
+                                        💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
@@ -685,6 +722,11 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                             <div style={{ background: '#dbeafe', padding: '16px', borderRadius: '12px', marginTop: '16px' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600' }}>📊 Transfer Summary</div>
                                 <div>Transfer Amount: Rs. {(parseFloat(targetSupplierBillValue) || 0).toLocaleString()}</div>
+                                {(parseFloat(targetSupplierBillValue) || 0) > 0 && (
+                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#1e40af' }}>
+                                        💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -715,6 +757,11 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                             </div>
                             <div style={{ background: '#fee2e2', padding: '16px', borderRadius: '12px' }}>
                                 <div style={{ fontSize: '14px', fontWeight: '600' }}>⚠️ Bad Debt Write-off: Rs. {(parseFloat(badDebtAmount) || 0).toLocaleString()}</div>
+                                {(parseFloat(badDebtAmount) || 0) > 0 && (
+                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#991b1b' }}>
+                                        💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
@@ -1311,6 +1358,7 @@ export default function SupplierReport() {
 
     // Add these state variables with your other useState declarations
     const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
+    const [calculatedAdjustmentAmount, setCalculatedAdjustmentAmount] = useState(0);
     const [selectedAdjustmentType, setSelectedAdjustmentType] = useState('bag_to_box');
 
     const [state, setState] = useState({
@@ -1435,6 +1483,12 @@ export default function SupplierReport() {
             }
         }
         return total;
+    };
+    // Handler for adjustment amount calculation
+    const handleAdjustmentAmountCalculated = (amount) => {
+        setCalculatedAdjustmentAmount(amount);
+        // Update the paymentAmount state with the calculated amount
+        setState(prev => ({ ...prev, paymentAmount: amount.toString() }));
     };
     const unlockMiddlePanel = () => {
         setIsMiddlePanelLocked(false);
@@ -3095,7 +3149,13 @@ export default function SupplierReport() {
         if (!window.confirm(`⚠️ CREDIT PAYMENT CONFIRMATION\nSupplier: ${state.selectedSupplier}\nAmount: Rs. ${paymentAmount.toFixed(2)}\nThis will be recorded as PAYABLE to the supplier.`)) return;
         await processCreditPayment(paymentAmount);
     };
-
+    // Update payment amount when calculated adjustment amount changes
+    useEffect(() => {
+        if (calculatedAdjustmentAmount > 0 && showAdjustmentModal) {
+            setState(prev => ({ ...prev, paymentAmount: calculatedAdjustmentAmount.toString() }));
+        }
+    }, [calculatedAdjustmentAmount, showAdjustmentModal]);
+    
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedSupplier || state.isPrinting) return;
         setState(prev => ({ ...prev, isPrinting: true }));
@@ -3189,8 +3249,19 @@ export default function SupplierReport() {
             ...adjustmentData
         };
 
-        await processPayment(adjustmentAmount, false, null, false, null, true, adjustmentPayload);
+        // Make sure the payment amount is set before processing
+        if (parseFloat(state.paymentAmount) !== adjustmentAmount) {
+            setState(prev => ({ ...prev, paymentAmount: adjustmentAmount.toString() }));
+            // Small delay to ensure state updates
+            setTimeout(async () => {
+                await processPayment(adjustmentAmount, false, null, false, null, true, adjustmentPayload);
+            }, 100);
+        } else {
+            await processPayment(adjustmentAmount, false, null, false, null, true, adjustmentPayload);
+        }
+
         setState(prev => ({ ...prev, showAdjustmentModal: false }));
+        setCalculatedAdjustmentAmount(0); // Reset after confirmation
     };
 
     const handleDeletePayment = async (supplierCode, billNo) => {
@@ -4081,12 +4152,16 @@ export default function SupplierReport() {
             <BankToBankModal isOpen={state.showBankToBankModal} onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))} onConfirm={handleBankToBankConfirm} amount={state.pendingBankToBankAmount} supplierCode={state.selectedSupplier} />
             <PaymentAdjustmentModal
                 isOpen={showAdjustmentModal}
-                onClose={() => setShowAdjustmentModal(false)}
+                onClose={() => {
+                    setShowAdjustmentModal(false);
+                    setCalculatedAdjustmentAmount(0); // Reset when modal closes
+                }}
                 onConfirm={handleApplyAdjustment}
                 billNo={state.selectedBillNo}
                 supplierCode={state.selectedSupplier}
                 originalBillTotal={totalPayable}
                 adjustmentType={selectedAdjustmentType}
+                onAmountCalculated={handleAdjustmentAmountCalculated}  // Add this line
             />
             <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
             <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null }))} onConfirm={handleDeletePayment} supplierCode={state.deleteSupplierCode} billNo={state.deleteBillNo} />
