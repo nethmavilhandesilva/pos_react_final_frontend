@@ -1379,6 +1379,492 @@ const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
         </div>
     );
 };
+// ==================== INCOME SOURCES MODAL ====================
+const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, filterOptions, onAllocateFunds }) => {
+    const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
+    const [localTotals, setLocalTotals] = useState(totals);
+    const [localIsLoading, setLocalIsLoading] = useState(false);
+
+    // NEW FILTER STATES
+    const [selectedUniqueCode, setSelectedUniqueCode] = useState('all');
+    const [selectedBankName, setSelectedBankName] = useState('all');
+    const [localFilterOptions, setLocalFilterOptions] = useState(filterOptions || { unique_codes: [], bank_names: [] });
+    const [isLoadingOptions, setIsLoadingOptions] = useState(false);
+
+    // NEW: Checkbox states for each income type
+    const [selectedIncomeTypes, setSelectedIncomeTypes] = useState({
+        cash: true,
+        cheque: true,
+        bank_transfer: true,
+        bag_to_box: true,
+        bill_to_bill: true,
+        bad_debt: true
+    });
+
+    // Fetch filter options when modal opens
+    useEffect(() => {
+        if (isOpen && (!localFilterOptions.unique_codes || localFilterOptions.unique_codes.length === 0)) {
+            fetchFilterOptions();
+        }
+    }, [isOpen]);
+
+    const fetchFilterOptions = async () => {
+        setIsLoadingOptions(true);
+        try {
+            const response = await api.get('/income-filter-options');
+            if (response.data.success) {
+                setLocalFilterOptions(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching filter options:', error);
+        } finally {
+            setIsLoadingOptions(false);
+        }
+    };
+
+    useEffect(() => {
+        if (totals) {
+            console.log('Income totals received:', {
+                cash: totals.cash,
+                cheque: totals.cheque,
+                bank_transfer: totals.bank_transfer,
+                bag_to_box: totals.bag_to_box,
+                bill_to_bill: totals.bill_to_bill,
+                bad_debt: totals.bad_debt
+            });
+            setLocalTotals(totals);
+        }
+    }, [totals]);
+
+    if (!isOpen) return null;
+
+    const formatCurrency = (amount) => `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const handleApplyFilters = async () => {
+        setLocalIsLoading(true);
+        try {
+            await onRefresh(
+                dateRange.startDate,
+                dateRange.endDate,
+                selectedUniqueCode,
+                selectedBankName
+            );
+        } finally {
+            setLocalIsLoading(false);
+        }
+    };
+
+    const handleResetFilters = async () => {
+        setDateRange({ startDate: '', endDate: '' });
+        setSelectedUniqueCode('all');
+        setSelectedBankName('all');
+        setLocalIsLoading(true);
+        try {
+            await onRefresh();
+        } finally {
+            setLocalIsLoading(false);
+        }
+    };
+
+    // Calculate total based on selected checkboxes
+    const calculateSelectedTotal = () => {
+        let total = 0;
+        if (selectedIncomeTypes.cash) total += localTotals?.cash || 0;
+        if (selectedIncomeTypes.cheque) total += localTotals?.cheque || 0;
+        if (selectedIncomeTypes.bank_transfer) total += localTotals?.bank_transfer || 0;
+        if (selectedIncomeTypes.bag_to_box) total += localTotals?.bag_to_box || 0;
+        if (selectedIncomeTypes.bill_to_bill) total += localTotals?.bill_to_bill || 0;
+        if (selectedIncomeTypes.bad_debt) total += localTotals?.bad_debt || 0;
+        return total;
+    };
+
+    const handleCheckboxChange = (type) => {
+        setSelectedIncomeTypes(prev => ({
+            ...prev,
+            [type]: !prev[type]
+        }));
+    };
+
+    const handleAllocateFunds = () => {
+        const selectedTotal = calculateSelectedTotal();
+        if (selectedTotal > 0) {
+            onAllocateFunds(selectedTotal);
+            alert(`✅ Funds Allocated: ${formatCurrency(selectedTotal)}\n\nThis amount has been added to the Funds Allocated total in the navbar.`);
+        } else {
+            alert('Please select at least one income source to allocate funds.');
+        }
+    };
+
+    // Income items with checkboxes
+    const incomeItems = [
+        { id: 'cash', icon: '💰', label: 'Cash Payments', value: localTotals?.cash || 0, color: '#10b981', bg: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' },
+        { id: 'cheque', icon: '💳', label: 'Cheque Payments', value: localTotals?.cheque || 0, color: '#8b5cf6', bg: 'linear-gradient(135deg, #ede9fe, #ddd6fe)' },
+        { id: 'bank_transfer', icon: '🏦', label: 'Bank Transfer Payments', value: localTotals?.bank_transfer || 0, color: '#ec489a', bg: 'linear-gradient(135deg, #fce7f3, #fbcfe8)' },
+        { id: 'bag_to_box', icon: '📦', label: 'Bag to Box Conversion', value: localTotals?.bag_to_box || 0, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
+        { id: 'bill_to_bill', icon: '📄', label: 'Bill to Bill Transfer', value: localTotals?.bill_to_bill || 0, color: '#3b82f6', bg: 'linear-gradient(135deg, #dbeafe, #bfdbfe)' },
+        { id: 'bad_debt', icon: '⚠️', label: 'Bad Debt Write-off', value: localTotals?.bad_debt || 0, color: '#ef4444', bg: 'linear-gradient(135deg, #fee2e2, #fecaca)' }
+    ];
+
+    const totalIncome = (localTotals?.cash || 0) + (localTotals?.cheque || 0) + (localTotals?.bank_transfer || 0) +
+        (localTotals?.bag_to_box || 0) + (localTotals?.bill_to_bill || 0) + (localTotals?.bad_debt || 0);
+
+    const selectedTotal = calculateSelectedTotal();
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20005
+        }} onClick={onClose}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '20px',
+                width: '550px',
+                maxWidth: '90%',
+                padding: '24px',
+                maxHeight: '85vh',
+                overflowY: 'auto'
+            }} onClick={e => e.stopPropagation()}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '20px',
+                    paddingBottom: '12px',
+                    borderBottom: '2px solid #e2e8f0'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '32px' }}>💰</span>
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Income Sources</h3>
+                    </div>
+                    <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', fontSize: '20px', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%' }}>×</button>
+                </div>
+
+                {/* Filter Section */}
+                <div style={{
+                    marginBottom: '20px',
+                    padding: '16px',
+                    background: '#f8fafc',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0'
+                }}>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '12px' }}>
+                        🔍 Filters
+                    </div>
+
+                    {/* User Filter - UniqueCode */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>👤 User (Unique Code)</label>
+                        <select
+                            value={selectedUniqueCode}
+                            onChange={(e) => setSelectedUniqueCode(e.target.value)}
+                            disabled={isLoadingOptions}
+                            style={{
+                                width: '100%',
+                                padding: '8px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">-- All Users --</option>
+                            {localFilterOptions.unique_codes?.map((code, idx) => (
+                                <option key={idx} value={code}>{code}</option>
+                            ))}
+                        </select>
+                        {isLoadingOptions && <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>Loading users...</div>}
+                    </div>
+
+                    {/* Bank Filter */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>🏦 Bank Name</label>
+                        <select
+                            value={selectedBankName}
+                            onChange={(e) => setSelectedBankName(e.target.value)}
+                            disabled={isLoadingOptions}
+                            style={{
+                                width: '100%',
+                                padding: '8px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">-- All Banks --</option>
+                            {localFilterOptions.bank_names?.map((bank, idx) => (
+                                <option key={idx} value={bank}>{bank}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Date Range */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                        <div>
+                            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>Start Date</label>
+                            <input
+                                type="date"
+                                value={dateRange.startDate}
+                                onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                                style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
+                            />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>End Date</label>
+                            <input
+                                type="date"
+                                value={dateRange.endDate}
+                                onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                                style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Filter Buttons */}
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={handleApplyFilters}
+                            disabled={localIsLoading}
+                            style={{
+                                flex: 1,
+                                padding: '8px',
+                                background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: localIsLoading ? 'not-allowed' : 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                opacity: localIsLoading ? 0.6 : 1
+                            }}
+                        >
+                            {localIsLoading ? 'Loading...' : 'Apply Filters'}
+                        </button>
+                        <button
+                            onClick={handleResetFilters}
+                            disabled={localIsLoading}
+                            style={{
+                                flex: 1,
+                                padding: '8px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: localIsLoading ? 'not-allowed' : 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600'
+                            }}
+                        >
+                            Reset All
+                        </button>
+                    </div>
+                </div>
+
+                {localIsLoading ? (
+                    <div style={{ textAlign: 'center', padding: '40px' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '16px' }}>⏳</div>
+                        <p>Loading income data...</p>
+                    </div>
+                ) : (
+                    <>
+                        {/* Summary Stats */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            marginBottom: '20px',
+                            padding: '12px',
+                            background: '#e0f2fe',
+                            borderRadius: '12px'
+                        }}>
+                            <div style={{ textAlign: 'center', flex: 1 }}>
+                                <div style={{ fontSize: '11px', color: '#0369a1' }}>Total Bills</div>
+                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0369a1' }}>{localTotals?.total_bills || 0}</div>
+                            </div>
+                            <div style={{ textAlign: 'center', flex: 1 }}>
+                                <div style={{ fontSize: '11px', color: '#0369a1' }}>Total Customers</div>
+                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0369a1' }}>{localTotals?.total_customers || 0}</div>
+                            </div>
+                        </div>
+
+                        {/* Income Items with Checkboxes */}
+                        {incomeItems.map((item, idx) => (
+                            <div key={idx} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                padding: '12px 16px',
+                                marginBottom: '10px',
+                                background: item.bg,
+                                borderRadius: '12px',
+                                borderLeft: `4px solid ${item.color}`,
+                                cursor: 'pointer'
+                            }}
+                                onClick={() => handleCheckboxChange(item.id)}>
+                                <input
+                                    type="checkbox"
+                                    checked={selectedIncomeTypes[item.id]}
+                                    onChange={() => handleCheckboxChange(item.id)}
+                                    style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        marginRight: '12px',
+                                        cursor: 'pointer',
+                                        accentColor: item.color
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                                <div style={{ flex: 1 }}>
+                                    <span style={{ fontSize: '20px', marginRight: '8px' }}>{item.icon}</span>
+                                    <span style={{
+                                        fontWeight: '600',
+                                        color: item.color === '#10b981' ? '#065f46' :
+                                            item.color === '#8b5cf6' ? '#5b21b6' :
+                                                item.color === '#ec489a' ? '#9d174d' :
+                                                    item.color === '#f59e0b' ? '#92400e' :
+                                                        item.color === '#3b82f6' ? '#1e40af' : '#991b1b'
+                                    }}>
+                                        {item.label}
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
+                                    {formatCurrency(item.value)}
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* Selected Total Display */}
+                        <div style={{
+                            marginTop: '16px',
+                            padding: '16px',
+                            background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                            borderRadius: '12px',
+                            border: '2px solid #f59e0b'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <span style={{ fontSize: '20px', marginRight: '8px' }}>✅</span>
+                                    <span style={{ fontWeight: '700', fontSize: '14px', color: '#92400e' }}>Selected Total:</span>
+                                </div>
+                                <div style={{ fontSize: '22px', fontWeight: '800', color: '#dc2626' }}>
+                                    {formatCurrency(selectedTotal)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '16px 0' }}></div>
+
+                        {/* Total Income */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                            borderRadius: '12px',
+                            color: 'white'
+                        }}>
+                            <div>
+                                <span style={{ fontSize: '24px', marginRight: '12px' }}>💰</span>
+                                <span style={{ fontWeight: '700', fontSize: '16px' }}>Total Income</span>
+                            </div>
+                            <div style={{ fontSize: '24px', fontWeight: '800' }}>
+                                {formatCurrency(totalIncome)}
+                            </div>
+                        </div>
+
+                        {/* Allocate Funds Button */}
+                        <button
+                            onClick={handleAllocateFunds}
+                            disabled={selectedTotal === 0}
+                            style={{
+                                width: '100%',
+                                marginTop: '16px',
+                                padding: '14px',
+                                background: selectedTotal === 0 ? '#9ca3af' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: selectedTotal === 0 ? 'not-allowed' : 'pointer',
+                                fontWeight: '700',
+                                fontSize: '16px',
+                                opacity: selectedTotal === 0 ? 0.6 : 1,
+                                transition: 'transform 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (selectedTotal > 0) {
+                                    e.currentTarget.style.transform = 'scale(1.02)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                        >
+                            💵 Allocate Selected Funds ({formatCurrency(selectedTotal)})
+                        </button>
+
+                        {/* Active Filters Display */}
+                        {(selectedUniqueCode !== 'all' || selectedBankName !== 'all' || dateRange.startDate || dateRange.endDate) && (
+                            <div style={{
+                                marginTop: '16px',
+                                padding: '10px',
+                                background: '#f1f5f9',
+                                borderRadius: '8px',
+                                fontSize: '11px',
+                                color: '#64748b',
+                                textAlign: 'center'
+                            }}>
+                                🔍 Active Filters:
+                                {selectedUniqueCode !== 'all' && ` User: ${selectedUniqueCode}`}
+                                {selectedBankName !== 'all' && ` Bank: ${selectedBankName}`}
+                                {dateRange.startDate && ` From: ${dateRange.startDate}`}
+                                {dateRange.endDate && ` To: ${dateRange.endDate}`}
+                            </div>
+                        )}
+
+                        {/* Note about excluded items */}
+                        <div style={{
+                            marginTop: '16px',
+                            padding: '10px',
+                            background: '#f1f5f9',
+                            borderRadius: '8px',
+                            fontSize: '11px',
+                            color: '#64748b',
+                            textAlign: 'center'
+                        }}>
+                            ℹ️ Credit payments are excluded as they represent debt, not actual income.
+                        </div>
+                    </>
+                )}
+
+                <button
+                    onClick={onClose}
+                    style={{
+                        width: '100%',
+                        marginTop: '20px',
+                        padding: '12px',
+                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        fontSize: '14px'
+                    }}
+                >
+                    Close
+                </button>
+            </div>
+        </div>
+    );
+};
 // ==================== CREDITOR FORM MODAL ====================
 const CreditorFormModal = ({ isOpen, onClose, onSave, supplierCode, billNo = null, existingCreditorNo = null }) => {
     const [formData, setFormData] = useState({ code: '', name: '', dob: '', address: '', telephone_no: '', advance_amount: '', profile_pic: null, nic_front: null, nic_back: null });
@@ -1455,7 +1941,82 @@ const CreditorFormModal = ({ isOpen, onClose, onSave, supplierCode, billNo = nul
         </div>
     );
 };
+const FundsAllocatedModal = ({ isOpen, onClose, fundsAllocated }) => {
+    if (!isOpen) return null;
 
+    const formatCurrency = (amount) => `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const isNegative = fundsAllocated < 0;
+    const absoluteAmount = Math.abs(fundsAllocated);
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20006
+        }} onClick={onClose}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '20px',
+                width: '400px',
+                maxWidth: '90%',
+                padding: '24px',
+                textAlign: 'center'
+            }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+                    {isNegative ? '⚠️' : '💰'}
+                </div>
+                <h3 style={{ marginBottom: '12px', color: '#1e293b' }}>
+                    {isNegative ? 'Negative Balance' : 'Funds Allocated'}
+                </h3>
+                <div style={{
+                    fontSize: '36px',
+                    fontWeight: 'bold',
+                    color: isNegative ? '#ef4444' : '#10b981',
+                    marginBottom: '20px',
+                    padding: '20px',
+                    background: isNegative ? '#fee2e2' : '#f0fdf4',
+                    borderRadius: '12px'
+                }}>
+                    {isNegative ? '-' : ''}{formatCurrency(absoluteAmount)}
+                </div>
+                {isNegative && (
+                    <div style={{
+                        marginBottom: '20px',
+                        padding: '12px',
+                        background: '#fef3c7',
+                        borderRadius: '8px',
+                        color: '#92400e',
+                        fontSize: '14px'
+                    }}>
+                        ⚠️ You have overspent the allocated funds. This amount is due.
+                    </div>
+                )}
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '10px 24px',
+                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontWeight: '600'
+                    }}
+                >
+                    Close
+                </button>
+            </div>
+        </div>
+    );
+};
 // ==================== MAIN COMPONENT ====================
 export default function SupplierReport() {
     const navigate = useNavigate();
@@ -1507,6 +2068,51 @@ export default function SupplierReport() {
         bill_to_bill: 0,
         bad_debt: 0
     });
+
+    // Initialize fundsAllocated directly from localStorage (no initial 0)
+    const [fundsAllocated, setFundsAllocated] = useState(() => {
+        try {
+            const saved = localStorage.getItem('fundsAllocated');
+            console.log('Initializing fundsAllocated from localStorage:', saved);
+            if (saved !== null && !isNaN(parseFloat(saved))) {
+                return parseFloat(saved);
+            }
+        } catch (error) {
+            console.error('Error reading fundsAllocated:', error);
+        }
+        return 0;
+    });
+    const [showFundsAllocated, setShowFundsAllocated] = useState(false);
+    const isFirstRender = useRef(true);
+    const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
+
+    // Save fundsAllocated to localStorage whenever it changes (skip first render to prevent overwrite)
+    useEffect(() => {
+        // Skip the first render to prevent overwriting the loaded value with 0
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            // On first render, just ensure localStorage has the correct value
+            localStorage.setItem('fundsAllocated', fundsAllocated.toString());
+            console.log('First render - saved fundsAllocated:', fundsAllocated);
+            return;
+        }
+
+        try {
+            console.log('Saving fundsAllocated to localStorage:', fundsAllocated);
+            localStorage.setItem('fundsAllocated', fundsAllocated.toString());
+        } catch (error) {
+            console.error('Error saving fundsAllocated:', error);
+        }
+    }, [fundsAllocated]);
+    // Backup: Save before page unload
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            localStorage.setItem('fundsAllocated', fundsAllocated.toString());
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [fundsAllocated]);
     // Add these for silent refresh
     const [isRefreshing, setIsRefreshing] = useState(false);
     const refreshTimeoutRef = useRef(null);
@@ -1527,12 +2133,37 @@ export default function SupplierReport() {
             delete window.lastPaymentAmount;
         };
     }, []);
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (isDropdownOpen && !event.target.closest('.dropdown-container')) {
+                setIsDropdownOpen(false);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [isDropdownOpen]);
     // Add refs for history state to avoid stale closures
     const viewHistoryRef = useRef(isViewingHistory);
     const historyStartDateRef = useRef(historyDateRange.startDate);
     const historyEndDateRef = useRef(historyDateRange.endDate);
     const [isPolling, setIsPolling] = useState(true);
     const pollingIntervalRef = useRef(null);
+    // Add these with your other state declarations (around line where you have other state)
+    const [showIncomeSourcesModal, setShowIncomeSourcesModal] = useState(false);
+    const [incomeTotals, setIncomeTotals] = useState({
+        cash: 0,
+        cheque: 0,
+        bank_transfer: 0,
+        bag_to_box: 0,
+        bill_to_bill: 0,
+        bad_debt: 0,
+        total_income: 0,
+        total_bills: 0,
+        total_customers: 0
+    });
+    const [isLoadingIncome, setIsLoadingIncome] = useState(false);
     // Auto-refresh polling every 10 seconds
     useEffect(() => {
         // Start polling when component mounts
@@ -1585,7 +2216,48 @@ export default function SupplierReport() {
             }
         };
     }, [isPolling, state.isPrinting, isProcessingPayment, isRefreshing, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate]);
+    // Add this function to fetch income sources
+    // Add this function to fetch income sources with filters
+    const fetchIncomeSources = async (startDate = null, endDate = null, uniqueCode = null, bankName = null) => {
+        setIsLoadingIncome(true);
+        try {
+            let url = '/income-sources';
+            const params = new URLSearchParams();
 
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            if (uniqueCode && uniqueCode !== 'all') params.append('unique_code', uniqueCode);
+            if (bankName && bankName !== 'all') params.append('bank_name', bankName);
+
+            if (params.toString()) {
+                url += `?${params.toString()}`;
+            }
+
+            const response = await api.get(url);
+
+            if (response.data.success) {
+                const data = response.data.data;
+                setIncomeTotals({
+                    cash: data.totals.cash || 0,
+                    cheque: data.totals.cheque || 0,
+                    bank_transfer: data.totals.bank_transfer || 0,
+                    bag_to_box: data.totals.bag_to_box || 0,
+                    bill_to_bill: data.totals.bill_to_bill || 0,
+                    bad_debt: data.totals.bad_debt || 0,
+                    total_income: data.totals.total_income || 0,
+                    total_bills: data.totals.total_bills || 0,
+                    total_customers: data.totals.total_customers || 0
+                });
+            } else {
+                alert('Failed to load income data');
+            }
+        } catch (error) {
+            console.error('Error fetching income sources:', error);
+            alert('Failed to load income data: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setIsLoadingIncome(false);
+        }
+    };
     const formatDecimal = (value) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
     // Helper function to calculate total paid excluding Credit from payment_details
     const calculateTotalPaidExcludingCredit = (paymentDetails) => {
@@ -3024,6 +3696,13 @@ export default function SupplierReport() {
             if (response.data.success) {
                 console.log(`✅ [${callId}] Payment successful!`, response.data);
 
+                // ========== DEDUCT FROM FUNDS ALLOCATED ==========
+                // Deduct the payment amount from fundsAllocated (but only for actual payments, not credit settlements)
+                if (!isCreditSettlementPayment && paymentMethod !== 'Credit') {
+                    deductFromFundsAllocated(paymentAmount);
+                }
+                // ========== END OF DEDUCTION ==========
+
                 await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
                 await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
 
@@ -3189,6 +3868,11 @@ export default function SupplierReport() {
                 const loanResponse = await api.post('/supplier-loan', payload);
 
                 if (loanResponse.data.success) {
+                    // ========== DEDUCT FROM FUNDS ALLOCATED ==========
+                    // Deduct credit settlement payment from fundsAllocated
+                    deductFromFundsAllocated(paymentAmount);
+                    // ========== END OF DEDUCTION ==========
+
                     // Refresh data
                     await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
                     await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
@@ -3267,6 +3951,38 @@ export default function SupplierReport() {
                 console.log('🔘 Cash button re-enabled after timeout');
             }, 5000);
         }
+    };
+    // Handle right-click on Funds Allocated button
+    const handleFundsAllocatedContextMenu = (e) => {
+        e.preventDefault();
+        setContextMenu({
+            visible: true,
+            x: e.clientX,
+            y: e.clientY
+        });
+    };
+
+    // Close context menu
+    const closeContextMenu = () => {
+        setContextMenu({ visible: false, x: 0, y: 0 });
+    };
+
+    // Reset funds allocated to zero
+    const handleResetFundsAllocated = () => {
+        if (window.confirm('Are you sure you want to reset the Funds Allocated amount to zero?')) {
+            setFundsAllocated(0);
+            localStorage.setItem('fundsAllocated', '0');
+            alert('✅ Funds Allocated has been reset to 0');
+        }
+        closeContextMenu();
+    };
+    // Function to deduct payment from fundsAllocated
+    const deductFromFundsAllocated = (amount) => {
+        setFundsAllocated(prev => {
+            const newAmount = prev - amount;
+            console.log(`💰 Deducting Rs. ${amount} from fundsAllocated. Old balance: Rs. ${prev}, New balance: Rs. ${newAmount}`);
+            return newAmount;
+        });
     };
     const handleChequePayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true })); };
     const handleChequeConfirm = async (details) => {
@@ -3488,15 +4204,214 @@ export default function SupplierReport() {
         <div style={styles.app}>
             <div style={{ background: '#1e293b', padding: '12px 24px', display: 'flex', gap: '12px', alignItems: 'center', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 1000 }}>
                 <button onClick={() => navigate('/supplierreport')} style={{ padding: '8px 20px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>📋 Supplier Report</button>
-                <button onClick={() => navigate('/supplier-profit')} style={{ padding: '8px 20px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>📊 Supplier Profit</button>
-                <button onClick={() => navigate('/suppliers/dobreport')} style={{ padding: '8px 20px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>📅 DOB Report</button>
-                <button onClick={() => navigate('/supplier-loan-report')} style={{ padding: '8px 20px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>💰 Loan Report</button>
-                <button onClick={() => setShowFarmerModal(true)} style={{ padding: '8px 20px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>👨‍🌾 Farmer Selector</button>
+
+                {/* Dropdown for the 4 buttons */}
+                <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
+                    <button
+                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                        style={{
+                            padding: '8px 20px',
+                            background: '#6b7280',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        📁 Reports & Actions ▼
+                    </button>
+
+                    {isDropdownOpen && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            marginTop: '8px',
+                            background: 'white',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                            minWidth: '220px',
+                            zIndex: 1001,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden'
+                        }}>
+                            <button
+                                onClick={() => { navigate('/supplier-profit'); setIsDropdownOpen(false); }}
+                                style={{
+                                    padding: '12px 20px',
+                                    background: '#3b82f6',
+                                    color: 'white',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#2563eb'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#3b82f6'}
+                            >📊 Supplier Profit</button>
+
+                            <button
+                                onClick={() => { navigate('/suppliers/dobreport'); setIsDropdownOpen(false); }}
+                                style={{
+                                    padding: '12px 20px',
+                                    background: '#f59e0b',
+                                    color: 'white',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#d97706'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#f59e0b'}
+                            >📅 DOB Report</button>
+
+                            <button
+                                onClick={() => { navigate('/supplier-loan-report'); setIsDropdownOpen(false); }}
+                                style={{
+                                    padding: '12px 20px',
+                                    background: '#8b5cf6',
+                                    color: 'white',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
+                            >💰 Loan Report</button>
+
+                            <button
+                                onClick={() => { setShowFarmerModal(true); setIsDropdownOpen(false); }}
+                                style={{
+                                    padding: '12px 20px',
+                                    background: '#ef4444',
+                                    color: 'white',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#dc2626'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#ef4444'}
+                            >👨‍🌾 Farmer Selector</button>
+                        </div>
+                    )}
+                </div>
+
+                <button
+                    onClick={async () => {
+                        await fetchIncomeSources();
+                        setShowIncomeSourcesModal(true);
+                    }}
+                    style={{
+                        padding: '8px 20px',
+                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                >
+                    💰 Income Sources
+                </button>
+
+                {/* Funds Allocated Button */}
+                <button
+                    onClick={() => setShowFundsAllocated(true)}
+                    onContextMenu={handleFundsAllocatedContextMenu}
+                    style={{
+                        padding: '8px 20px',
+                        background: fundsAllocated < 0
+                            ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+                            : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                >
+                    {fundsAllocated < 0 ? '⚠️' : '💵'} Funds Allocated: {fundsAllocated < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(fundsAllocated))}
+                    {fundsAllocated < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Due)</span>}
+                </button>
+                {/* Context Menu for Funds Allocated */}
+                {contextMenu.visible && (
+                    <>
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                zIndex: 9998,
+                            }}
+                            onClick={closeContextMenu}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                closeContextMenu();
+                            }}
+                        />
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: contextMenu.y,
+                                left: contextMenu.x,
+                                backgroundColor: 'white',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                zIndex: 9999,
+                                minWidth: '150px',
+                                overflow: 'hidden',
+                                border: '1px solid #e2e8f0'
+                            }}
+                        >
+                            <button
+                                onClick={handleResetFundsAllocated}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 16px',
+                                    textAlign: 'left',
+                                    border: 'none',
+                                    backgroundColor: 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                            >
+                                🔄 Reset to Zero
+                            </button>
+                        </div>
+                    </>
+                )}
+
                 {!isViewingHistory ? (
                     <button onClick={() => setShowOldBillsModal(true)} style={{ padding: '8px 20px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>📜 View Old Bills</button>
                 ) : (
                     <button onClick={handleResetToCurrentBills} style={{ padding: '8px 20px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>🔄 Back to Current Bills</button>
                 )}
+
                 {isViewingHistory && historyDateRange.startDate && historyDateRange.endDate && (
                     <span style={{ padding: '6px 12px', background: '#f59e0b', borderRadius: '20px', fontSize: '12px', color: 'white', whiteSpace: 'nowrap' }}>
                         📅 History: {historyDateRange.startDate} to {historyDateRange.endDate}
@@ -4306,14 +5221,32 @@ export default function SupplierReport() {
                 adjustmentType={selectedAdjustmentType}
                 onAmountCalculated={handleAdjustmentAmountCalculated}  // Add this line
             />
-          <PaymentHistoryModal 
-    isOpen={state.showPaymentHistoryModal} 
-    onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} 
-    payments={state.currentPayments} 
-    totalPaid={state.paymentHistoryTotalPaid} 
-    totalBill={state.paymentHistoryTotalBill} 
-    remaining={state.paymentHistoryRemaining} 
-/>
+            <PaymentHistoryModal
+                isOpen={state.showPaymentHistoryModal}
+                onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))}
+                payments={state.currentPayments}
+                totalPaid={state.paymentHistoryTotalPaid}
+                totalBill={state.paymentHistoryTotalBill}
+                remaining={state.paymentHistoryRemaining}
+            />
+            {/* Income Sources Modal */}
+
+            <IncomeSourcesModal
+                isOpen={showIncomeSourcesModal}
+                onClose={() => setShowIncomeSourcesModal(false)}
+                totals={incomeTotals}
+                isLoading={isLoadingIncome}
+                onRefresh={fetchIncomeSources}
+                onAllocateFunds={(amount) => {
+                    setFundsAllocated(prev => prev + amount);
+                }}
+            />
+            {/* Funds Allocated Modal */}
+            <FundsAllocatedModal
+                isOpen={showFundsAllocated}
+                onClose={() => setShowFundsAllocated(false)}
+                fundsAllocated={fundsAllocated}
+            />
             <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null }))} onConfirm={handleDeletePayment} supplierCode={state.deleteSupplierCode} billNo={state.deleteBillNo} />
             <DetailedReportModal isOpen={showDetailedReport} onClose={() => setShowDetailedReport(false)} data={detailedReportData} supplierCode={selectedReportSupplier} isLoading={isLoadingReport} />
             {showCreditorModal && (

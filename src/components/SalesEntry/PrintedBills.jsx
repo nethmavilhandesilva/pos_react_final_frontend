@@ -583,7 +583,6 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         address: '',
         credit_limit: '',
         credit_period: '',  // Keep as string
-        introducer: '',     // NEW: Introducer field
         profile_pic: null,
         nic_front: null,
         nic_back: null
@@ -599,7 +598,6 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     const addressRef = useRef(null);
     const creditLimitRef = useRef(null);
     const creditPeriodRef = useRef(null);
-    const introducerRef = useRef(null);    // NEW: Ref for introducer field
     const profilePicRef = useRef(null);
     const nicFrontRef = useRef(null);
     const nicBackRef = useRef(null);
@@ -617,7 +615,6 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                 address: '',
                 credit_limit: '',
                 credit_period: '',
-                introducer: '',     // NEW: Reset introducer field
                 profile_pic: null,
                 nic_front: null,
                 nic_back: null
@@ -641,9 +638,6 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         if (name === 'credit_period') {
             console.log('Credit period changed:', value);
         }
-        if (name === 'introducer') {
-            console.log('Introducer changed:', value);
-        }
     };
 
     const handleFileChange = (e) => {
@@ -666,7 +660,6 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
             if (formData.address) formDataToSend.append('address', formData.address);
             if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
-            if (formData.introducer) formDataToSend.append('introducer', formData.introducer); // NEW: Append introducer
 
             // DEBUG: Log credit period value
             console.log('=== CREDIT PERIOD DEBUG ===');
@@ -704,12 +697,9 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             if (response.status === 200 || response.status === 201) {
                 const debtorNo = response.data.Debtor_no;
                 setGeneratedDebtorNo(debtorNo);
-                let message = `Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`;
+                const message = `Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`;
                 if (formData.credit_period) {
-                    message += `\nCredit Period: ${formData.credit_period}`;
-                }
-                if (formData.introducer) {
-                    message += `\nIntroducer: ${formData.introducer}`;
+                    message + `\nCredit Period: ${formData.credit_period}`;
                 }
                 alert(message);
                 onSave(true, debtorNo);
@@ -868,7 +858,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                         />
                     </div>
 
-                    {/* Credit Period Field - As text input */}
+                    {/* Credit Period Field - FIXED: Now as text input */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>
                             Credit Period
@@ -880,7 +870,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                             name="credit_period"
                             value={formData.credit_period}
                             onChange={handleChange}
-                            onKeyPress={(e) => handleKeyPress(e, introducerRef)}  // ← Now goes to introducer field
+                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
                             placeholder="e.g., 2 days, 1 week, 30 days, 1 month"
                             style={{
                                 width: '100%',
@@ -893,34 +883,6 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                         />
                         <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
                             💡 Examples: "2 days", "1 week", "30 days", "1 month", "2 months", "90 days"
-                        </div>
-                    </div>
-
-                    {/* NEW: Introducer Field */}
-                    <div style={{ marginBottom: '12px' }}>
-                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>
-                            Introducer
-                            <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>(Optional)</span>
-                        </label>
-                        <input
-                            ref={introducerRef}
-                            type="text"
-                            name="introducer"
-                            value={formData.introducer}
-                            onChange={handleChange}
-                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
-                            placeholder="Name of the person who introduced this customer"
-                            style={{
-                                width: '100%',
-                                padding: '8px 10px',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                backgroundColor: 'white'
-                            }}
-                        />
-                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-                            👤 Person who referred or introduced this customer
                         </div>
                     </div>
 
