@@ -583,6 +583,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         address: '',
         credit_limit: '',
         credit_period: '',  // Keep as string
+        introducer: '',     // NEW: Introducer field
         profile_pic: null,
         nic_front: null,
         nic_back: null
@@ -598,6 +599,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     const addressRef = useRef(null);
     const creditLimitRef = useRef(null);
     const creditPeriodRef = useRef(null);
+    const introducerRef = useRef(null);  // NEW: Ref for introducer
     const profilePicRef = useRef(null);
     const nicFrontRef = useRef(null);
     const nicBackRef = useRef(null);
@@ -615,6 +617,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                 address: '',
                 credit_limit: '',
                 credit_period: '',
+                introducer: '',     // NEW: Reset introducer
                 profile_pic: null,
                 nic_front: null,
                 nic_back: null
@@ -638,6 +641,9 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         if (name === 'credit_period') {
             console.log('Credit period changed:', value);
         }
+        if (name === 'introducer') {
+            console.log('Introducer changed:', value);
+        }
     };
 
     const handleFileChange = (e) => {
@@ -660,6 +666,12 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
             if (formData.address) formDataToSend.append('address', formData.address);
             if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
+            
+            // NEW: Add introducer if provided
+            if (formData.introducer && formData.introducer.trim() !== '') {
+                formDataToSend.append('introducer', formData.introducer.trim());
+                console.log('✅ Appending introducer:', formData.introducer.trim());
+            }
 
             // DEBUG: Log credit period value
             console.log('=== CREDIT PERIOD DEBUG ===');
@@ -697,9 +709,12 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             if (response.status === 200 || response.status === 201) {
                 const debtorNo = response.data.Debtor_no;
                 setGeneratedDebtorNo(debtorNo);
-                const message = `Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`;
+                let message = `Customer registered as Debtor successfully!\nDebtor Number: ${debtorNo}${billNo ? `\nBill No: ${billNo}` : ''}`;
                 if (formData.credit_period) {
-                    message + `\nCredit Period: ${formData.credit_period}`;
+                    message += `\nCredit Period: ${formData.credit_period}`;
+                }
+                if (formData.introducer) {
+                    message += `\nIntroducer: ${formData.introducer}`;
                 }
                 alert(message);
                 onSave(true, debtorNo);
@@ -858,7 +873,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                         />
                     </div>
 
-                    {/* Credit Period Field - FIXED: Now as text input */}
+                    {/* Credit Period Field - As text input */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>
                             Credit Period
@@ -870,7 +885,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                             name="credit_period"
                             value={formData.credit_period}
                             onChange={handleChange}
-                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
+                            onKeyPress={(e) => handleKeyPress(e, introducerRef)}  // CHANGED: Now goes to introducer
                             placeholder="e.g., 2 days, 1 week, 30 days, 1 month"
                             style={{
                                 width: '100%',
@@ -883,6 +898,34 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                         />
                         <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
                             💡 Examples: "2 days", "1 week", "30 days", "1 month", "2 months", "90 days"
+                        </div>
+                    </div>
+
+                    {/* NEW: Introducer Field */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '11px' }}>
+                            Introducer
+                            <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>(Optional)</span>
+                        </label>
+                        <input
+                            ref={introducerRef}
+                            type="text"
+                            name="introducer"
+                            value={formData.introducer}
+                            onChange={handleChange}
+                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
+                            placeholder="Enter introducer name or reference"
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                backgroundColor: 'white'
+                            }}
+                        />
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                            💡 Person who introduced this customer (optional)
                         </div>
                     </div>
 
@@ -1066,24 +1109,51 @@ const PaymentHistoryModal = ({ isOpen, onClose, payments, totalPaid, totalBill, 
 
 const formatCurrency = (amount) => `Rs. ${formatDecimal(amount)}`;
 
-// ==================== CHEQUE MODAL ====================
+// ==================== CHEQUE MODAL (UPDATED) ====================
 const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
     const [chequeDetails, setChequeDetails] = useState({ cheq_date: '', cheq_no: '', bank_account_id: null });
+    const [isSubmitting, setIsSubmitting] = useState(false); // ✅ Add this to prevent double submission
 
     // Create refs for each input field
     const dateInputRef = useRef(null);
     const chequeNoInputRef = useRef(null);
     const bankSelectRef = useRef(null);
 
+    // Reset submitting state when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            setIsSubmitting(false);
+            setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
+        }
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
     const handleSubmit = () => {
+        // ✅ Prevent duplicate submissions
+        if (isSubmitting) {
+            console.log('⚠️ Cheque modal already submitting, skipping duplicate call');
+            return;
+        }
+        
         if (!chequeDetails.cheq_date || !chequeDetails.cheq_no || !chequeDetails.bank_account_id) {
             alert("Please fill all cheque details and select a bank account");
             return;
         }
+        
+        setIsSubmitting(true); // ✅ Set submitting flag
+        
+        // Call the onConfirm callback
         onConfirm(chequeDetails);
+        
+        // Clear form data
         setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
+        
+        // Close modal after a short delay to prevent double submission
+        setTimeout(() => {
+            setIsSubmitting(false);
+            onClose();
+        }, 500);
     };
 
     // Handle Enter key for input fields
@@ -1098,6 +1168,7 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
             }
         }
     };
+    
     // Handle Enter key for select element (works differently)
     const handleSelectKeyDown = (e) => {
         if (e.key === 'Enter') {
@@ -1130,6 +1201,7 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
                         onChange={(e) => setChequeDetails(prev => ({ ...prev, cheq_date: e.target.value }))}
                         onKeyPress={(e) => handleKeyPress(e, chequeNoInputRef)}
                         autoFocus
+                        disabled={isSubmitting}
                         style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px' }}
                     />
                 </div>
@@ -1143,34 +1215,48 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
                         name="cheq_no"
                         value={chequeDetails.cheq_no}
                         onChange={(e) => setChequeDetails(prev => ({ ...prev, cheq_no: e.target.value }))}
-                        onKeyPress={(e) => handleKeyPress(e, bankSelectRef)}  // ← Focus will go to bankSelectRef
+                        onKeyPress={(e) => handleKeyPress(e, bankSelectRef)}
                         placeholder="Enter cheque number"
+                        disabled={isSubmitting}
                         style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px' }}
                     />
                 </div>
 
-                {/* Bank Account Selector Field - NO div wrapper, pass ref directly */}
+                {/* Bank Account Selector Field */}
                 <BankAccountSelector
-                    ref={bankSelectRef}  // ← Pass ref directly to the component
+                    ref={bankSelectRef}
                     selectedAccountId={chequeDetails.bank_account_id}
                     onSelect={(bankId) => setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }))}
-                    disabled={false}
+                    disabled={isSubmitting}
                     onKeyDown={handleSelectKeyDown}
                 />
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}>Cancel</button>
-                    <button onClick={handleSubmit} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}>Confirm Payment</button>
+                    <button 
+                        onClick={onClose} 
+                        disabled={isSubmitting}
+                        style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', flex: 1, opacity: isSubmitting ? 0.6 : 1 }}
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleSubmit} 
+                        disabled={isSubmitting}
+                        style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', flex: 1, opacity: isSubmitting ? 0.6 : 1 }}
+                    >
+                        {isSubmitting ? 'Processing...' : 'Confirm Payment'}
+                    </button>
                 </div>
             </div>
         </div>
     );
 };
-// ==================== BANK TO BANK MODAL ====================
+// ==================== BANK TO BANK MODAL (UPDATED) ====================
 const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, customerName }) => {
     const [transferDetails, setTransferDetails] = useState({ bank_account_id: null, reference_no: '', transfer_date: new Date().toISOString().split('T')[0], notes: '' });
     const [banks, setBanks] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false); // ✅ Add this to prevent double submission
 
     // Create refs for form fields
     const bankSelectRef = useRef(null);
@@ -1178,7 +1264,18 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
     const transferDateRef = useRef(null);
     const notesRef = useRef(null);
 
-    useEffect(() => { if (isOpen) fetchBanks(); }, [isOpen]);
+    useEffect(() => { 
+        if (isOpen) {
+            fetchBanks();
+            setIsSubmitting(false);
+            setTransferDetails({ 
+                bank_account_id: null, 
+                reference_no: '', 
+                transfer_date: new Date().toISOString().split('T')[0], 
+                notes: '' 
+            });
+        }
+    }, [isOpen]);
 
     const fetchBanks = async () => {
         setLoading(true);
@@ -1192,10 +1289,39 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
     if (!isOpen) return null;
 
     const handleSubmit = () => {
-        if (!transferDetails.bank_account_id) { alert("Please select a bank account"); return; }
-        if (!transferDetails.reference_no) { alert("Please enter transaction reference number"); return; }
+        // ✅ Prevent duplicate submissions
+        if (isSubmitting) {
+            console.log('⚠️ Bank transfer modal already submitting, skipping duplicate call');
+            return;
+        }
+        
+        if (!transferDetails.bank_account_id) { 
+            alert("Please select a bank account"); 
+            return; 
+        }
+        if (!transferDetails.reference_no) { 
+            alert("Please enter transaction reference number"); 
+            return; 
+        }
+        
+        setIsSubmitting(true); // ✅ Set submitting flag
+        
+        // Call the onConfirm callback
         onConfirm(transferDetails);
-        setTransferDetails({ bank_account_id: null, reference_no: '', transfer_date: new Date().toISOString().split('T')[0], notes: '' });
+        
+        // Clear form data
+        setTransferDetails({ 
+            bank_account_id: null, 
+            reference_no: '', 
+            transfer_date: new Date().toISOString().split('T')[0], 
+            notes: '' 
+        });
+        
+        // Close modal after a short delay to prevent double submission
+        setTimeout(() => {
+            setIsSubmitting(false);
+            onClose();
+        }, 500);
     };
 
     // Handle Enter key navigation
@@ -1245,7 +1371,7 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                             value={transferDetails.bank_account_id || ''}
                             onChange={(e) => setTransferDetails(prev => ({ ...prev, bank_account_id: e.target.value ? parseInt(e.target.value) : null }))}
                             onKeyDown={(e) => handleSelectKeyDown(e, referenceNoRef)}
-                            disabled={loading}
+                            disabled={loading || isSubmitting}
                             autoFocus
                             style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}
                         >
@@ -1264,6 +1390,7 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                             onChange={(e) => setTransferDetails(prev => ({ ...prev, reference_no: e.target.value }))}
                             onKeyPress={(e) => handleKeyPress(e, transferDateRef)}
                             placeholder="Enter transaction ID"
+                            disabled={isSubmitting}
                             style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}
                         />
                     </div>
@@ -1277,6 +1404,7 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                             value={transferDetails.transfer_date}
                             onChange={(e) => setTransferDetails(prev => ({ ...prev, transfer_date: e.target.value }))}
                             onKeyPress={(e) => handleKeyPress(e, notesRef)}
+                            disabled={isSubmitting}
                             style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px' }}
                         />
                     </div>
@@ -1295,13 +1423,26 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                                 }
                             }}
                             rows="3"
+                            disabled={isSubmitting}
                             style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', resize: 'vertical' }}
                         />
                     </div>
 
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                        <button onClick={onClose} style={{ padding: '10px 24px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Cancel</button>
-                        <button onClick={handleSubmit} style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #ec489a, #db2777)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Confirm Transfer</button>
+                        <button 
+                            onClick={onClose} 
+                            disabled={isSubmitting}
+                            style={{ padding: '10px 24px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '13px', opacity: isSubmitting ? 0.6 : 1 }}
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={handleSubmit} 
+                            disabled={isSubmitting}
+                            style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #ec489a, #db2777)', color: 'white', border: 'none', borderRadius: '10px', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '13px', opacity: isSubmitting ? 0.6 : 1 }}
+                        >
+                            {isSubmitting ? 'Processing...' : 'Confirm Transfer'}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1812,6 +1953,7 @@ export default function PrintedBills() {
     });
 
     const toggleModal = (name) => setModals(prev => ({ ...prev, [name]: !prev[name] }));
+    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
     // Old Bills States
     // Old Bills States - Initialize from localStorage immediately
@@ -2406,6 +2548,12 @@ export default function PrintedBills() {
         } catch (error) { console.error('Error fetching payment history:', error); alert('Failed to fetch payment history'); }
     };
     const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
+        // ✅ Add lock to prevent duplicate processing
+        if (isProcessingPayment) {
+            console.log('⚠️ Payment already processing, skipping duplicate call');
+            return;
+        }
+        
         if (!state.selectedBill || state.isPrinting) return;
 
         const maxAllowed = getRemainingBillAmount(state.selectedBill);
@@ -2416,6 +2564,8 @@ export default function PrintedBills() {
             return;
         }
 
+        // ✅ Set processing lock
+        setIsProcessingPayment(true);
         setState(prev => ({ ...prev, isPrinting: true }));
 
         try {
@@ -2769,6 +2919,7 @@ export default function PrintedBills() {
                     if (!printWindow) {
                         alert("Please allow pop-ups for printing");
                         setState(prev => ({ ...prev, isPrinting: false }));
+                        setIsProcessingPayment(false); // ✅ Release lock on error
                         return;
                     }
 
@@ -2829,6 +2980,8 @@ export default function PrintedBills() {
             console.error("Error:", error);
             alert("Failed to update. Please try again.");
         } finally {
+            // ✅ Release lock
+            setIsProcessingPayment(false);
             setState(prev => ({ ...prev, isPrinting: false }));
         }
     };
@@ -2979,7 +3132,13 @@ export default function PrintedBills() {
         }
     }, [state.selectedBill, updateCreditAmountsFromDebtorTable]);
     // Process Credit Payment function
-    const processCreditPayment = async (paymentAmount) => {
+ const processCreditPayment = async (paymentAmount) => {
+        // ✅ Add lock to prevent duplicate processing
+        if (isProcessingPayment) {
+            console.log('⚠️ Credit payment already processing, skipping duplicate call');
+            return;
+        }
+        
         if (!state.selectedBill || state.isPrinting) return;
 
         console.log('=== PROCESS CREDIT PAYMENT ===');
@@ -2989,6 +3148,8 @@ export default function PrintedBills() {
         console.log('Current Given Amount:', state.selectedBill.givenAmount);
         console.log('Total Bill Amount:', state.selectedBill.totalAmount);
 
+        // ✅ Set processing lock
+        setIsProcessingPayment(true);
         setState(prev => ({ ...prev, isPrinting: true }));
 
         try {
@@ -3153,6 +3314,8 @@ export default function PrintedBills() {
 
             alert(errorMessage);
         } finally {
+            // ✅ Release lock
+            setIsProcessingPayment(false);
             setState(prev => ({ ...prev, isPrinting: false }));
         }
     };
@@ -3795,7 +3958,30 @@ export default function PrintedBills() {
 
                                         <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
                                             <button onClick={async () => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else await processPayment(amt); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💵 Cash</button>
-                                            <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingChequeAmount: amt, showChequeModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>💳 Cheque</button>
+                                            <button 
+    onClick={() => { 
+        const amt = parseFloat(state.givenAmountInput); 
+        if (!amt) {
+            alert("Enter amount"); 
+        } else {
+            setState(prev => ({ ...prev, pendingChequeAmount: amt, showChequeModal: true }));
+        } 
+    }} 
+    disabled={state.isPrinting || !state.givenAmountInput || isProcessingPayment} 
+    style={{ 
+        flex: 1, 
+        padding: '14px', 
+        background: '#8b5cf6', 
+        color: 'white', 
+        border: 'none', 
+        borderRadius: '12px', 
+        fontWeight: '600', 
+        cursor: (state.isPrinting || !state.givenAmountInput || isProcessingPayment) ? 'not-allowed' : 'pointer', 
+        opacity: (state.isPrinting || !state.givenAmountInput || isProcessingPayment) ? 0.5 : 1 
+    }}
+>
+    💳 Cheque
+</button>
                                             <button onClick={() => { const amt = parseFloat(state.givenAmountInput); if (!amt) alert("Enter amount"); else setState(prev => ({ ...prev, pendingBankToBankAmount: amt, showBankToBankModal: true })); }} disabled={state.isPrinting || !state.givenAmountInput} style={{ flex: 1, padding: '14px', background: '#ec489a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: state.isPrinting || !state.givenAmountInput ? 'not-allowed' : 'pointer', opacity: state.isPrinting || !state.givenAmountInput ? 0.5 : 1 }}>🏦 Transfer</button>
                                             <button onClick={handleCreditPayment} disabled={state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 || state.customerType === 'walking'} style={{ flex: 1, padding: '14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: (state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 || state.customerType === 'walking') ? 'not-allowed' : 'pointer', opacity: (state.isPrinting || !state.givenAmountInput || parseFloat(state.givenAmountInput) === 0 || state.customerType === 'walking') ? 0.5 : 1 }}>💳 Credit</button>
                                         </div>
@@ -4048,8 +4234,32 @@ export default function PrintedBills() {
             </nav>
 
             {/* Modals */}
-            <ChequeModal isOpen={state.showChequeModal} onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingChequeAmount, true, details); }} amount={state.pendingChequeAmount} />
-            <BankToBankModal isOpen={state.showBankToBankModal} onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingBankToBankAmount, false, null, true, details); }} amount={state.pendingBankToBankAmount} customerCode={state.selectedBill?.customerCode} customerName={state.customers.find(c => c.short_name?.toUpperCase() === state.selectedBill?.customerCode?.toUpperCase())?.name} />
+          {/* Updated Modals with duplicate prevention */}
+<ChequeModal 
+    isOpen={state.showChequeModal} 
+    onClose={() => {
+        setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }));
+        setIsProcessingPayment(false); // Reset processing flag
+    }} 
+    onConfirm={async (details) => { 
+        await processPayment(state.pendingChequeAmount, true, details); 
+    }} 
+    amount={state.pendingChequeAmount} 
+/>
+
+<BankToBankModal 
+    isOpen={state.showBankToBankModal} 
+    onClose={() => {
+        setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }));
+        setIsProcessingPayment(false); // Reset processing flag
+    }} 
+    onConfirm={async (details) => { 
+        await processPayment(state.pendingBankToBankAmount, false, null, true, details); 
+    }} 
+    amount={state.pendingBankToBankAmount} 
+    customerCode={state.selectedBill?.customerCode} 
+    customerName={state.customers.find(c => c.short_name?.toUpperCase() === state.selectedBill?.customerCode?.toUpperCase())?.name} 
+/>
             <PaymentAdjustmentModal isOpen={state.showAdjustmentModal} onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))} onConfirm={async (data) => { await processPayment(data.amount, false, null, false, null, true, data); }} billNo={state.selectedBill?.billNo} customerCode={state.selectedBill?.customerCode} originalBillTotal={state.selectedBill?.totalAmount || 0} />
             <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
             <DebtorFormModal isOpen={state.showDebtorForm} onClose={() => setState(prev => ({ ...prev, showDebtorForm: false, pendingDebtorBill: null }))} onSave={handleDebtorSave} customerCode={state.pendingDebtorBill?.customerCode || ''} billNo={state.pendingDebtorBill?.billNo} />
