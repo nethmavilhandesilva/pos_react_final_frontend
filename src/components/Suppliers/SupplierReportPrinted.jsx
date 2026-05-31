@@ -873,6 +873,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
     const [selectedFromDropdown, setSelectedFromDropdown] = useState(false);
     const [selectedSupplierData, setSelectedSupplierData] = useState(null);
     const [formData, setFormData] = useState({ code: '', name: '', dob: '', address: '', telephone_no: '', profile_pic: null, nic_front: null, nic_back: null });
+    const [previewImages, setPreviewImages] = useState({ profile_pic: null, nic_front: null, nic_back: null });
 
     // Refs for form fields in supplier form
     const nameRef = useRef(null);
@@ -943,7 +944,10 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
         setSelectedSupplierData(supplier);
         setSelectedFromDropdown(true);
         setShowSuggestions(false);
-        alert(`✅ Supplier "${supplier.code}" selected!\n📋 Creditor Number: ${supplier.Creditor_no || 'Not Assigned'}\n📝 Name: ${supplier.name || 'No name'}\n\n📄 Bill No: ${billNo || 'N/A'}`);
+        
+        // Show success toast/message
+        const message = `✅ Supplier "${supplier.code}" selected!\n📋 Creditor Number: ${supplier.Creditor_no || 'Not Assigned'}\n📝 Name: ${supplier.name || 'No name'}\n\n📄 Bill No: ${billNo || 'N/A'}`;
+        alert(message);
     };
 
     const handleCheckCreditor = async () => {
@@ -998,6 +1002,19 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
         }
     };
 
+    // Handle image preview
+    const handleImageChange = (e, fieldName) => {
+        const file = e.target.files[0];
+        if (file) {
+            setFormData({ ...formData, [fieldName]: file });
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setPreviewImages(prev => ({ ...prev, [fieldName]: reader.result }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     // Handle Enter key navigation
     const handleKeyPress = (e, nextRef) => {
         if (e.key === 'Enter') {
@@ -1023,147 +1040,531 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
 
     if (showSupplierForm) {
         return (
-            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 20001, overflowY: 'auto' }} onClick={onClose}>
-                <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', maxWidth: '90%', margin: '50px auto', padding: '24px' }} onClick={(e) => e.stopPropagation()}>
-                    <h3>Create New Supplier (Creditor)</h3>
-                    {billNo && <div style={{ background: '#e0f2fe', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px' }}>📄 This will be linked to Bill No: {billNo}</div>}
-                    <div style={{ marginBottom: '12px' }}>
-                        <label>Supplier Code <span style={{ color: 'red' }}>*</span></label>
-                        <input type="text" value={supplierCode} disabled style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px', background: '#f5f5f5' }} />
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                backdropFilter: 'blur(5px)',
+                zIndex: 20001,
+                overflowY: 'auto',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center'
+            }} onClick={onClose}>
+                <div style={{
+                    backgroundColor: 'white',
+                    borderRadius: '24px',
+                    width: '550px',
+                    maxWidth: '90%',
+                    maxHeight: '90vh',
+                    overflowY: 'auto',
+                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+                }} onClick={(e) => e.stopPropagation()}>
+                    {/* Header */}
+                    <div style={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        padding: '20px 24px',
+                        borderRadius: '24px 24px 0 0',
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 1
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ fontSize: '28px' }}>🏪</span>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'white' }}>Create New Supplier (Creditor)</h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>
+                                    Register a new supplier as creditor
+                                </p>
+                            </div>
+                        </div>
                     </div>
-                    <form onSubmit={(e) => { e.preventDefault(); handleCreateSupplier(); }}>
-                        <input
-                            ref={nameRef}
-                            type="text"
-                            name="name"
-                            placeholder="Supplier Name *"
-                            required
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            onKeyPress={(e) => handleKeyPress(e, dobRef)}
-                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
-                        />
-                        <input
-                            ref={dobRef}
-                            type="date"
-                            name="dob"
-                            required
-                            onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                            onKeyPress={(e) => handleKeyPress(e, addressRef)}
-                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
-                        />
-                        <textarea
-                            ref={addressRef}
-                            name="address"
-                            placeholder="Address *"
-                            required
-                            rows="2"
-                            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                            onKeyPress={(e) => handleKeyPress(e, telephoneRef)}
-                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
-                        />
-                        <input
-                            ref={telephoneRef}
-                            type="text"
-                            name="telephone_no"
-                            placeholder="Telephone No *"
-                            required
-                            onChange={(e) => setFormData({ ...formData, telephone_no: e.target.value })}
-                            onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
-                            style={{ width: '100%', padding: '10px', margin: '8px 0', border: '1px solid #ccc', borderRadius: '8px' }}
-                        />
-                        <input
-                            ref={profilePicRef}
-                            type="file"
-                            name="profile_pic"
-                            accept="image/*"
-                            onChange={(e) => setFormData({ ...formData, profile_pic: e.target.files[0] })}
-                            onKeyPress={(e) => handleKeyPress(e, nicFrontRef)}
-                            style={{ width: '100%', padding: '10px', margin: '8px 0' }}
-                        />
-                        <input
-                            ref={nicFrontRef}
-                            type="file"
-                            name="nic_front"
-                            accept="image/*"
-                            onChange={(e) => setFormData({ ...formData, nic_front: e.target.files[0] })}
-                            onKeyPress={(e) => handleKeyPress(e, nicBackRef)}
-                            style={{ width: '100%', padding: '10px', margin: '8px 0' }}
-                        />
-                        <input
-                            ref={nicBackRef}
-                            type="file"
-                            name="nic_back"
-                            accept="image/*"
-                            onChange={(e) => setFormData({ ...formData, nic_back: e.target.files[0] })}
-                            onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
-                            style={{ width: '100%', padding: '10px', margin: '8px 0' }}
-                        />
-                        <button
-                            ref={submitButtonRef}
-                            type="submit"
-                            disabled={loading}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleCreateSupplier();
-                                }
-                            }}
-                            style={{ padding: '12px 24px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', width: '100%', marginTop: '16px' }}
-                        >
-                            {loading ? 'Saving...' : 'Create Supplier'}
-                        </button>
-                    </form>
-                    <button
-                        ref={backButtonRef}
-                        onClick={() => setShowSupplierForm(false)}
-                        onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                setShowSupplierForm(false);
-                            }
-                        }}
-                        style={{ marginTop: '12px', padding: '8px', background: '#f1f5f9', border: 'none', borderRadius: '8px', width: '100%', cursor: 'pointer' }}
-                    >
-                        Back
-                    </button>
+
+                    <div style={{ padding: '24px' }}>
+                        {billNo && (
+                            <div style={{
+                                background: '#e0f2fe',
+                                padding: '12px 16px',
+                                borderRadius: '12px',
+                                marginBottom: '20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                borderLeft: '4px solid #0284c7'
+                            }}>
+                                <span style={{ fontSize: '20px' }}>📄</span>
+                                <div>
+                                    <div style={{ fontSize: '11px', color: '#0369a1' }}>Linked Bill</div>
+                                    <div style={{ fontWeight: '600', color: '#0c4a6e' }}>Bill No: {billNo}</div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>
+                                Supplier Code <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={supplierCode}
+                                disabled
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 14px',
+                                    border: '2px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    fontSize: '14px',
+                                    background: '#f1f5f9',
+                                    color: '#1e293b',
+                                    fontFamily: 'monospace',
+                                    fontWeight: 'bold'
+                                }}
+                            />
+                        </div>
+
+                        <form onSubmit={(e) => { e.preventDefault(); handleCreateSupplier(); }}>
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
+                                    Supplier Name <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <input
+                                    ref={nameRef}
+                                    type="text"
+                                    name="name"
+                                    placeholder="Enter supplier name"
+                                    required
+                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                    onKeyPress={(e) => handleKeyPress(e, dobRef)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        fontSize: '13px',
+                                        outline: 'none',
+                                        transition: 'border-color 0.2s'
+                                    }}
+                                    onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                />
+                            </div>
+
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
+                                    Date of Birth
+                                </label>
+                                <input
+                                    ref={dobRef}
+                                    type="date"
+                                    name="dob"
+                                    onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                                    onKeyPress={(e) => handleKeyPress(e, addressRef)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        fontSize: '13px',
+                                        outline: 'none'
+                                    }}
+                                />
+                            </div>
+
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
+                                    Address <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <textarea
+                                    ref={addressRef}
+                                    name="address"
+                                    placeholder="Enter full address"
+                                    required
+                                    rows="2"
+                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                    onKeyPress={(e) => handleKeyPress(e, telephoneRef)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        fontSize: '13px',
+                                        outline: 'none',
+                                        resize: 'vertical'
+                                    }}
+                                />
+                            </div>
+
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
+                                    Telephone Number <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <input
+                                    ref={telephoneRef}
+                                    type="tel"
+                                    name="telephone_no"
+                                    placeholder="Enter telephone number"
+                                    required
+                                    onChange={(e) => setFormData({ ...formData, telephone_no: e.target.value })}
+                                    onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        fontSize: '13px',
+                                        outline: 'none'
+                                    }}
+                                />
+                            </div>
+
+                            {/* Profile Picture */}
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
+                                    Profile Picture
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <input
+                                        ref={profilePicRef}
+                                        type="file"
+                                        name="profile_pic"
+                                        accept="image/*"
+                                        onChange={(e) => handleImageChange(e, 'profile_pic')}
+                                        onKeyPress={(e) => handleKeyPress(e, nicFrontRef)}
+                                        style={{ flex: 1, padding: '8px' }}
+                                    />
+                                    {previewImages.profile_pic && (
+                                        <img src={previewImages.profile_pic} alt="Preview" style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover' }} />
+                                    )}
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
+                                        NIC Front
+                                    </label>
+                                    <input
+                                        ref={nicFrontRef}
+                                        type="file"
+                                        name="nic_front"
+                                        accept="image/*"
+                                        onChange={(e) => handleImageChange(e, 'nic_front')}
+                                        onKeyPress={(e) => handleKeyPress(e, nicBackRef)}
+                                        style={{ width: '100%', padding: '8px' }}
+                                    />
+                                    {previewImages.nic_front && (
+                                        <img src={previewImages.nic_front} alt="NIC Front" style={{ width: '100%', maxHeight: '80px', objectFit: 'cover', marginTop: '8px', borderRadius: '8px' }} />
+                                    )}
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
+                                        NIC Back
+                                    </label>
+                                    <input
+                                        ref={nicBackRef}
+                                        type="file"
+                                        name="nic_back"
+                                        accept="image/*"
+                                        onChange={(e) => handleImageChange(e, 'nic_back')}
+                                        onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
+                                        style={{ width: '100%', padding: '8px' }}
+                                    />
+                                    {previewImages.nic_back && (
+                                        <img src={previewImages.nic_back} alt="NIC Back" style={{ width: '100%', maxHeight: '80px', objectFit: 'cover', marginTop: '8px', borderRadius: '8px' }} />
+                                    )}
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                                <button
+                                    ref={backButtonRef}
+                                    type="button"
+                                    onClick={() => setShowSupplierForm(false)}
+                                    onKeyPress={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            setShowSupplierForm(false);
+                                        }
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px',
+                                        background: '#f1f5f9',
+                                        color: '#475569',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        fontSize: '14px',
+                                        transition: 'background 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#e2e8f0'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                >
+                                    Back
+                                </button>
+                                <button
+                                    ref={submitButtonRef}
+                                    type="submit"
+                                    disabled={loading}
+                                    onKeyPress={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleCreateSupplier();
+                                        }
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px',
+                                        background: loading ? '#9ca3af' : 'linear-gradient(135deg, #4CAF50, #45a049)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        cursor: loading ? 'not-allowed' : 'pointer',
+                                        fontWeight: '600',
+                                        fontSize: '14px',
+                                        opacity: loading ? 0.6 : 1,
+                                        transition: 'transform 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (!loading) {
+                                            e.currentTarget.style.transform = 'scale(1.02)';
+                                        }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'scale(1)';
+                                    }}
+                                >
+                                    {loading ? 'Saving...' : 'Create Supplier'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         );
     }
 
     return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 20001, display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', padding: '24px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
-                <h3 style={{ marginBottom: '16px' }}>💰 Creditor Mode</h3>
-                {billNo && <div style={{ background: '#e0f2fe', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px' }}>📄 Bill Number: <strong>{billNo}</strong></div>}
-                <p style={{ marginBottom: '12px' }}>Enter supplier code to mark as creditor:</p>
-                <div style={{ flex: 1, overflowY: 'auto', marginBottom: '16px', minHeight: '0' }}>
-                    <div style={{ position: 'relative' }}>
-                        <input type="text" value={supplierCode} onChange={handleSupplierCodeChange} placeholder="Enter Supplier Code" autoFocus style={{ width: '100%', padding: '12px', border: '2px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold' }} />
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20001
+        }} onClick={onClose}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '24px',
+                width: '550px',
+                maxWidth: '90%',
+                maxHeight: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+            }} onClick={(e) => e.stopPropagation()}>
+                {/* Header */}
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    padding: '20px 24px',
+                    borderRadius: '24px 24px 0 0'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '28px' }}>💰</span>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'white' }}>Creditor Mode</h3>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>
+                                Mark supplier as creditor
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+                    {billNo && (
+                        <div style={{
+                            background: '#e0f2fe',
+                            padding: '12px 16px',
+                            borderRadius: '12px',
+                            marginBottom: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            borderLeft: '4px solid #0284c7'
+                        }}>
+                            <span style={{ fontSize: '20px' }}>📄</span>
+                            <div>
+                                <div style={{ fontSize: '11px', color: '#0369a1' }}>Current Bill</div>
+                                <div style={{ fontWeight: '600', color: '#0c4a6e', fontSize: '14px' }}>Bill Number: <strong>{billNo}</strong></div>
+                            </div>
+                        </div>
+                    )}
+
+                    <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
+                        Enter supplier code to mark as creditor:
+                    </p>
+
+                    <div style={{ position: 'relative', marginBottom: '16px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>
+                            Supplier Code <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                        <input
+                            type="text"
+                            value={supplierCode}
+                            onChange={handleSupplierCodeChange}
+                            placeholder="Enter Supplier Code (e.g., SUP001)"
+                            autoFocus
+                            style={{
+                                width: '100%',
+                                padding: '14px 16px',
+                                border: '2px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontSize: '15px',
+                                fontFamily: 'monospace',
+                                fontWeight: 'bold',
+                                outline: 'none',
+                                transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#667eea'}
+                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                        />
+
                         {showSuggestions && !selectedFromDropdown && (
-                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 20002, maxHeight: '200px', overflowY: 'auto', marginTop: '4px' }}>
-                                {isLoadingSuppliers ? <div style={{ padding: '12px', textAlign: 'center' }}>Loading...</div> :
+                            <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                background: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '12px',
+                                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                                zIndex: 20002,
+                                maxHeight: '250px',
+                                overflowY: 'auto',
+                                marginTop: '4px'
+                            }}>
+                                {isLoadingSuppliers ? (
+                                    <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>
+                                        <div style={{ display: 'inline-block', width: '20px', height: '20px', border: '2px solid #e2e8f0', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }}></div>
+                                        <p style={{ marginTop: '8px', fontSize: '12px' }}>Loading suppliers...</p>
+                                    </div>
+                                ) : (
                                     matchingSuppliers.map((supplier, idx) => (
-                                        <div key={idx} onClick={() => handleSelectSupplier(supplier)} style={{ padding: '12px 14px', cursor: 'pointer', borderBottom: idx < matchingSuppliers.length - 1 ? '1px solid #f1f5f9' : 'none' }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.background = 'white'}>
+                                        <div
+                                            key={idx}
+                                            onClick={() => handleSelectSupplier(supplier)}
+                                            style={{
+                                                padding: '14px 16px',
+                                                cursor: 'pointer',
+                                                borderBottom: idx < matchingSuppliers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                                transition: 'background 0.2s'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                        >
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <div><div style={{ fontWeight: 'bold' }}>{supplier.code}</div>{supplier.name && <div style={{ fontSize: '11px', color: '#64748b' }}>{supplier.name}</div>}</div>
-                                                <div style={{ background: '#d1fae5', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', color: '#065f46' }}>📋 {supplier.Creditor_no || 'Creditor'}</div>
+                                                <div>
+                                                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#1e293b' }}>{supplier.code}</div>
+                                                    {supplier.name && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{supplier.name}</div>}
+                                                </div>
+                                                <div style={{
+                                                    background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)',
+                                                    padding: '4px 12px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '11px',
+                                                    fontWeight: '600',
+                                                    color: '#065f46'
+                                                }}>
+                                                    📋 {supplier.Creditor_no || 'Creditor'}
+                                                </div>
                                             </div>
                                         </div>
                                     ))
-                                }
+                                )}
                             </div>
                         )}
                     </div>
-                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '12px', padding: '8px', background: '#f8fafc', borderRadius: '8px' }}>
-                        💡 <strong>Tip:</strong> Select from dropdown → Use existing supplier<br />
-                        • <strong>Type & click Continue</strong> → Create NEW supplier
+
+                    <div style={{
+                        fontSize: '12px',
+                        color: '#64748b',
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)',
+                        borderRadius: '12px',
+                        marginBottom: '16px'
+                    }}>
+                        <div style={{ fontWeight: '600', marginBottom: '8px', color: '#475569' }}>💡 Tip:</div>
+                        <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                            <li>Select from dropdown → Use existing supplier</li>
+                            <li>Type & click "Continue" → Create NEW supplier</li>
+                        </ul>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '12px', flexShrink: 0, marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-                    <button onClick={onClose} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>Cancel</button>
-                    <button onClick={handleCheckCreditor} disabled={loading} style={{ flex: 1, padding: '10px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', opacity: loading ? 0.6 : 1 }}>{loading ? 'Checking...' : 'Continue'}</button>
+
+                <div style={{
+                    padding: '16px 24px',
+                    borderTop: '1px solid #e2e8f0',
+                    display: 'flex',
+                    gap: '12px',
+                    background: '#f8fafc',
+                    borderRadius: '0 0 24px 24px'
+                }}>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            flex: 1,
+                            padding: '12px',
+                            background: '#f1f5f9',
+                            color: '#475569',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            transition: 'background 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#e2e8f0'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleCheckCreditor}
+                        disabled={loading}
+                        style={{
+                            flex: 1,
+                            padding: '12px',
+                            background: loading ? '#9ca3af' : 'linear-gradient(135deg, #4CAF50, #45a049)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            opacity: loading ? 0.6 : 1,
+                            transition: 'transform 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!loading) {
+                                e.currentTarget.style.transform = 'scale(1.02)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'scale(1)';
+                        }}
+                    >
+                        {loading ? 'Processing...' : 'Continue →'}
+                    </button>
                 </div>
             </div>
         </div>
