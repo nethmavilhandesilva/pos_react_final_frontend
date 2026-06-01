@@ -944,7 +944,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
         setSelectedSupplierData(supplier);
         setSelectedFromDropdown(true);
         setShowSuggestions(false);
-        
+
         // Show success toast/message
         const message = `✅ Supplier "${supplier.code}" selected!\n📋 Creditor Number: ${supplier.Creditor_no || 'Not Assigned'}\n📝 Name: ${supplier.name || 'No name'}\n\n📄 Bill No: ${billNo || 'N/A'}`;
         alert(message);
@@ -1803,13 +1803,10 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         bad_debt: true
     });
 
-    // Fetch filter options when modal opens
-    useEffect(() => {
-        if (isOpen && (!localFilterOptions.unique_codes || localFilterOptions.unique_codes.length === 0)) {
-            fetchFilterOptions();
-        }
-    }, [isOpen]);
+    // Polling interval ref for auto-refreshing filter options
+    const filterPollingIntervalRef = useRef(null);
 
+    // Fetch filter options
     const fetchFilterOptions = async () => {
         setIsLoadingOptions(true);
         try {
@@ -1823,6 +1820,37 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
             setIsLoadingOptions(false);
         }
     };
+
+    // Fetch filter options when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            // Initial fetch
+            fetchFilterOptions();
+            
+            // Start polling every 10 seconds to refresh filter options
+            if (filterPollingIntervalRef.current) {
+                clearInterval(filterPollingIntervalRef.current);
+            }
+            filterPollingIntervalRef.current = setInterval(() => {
+                console.log('🔄 Auto-refreshing income filter options...');
+                fetchFilterOptions();
+            }, 10000); // Refresh every 10 seconds
+        } else {
+            // Clear interval when modal closes
+            if (filterPollingIntervalRef.current) {
+                clearInterval(filterPollingIntervalRef.current);
+                filterPollingIntervalRef.current = null;
+            }
+        }
+        
+        // Cleanup on unmount
+        return () => {
+            if (filterPollingIntervalRef.current) {
+                clearInterval(filterPollingIntervalRef.current);
+                filterPollingIntervalRef.current = null;
+            }
+        };
+    }, [isOpen]);
 
     useEffect(() => {
         if (totals) {
@@ -1958,8 +1986,15 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                     borderRadius: '12px',
                     border: '1px solid #e2e8f0'
                 }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '12px' }}>
-                        🔍 Filters
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#334155' }}>
+                            🔍 Filters
+                        </div>
+                        {isLoadingOptions && (
+                            <div style={{ fontSize: '10px', color: '#10b981' }}>
+                                🔄 Refreshing...
+                            </div>
+                        )}
                     </div>
 
                     {/* User Filter - UniqueCode */}
@@ -1983,7 +2018,6 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                                 <option key={idx} value={code}>{code}</option>
                             ))}
                         </select>
-                        {isLoadingOptions && <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>Loading users...</div>}
                     </div>
 
                     {/* Bank Filter */}
@@ -2029,6 +2063,11 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                                 style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
                             />
                         </div>
+                    </div>
+
+                    {/* Auto-refresh indicator */}
+                    <div style={{ fontSize: '10px', color: '#94a3b8', textAlign: 'center', marginBottom: '8px' }}>
+                        🔄 Filters auto-refresh every 10 seconds
                     </div>
 
                     {/* Filter Buttons */}
@@ -2470,7 +2509,7 @@ export default function SupplierReport() {
         bill_to_bill: 0,
         bad_debt: 0
     });
-     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
     // Initialize fundsAllocated directly from localStorage (no initial 0)
     const [fundsAllocated, setFundsAllocated] = useState(() => {
@@ -2544,7 +2583,7 @@ export default function SupplierReport() {
             delete window.lastPaymentAmount;
         };
     }, []);
-   
+
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -3444,7 +3483,33 @@ export default function SupplierReport() {
             setIsMiddlePanelLocked(true);
             return;
         }
+
+        // ⭐ CRITICAL: Immediately check for creditor before any loading
+        // First, check if this bill has a creditor record
+        let hasCreditor = false;
+        let creditorInfo = null;
+
+        if (billNo) {
+            try {
+                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
+                console.log('🔍 Pre-check creditor status:', { supplierCode, billNo, hasCreditor, creditorInfo });
+            } catch (error) {
+                console.log('Error checking creditor status:', error);
+            }
+        }
+
+        // ⭐ If bill has a creditor, unlock immediately - NO LOCK SHOULD APPEAR
+        if (hasCreditor) {
+            console.log('✅ Bill has creditor - panel will remain unlocked');
+            setIsMiddlePanelLocked(false);
+        } else {
+            // Only lock if no creditor exists
+            setIsMiddlePanelLocked(true);
+        }
+
         setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
+
         try {
             let url, response;
             const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
@@ -3483,7 +3548,6 @@ export default function SupplierReport() {
 
             let currentPaid = 0;
             let paymentBreakdown = [];
-            let hasCreditor = false;
 
             if (billNo) {
                 try {
@@ -3501,7 +3565,6 @@ export default function SupplierReport() {
                         }
 
                         // CRITICAL FIX: For Fully Settled bills, exclude Credit from total paid
-                        // Check if this bill is from Fully Settled section
                         const isFromFullySettled = state.completedSuppliers.some(
                             item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
                         );
@@ -3510,38 +3573,36 @@ export default function SupplierReport() {
                         if (Array.isArray(paymentBreakdown)) {
                             paymentBreakdown.forEach(payment => {
                                 const amount = parseFloat(payment.amount) || 0;
-                                // For Fully Settled bills, exclude Credit from Total Paid display
                                 if (isFromFullySettled && payment.method === 'Credit') {
                                     console.log(`Excluding Credit payment of Rs. ${amount} from Total Paid (Fully Settled bill)`);
                                 } else {
                                     totalPaidFromPayments += amount;
                                 }
-                                console.log(`Payment method: ${payment.method}, Amount: ${amount}, Included: ${!(isFromFullySettled && payment.method === 'Credit')}`);
                             });
                         }
                         currentPaid = totalPaidFromPayments;
-                        console.log(`Total paid (excluding Credit for Fully Settled bills): ${currentPaid}`);
                     }
                 } catch (loanError) {
                     console.error('Error fetching loan details:', loanError);
                 }
             }
 
-            // Get creditor info
-            let creditorInfo = null;
-            if (billNo) {
+            // Get creditor info again (or use the one we already have)
+            if (billNo && !creditorInfo) {
                 creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
                 setSelectedBillCreditor(creditorInfo);
+
+                // Update hasCreditor based on fresh data
+                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
 
                 if (creditorInfo) {
                     creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
                     creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
-
-                    hasCreditor = creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no || creditorInfo.creditor_number || creditorInfo.CreditorNo;
-                    if (!hasCreditor && creditorInfo.Creditor === 'Y') {
-                        hasCreditor = true;
-                    }
                 }
+            } else if (creditorInfo) {
+                setSelectedBillCreditor(creditorInfo);
+                creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
+                creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
             } else {
                 setSelectedBillCreditor(null);
             }
@@ -3560,45 +3621,45 @@ export default function SupplierReport() {
             let isUpdatingCompletedBill = false;
 
             if (isFromNotSettled) {
-                // For Not Settled bills: remaining = (total bill amount - total paid from ALL payment methods)
-                // This includes Cash, Cheque, Bank Transfer, AND Credit payments
                 const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
                 totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
                 isUpdatingCompletedBill = false;
-                console.log('🔍 Not Settled Bill:');
-                console.log('   Total Bill:', total);
-                console.log('   Total Paid (including Credit):', totalPaidIncludingCredit);
-                console.log('   Total Remaining:', totalRemainingAmount);
             } else if (isFromFullySettled) {
-                // For Fully Settled bills: remaining = remaining credit amount (what's payable TO supplier)
                 totalRemainingAmount = creditorRemainingAmount;
                 isUpdatingCompletedBill = true;
-                console.log('🔍 Fully Settled Bill - Remaining Credit:', totalRemainingAmount);
             }
 
-            console.log('Setting isUpdatingCompletedBill to:', isUpdatingCompletedBill);
-            setIsMiddlePanelLocked(!hasCreditor);
+            // ⭐ CRITICAL: Final unlock decision - based on hasCreditor
+            // If bill has creditor, panel should be UNLOCKED (false)
+            // If no creditor, panel should be LOCKED (true) - user must select mode
+            if (hasCreditor) {
+                console.log('✅ Bill HAS CREDITOR - Setting panel to UNLOCKED (false)');
+                setIsMiddlePanelLocked(false);
+            } else {
+                console.log('❌ Bill has NO CREDITOR - Setting panel to LOCKED (true)');
+                setIsMiddlePanelLocked(true);
+            }
 
-            // Set the payment amount to the total remaining amount
+            // Set the payment amount
             const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
 
             setState(prev => ({
                 ...prev,
                 supplierDetails: salesData || [],
                 paymentAmount: defaultPaymentAmount,
-                currentPaidAmount: currentPaid, // This now excludes Credit for Fully Settled bills
+                currentPaidAmount: currentPaid,
                 paymentBreakdown: paymentBreakdown,
                 isPrinting: false,
                 currentBillTotal: total,
                 isUpdatingCompletedBill: isUpdatingCompletedBill
             }));
 
-            console.log('✅ State updated - paymentAmount set to:', defaultPaymentAmount);
-            console.log('✅ State updated - currentPaidAmount set to:', currentPaid);
+            console.log('✅ State updated - hasCreditor:', hasCreditor, 'isMiddlePanelLocked:', hasCreditor ? 'false' : 'true');
         } catch (error) {
             console.error('Error fetching supplier details:', error);
             setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
             setSelectedBillCreditor(null);
+            // On error, lock the panel as safety
             setIsMiddlePanelLocked(true);
         }
     };

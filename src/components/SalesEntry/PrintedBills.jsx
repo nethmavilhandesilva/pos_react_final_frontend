@@ -666,7 +666,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
             if (formData.address) formDataToSend.append('address', formData.address);
             if (formData.credit_limit) formDataToSend.append('credit_limit', formData.credit_limit);
-            
+
             // NEW: Add introducer if provided
             if (formData.introducer && formData.introducer.trim() !== '') {
                 formDataToSend.append('introducer', formData.introducer.trim());
@@ -1719,9 +1719,7 @@ export default function PrintedBills() {
     const badDebtNameRef = useRef(null);
     const badDebtAmountRef = useRef(null);
 
-
-
-    // Replace your existing useEffect with this one
+    // Replace your existing useEffect with this one (around line 1440)
     useEffect(() => {
         isMountedRef.current = true;
 
@@ -1733,6 +1731,11 @@ export default function PrintedBills() {
             setState(prev => ({ ...prev, isLoading: true }));
             await fetchSalesData();
             setState(prev => ({ ...prev, isLoading: false }));
+
+            // After initial data load, fetch supplier loan data
+            // This will be done inside fetchSalesData or after it completes
+            // You can also add a call here:
+            // await fetchAdjustedSupplierLoan(stats.totalFunds);
         };
         initialLoad();
 
@@ -1824,6 +1827,7 @@ export default function PrintedBills() {
         payments.forEach(p => { if (totals[p.method] !== undefined) totals[p.method] += parseFloat(p.amount) || 0; });
         return totals;
     };
+
     // Get the remaining amount to display based on bill status
     const getDisplayRemaining = (bill, isAppliedSection) => {
         if (!bill) return 0;
@@ -1888,6 +1892,8 @@ export default function PrintedBills() {
     const viewOldBillsRef = useRef(viewOldBills);
     const startDateRef = useRef(startDate);
     const endDateRef = useRef(endDate);
+    const [showSupplierLoanModal, setShowSupplierLoanModal] = useState(false);
+
     // Update refs when state changes
     useEffect(() => {
         viewOldBillsRef.current = viewOldBills;
@@ -1920,7 +1926,7 @@ export default function PrintedBills() {
             badDebtName: '', badDebtAmount: ''
         }));
     };
-
+    
     const calculateBagToBoxAdjustment = () => {
         return ((parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0)) +
             ((parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0));
@@ -2043,7 +2049,91 @@ export default function PrintedBills() {
 
         return updatedBills;
     }, []);
+    // Supplier Loan Details Modal
+    const SupplierLoanDetailsModal = ({ isOpen, onClose, stats, adjustedLoanData }) => {
+        if (!isOpen) return null;
 
+        const netAvailable = Math.max(0, stats.totalFunds - (adjustedLoanData?.total_loan_amount || 0));
+
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20001 }} onClick={onClose}>
+                <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '450px', maxWidth: '90%', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', paddingBottom: '12px', borderBottom: '2px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '28px' }}>🏭</span>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Supplier Loan Details</h3>
+                        </div>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#64748b' }}>×</button>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {/* Gross Funds */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '12px' }}>
+                            <span style={{ fontWeight: '600', color: '#475569' }}>💰 TOTAL FUNDS (Gross)</span>
+                            <span style={{ fontSize: '18px', fontWeight: '700', color: '#fbbf24', fontFamily: 'monospace' }}>
+                                Rs. {formatDecimal(stats.totalFunds)}
+                            </span>
+                        </div>
+
+                        {adjustedLoanData && (
+                            <>
+                                {/* Supplier Loan */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#fef2f2', borderRadius: '12px' }}>
+                                    <span style={{ fontWeight: '600', color: '#dc2626' }}>🏭 SUPPLIER LOAN</span>
+                                    <span style={{ fontSize: '16px', fontWeight: '700', color: '#dc2626', fontFamily: 'monospace' }}>
+                                        - Rs. {formatDecimal(adjustedLoanData.total_loan_amount || 0)}
+                                    </span>
+                                </div>
+
+                                {/* Loan Payments Made */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#f0fdf4', borderRadius: '12px' }}>
+                                    <span style={{ fontSize: '13px', color: '#166534' }}>✓ Loan Payments Made</span>
+                                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#166534', fontFamily: 'monospace' }}>
+                                        Rs. {formatDecimal(adjustedLoanData.total_payments_excluding_credit || 0)}
+                                    </span>
+                                </div>
+                                {/* Subtraction Line */}
+                                <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '8px 0' }}></div>
+
+                                {/* Net Available */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'linear-gradient(135deg, #10b981, #059669)', borderRadius: '12px', color: 'white' }}>
+                                    <span style={{ fontWeight: '700', fontSize: '14px' }}>📊 NET AVAILABLE</span>
+                                    <span style={{ fontSize: '22px', fontWeight: '800', fontFamily: 'monospace' }}>
+                                        Rs. {formatDecimal(netAvailable)}
+                                    </span>
+                                </div>
+
+                                {/* Status Message */}
+                                {(adjustedLoanData.adjusted_amount || 0) <= 0 && (
+                                    <div style={{ fontSize: '11px', color: '#10b981', textAlign: 'center', padding: '8px', background: '#d1fae5', borderRadius: '8px' }}>
+                                        ✓ Supplier loan fully covered by funds
+                                    </div>
+                                )}
+                                {(adjustedLoanData.adjusted_amount || 0) > 0 && (
+                                    <div style={{ fontSize: '11px', color: '#dc2626', textAlign: 'center', padding: '8px', background: '#fee2e2', borderRadius: '8px' }}>
+                                        ⚠️ Remaining loan amount: Rs. {formatDecimal(adjustedLoanData.adjusted_amount)}
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {!adjustedLoanData && stats.totalFunds > 0 && (
+                            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                <span>⏳</span> Loading supplier loan data...
+                            </div>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={onClose}
+                        style={{ width: '100%', marginTop: '20px', padding: '12px', background: 'linear-gradient(135deg, #667eea, #764ba2)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        );
+    };
     const fetchSalesData = async () => {
         try {
             const [salesRes, customersRes] = await Promise.all([api.get(routes.getAllSales), api.get(routes.customers)]);
@@ -2312,7 +2402,7 @@ export default function PrintedBills() {
         } catch (error) { console.error('Error deleting payments:', error); alert('Failed to reverse payments.'); }
         finally { setState(prev => ({ ...prev, isPrinting: false, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null })); }
     };
- const checkAndHandleDebtor = async (bill) => {
+    const checkAndHandleDebtor = async (bill) => {
         console.log('Checking debtor for:', bill.customerCode, 'Customer type:', state.customerType);
 
         // If clicking the same bill that's already selected, clear everything
@@ -2890,7 +2980,31 @@ export default function PrintedBills() {
         const q = state.appliedSearchQuery.toLowerCase();
         return currentAppliedBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
     }, [currentAppliedBills, state.appliedSearchQuery]);
+    // Add this function in your PrintedBills component
+    const fetchAdjustedSupplierLoan = useCallback(async (totalFunds) => {
+        try {
+            const response = await api.get('/supplier-loans/adjusted-total', {
+                params: { total_funds: totalFunds }
+            });
 
+            if (response.data.success) {
+                console.log('Supplier Loan Adjustment Response:', response.data);
+
+                // Extract the data from response.data.data
+                const loanData = response.data.data;
+
+                console.log('Loan Data:', loanData);
+                console.log('Adjusted Amount:', loanData.adjusted_amount);
+
+                setAdjustedLoanData(loanData);
+                return loanData;
+            }
+        } catch (error) {
+            console.error('Error fetching adjusted supplier loan:', error);
+            setAdjustedLoanData(null);
+            return null;
+        }
+    }, []);
     // Silent refresh function - updates data without showing loading skeleton
     const silentRefresh = useCallback(async () => {
         if (!isMountedRef.current) return;
@@ -3010,7 +3124,50 @@ export default function PrintedBills() {
                     }
                 }
 
+                // ***** ADD THIS SECTION - Refresh Supplier Loan Data *****
+                // Calculate total funds from the updated data
+                const pendingGiven = updatedPending.reduce((sum, b) => {
+                    let total = 0;
+                    const history = b.paymentHistory || b.payment_history;
+                    if (history) {
+                        let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                        if (Array.isArray(payments)) {
+                            payments.forEach(p => {
+                                if (p.method !== 'Credit') {
+                                    total += parseFloat(p.amount) || 0;
+                                }
+                            });
+                        }
+                    }
+                    return sum + total;
+                }, 0);
+
+                const appliedGiven = updatedApplied.reduce((sum, b) => {
+                    let total = 0;
+                    const history = b.paymentHistory || b.payment_history;
+                    if (history) {
+                        let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                        if (Array.isArray(payments)) {
+                            payments.forEach(p => {
+                                if (p.method !== 'Credit') {
+                                    total += parseFloat(p.amount) || 0;
+                                }
+                            });
+                        }
+                    }
+                    return sum + total;
+                }, 0);
+
+                const totalFunds = pendingGiven + appliedGiven;
+
+                // Fetch updated supplier loan data
+                if (totalFunds > 0) {
+                    await fetchAdjustedSupplierLoan(totalFunds);
+                }
+                // ***** END OF ADDED SECTION *****
+
                 console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
+                console.log(`💰 Total Funds: Rs. ${formatDecimal(totalFunds)}`);
             }
 
         } catch (error) {
@@ -3020,7 +3177,7 @@ export default function PrintedBills() {
                 setIsRefreshing(false);
             }
         }
-    }, [state.selectedBill, updateCreditAmountsFromDebtorTable]);
+    }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan]);
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
@@ -3210,13 +3367,11 @@ export default function PrintedBills() {
         }
     }, [startDate, endDate, viewOldBills]);
 
-    // Replace the stats calculation in your component (around line 1430) with this:
     const stats = useMemo(() => {
         const pendingAmount = filterPendingBills.reduce((sum, b) => sum + b.totalAmount, 0);
         const appliedAmount = filterAppliedBills.reduce((sum, b) => sum + b.totalAmount, 0);
 
         const pendingGiven = filterPendingBills.reduce((sum, b) => {
-            // Use getTotalReceived for consistency
             return sum + getTotalReceived(b);
         }, 0);
 
@@ -3224,13 +3379,63 @@ export default function PrintedBills() {
             return sum + getTotalReceived(b);
         }, 0);
 
+        // Calculate Total Funds (sum of ALL payment methods including adjustments)
+        const totalFunds = filterPendingBills.reduce((sum, b) => {
+            let billTotal = 0;
+            const history = b.paymentHistory || b.payment_history;
+            if (history) {
+                let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                if (Array.isArray(payments)) {
+                    payments.forEach(p => {
+                        // Include ALL payment types (Cash, Cheque, Bank Transfer, Bag to Box, Bill to Bill)
+                        // Exclude Credit as it's debt, not actual funds
+                        if (p.method !== 'Credit') {
+                            billTotal += parseFloat(p.amount) || 0;
+                        }
+                    });
+                }
+            }
+            return sum + billTotal;
+        }, 0) + filterAppliedBills.reduce((sum, b) => {
+            let billTotal = 0;
+            const history = b.paymentHistory || b.payment_history;
+            if (history) {
+                let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                if (Array.isArray(payments)) {
+                    payments.forEach(p => {
+                        // Include ALL payment types (Cash, Cheque, Bank Transfer, Bag to Box, Bill to Bill)
+                        // Exclude Credit as it's debt, not actual funds
+                        if (p.method !== 'Credit') {
+                            billTotal += parseFloat(p.amount) || 0;
+                        }
+                    });
+                }
+            }
+            return sum + billTotal;
+        }, 0);
+
         return {
             totalPending: filterPendingBills.length,
             totalApplied: filterAppliedBills.length,
             totalAmount: pendingAmount + appliedAmount,
-            totalGiven: pendingGiven + appliedGiven
+            totalGiven: pendingGiven + appliedGiven,
+            totalFunds: totalFunds  // Add this line
         };
     }, [filterPendingBills, filterAppliedBills]);
+    const [adjustedLoanData, setAdjustedLoanData] = useState(null);
+
+    // Fetch adjusted supplier loan amount when totalFunds changes
+    useEffect(() => {
+        const getAdjustedLoan = async () => {
+            if (stats.totalFunds > 0) {
+                const data = await fetchAdjustedSupplierLoan(stats.totalFunds);
+                if (data) {
+                    console.log('Loan data updated:', data);
+                }
+            }
+        };
+        getAdjustedLoan();
+    }, [stats.totalFunds, fetchAdjustedSupplierLoan]);
 
     // Add this state for the summary popup (add with your other useState declarations around line 1130)
     const [showAdjustmentSummary, setShowAdjustmentSummary] = useState(false);
@@ -3243,6 +3448,38 @@ export default function PrintedBills() {
         bill_to_bill: 0,
         bad_debt: 0
     });
+    const [netValue, setNetValue] = useState(0);
+
+// Add this useEffect to monitor net value changes and show warning only once per session
+useEffect(() => {
+    const actualNet = stats.totalFunds - (adjustedLoanData?.total_loan_amount || 0);
+    
+    setNetValue(actualNet);  // Store actual value (can be negative)
+    
+    // Check if the warning has already been shown in this session
+    const warningAlreadyShown = sessionStorage.getItem('net_negative_warning_shown') === 'true';
+    
+    // Show warning only ONCE per browser session when net becomes zero or negative
+    if (actualNet <= 0 && !warningAlreadyShown && stats.totalFunds > 0) {
+        // Show warning notification
+        const warningMessage = actualNet === 0 
+            ? `⚠️ WARNING: Your payments have exactly matched your income!\n\nNet Available: Rs. 0.00\n\nYour payments equal your total income.`
+            : `⚠️ CRITICAL WARNING: Your payments are exceeding your income!\n\nNet Available: Rs. ${formatDecimal(actualNet)}\n\nYou have paid out Rs. ${formatDecimal(Math.abs(actualNet))} more than you have received.\n\nPlease review your transactions immediately!`;
+        
+        alert(warningMessage);
+        
+        // Set flag in sessionStorage to prevent showing again in this session
+        sessionStorage.setItem('net_negative_warning_shown', 'true');
+    }
+    
+    // Reset the session flag when value becomes positive again (so it can trigger again if it goes negative later)
+    if (actualNet > 0) {
+        const warningShown = sessionStorage.getItem('net_negative_warning_shown');
+        if (warningShown === 'true') {
+            sessionStorage.removeItem('net_negative_warning_shown');
+        }
+    }
+}, [stats.totalFunds, adjustedLoanData?.total_loan_amount]);
 
     // Add this function to calculate payment totals (add near your other functions)
     const calculatePaymentTotals = useCallback(() => {
@@ -3457,150 +3694,206 @@ export default function PrintedBills() {
     return (
         <div style={styles.app}>
             <div style={styles.container}>
-                {/* Old Bills Bar */}
-                <div style={styles.oldBillsBar}>
-                    <button
-                        onClick={async () => {
-                            if (viewOldBills) {
-                                // Switching from Old Bills to Current Bills
-                                resetToCurrentSales();
-                                // Reset customer type to null (user must select again)
-                                setState(prev => ({ ...prev, customerType: null }));
-                            } else {
-                                // Switching from Current Bills to Old Bills
-                                setViewOldBills(true);
-                                // Auto-select Walking Customer when viewing old bills
-                                //    setState(prev => ({ ...prev, customerType: 'walking' }));
-
-                                // Don't fetch immediately - let user select dates first
-                                // Just show the date pickers
-                            }
-                        }}
-                        style={{
-                            padding: '10px 24px',
-                            background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '12px',
-                            cursor: 'pointer',
-                            fontWeight: '600',
-                            fontSize: '14px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            transition: 'all 0.2s',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-                        }}
-                    >
-                        <span>📜</span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
-                    </button>
-
-                    {viewOldBills && (
-                        <div style={styles.datePickerContainer}>
-                            <div>
-                                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
-                                <input
-                                    type="date"
-                                    value={startDate}
-                                    onChange={(e) => {
-                                        setStartDate(e.target.value);
-                                        // Auto-fetch when both dates are selected
-                                        if (endDate && e.target.value) {
-                                            setTimeout(() => {
-                                                fetchArchivedSales();
-                                            }, 100);
-                                        }
-                                    }}
-                                    style={styles.dateInput}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
-                                <input
-                                    type="date"
-                                    value={endDate}
-                                    onChange={(e) => {
-                                        setEndDate(e.target.value);
-                                        // Auto-fetch when both dates are selected
-                                        if (startDate && e.target.value) {
-                                            setTimeout(() => {
-                                                fetchArchivedSales();
-                                            }, 100);
-                                        }
-                                    }}
-                                    style={styles.dateInput}
-                                />
-                            </div>
-                            <button
-                                onClick={async () => {
-                                    if (startDate && endDate) {
-                                        // Add refresh here too
-                                        setArchivedData(prev => ({ ...prev, isLoading: true }));
-                                        await refreshBeforeLoadingOldBills(); // Refresh current data first
-                                        await fetchArchivedSales(); // Then fetch archived
-                                    } else {
-                                        alert('Please select both start and end dates');
-                                    }
-                                }}
-                                style={{
-                                    padding: '8px 20px',
-                                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    fontWeight: '600',
-                                    marginTop: '18px'
-                                }}
-                            >
-                                Apply Filter
-                            </button>
-                            <button
-                                onClick={resetToCurrentSales}
-                                style={{
-                                    padding: '8px 20px',
-                                    background: '#f1f5f9',
-                                    color: '#475569',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    fontWeight: '600',
-                                    marginTop: '18px'
-                                }}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    )}
-
-                    {dataSource === 'sales_history' && (
-                        <div style={styles.viewTypeIndicator}>
-                            <span>📚</span>Viewing Archived Bills
-                            <button
-                                onClick={() => {
+                {/* Old Bills Bar with Total Funds */}
+                <div style={{ ...styles.oldBillsBar, justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={async () => {
+                                if (viewOldBills) {
+                                    // Switching from Old Bills to Current Bills
                                     resetToCurrentSales();
+                                    // Reset customer type to null (user must select again)
                                     setState(prev => ({ ...prev, customerType: null }));
-                                }}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: '#92400e',
-                                    cursor: 'pointer',
-                                    marginLeft: '4px'
-                                }}
-                            >
-                                ✕
-                            </button>
+                                } else {
+                                    // Switching from Current Bills to Old Bills
+                                    setViewOldBills(true);
+                                    // Auto-select Walking Customer when viewing old bills
+                                    //    setState(prev => ({ ...prev, customerType: 'walking' }));
+
+                                    // Don't fetch immediately - let user select dates first
+                                    // Just show the date pickers
+                                }
+                            }}
+                            style={{
+                                padding: '10px 24px',
+                                background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'all 0.2s',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
+                            }}
+                        >
+                            <span>📜</span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
+                        </button>
+
+                        {viewOldBills && (
+                            <div style={styles.datePickerContainer}>
+                                <div>
+                                    <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
+                                    <input
+                                        type="date"
+                                        value={startDate}
+                                        onChange={(e) => {
+                                            setStartDate(e.target.value);
+                                            // Auto-fetch when both dates are selected
+                                            if (endDate && e.target.value) {
+                                                setTimeout(() => {
+                                                    fetchArchivedSales();
+                                                }, 100);
+                                            }
+                                        }}
+                                        style={styles.dateInput}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
+                                    <input
+                                        type="date"
+                                        value={endDate}
+                                        onChange={(e) => {
+                                            setEndDate(e.target.value);
+                                            // Auto-fetch when both dates are selected
+                                            if (startDate && e.target.value) {
+                                                setTimeout(() => {
+                                                    fetchArchivedSales();
+                                                }, 100);
+                                            }
+                                        }}
+                                        style={styles.dateInput}
+                                    />
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        if (startDate && endDate) {
+                                            // Add refresh here too
+                                            setArchivedData(prev => ({ ...prev, isLoading: true }));
+                                            await refreshBeforeLoadingOldBills(); // Refresh current data first
+                                            await fetchArchivedSales(); // Then fetch archived
+                                        } else {
+                                            alert('Please select both start and end dates');
+                                        }
+                                    }}
+                                    style={{
+                                        padding: '8px 20px',
+                                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        marginTop: '18px'
+                                    }}
+                                >
+                                    Apply Filter
+                                </button>
+                                <button
+                                    onClick={resetToCurrentSales}
+                                    style={{
+                                        padding: '8px 20px',
+                                        background: '#f1f5f9',
+                                        color: '#475569',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        marginTop: '18px'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
+
+                        {dataSource === 'sales_history' && (
+                            <div style={styles.viewTypeIndicator}>
+                                <span>📚</span>Viewing Archived Bills
+                                <button
+                                    onClick={() => {
+                                        resetToCurrentSales();
+                                        setState(prev => ({ ...prev, customerType: null }));
+                                    }}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#92400e',
+                                        cursor: 'pointer',
+                                        marginLeft: '4px'
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* TOTAL FUNDS CARD - Top Right Corner with Supplier Loan Adjustment */}
+                    <div style={{
+                        background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                        borderRadius: '16px',
+                        padding: '12px 24px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                        minWidth: '280px',
+                        textAlign: 'center'
+                    }}>
+                        {/* TOTAL FUNDS CARD - Top Right Corner with Supplier Loan Adjustment */}
+                        <div
+                            style={{
+                                background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                                borderRadius: '16px',
+                                padding: '12px 24px',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                minWidth: '280px',
+                                textAlign: 'center',
+                                cursor: 'pointer',
+                                transition: 'transform 0.2s, box-shadow 0.2s'
+                            }}
+                            onClick={() => {
+                                modalOpenRef.current = true;
+                                setShowSupplierLoanModal(true);
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+                            }}
+                        >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>  {/* reduced from 8px */}
+                                {/* Single line showing NET AVAILABLE */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                    <span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        📊 NET AVAILABLE
+                                    </span>
+                                    <span style={{
+                                        fontSize: '18px',
+                                        fontWeight: '800',
+                                        fontFamily: 'monospace',
+                                        color: netValue >= 0 ? '#10b981' : '#ef4444',  // Red color for negative
+                                        lineHeight: '1.2'
+                                    }}>
+                                        Rs. {formatDecimal(netValue)}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                    )}
+                    </div>
                 </div>
 
                 <div style={styles.threeColumns}>
@@ -4116,6 +4409,16 @@ export default function PrintedBills() {
                     setShowAdjustmentSummary(false);
                 }}
                 totals={adjustmentTotals}
+            />
+            {/* Supplier Loan Details Modal */}
+            <SupplierLoanDetailsModal
+                isOpen={showSupplierLoanModal}
+                onClose={() => {
+                    modalOpenRef.current = false;
+                    setShowSupplierLoanModal(false);
+                }}
+                stats={stats}
+                adjustedLoanData={adjustedLoanData}
             />
         </div>
     );
