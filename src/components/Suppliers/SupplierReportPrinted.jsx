@@ -1787,13 +1787,14 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
     const [localTotals, setLocalTotals] = useState(totals);
     const [localIsLoading, setLocalIsLoading] = useState(false);
 
-    // NEW FILTER STATES
+    // FILTER STATES
     const [selectedUniqueCode, setSelectedUniqueCode] = useState('all');
     const [selectedBankName, setSelectedBankName] = useState('all');
-    const [localFilterOptions, setLocalFilterOptions] = useState(filterOptions || { unique_codes: [], bank_names: [] });
+    const [selectedCashierName, setSelectedCashierName] = useState('all');
+    const [localFilterOptions, setLocalFilterOptions] = useState(filterOptions || { unique_codes: [], bank_names: [], cashier_names: [] });
     const [isLoadingOptions, setIsLoadingOptions] = useState(false);
 
-    // NEW: Checkbox states for each income type
+    // Checkbox states for each income type
     const [selectedIncomeTypes, setSelectedIncomeTypes] = useState({
         cash: true,
         cheque: true,
@@ -1803,17 +1804,73 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         bad_debt: true
     });
 
-    // Polling interval ref for auto-refreshing filter options
-    const filterPollingIntervalRef = useRef(null);
+    // Cashier Balance States
+    const [cashierBalance, setCashierBalance] = useState({
+        cash_balance: 0,
+        bank_balance: 0,
+        bank_breakdown: {},
+        total_balance: 0,
+        cashier_names: [],
+        session_count: 0
+    });
+    const [showBankBreakdown, setShowBankBreakdown] = useState(false);
+    const [isLoadingCashierBalance, setIsLoadingCashierBalance] = useState(false);
 
-    // Fetch filter options
+    // Polling interval refs
+    const filterPollingIntervalRef = useRef(null);
+    const cashierBalanceIntervalRef = useRef(null);
+
+    // Fetch cashier balance data
+    const fetchCashierBalance = async () => {
+        setIsLoadingCashierBalance(true);
+        try {
+            let url = '/cashier-balance/detailed-balance';
+            const params = new URLSearchParams();
+            
+            if (selectedCashierName && selectedCashierName !== 'all') {
+                params.append('cashier_name', selectedCashierName);
+            }
+            if (dateRange.startDate) {
+                params.append('start_date', dateRange.startDate);
+            }
+            if (dateRange.endDate) {
+                params.append('end_date', dateRange.endDate);
+            }
+            
+            if (params.toString()) {
+                url += `?${params.toString()}`;
+            }
+            
+            const response = await api.get(url);
+            
+            if (response.data.success) {
+                setCashierBalance(response.data.data);
+                console.log('Cashier balance fetched:', response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching cashier balance:', error);
+        } finally {
+            setIsLoadingCashierBalance(false);
+        }
+    };
+
+    // Fetch filter options (including cashier names)
     const fetchFilterOptions = async () => {
         setIsLoadingOptions(true);
         try {
-            const response = await api.get('/income-filter-options');
-            if (response.data.success) {
-                setLocalFilterOptions(response.data.data);
-            }
+            // Fetch income filter options
+            const incomeResponse = await api.get('/income-filter-options');
+            
+            // Fetch cashier names from cashier balance
+            const cashierResponse = await api.get('/cashier-balance/detailed-balance');
+            
+            const cashierNames = cashierResponse.data.success ? cashierResponse.data.data.cashier_names : [];
+            
+            setLocalFilterOptions({
+                unique_codes: incomeResponse.data.data?.unique_codes || [],
+                bank_names: incomeResponse.data.data?.bank_names || [],
+                cashier_names: cashierNames
+            });
         } catch (error) {
             console.error('Error fetching filter options:', error);
         } finally {
@@ -1821,30 +1878,64 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         }
     };
 
-    // Fetch filter options when modal opens
+    // Fetch cashier balance when modal opens or filters change
     useEffect(() => {
         if (isOpen) {
-            // Initial fetch
-            fetchFilterOptions();
-            
-            // Start polling every 10 seconds to refresh filter options
-            if (filterPollingIntervalRef.current) {
-                clearInterval(filterPollingIntervalRef.current);
-            }
-            filterPollingIntervalRef.current = setInterval(() => {
-                console.log('🔄 Auto-refreshing income filter options...');
-                fetchFilterOptions();
-            }, 10000); // Refresh every 10 seconds
-        } else {
-            // Clear interval when modal closes
-            if (filterPollingIntervalRef.current) {
-                clearInterval(filterPollingIntervalRef.current);
-                filterPollingIntervalRef.current = null;
-            }
+            fetchCashierBalance();
         }
-        
-        // Cleanup on unmount
+    }, [isOpen, selectedCashierName, dateRange.startDate, dateRange.endDate]);
+
+    // Polling for cashier balance every 30 seconds
+    useEffect(() => {
+        let isSubscribed = true;
+        let pollingInterval = null;
+
+        if (isOpen && isSubscribed) {
+            pollingInterval = setInterval(() => {
+                if (isSubscribed) {
+                    console.log('🔄 Auto-refreshing cashier balance...');
+                    fetchCashierBalance();
+                }
+            }, 30000);
+
+            cashierBalanceIntervalRef.current = pollingInterval;
+        }
+
         return () => {
+            isSubscribed = false;
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            if (cashierBalanceIntervalRef.current) {
+                clearInterval(cashierBalanceIntervalRef.current);
+                cashierBalanceIntervalRef.current = null;
+            }
+        };
+    }, [isOpen, selectedCashierName]);
+
+    // Fetch filter options when modal opens
+    useEffect(() => {
+        let isSubscribed = true;
+        let pollingInterval = null;
+
+        if (isOpen && isSubscribed) {
+            fetchFilterOptions();
+
+            pollingInterval = setInterval(() => {
+                if (isSubscribed) {
+                    console.log('🔄 Auto-refreshing income filter options...');
+                    fetchFilterOptions();
+                }
+            }, 10000);
+
+            filterPollingIntervalRef.current = pollingInterval;
+        }
+
+        return () => {
+            isSubscribed = false;
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
             if (filterPollingIntervalRef.current) {
                 clearInterval(filterPollingIntervalRef.current);
                 filterPollingIntervalRef.current = null;
@@ -1854,21 +1945,15 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
 
     useEffect(() => {
         if (totals) {
-            console.log('Income totals received:', {
-                cash: totals.cash,
-                cheque: totals.cheque,
-                bank_transfer: totals.bank_transfer,
-                bag_to_box: totals.bag_to_box,
-                bill_to_bill: totals.bill_to_bill,
-                bad_debt: totals.bad_debt
-            });
             setLocalTotals(totals);
         }
     }, [totals]);
 
     if (!isOpen) return null;
 
-    const formatCurrency = (amount) => `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const formatCurrency = (amount) => {
+        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
 
     const handleApplyFilters = async () => {
         setLocalIsLoading(true);
@@ -1879,6 +1964,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                 selectedUniqueCode,
                 selectedBankName
             );
+            await fetchCashierBalance();
         } finally {
             setLocalIsLoading(false);
         }
@@ -1888,15 +1974,16 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         setDateRange({ startDate: '', endDate: '' });
         setSelectedUniqueCode('all');
         setSelectedBankName('all');
+        setSelectedCashierName('all');
         setLocalIsLoading(true);
         try {
             await onRefresh();
+            await fetchCashierBalance();
         } finally {
             setLocalIsLoading(false);
         }
     };
 
-    // Calculate total based on selected checkboxes
     const calculateSelectedTotal = () => {
         let total = 0;
         if (selectedIncomeTypes.cash) total += localTotals?.cash || 0;
@@ -1925,7 +2012,6 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         }
     };
 
-    // Income items with checkboxes
     const incomeItems = [
         { id: 'cash', icon: '💰', label: 'Cash Payments', value: localTotals?.cash || 0, color: '#10b981', bg: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' },
         { id: 'cheque', icon: '💳', label: 'Cheque Payments', value: localTotals?.cheque || 0, color: '#8b5cf6', bg: 'linear-gradient(135deg, #ede9fe, #ddd6fe)' },
@@ -1941,63 +2027,235 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
     const selectedTotal = calculateSelectedTotal();
 
     return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 20005
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                width: '550px',
-                maxWidth: '90%',
-                padding: '24px',
-                maxHeight: '85vh',
-                overflowY: 'auto'
-            }} onClick={e => e.stopPropagation()}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '20px',
-                    paddingBottom: '12px',
-                    borderBottom: '2px solid #e2e8f0'
-                }}>
+        <div
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 20005,
+                overflowY: 'auto',
+                padding: '20px'
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    backgroundColor: 'white',
+                    borderRadius: '20px',
+                    width: '650px',
+                    maxWidth: '95%',
+                    padding: '24px',
+                    maxHeight: '90vh',
+                    overflowY: 'auto'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '20px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #e2e8f0'
+                    }}
+                >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={{ fontSize: '32px' }}>💰</span>
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Income Sources</h3>
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Income & Balance Summary</h3>
                     </div>
-                    <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', fontSize: '20px', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%' }}>×</button>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            background: '#f1f5f9',
+                            border: 'none',
+                            fontSize: '20px',
+                            cursor: 'pointer',
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%'
+                        }}
+                    >
+                        ×
+                    </button>
                 </div>
 
-                {/* Filter Section */}
-                <div style={{
-                    marginBottom: '20px',
-                    padding: '16px',
-                    background: '#f8fafc',
-                    borderRadius: '12px',
-                    border: '1px solid #e2e8f0'
-                }}>
+                {/* Cashier Balance Section */}
+                <div
+                    style={{
+                        marginBottom: '20px',
+                        padding: '16px',
+                        background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                        borderRadius: '16px',
+                        color: 'white'
+                    }}
+                >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#334155' }}>
-                            🔍 Filters
+                        <div style={{ fontSize: '14px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>🏦</span> Cashier Balance Summary
                         </div>
-                        {isLoadingOptions && (
-                            <div style={{ fontSize: '10px', color: '#10b981' }}>
-                                🔄 Refreshing...
-                            </div>
+                        {isLoadingCashierBalance && (
+                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>⏳ Updating...</div>
                         )}
                     </div>
 
-                    {/* User Filter - UniqueCode */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        {/* Cash Balance Card */}
+                        <div
+                            style={{
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                textAlign: 'center'
+                            }}
+                        >
+                            <div style={{ fontSize: '11px', opacity: 0.9, marginBottom: '4px' }}>💰 Cash Balance</div>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                                {formatCurrency(cashierBalance.cash_balance)}
+                            </div>
+                        </div>
+
+                        {/* Bank Balance Card - Clickable */}
+                        <div
+                            onClick={() => setShowBankBreakdown(!showBankBreakdown)}
+                            style={{
+                                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                textAlign: 'center',
+                                cursor: 'pointer',
+                                transition: 'transform 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'scale(1.02)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                        >
+                            <div style={{ fontSize: '11px', opacity: 0.9, marginBottom: '4px' }}>
+                                🏦 Bank Balance {showBankBreakdown ? '▲' : '▼'}
+                            </div>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                                {formatCurrency(cashierBalance.bank_balance)}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Bank Breakdown */}
+                    {showBankBreakdown && (
+                        <div
+                            style={{
+                                marginTop: '12px',
+                                padding: '12px',
+                                background: 'rgba(255,255,255,0.1)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255,255,255,0.2)'
+                            }}
+                        >
+                            <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>🏦</span> Bank-wise Breakdown
+                            </div>
+                            {Object.keys(cashierBalance.bank_breakdown).length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {Object.entries(cashierBalance.bank_breakdown).map(([bankName, amount]) => (
+                                        <div
+                                            key={bankName}
+                                            style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '8px 12px',
+                                                background: 'rgba(255,255,255,0.08)',
+                                                borderRadius: '8px'
+                                            }}
+                                        >
+                                            <div style={{ fontSize: '12px', fontWeight: '500' }}>{bankName.replace(/_/g, ' ')}</div>
+                                            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#fbbf24' }}>
+                                                {formatCurrency(amount)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{ fontSize: '11px', textAlign: 'center', padding: '12px', color: '#94a3b8' }}>
+                                    No bank transactions recorded
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Total Balance */}
+                    <div
+                        style={{
+                            marginTop: '12px',
+                            padding: '12px',
+                            background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                            borderRadius: '12px',
+                            textAlign: 'center'
+                        }}
+                    >
+                        <div style={{ fontSize: '11px', opacity: 0.9 }}>📊 Total Balance</div>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
+                            {formatCurrency(cashierBalance.total_balance)}
+                        </div>
+                        {cashierBalance.session_count > 0 && (
+                            <div style={{ fontSize: '9px', marginTop: '4px', opacity: 0.7 }}>
+                                Based on {cashierBalance.session_count} session(s)
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Filter Section */}
+                <div
+                    style={{
+                        marginBottom: '20px',
+                        padding: '16px',
+                        background: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0'
+                    }}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#334155' }}>🔍 Filters</div>
+                        {isLoadingOptions && (
+                            <div style={{ fontSize: '10px', color: '#10b981' }}>🔄 Refreshing...</div>
+                        )}
+                    </div>
+
+                    {/* Cashier Name Filter */}
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>👤 Cashier Name</label>
+                        <select
+                            value={selectedCashierName}
+                            onChange={(e) => setSelectedCashierName(e.target.value)}
+                            disabled={isLoadingOptions}
+                            style={{
+                                width: '100%',
+                                padding: '8px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">-- All Cashiers --</option>
+                            {localFilterOptions.cashier_names?.map((name, idx) => (
+                                <option key={idx} value={name}>{name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* User Filter */}
                     <div style={{ marginBottom: '12px' }}>
                         <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>👤 User (Unique Code)</label>
                         <select
@@ -2067,7 +2325,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
 
                     {/* Auto-refresh indicator */}
                     <div style={{ fontSize: '10px', color: '#94a3b8', textAlign: 'center', marginBottom: '8px' }}>
-                        🔄 Filters auto-refresh every 10 seconds
+                        🔄 Filters auto-refresh every 10 seconds | Balance refreshes every 30 seconds
                     </div>
 
                     {/* Filter Buttons */}
@@ -2118,14 +2376,16 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                 ) : (
                     <>
                         {/* Summary Stats */}
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            marginBottom: '20px',
-                            padding: '12px',
-                            background: '#e0f2fe',
-                            borderRadius: '12px'
-                        }}>
+                        <div
+                            style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                marginBottom: '20px',
+                                padding: '12px',
+                                background: '#e0f2fe',
+                                borderRadius: '12px'
+                            }}
+                        >
                             <div style={{ textAlign: 'center', flex: 1 }}>
                                 <div style={{ fontSize: '11px', color: '#0369a1' }}>Total Bills</div>
                                 <div style={{ fontSize: '20px', fontWeight: '700', color: '#0369a1' }}>{localTotals?.total_bills || 0}</div>
@@ -2138,17 +2398,20 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
 
                         {/* Income Items with Checkboxes */}
                         {incomeItems.map((item, idx) => (
-                            <div key={idx} style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                padding: '12px 16px',
-                                marginBottom: '10px',
-                                background: item.bg,
-                                borderRadius: '12px',
-                                borderLeft: `4px solid ${item.color}`,
-                                cursor: 'pointer'
-                            }}
-                                onClick={() => handleCheckboxChange(item.id)}>
+                            <div
+                                key={idx}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    padding: '12px 16px',
+                                    marginBottom: '10px',
+                                    background: item.bg,
+                                    borderRadius: '12px',
+                                    borderLeft: `4px solid ${item.color}`,
+                                    cursor: 'pointer'
+                                }}
+                                onClick={() => handleCheckboxChange(item.id)}
+                            >
                                 <input
                                     type="checkbox"
                                     checked={selectedIncomeTypes[item.id]}
@@ -2182,13 +2445,15 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                         ))}
 
                         {/* Selected Total Display */}
-                        <div style={{
-                            marginTop: '16px',
-                            padding: '16px',
-                            background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
-                            borderRadius: '12px',
-                            border: '2px solid #f59e0b'
-                        }}>
+                        <div
+                            style={{
+                                marginTop: '16px',
+                                padding: '16px',
+                                background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                                borderRadius: '12px',
+                                border: '2px solid #f59e0b'
+                            }}
+                        >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
                                     <span style={{ fontSize: '20px', marginRight: '8px' }}>✅</span>
@@ -2203,15 +2468,17 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                         <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '16px 0' }}></div>
 
                         {/* Total Income */}
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '20px',
-                            background: 'linear-gradient(135deg, #10b981, #059669)',
-                            borderRadius: '12px',
-                            color: 'white'
-                        }}>
+                        <div
+                            style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '20px',
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}
+                        >
                             <div>
                                 <span style={{ fontSize: '24px', marginRight: '12px' }}>💰</span>
                                 <span style={{ fontWeight: '700', fontSize: '16px' }}>Total Income</span>
@@ -2252,17 +2519,20 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                         </button>
 
                         {/* Active Filters Display */}
-                        {(selectedUniqueCode !== 'all' || selectedBankName !== 'all' || dateRange.startDate || dateRange.endDate) && (
-                            <div style={{
-                                marginTop: '16px',
-                                padding: '10px',
-                                background: '#f1f5f9',
-                                borderRadius: '8px',
-                                fontSize: '11px',
-                                color: '#64748b',
-                                textAlign: 'center'
-                            }}>
+                        {(selectedUniqueCode !== 'all' || selectedBankName !== 'all' || selectedCashierName !== 'all' || dateRange.startDate || dateRange.endDate) && (
+                            <div
+                                style={{
+                                    marginTop: '16px',
+                                    padding: '10px',
+                                    background: '#f1f5f9',
+                                    borderRadius: '8px',
+                                    fontSize: '11px',
+                                    color: '#64748b',
+                                    textAlign: 'center'
+                                }}
+                            >
                                 🔍 Active Filters:
+                                {selectedCashierName !== 'all' && ` Cashier: ${selectedCashierName}`}
                                 {selectedUniqueCode !== 'all' && ` User: ${selectedUniqueCode}`}
                                 {selectedBankName !== 'all' && ` Bank: ${selectedBankName}`}
                                 {dateRange.startDate && ` From: ${dateRange.startDate}`}
@@ -2271,15 +2541,17 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                         )}
 
                         {/* Note about excluded items */}
-                        <div style={{
-                            marginTop: '16px',
-                            padding: '10px',
-                            background: '#f1f5f9',
-                            borderRadius: '8px',
-                            fontSize: '11px',
-                            color: '#64748b',
-                            textAlign: 'center'
-                        }}>
+                        <div
+                            style={{
+                                marginTop: '16px',
+                                padding: '10px',
+                                background: '#f1f5f9',
+                                borderRadius: '8px',
+                                fontSize: '11px',
+                                color: '#64748b',
+                                textAlign: 'center'
+                            }}
+                        >
                             ℹ️ Credit payments are excluded as they represent debt, not actual income.
                         </div>
                     </>
@@ -2571,6 +2843,11 @@ export default function SupplierReport() {
     const processingPaymentRef = useRef(false);
     const lastPaymentDataRef = useRef(null);
 
+    // Add these with your other state declarations
+    const [paymentLock, setPaymentLock] = useState(false);
+    const paymentLockRef = useRef(false);
+    const idempotencyKeyRef = useRef(null);
+
     // Initialize window flags for duplicate detection
     useEffect(() => {
         window.cashPaymentProcessing = false;
@@ -2614,32 +2891,32 @@ export default function SupplierReport() {
         total_customers: 0
     });
     const [isLoadingIncome, setIsLoadingIncome] = useState(false);
-    // Auto-refresh polling every 10 seconds
+    // Auto-refresh polling every 10 seconds - FIXED MEMORY LEAK
     useEffect(() => {
+        let isSubscribed = true;
+        let pollingInterval = null;
+
         // Start polling when component mounts
-        if (isPolling) {
-            pollingIntervalRef.current = setInterval(async () => {
+        if (isPolling && isSubscribed) {
+            pollingInterval = setInterval(async () => {
+                // Don't refresh if component unmounted
+                if (!isSubscribed) return;
+
                 // Don't refresh if there's a payment being processed or printing
                 if (!state.isPrinting && !isProcessingPayment && !isRefreshing) {
                     console.log('🔄 Auto-refreshing supplier data...');
 
-                    // Store current selected supplier before refresh
                     const currentSelectedSupplier = state.selectedSupplier;
                     const currentSelectedBillNo = state.selectedBillNo;
 
-                    // Silent refresh (no loading indicator)
                     await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
 
-                    // If a supplier was selected, refresh their details WITHOUT clearing
-                    if (currentSelectedSupplier) {
-                        // Check if the bill still exists in the updated data
+                    if (currentSelectedSupplier && isSubscribed) {
                         const billStillExists = checkBillStillExists(currentSelectedSupplier, currentSelectedBillNo);
 
                         if (billStillExists) {
-                            // Refresh the details without deselecting
                             await refreshSupplierDetails(currentSelectedSupplier, currentSelectedBillNo);
-                        } else {
-                            // Bill no longer exists, clear selection
+                        } else if (isSubscribed) {
                             console.log('⚠️ Selected bill no longer exists, clearing selection');
                             setState(prev => ({
                                 ...prev,
@@ -2656,17 +2933,23 @@ export default function SupplierReport() {
                         }
                     }
                 }
-            }, 10000); // Refresh every 10 seconds
+            }, 10000);
+
+            pollingIntervalRef.current = pollingInterval;
         }
 
         // Cleanup on unmount
         return () => {
+            isSubscribed = false;
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
             if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
             }
         };
-    }, [isPolling, state.isPrinting, isProcessingPayment, isRefreshing, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate]);
-    // Add this function to fetch income sources
+    }, [isPolling, state.isPrinting, isProcessingPayment, isRefreshing, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, state.selectedSupplier, state.selectedBillNo]);
     // Add this function to fetch income sources with filters
     const fetchIncomeSources = async (startDate = null, endDate = null, uniqueCode = null, bankName = null) => {
         setIsLoadingIncome(true);
@@ -3761,18 +4044,22 @@ export default function SupplierReport() {
             console.log('🔍 Checking for existing loan:', loanUrl);
             const response = await api.get(loanUrl);
 
-            // Log the full response for debugging
-            console.log('📦 Loan search response:', response.data);
-
-            // Check multiple possible field names for ID
             const loanId = response.data?.id || response.data?.ID || response.data?.loan_id;
 
             if (loanId) {
                 console.log('✅ Found existing loan with ID:', loanId);
+                let paymentDetails = response.data?.payment_details || [];
+                if (typeof paymentDetails === 'string') {
+                    try {
+                        paymentDetails = JSON.parse(paymentDetails);
+                    } catch (e) {
+                        paymentDetails = [];
+                    }
+                }
                 return {
                     exists: true,
                     id: loanId,
-                    paymentDetails: response.data?.payment_details || [],
+                    paymentDetails: paymentDetails,
                     currentPaid: response.data?.loan_amount || 0
                 };
             }
@@ -3790,17 +4077,25 @@ export default function SupplierReport() {
     };
 
     const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
-        // ========== START OF DUPLICATE DETECTION LOGGING ==========
+        // ========== IMPROVED RACE CONDITION FIXES ==========
         const callId = Math.random().toString(36).substr(2, 9);
         console.log(`🟣 [${callId}] PROCESS PAYMENT CALLED at:`, new Date().toISOString());
         console.log(`🟣 [${callId}] Payment amount:`, paymentAmount);
         console.log(`🟣 [${callId}] Selected supplier:`, state.selectedSupplier);
         console.log(`🟣 [${callId}] Selected billNo:`, state.selectedBillNo);
-        console.log(`🟣 [${callId}] isProcessingPayment state:`, isProcessingPayment);
-        console.log(`🟣 [${callId}] processingPaymentRef.current:`, processingPaymentRef.current);
+
+        // IMPROVED: Use React state lock instead of just window flag
+        if (paymentLockRef.current || paymentLock) {
+            console.log(`🔴 [${callId}] Payment already in progress (paymentLock = true), ignoring duplicate`);
+            alert('Payment is already being processed. Please wait...');
+            return;
+        }
+
+        // Generate idempotency key for backend deduplication
+        const idempotencyKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        idempotencyKeyRef.current = idempotencyKey;
 
         // CRITICAL FIX: Check if the selected bill is in the "Not Settled" list
-        // If it is, we should NOT trigger the creditor update-payment API
         const isBillInNotSettled = state.pendingSuppliers.some(item =>
             item.supplier_code === state.selectedSupplier &&
             item.supplier_bill_no === state.selectedBillNo
@@ -3810,59 +4105,54 @@ export default function SupplierReport() {
         console.log(`🟣 [${callId}] isUpdatingCompletedBill:`, state.isUpdatingCompletedBill);
 
         // Determine if this should be treated as a credit settlement payment
-        // Only treat as credit settlement if:
-        // 1. There is a creditor record (selectedBillCreditor exists)
-        // 2. There is remaining credit amount
-        // 3. The bill is NOT in the Not Settled list (it should be in Fully Settled section)
         const isCreditSettlementPayment = !isBillInNotSettled &&
             state.isUpdatingCompletedBill &&
             selectedBillCreditor &&
             selectedBillCreditor.remaining_amount > 0;
 
-        console.log(`🟣 [${callId}] Is Credit Settlement Payment (after fix):`, isCreditSettlementPayment);
-        console.log(`🟣 [${callId}] Credit Settlement Details - isUpdatingCompletedBill: ${state.isUpdatingCompletedBill}, hasCreditor: ${!!selectedBillCreditor}, remainingAmount: ${selectedBillCreditor?.remaining_amount || 0}, isBillInNotSettled: ${isBillInNotSettled}`);
+        console.log(`🟣 [${callId}] Is Credit Settlement Payment:`, isCreditSettlementPayment);
 
-        // Check for duplicate within the last 5 seconds using window object
+        // Check for duplicate within the last 5 seconds using enhanced tracking
         const now = Date.now();
+
+        // Enhanced duplicate detection with idempotency key
         if (window.lastPaymentTime && (now - window.lastPaymentTime) < 5000) {
             console.log(`🔴 [${callId}] DUPLICATE DETECTED! Last payment was ${now - window.lastPaymentTime}ms ago`);
-            console.log(`🔴 [${callId}] Last amount: ${window.lastPaymentAmount}, Current amount: ${paymentAmount}`);
-            if (window.lastPaymentAmount === paymentAmount) {
-                console.log(`🔴 [${callId}] SAME AMOUNT - BLOCKING DUPLICATE`);
+            if (window.lastPaymentAmount === paymentAmount && window.lastIdempotencyKey === idempotencyKey) {
+                console.log(`🔴 [${callId}] SAME AMOUNT AND IDEMPOTENCY KEY - BLOCKING DUPLICATE`);
                 alert('Duplicate payment detected. Please wait a moment.');
-                processingPaymentRef.current = false;
-                setIsProcessingPayment(false);
                 return;
             }
         }
 
-        // Store this payment attempt
+        // Store this payment attempt with idempotency key
         window.lastPaymentTime = now;
         window.lastPaymentAmount = paymentAmount;
-        console.log(`🟢 [${callId}] Stored payment attempt in window object`);
-        // ========== END OF DUPLICATE DETECTION LOGGING ==========
+        window.lastIdempotencyKey = idempotencyKey;
+        console.log(`🟢 [${callId}] Stored payment attempt with idempotency key`);
 
         // Create a unique key for this payment attempt
-        const paymentKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${Date.now()}`;
+        const paymentKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${idempotencyKey}`;
         console.log(`🟢 [${callId}] Payment key:`, paymentKey);
 
-        // Check if we're already processing a payment
+        // Check if we're already processing a payment using ref lock
         if (processingPaymentRef.current) {
             console.log(`🔴 [${callId}] Payment already in progress (processingPaymentRef = true), ignoring duplicate call`);
             alert('Payment is already being processed. Please wait...');
             return;
         }
 
-        // Check for duplicate within the last 3 seconds using ref
+        // Check for duplicate within the last 3 seconds using ref with idempotency
         if (lastPaymentDataRef.current) {
             const timeDiff = Date.now() - lastPaymentDataRef.current.timestamp;
             const sameSupplier = lastPaymentDataRef.current.supplier === state.selectedSupplier;
             const sameBill = lastPaymentDataRef.current.billNo === state.selectedBillNo;
+            const sameIdempotencyKey = lastPaymentDataRef.current.idempotencyKey === idempotencyKey;
             const sameAmount = Math.abs(lastPaymentDataRef.current.amount - paymentAmount) < 0.01;
 
-            console.log(`🟡 [${callId}] Last payment check - Time diff: ${timeDiff}ms, Same supplier: ${sameSupplier}, Same bill: ${sameBill}, Same amount: ${sameAmount}`);
+            console.log(`🟡 [${callId}] Last payment check - Time diff: ${timeDiff}ms, Same idempotency key: ${sameIdempotencyKey}`);
 
-            if (timeDiff < 3000 && sameSupplier && sameBill && sameAmount) {
+            if (timeDiff < 3000 && sameSupplier && sameBill && (sameAmount || sameIdempotencyKey)) {
                 console.log(`🔴 [${callId}] DUPLICATE PAYMENT DETECTED within 3 seconds, ignoring`);
                 alert('Duplicate payment detected. Please wait a moment before trying again.');
                 return;
@@ -3874,16 +4164,20 @@ export default function SupplierReport() {
             return;
         }
 
-        // Set processing flag and store payment data
+        // Set all processing flags with locks
         processingPaymentRef.current = true;
+        paymentLockRef.current = true;
+        setPaymentLock(true);
+
         lastPaymentDataRef.current = {
             timestamp: Date.now(),
             supplier: state.selectedSupplier,
             billNo: state.selectedBillNo,
             amount: paymentAmount,
+            idempotencyKey: idempotencyKey,
             callId: callId
         };
-        console.log(`🟢 [${callId}] Processing flags set, processingPaymentRef = true`);
+        console.log(`🟢 [${callId}] Processing flags set`);
 
         // Disable the button immediately
         setIsProcessingPayment(true);
@@ -3894,7 +4188,7 @@ export default function SupplierReport() {
             const totalPayable = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
             console.log(`🟢 [${callId}] Total payable:`, totalPayable);
 
-            // Check if loan exists
+            // Check if loan exists with idempotency check
             console.log(`🟢 [${callId}] Checking for existing loan...`);
             const loanCheck = await findExistingLoanId(state.selectedSupplier, state.selectedBillNo);
             console.log(`🟢 [${callId}] Loan check result - exists: ${loanCheck.exists}, id: ${loanCheck.id}, currentPaid: ${loanCheck.currentPaid}, paymentDetails length: ${loanCheck.paymentDetails.length}`);
@@ -3916,21 +4210,32 @@ export default function SupplierReport() {
                 existingPaymentDetails = [];
             }
 
-            // CRITICAL: Check if this exact payment already exists in the database
+            // CRITICAL: Check for duplicate using idempotency key in database
             console.log(`🟢 [${callId}] Checking for existing duplicate in ${existingPaymentDetails.length} existing payments`);
             const duplicateInDb = existingPaymentDetails.some(p => {
+                const hasSameIdempotencyKey = p.idempotency_key === idempotencyKey;
                 const timeDiff = Math.abs(new Date(p.date).getTime() - Date.now());
-                const isDuplicate = p.amount === paymentAmount && timeDiff < 5000;
-                if (isDuplicate) {
-                    console.log(`🔴 [${callId}] Found duplicate in DB:`, { amount: p.amount, method: p.method, timeDiff, id: p.id });
+                const isRecentDuplicate = p.amount === paymentAmount && timeDiff < 10000;
+
+                if (hasSameIdempotencyKey || isRecentDuplicate) {
+                    console.log(`🔴 [${callId}] Found duplicate in DB:`, {
+                        amount: p.amount,
+                        method: p.method,
+                        idempotencyKey: p.idempotency_key,
+                        timeDiff
+                    });
+                    return true;
                 }
-                return isDuplicate;
+                return false;
             });
 
             if (duplicateInDb) {
                 console.log(`🔴 [${callId}] DUPLICATE FOUND IN DATABASE - ABORTING`);
                 alert('This payment was already recorded. Please refresh the page.');
+                // Clear all locks
                 processingPaymentRef.current = false;
+                paymentLockRef.current = false;
+                setPaymentLock(false);
                 setIsProcessingPayment(false);
                 setState(prev => ({ ...prev, isPrinting: false }));
                 return;
@@ -3960,13 +4265,14 @@ export default function SupplierReport() {
             else if (paymentMethod === 'bill_to_bill') paymentMethodForCreditor = 'bill_to_bill';
             else if (paymentMethod === 'bad_debt') paymentMethodForCreditor = 'bad_debt';
 
-            // Create a truly unique ID using multiple sources
-            const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${performance.now()}-${Math.random()}-${callId}`;
+            // Create a truly unique ID using multiple sources including idempotency key
+            const uniqueId = `${idempotencyKey}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const timestamp = Date.now();
             console.log(`🟢 [${callId}] Created payment record with ID: ${uniqueId}`);
 
             const paymentRecord = {
                 id: uniqueId,
+                idempotency_key: idempotencyKey, // Add idempotency key to record
                 date: new Date().toISOString(),
                 amount: paymentAmount,
                 method: paymentMethod,
@@ -4024,48 +4330,35 @@ export default function SupplierReport() {
             let creditorUpdateSuccess = false;
             let updatedCreditorData = null;
 
-            // Only call creditor update-payment API if:
-            // 1. The bill is NOT in the Not Settled list (isBillInNotSettled === false)
-            // 2. AND it's a credit settlement payment (isCreditSettlementPayment === true)
             if (!isBillInNotSettled && isCreditSettlementPayment && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                console.log(`🟢 [${callId}] CREDIT SETTLEMENT FOR FULLY SETTLED BILL DETECTED! Updating creditor payment for bill ${state.selectedBillNo} with amount ${paymentAmount}`);
-                console.log(`🟢 [${callId}] Payment method for creditor: ${paymentMethodForCreditor}`);
-                console.log(`🟢 [${callId}] Current remaining credit: ${selectedBillCreditor.remaining_amount}`);
+                console.log(`🟢 [${callId}] CREDIT SETTLEMENT FOR FULLY SETTLED BILL DETECTED!`);
 
                 try {
                     const updateResponse = await api.put('/creditors/update-payment', {
                         bill_no: state.selectedBillNo,
                         payment_amount: paymentAmount,
-                        payment_method: paymentMethodForCreditor
+                        payment_method: paymentMethodForCreditor,
+                        idempotency_key: idempotencyKey // Send idempotency key to backend
                     });
 
                     console.log(`🟢 [${callId}] Creditor update response:`, updateResponse.data);
 
                     if (updateResponse.data.success) {
-                        console.log(`✅ [${callId}] Creditor payment updated successfully`);
                         creditorUpdateSuccess = true;
                         updatedCreditorData = updateResponse.data.data;
-                        console.log(`✅ [${callId}] Updated creditor data - Remaining: ${updatedCreditorData?.remaining_amount}, Status: ${updatedCreditorData?.status}`);
                     } else {
                         throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
                     }
                 } catch (creditorError) {
                     console.error(`❌ [${callId}] Failed to update creditor payment:`, creditorError);
                     alert('Failed to update creditor payment: ' + (creditorError.response?.data?.message || creditorError.message));
+                    // Clear locks on error
                     processingPaymentRef.current = false;
+                    paymentLockRef.current = false;
+                    setPaymentLock(false);
                     setIsProcessingPayment(false);
                     setState(prev => ({ ...prev, isPrinting: false }));
                     return;
-                }
-            } else {
-                console.log(`🟢 [${callId}] SKIPPING creditor update because:`);
-                if (isBillInNotSettled) {
-                    console.log(`🟢 [${callId}] - Bill is in Not Settled list (should not update creditor)`);
-                } else if (!isCreditSettlementPayment) {
-                    console.log(`🟢 [${callId}] - Not a credit settlement payment`);
-                    if (!state.isUpdatingCompletedBill) console.log(`🟢 [${callId}]   * isUpdatingCompletedBill is false`);
-                    if (!selectedBillCreditor) console.log(`🟢 [${callId}]   * selectedBillCreditor is null`);
-                    if (selectedBillCreditor && selectedBillCreditor.remaining_amount <= 0) console.log(`🟢 [${callId}]   * remaining_amount is ${selectedBillCreditor?.remaining_amount} (<= 0)`);
                 }
             }
 
@@ -4083,7 +4376,8 @@ export default function SupplierReport() {
                     transaction_ids: state.supplierDetails.map(record => record.id),
                     payment_details: allPaymentDetails,
                     use_history: isViewingHistory,
-                    is_credit_settlement: isCreditSettlementPayment
+                    is_credit_settlement: isCreditSettlementPayment,
+                    idempotency_key: idempotencyKey // Add to payload
                 };
 
                 if (isCheque && chequeDetails) {
@@ -4129,7 +4423,8 @@ export default function SupplierReport() {
                     transaction_ids: state.supplierDetails.map(record => record.id),
                     payment_details: allPaymentDetails,
                     use_history: isViewingHistory,
-                    is_credit_settlement: isCreditSettlementPayment
+                    is_credit_settlement: isCreditSettlementPayment,
+                    idempotency_key: idempotencyKey // Add to payload
                 };
 
                 if (isCheque && chequeDetails) {
@@ -4169,15 +4464,10 @@ export default function SupplierReport() {
                 console.log(`✅ [${callId}] Payment successful!`, response.data);
 
                 // ========== DEDUCT FROM FUNDS ALLOCATED ==========
-                // Deduct the payment amount from fundsAllocated for ALL payments including credit settlements
-                // Exclude only 'Credit' method payments (those are payable TO the supplier)
                 if (paymentMethod !== 'Credit') {
                     deductFromFundsAllocated(paymentAmount);
                     console.log(`💰 [${callId}] Deducted Rs. ${paymentAmount} from fundsAllocated for ${paymentMethod} payment`);
-                } else {
-                    console.log(`💰 [${callId}] Skipped deduction for ${paymentMethod} payment (payable TO supplier)`);
                 }
-                // ========== END OF DEDUCTION ==========
 
                 await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
                 await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
@@ -4190,7 +4480,6 @@ export default function SupplierReport() {
                 }
 
                 if (isCreditSettlementPayment && creditorUpdateSuccess && !isBillInNotSettled) {
-                    // Get updated creditor info to show remaining amount
                     const updatedCreditor = await checkBillCreditorStatus(state.selectedBillNo, state.selectedSupplier);
                     const remainingCredit = updatedCreditor?.remaining_amount || 0;
                     const totalCreditAmount = updatedCreditor?.credit_amount || 0;
@@ -4231,11 +4520,18 @@ export default function SupplierReport() {
             alert('Failed to record payment: ' + (error.response?.data?.message || error.message));
             setState(prev => ({ ...prev, isPrinting: false }));
         } finally {
-            // Reset after 5 seconds
+            // Clear all locks after 5 seconds
             setTimeout(() => {
-                console.log(`🟢 [${callId}] Resetting processing flags`);
+                console.log(`🟢 [${callId}] Resetting all processing flags`);
                 processingPaymentRef.current = false;
+                paymentLockRef.current = false;
+                setPaymentLock(false);
                 setIsProcessingPayment(false);
+
+                // Clear window flags
+                window.lastPaymentTime = null;
+                window.lastPaymentAmount = null;
+                window.lastIdempotencyKey = null;
             }, 5000);
         }
     };

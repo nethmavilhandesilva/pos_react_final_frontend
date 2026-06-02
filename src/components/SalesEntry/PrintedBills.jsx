@@ -1112,11 +1112,34 @@ const formatCurrency = (amount) => `Rs. ${formatDecimal(amount)}`;
 // ==================== CHEQUE MODAL ====================
 const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
     const [chequeDetails, setChequeDetails] = useState({ cheq_date: '', cheq_no: '', bank_account_id: null });
+    const [banks, setBanks] = useState([]);
+    const [loading, setLoading] = useState(false);
 
     // Create refs for each input field
     const dateInputRef = useRef(null);
     const chequeNoInputRef = useRef(null);
     const bankSelectRef = useRef(null);
+
+    // Fetch banks when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            fetchBanks();
+        }
+    }, [isOpen]);
+
+    const fetchBanks = async () => {
+        setLoading(true);
+        try {
+            const response = await api.get(routes.getBanks);
+            if (response.data.success) {
+                setBanks(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching banks:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -1125,7 +1148,13 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
             alert("Please fill all cheque details and select a bank account");
             return;
         }
-        onConfirm(chequeDetails);
+
+        // Get bank name from selected bank
+        const selectedBank = banks.find(b => b.id === chequeDetails.bank_account_id);
+        const bankName = selectedBank ? selectedBank.bank_name : null;
+
+        // Pass both cheque details AND bank name
+        onConfirm(chequeDetails, bankName);
         setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
     };
 
@@ -1134,18 +1163,17 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             if (nextFieldRef && nextFieldRef.current) {
-                // Small delay to ensure focus works
                 setTimeout(() => {
                     nextFieldRef.current.focus();
                 }, 50);
             }
         }
     };
-    // Handle Enter key for select element (works differently)
+
+    // Handle Enter key for select element
     const handleSelectKeyDown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            // On the last field, submit the form
             handleSubmit();
         }
     };
@@ -1186,20 +1214,34 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
                         name="cheq_no"
                         value={chequeDetails.cheq_no}
                         onChange={(e) => setChequeDetails(prev => ({ ...prev, cheq_no: e.target.value }))}
-                        onKeyPress={(e) => handleKeyPress(e, bankSelectRef)}  // ← Focus will go to bankSelectRef
+                        onKeyPress={(e) => handleKeyPress(e, bankSelectRef)}
                         placeholder="Enter cheque number"
                         style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px' }}
                     />
                 </div>
 
-                {/* Bank Account Selector Field - NO div wrapper, pass ref directly */}
-                <BankAccountSelector
-                    ref={bankSelectRef}  // ← Pass ref directly to the component
-                    selectedAccountId={chequeDetails.bank_account_id}
-                    onSelect={(bankId) => setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }))}
-                    disabled={false}
-                    onKeyDown={handleSelectKeyDown}
-                />
+                {/* Bank Account Selector Field */}
+                <div style={{ marginBottom: '15px' }}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '13px', color: '#334155' }}>Select Bank Account <span style={{ color: '#ef4444' }}>*</span></label>
+                    {loading ? (
+                        <div style={{ padding: '10px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>Loading banks...</div>
+                    ) : (
+                        <select
+                            ref={bankSelectRef}
+                            value={chequeDetails.bank_account_id || ''}
+                            onChange={(e) => setChequeDetails(prev => ({ ...prev, bank_account_id: e.target.value ? parseInt(e.target.value) : null }))}
+                            onKeyDown={handleSelectKeyDown}
+                            style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', background: 'white', cursor: 'pointer' }}
+                        >
+                            <option value="">-- Select Bank Account --</option>
+                            {banks.map(bank => (
+                                <option key={bank.id} value={bank.id}>
+                                    {bank.bank_name} - {bank.branch} (Acc: {bank.account_no})
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                </div>
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                     <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}>Cancel</button>
@@ -1215,13 +1257,14 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
     const [banks, setBanks] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // Create refs for form fields
     const bankSelectRef = useRef(null);
     const referenceNoRef = useRef(null);
     const transferDateRef = useRef(null);
     const notesRef = useRef(null);
 
-    useEffect(() => { if (isOpen) fetchBanks(); }, [isOpen]);
+    useEffect(() => {
+        if (isOpen) fetchBanks();
+    }, [isOpen]);
 
     const fetchBanks = async () => {
         setLoading(true);
@@ -1237,32 +1280,31 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
     const handleSubmit = () => {
         if (!transferDetails.bank_account_id) { alert("Please select a bank account"); return; }
         if (!transferDetails.reference_no) { alert("Please enter transaction reference number"); return; }
-        onConfirm(transferDetails);
+
+        // Get bank name from selected bank
+        const selectedBank = banks.find(b => b.id === transferDetails.bank_account_id);
+        const bankName = selectedBank ? selectedBank.bank_name : null;
+
+        // Pass both transfer details AND bank name
+        onConfirm(transferDetails, bankName);
         setTransferDetails({ bank_account_id: null, reference_no: '', transfer_date: new Date().toISOString().split('T')[0], notes: '' });
     };
 
-    // Handle Enter key navigation
     const handleKeyPress = (e, nextFieldRef) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             if (nextFieldRef && nextFieldRef.current) {
-                setTimeout(() => {
-                    nextFieldRef.current.focus();
-                }, 50);
+                setTimeout(() => nextFieldRef.current.focus(), 50);
             }
         }
     };
 
-    // Handle Enter key for select element
     const handleSelectKeyDown = (e, nextFieldRef) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             if (nextFieldRef && nextFieldRef.current) {
-                setTimeout(() => {
-                    nextFieldRef.current.focus();
-                }, 50);
+                setTimeout(() => nextFieldRef.current.focus(), 50);
             } else {
-                // If no next field, submit the form
                 handleSubmit();
             }
         }
@@ -1280,7 +1322,6 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                         <div style={{ fontSize: '13px' }}><strong>Amount:</strong> Rs. {amount.toFixed(2)}<br /><strong>Customer:</strong> {customerName || customerCode}</div>
                     </div>
 
-                    {/* Bank Account Selector */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>🏦 Select Bank Account <span style={{ color: '#ef4444' }}>*</span></label>
                         <select
@@ -1297,7 +1338,6 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                         </select>
                     </div>
 
-                    {/* Transaction Reference Number */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>🔢 Transaction Reference Number <span style={{ color: '#ef4444' }}>*</span></label>
                         <input
@@ -1311,7 +1351,6 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                         />
                     </div>
 
-                    {/* Transfer Date */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>📅 Transfer Date <span style={{ color: '#ef4444' }}>*</span></label>
                         <input
@@ -1324,7 +1363,6 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, customerCode, cus
                         />
                     </div>
 
-                    {/* Notes (Optional) */}
                     <div style={{ marginBottom: '24px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px' }}>📝 Notes (Optional)</label>
                         <textarea
@@ -1908,6 +1946,40 @@ export default function PrintedBills() {
     }, [endDate]);
     const [selectedBillDebtor, setSelectedBillDebtor] = useState(null);
     const [user, setUser] = useState(null);
+    //cashier balance route
+    // ==================== RECORD CASHIER BALANCE ====================
+    // ==================== RECORD CASHIER BALANCE ====================
+    const recordCashierTransaction = async (paymentData) => {
+        try {
+            console.log('📝 Recording cashier transaction:', paymentData);
+
+            const response = await api.post('/cashier-balance/record-payment', {
+                payment_amount: paymentData.paymentAmount,
+                payment_method: paymentData.paymentMethod,
+                bill_no: paymentData.billNo,
+                customer_code: paymentData.customerCode,
+                bank_name: paymentData.bankName || null,
+                cheque_number: paymentData.chequeNumber || null,
+                transfer_reference: paymentData.transferReference || null
+            });
+
+            if (response.data.success) {
+                console.log('✅ Cashier balance updated:', response.data.data);
+                if (response.data.data.bank_balance_formatted) {
+                    console.log('   🏦 Bank Balances:', response.data.data.bank_balance_formatted);
+                }
+                console.log('   💰 Cash Balance: Rs.', response.data.data.cash_balance);
+                console.log('   🏦 Bank Balance:', response.data.data.bank_balance);
+                return response.data.data;
+            }
+        } catch (error) {
+            console.error('❌ Failed to record cashier transaction:', error);
+            if (error.response) {
+                console.error('   Server response:', error.response.data);
+            }
+            return null;
+        }
+    };
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
@@ -1926,7 +1998,7 @@ export default function PrintedBills() {
             badDebtName: '', badDebtAmount: ''
         }));
     };
-    
+
     const calculateBagToBoxAdjustment = () => {
         return ((parseInt(state.bagCount) || 0) * (parseFloat(state.bagValue) || 0)) +
             ((parseInt(state.boxCount) || 0) * (parseFloat(state.boxValue) || 0));
@@ -2588,6 +2660,7 @@ export default function PrintedBills() {
 
             let paymentMethodText = 'Cash';
             let paymentDetailsForReceipt = null;
+            let bankNameForCashier = null; // Store bank name for cashier balance
 
             if (isAdjustment && adjustmentDetails) {
                 if (adjustmentDetails.type === 'bag_to_box') {
@@ -2637,6 +2710,8 @@ export default function PrintedBills() {
                     reference_no: bankTransferDetails.reference_no,
                     transfer_date: bankTransferDetails.transfer_date
                 };
+                // Get bank name from transfer details if available
+                bankNameForCashier = bankTransferDetails.bank_name || null;
             } else if (isCheque && chequeDetails) {
                 payload.cheq_date = chequeDetails.cheq_date;
                 payload.cheq_no = chequeDetails.cheq_no;
@@ -2646,6 +2721,8 @@ export default function PrintedBills() {
                     cheq_no: chequeDetails.cheq_no,
                     cheq_date: chequeDetails.cheq_date
                 };
+                // Get bank name from cheque details if available
+                bankNameForCashier = chequeDetails.bank_name || null;
             }
 
             // Create payment history entry
@@ -2664,13 +2741,15 @@ export default function PrintedBills() {
                 paymentHistoryEntry.details = {
                     cheq_no: chequeDetails.cheq_no,
                     cheq_date: chequeDetails.cheq_date,
-                    bank_account_id: chequeDetails.bank_account_id
+                    bank_account_id: chequeDetails.bank_account_id,
+                    bank_name: bankNameForCashier
                 };
             } else if (isBankTransfer && bankTransferDetails) {
                 paymentHistoryEntry.details = {
                     transfer_reference_no: bankTransferDetails.reference_no,
                     transfer_date: bankTransferDetails.transfer_date,
-                    bank_account_id: bankTransferDetails.bank_account_id
+                    bank_account_id: bankTransferDetails.bank_account_id,
+                    bank_name: bankNameForCashier
                 };
             }
 
@@ -2696,7 +2775,7 @@ export default function PrintedBills() {
                 };
             }
 
-            // CHECK IF THERE'S AN EXISTING DEBTOR RECORD
+            // OPTIMIZATION: Check debtor in parallel with other operations
             let existingDebtor = null;
             let totalCreditAmount = state.selectedBill.creditAmount || 0;
 
@@ -2704,64 +2783,36 @@ export default function PrintedBills() {
                 const debtorCheck = await api.get(`/debtors/${state.selectedBill.billNo}`);
                 if (debtorCheck.data.success && debtorCheck.data.data) {
                     existingDebtor = debtorCheck.data.data;
-                    console.log('Found existing debtor record:', existingDebtor);
-                    console.log(`Current debtor remaining amount: ${existingDebtor.remaining_amount}`);
                 }
             } catch (e) {
-                console.log('No existing debtor record found');
+                // No existing debtor record
             }
 
-            // ===== CREDIT SETTLEMENT LOGIC - ONLY SETTLE IN COMPLETED SECTION =====
+            // ===== CREDIT SETTLEMENT LOGIC =====
             const isCurrentlyCompleted = state.selectedBill.givenAmountApplied === 'Y';
             const isBecomingCompleted = givenAmountApplied === 'Y' && !isCurrentlyCompleted;
 
-            console.log('=== CREDIT SETTLEMENT CHECK ===');
-            console.log('Is currently completed?', isCurrentlyCompleted);
-            console.log('Is becoming completed?', isBecomingCompleted);
-            console.log('Payment amount:', paymentAmount);
-            console.log('Existing debtor remaining:', existingDebtor?.remaining_amount);
-
-            // CRITICAL: Credit should ONLY be settled when:
-            // The bill is ALREADY in the completed section (NOT when it's becoming completed)
             if (existingDebtor && existingDebtor.remaining_amount > 0) {
                 let shouldSettleCredit = false;
-                let settlementReason = '';
 
                 if (isCurrentlyCompleted) {
-                    // ✅ Bill is already in completed section - this payment goes DIRECTLY to settle credit
                     shouldSettleCredit = true;
-                    settlementReason = 'Bill already in completed section - settling credit';
                 } else if (isBecomingCompleted) {
-                    // ❌ Bill is moving to completed section but DO NOT settle credit here
-                    // Credit will only be settled by future payments made in completed section
                     shouldSettleCredit = false;
-                    settlementReason = 'Bill moving to completed section but credit NOT settled - will be settled by future payments in completed section';
-
-                    // Add note to payment history that credit remains pending
                     paymentHistoryEntry.details.credit_settlement = {
                         status: 'PENDING',
-                        message: `Credit of Rs. ${formatDecimal(existingDebtor.remaining_amount)} remains unsettled. Will be settled when payment is made in Completed Bills section.`
+                        message: `Credit of Rs. ${formatDecimal(existingDebtor.remaining_amount)} remains unsettled.`
                     };
                 } else {
-                    // Bill is still in pending section and not becoming completed - DO NOT settle credit
                     shouldSettleCredit = false;
-                    settlementReason = 'Bill remains in pending section - credit remains unsettled';
-
                     paymentHistoryEntry.details.credit_settlement = {
                         status: 'PENDING',
-                        message: `Credit of Rs. ${formatDecimal(existingDebtor.remaining_amount)} will be settled when bill moves to Completed section and additional payment is made.`
+                        message: `Credit will be settled when bill moves to Completed section.`
                     };
                 }
 
-                console.log('Should settle credit?', shouldSettleCredit);
-                console.log('Reason:', settlementReason);
-
                 if (shouldSettleCredit) {
-                    // ONLY settle credit when payment is made in completed section
                     let debtorPaymentAmount = Math.min(paymentAmount, existingDebtor.remaining_amount);
-
-                    console.log('✅ SETTLING CREDIT - Amount:', debtorPaymentAmount);
-                    console.log('Previous remaining debt:', existingDebtor.remaining_amount);
 
                     if (debtorPaymentAmount > 0) {
                         let debtorPaymentMethod = 'cash';
@@ -2783,8 +2834,6 @@ export default function PrintedBills() {
                                 settle_fully: true
                             });
 
-                            console.log('Debtor update response:', updateResponse.data);
-
                             paymentHistoryEntry.details.debtor_payment = {
                                 amount: debtorPaymentAmount,
                                 previous_remaining: existingDebtor.remaining_amount,
@@ -2797,11 +2846,8 @@ export default function PrintedBills() {
                             console.error('Error updating debtor payment:', debtorError);
                         }
                     }
-                } else {
-                    console.log('⏸️ Credit NOT settled - will remain for future payment in completed section');
                 }
             } else if (totalCreditAmount > 0 && !existingDebtor && (isCurrentlyCompleted || isBecomingCompleted)) {
-                console.log('Creating debtor record from payment history credit:', totalCreditAmount);
                 await api.post('/debtors/create', {
                     bill_no: state.selectedBill.billNo,
                     customer_code: state.selectedBill.customerCode,
@@ -2825,11 +2871,33 @@ export default function PrintedBills() {
             existingHistory.push(paymentHistoryEntry);
             payload.payment_history = JSON.stringify(existingHistory);
 
+            // OPTIMIZATION: Make main API call
             const response = await api.put(routes.updateGivenAmountApplied, payload);
 
             if (response.data.success) {
-                await fetchSalesData();
+                // OPTIMIZATION: Run fetchSalesData and cashier balance recording in parallel
+                await Promise.all([
+                    fetchSalesData(),
+                    // Record cashier balance with bank name
+                    // Record cashier balance with bank name
+                    (async () => {
+                        try {
+                            await recordCashierTransaction({
+                                paymentAmount: paymentAmount,
+                                paymentMethod: paymentMethodText,
+                                billNo: state.selectedBill.billNo,
+                                customerCode: state.selectedBill.customerCode,
+                                bankName: bankNameForCashier,
+                                chequeNumber: (isCheque && chequeDetails?.cheq_no) ? chequeDetails.cheq_no : null,
+                                transferReference: (isBankTransfer && bankTransferDetails?.reference_no) ? bankTransferDetails.reference_no : null
+                            });
+                        } catch (cashierError) {
+                            console.error('Failed to record cashier balance:', cashierError);
+                        }
+                    })()
+                ]);
 
+                // Dispatch event (non-blocking)
                 const event = new CustomEvent('salesDataUpdated', {
                     detail: {
                         billNo: state.selectedBill.billNo,
@@ -2844,42 +2912,22 @@ export default function PrintedBills() {
                     String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
                 );
 
-                // Updated alert messages
+                // Build debtor message (simplified)
                 let debtorMessage = '';
-
                 if (existingDebtor && existingDebtor.remaining_amount > 0 && isCurrentlyCompleted) {
                     const newRemaining = Math.max(0, existingDebtor.remaining_amount - paymentAmount);
-                    const isDebtFullyPaid = newRemaining <= 0;
-
-                    if (isDebtFullyPaid) {
-                        debtorMessage = `\n\n✅ CREDIT FULLY SETTLED!\n` +
-                            `Total Credit: Rs. ${formatDecimal(existingDebtor.credit_amount)}\n` +
-                            `Settled Via: ${paymentMethodForDebtor.toUpperCase()}\n` +
-                            `This payment was made in the Completed Bills section.`;
+                    if (newRemaining <= 0) {
+                        debtorMessage = `\n\n✅ CREDIT FULLY SETTLED!`;
                     } else {
-                        debtorMessage = `\n\n💰 CREDIT PARTIALLY SETTLED:\n` +
-                            `Paid towards credit: Rs. ${formatDecimal(Math.min(paymentAmount, existingDebtor.remaining_amount))}\n` +
-                            `Remaining Credit: Rs. ${formatDecimal(newRemaining)}\n` +
-                            `Continue making payments in the Completed Bills section to settle the remaining credit.`;
+                        debtorMessage = `\n\n💰 CREDIT PARTIALLY SETTLED: Rs. ${formatDecimal(newRemaining)} remaining`;
                     }
                 } else if (existingDebtor && existingDebtor.remaining_amount > 0 && isBecomingCompleted) {
-                    debtorMessage = `\n\n⏳ CREDIT REMAINS UNSETTLED:\n` +
-                        `💰 Outstanding Credit: Rs. ${formatDecimal(existingDebtor.remaining_amount)}\n` +
-                        `📌 The bill has been moved to the "Completed Payments" section.\n` +
-                        `💰 To settle this credit, make a payment in the "Completed Payments" section.\n` +
-                        `✅ Any payment made in the Completed Bills section will automatically go towards settling this credit.`;
-                } else if (existingDebtor && existingDebtor.remaining_amount > 0 && !isCurrentlyCompleted && !isBecomingCompleted) {
-                    debtorMessage = `\n\n⏳ CREDIT REMAINS UNSETTLED:\n` +
-                        `💰 Credit Amount: Rs. ${formatDecimal(existingDebtor.remaining_amount)}\n` +
-                        `⚠️ This credit will ONLY be settled when:\n` +
-                        `   1. The bill becomes fully paid and moves to "Completed Payments"\n` +
-                        `   2. You make an additional payment in the "Completed Payments" section\n` +
-                        `📝 The credit will remain as debt until then.`;
+                    debtorMessage = `\n\n⏳ CREDIT REMAINS UNSETTLED: Rs. ${formatDecimal(existingDebtor.remaining_amount)}\nMake payment in Completed section to settle.`;
                 }
 
                 // Generate receipt if fully settled
                 if (isFullySettled) {
-                    if (paymentDetailsForReceipt && response.data.data.bank_name) {
+                    if (paymentDetailsForReceipt && response.data.data?.bank_name) {
                         paymentDetailsForReceipt.bank_name = response.data.data.bank_name;
                     }
 
@@ -2899,13 +2947,8 @@ export default function PrintedBills() {
                     );
 
                     const printWindow = window.open("", "_blank", "width=800,height=600");
-                    if (!printWindow) {
-                        alert("Please allow pop-ups for printing");
-                        setState(prev => ({ ...prev, isPrinting: false }));
-                        return;
-                    }
-
-                    printWindow.document.write(`
+                    if (printWindow) {
+                        printWindow.document.write(`
 <html>
     <head><title>Print Bill - ${state.selectedBill.billNo}</title>
     <style>
@@ -2915,35 +2958,22 @@ export default function PrintedBills() {
 </head>
 <body>${receiptHtml}
 <script>
-    window.onload = () => { 
-        window.print(); 
-    };
-    
-    window.onafterprint = function() {
-        setTimeout(function() {
-            window.close();
-            window.opener.location.reload();
-        }, 500);
-    };
-    
-    setTimeout(function() {
-        if (!window.closed) {
-            window.close();
-            if (window.opener && !window.opener.closed) {
-                window.opener.location.reload();
-            }
-        }
-    }, 5000);
+    window.onload = () => { window.print(); };
+    window.onafterprint = () => setTimeout(() => window.close(), 500);
+    setTimeout(() => { if (!window.closed) window.close(); }, 5000);
 <\/script>
 </body>
 </html>
 `);
-                    printWindow.document.close();
+                        printWindow.document.close();
+                    } else {
+                        alert("Please allow pop-ups for printing");
+                    }
                 }
 
                 const statusMessage = givenAmountApplied === 'Y'
-                    ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill is now FULLY PAID and moved to Completed Payments.${debtorMessage}`
-                    : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}${debtorMessage}\n\n📝 Receipt will be generated when bill is fully settled.`;
+                    ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill moved to Completed Payments.${debtorMessage}`
+                    : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}${debtorMessage}`;
 
                 alert(statusMessage);
 
@@ -3450,36 +3480,36 @@ export default function PrintedBills() {
     });
     const [netValue, setNetValue] = useState(0);
 
-// Add this useEffect to monitor net value changes and show warning only once per session
-useEffect(() => {
-    const actualNet = stats.totalFunds - (adjustedLoanData?.total_loan_amount || 0);
-    
-    setNetValue(actualNet);  // Store actual value (can be negative)
-    
-    // Check if the warning has already been shown in this session
-    const warningAlreadyShown = sessionStorage.getItem('net_negative_warning_shown') === 'true';
-    
-    // Show warning only ONCE per browser session when net becomes zero or negative
-    if (actualNet <= 0 && !warningAlreadyShown && stats.totalFunds > 0) {
-        // Show warning notification
-        const warningMessage = actualNet === 0 
-            ? `⚠️ WARNING: Your payments have exactly matched your income!\n\nNet Available: Rs. 0.00\n\nYour payments equal your total income.`
-            : `⚠️ CRITICAL WARNING: Your payments are exceeding your income!\n\nNet Available: Rs. ${formatDecimal(actualNet)}\n\nYou have paid out Rs. ${formatDecimal(Math.abs(actualNet))} more than you have received.\n\nPlease review your transactions immediately!`;
-        
-        alert(warningMessage);
-        
-        // Set flag in sessionStorage to prevent showing again in this session
-        sessionStorage.setItem('net_negative_warning_shown', 'true');
-    }
-    
-    // Reset the session flag when value becomes positive again (so it can trigger again if it goes negative later)
-    if (actualNet > 0) {
-        const warningShown = sessionStorage.getItem('net_negative_warning_shown');
-        if (warningShown === 'true') {
-            sessionStorage.removeItem('net_negative_warning_shown');
+    // Add this useEffect to monitor net value changes and show warning only once per session
+    useEffect(() => {
+        const actualNet = stats.totalFunds - (adjustedLoanData?.total_loan_amount || 0);
+
+        setNetValue(actualNet);  // Store actual value (can be negative)
+
+        // Check if the warning has already been shown in this session
+        const warningAlreadyShown = sessionStorage.getItem('net_negative_warning_shown') === 'true';
+
+        // Show warning only ONCE per browser session when net becomes zero or negative
+        if (actualNet <= 0 && !warningAlreadyShown && stats.totalFunds > 0) {
+            // Show warning notification
+            const warningMessage = actualNet === 0
+                ? `⚠️ WARNING: Your payments have exactly matched your income!\n\nNet Available: Rs. 0.00\n\nYour payments equal your total income.`
+                : `⚠️ CRITICAL WARNING: Your payments are exceeding your income!\n\nNet Available: Rs. ${formatDecimal(actualNet)}\n\nYou have paid out Rs. ${formatDecimal(Math.abs(actualNet))} more than you have received.\n\nPlease review your transactions immediately!`;
+
+            alert(warningMessage);
+
+            // Set flag in sessionStorage to prevent showing again in this session
+            sessionStorage.setItem('net_negative_warning_shown', 'true');
         }
-    }
-}, [stats.totalFunds, adjustedLoanData?.total_loan_amount]);
+
+        // Reset the session flag when value becomes positive again (so it can trigger again if it goes negative later)
+        if (actualNet > 0) {
+            const warningShown = sessionStorage.getItem('net_negative_warning_shown');
+            if (warningShown === 'true') {
+                sessionStorage.removeItem('net_negative_warning_shown');
+            }
+        }
+    }, [stats.totalFunds, adjustedLoanData?.total_loan_amount]);
 
     // Add this function to calculate payment totals (add near your other functions)
     const calculatePaymentTotals = useCallback(() => {
@@ -4384,8 +4414,26 @@ useEffect(() => {
             </nav>
 
             {/* Modals */}
-            <ChequeModal isOpen={state.showChequeModal} onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingChequeAmount, true, details); }} amount={state.pendingChequeAmount} />
-            <BankToBankModal isOpen={state.showBankToBankModal} onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))} onConfirm={async (details) => { await processPayment(state.pendingBankToBankAmount, false, null, true, details); }} amount={state.pendingBankToBankAmount} customerCode={state.selectedBill?.customerCode} customerName={state.customers.find(c => c.short_name?.toUpperCase() === state.selectedBill?.customerCode?.toUpperCase())?.name} />
+            <ChequeModal
+                isOpen={state.showChequeModal}
+                onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))}
+                onConfirm={async (details, bankName) => {
+                    const chequeWithBank = { ...details, bank_name: bankName };
+                    await processPayment(state.pendingChequeAmount, true, chequeWithBank);
+                }}
+                amount={state.pendingChequeAmount}
+            />
+            <BankToBankModal
+                isOpen={state.showBankToBankModal}
+                onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))}
+                onConfirm={async (details, bankName) => {
+                    const transferWithBank = { ...details, bank_name: bankName };
+                    await processPayment(state.pendingBankToBankAmount, false, null, true, transferWithBank);
+                }}
+                amount={state.pendingBankToBankAmount}
+                customerCode={state.selectedBill?.customerCode}
+                customerName={state.customers.find(c => c.short_name?.toUpperCase() === state.selectedBill?.customerCode?.toUpperCase())?.name}
+            />
             <PaymentAdjustmentModal isOpen={state.showAdjustmentModal} onClose={() => setState(prev => ({ ...prev, showAdjustmentModal: false }))} onConfirm={async (data) => { await processPayment(data.amount, false, null, false, null, true, data); }} billNo={state.selectedBill?.billNo} customerCode={state.selectedBill?.customerCode} originalBillTotal={state.selectedBill?.totalAmount || 0} />
             <PaymentHistoryModal isOpen={state.showPaymentHistoryModal} onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))} payments={state.currentPayments} totalPaid={state.paymentHistoryTotalPaid} totalBill={state.paymentHistoryTotalBill} remaining={state.paymentHistoryRemaining} />
             <DebtorFormModal isOpen={state.showDebtorForm} onClose={() => setState(prev => ({ ...prev, showDebtorForm: false, pendingDebtorBill: null }))} onSave={handleDebtorSave} customerCode={state.pendingDebtorBill?.customerCode || ''} billNo={state.pendingDebtorBill?.billNo} />
