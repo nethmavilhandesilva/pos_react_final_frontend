@@ -2013,33 +2013,33 @@ export default function PrintedBills() {
     const [isLoadingRemaining, setIsLoadingRemaining] = useState(false);
     const [showBankBreakdownModal, setShowBankBreakdownModal] = useState(false);
     // Fetch remaining balances from cashier_balances table
-const fetchRemainingBalances = async () => {
-    setIsLoadingRemaining(true);
-    try {
-        const response = await api.get('/cashier-balance/remaining-balances');
-        if (response.data.success) {
-            setRemainingBalances(response.data.data);
-            console.log('Remaining balances fetched:', response.data.data);
+    const fetchRemainingBalances = async () => {
+        setIsLoadingRemaining(true);
+        try {
+            const response = await api.get('/cashier-balance/remaining-balances');
+            if (response.data.success) {
+                setRemainingBalances(response.data.data);
+                console.log('Remaining balances fetched:', response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching remaining balances:', error);
+        } finally {
+            setIsLoadingRemaining(false);
         }
-    } catch (error) {
-        console.error('Error fetching remaining balances:', error);
-    } finally {
-        setIsLoadingRemaining(false);
-    }
-};
-// Fetch remaining balances on component mount
-useEffect(() => {
-    fetchRemainingBalances();
-    
-    // Refresh remaining balances every 30 seconds
-    const remainingBalanceInterval = setInterval(() => {
-        if (!modalOpenRef.current) {
-            fetchRemainingBalances();
-        }
-    }, 30000);
-    
-    return () => clearInterval(remainingBalanceInterval);
-}, []);
+    };
+    // Fetch remaining balances on component mount
+    useEffect(() => {
+        fetchRemainingBalances();
+
+        // Refresh remaining balances every 30 seconds
+        const remainingBalanceInterval = setInterval(() => {
+            if (!modalOpenRef.current) {
+                fetchRemainingBalances();
+            }
+        }, 30000);
+
+        return () => clearInterval(remainingBalanceInterval);
+    }, []);
 
 
     const handleAdjustmentPayment = async () => {
@@ -2159,106 +2159,106 @@ useEffect(() => {
         return updatedBills;
     }, []);
     // Bank Breakdown Modal Component
-const BankBreakdownModal = ({ isOpen, onClose, bankBreakdown }) => {
-    if (!isOpen) return null;
-    
-    const formatCurrency = (amount) => {
-        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    };
-    
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 20007
-        }} onClick={onClose}>
+    const BankBreakdownModal = ({ isOpen, onClose, bankBreakdown }) => {
+        if (!isOpen) return null;
+
+        const formatCurrency = (amount) => {
+            return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        };
+
+        return (
             <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                width: '400px',
-                maxWidth: '90%',
-                padding: '24px',
-                maxHeight: '80vh',
-                overflowY: 'auto'
-            }} onClick={(e) => e.stopPropagation()}>
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 20007
+            }} onClick={onClose}>
                 <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '20px',
-                    paddingBottom: '12px',
-                    borderBottom: '2px solid #e2e8f0'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '28px' }}>🏦</span>
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Bank Balance Breakdown</h3>
+                    backgroundColor: 'white',
+                    borderRadius: '20px',
+                    width: '400px',
+                    maxWidth: '90%',
+                    padding: '24px',
+                    maxHeight: '80vh',
+                    overflowY: 'auto'
+                }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '20px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #e2e8f0'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '28px' }}>🏦</span>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Bank Balance Breakdown</h3>
+                        </div>
+                        <button onClick={onClose} style={{
+                            background: '#f1f5f9',
+                            border: 'none',
+                            fontSize: '20px',
+                            cursor: 'pointer',
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%'
+                        }}>×</button>
                     </div>
+
+                    {bankBreakdown.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            <span style={{ fontSize: '48px' }}>🏦</span>
+                            <p style={{ marginTop: '12px' }}>No bank balances available</p>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {bankBreakdown.map((bank, index) => (
+                                <div key={index} style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '14px 16px',
+                                    background: 'linear-gradient(135deg, #e0f2fe, #bae6fd)',
+                                    borderRadius: '12px',
+                                    borderLeft: '4px solid #3b82f6'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span style={{ fontSize: '24px' }}>🏦</span>
+                                        <span style={{ fontWeight: '600', color: '#1e40af' }}>{bank.bank_name}</span>
+                                    </div>
+                                    <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
+                                        {formatCurrency(bank.amount)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <button onClick={onClose} style={{
-                        background: '#f1f5f9',
+                        width: '100%',
+                        marginTop: '20px',
+                        padding: '12px',
+                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                        color: 'white',
                         border: 'none',
-                        fontSize: '20px',
+                        borderRadius: '10px',
                         cursor: 'pointer',
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%'
-                    }}>×</button>
+                        fontWeight: '600',
+                        fontSize: '14px'
+                    }}>
+                        Close
+                    </button>
                 </div>
-                
-                {bankBreakdown.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                        <span style={{ fontSize: '48px' }}>🏦</span>
-                        <p style={{ marginTop: '12px' }}>No bank balances available</p>
-                    </div>
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {bankBreakdown.map((bank, index) => (
-                            <div key={index} style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '14px 16px',
-                                background: 'linear-gradient(135deg, #e0f2fe, #bae6fd)',
-                                borderRadius: '12px',
-                                borderLeft: '4px solid #3b82f6'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <span style={{ fontSize: '24px' }}>🏦</span>
-                                    <span style={{ fontWeight: '600', color: '#1e40af' }}>{bank.bank_name}</span>
-                                </div>
-                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
-                                    {formatCurrency(bank.amount)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                
-                <button onClick={onClose} style={{
-                    width: '100%',
-                    marginTop: '20px',
-                    padding: '12px',
-                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '10px',
-                    cursor: 'pointer',
-                    fontWeight: '600',
-                    fontSize: '14px'
-                }}>
-                    Close
-                </button>
             </div>
-        </div>
-    );
-};
+        );
+    };
     // Supplier Loan Details Modal
     const SupplierLoanDetailsModal = ({ isOpen, onClose, stats, adjustedLoanData }) => {
         if (!isOpen) return null;
@@ -3173,187 +3173,187 @@ const BankBreakdownModal = ({ isOpen, onClose, bankBreakdown }) => {
             return null;
         }
     }, []);
-   // Silent refresh function - updates data without showing loading skeleton
-const silentRefresh = useCallback(async () => {
-    if (!isMountedRef.current) return;
+    // Silent refresh function - updates data without showing loading skeleton
+    const silentRefresh = useCallback(async () => {
+        if (!isMountedRef.current) return;
 
-    // Don't refresh if a modal is open
-    if (modalOpenRef.current) {
-        console.log('Modal is open, skipping silent refresh');
-        return;
-    }
+        // Don't refresh if a modal is open
+        if (modalOpenRef.current) {
+            console.log('Modal is open, skipping silent refresh');
+            return;
+        }
 
-    setIsRefreshing(true);
-    try {
-        // Check if we're viewing old bills
-        const isViewingOldBills = viewOldBillsRef.current;
-        const hasDateRange = startDateRef.current && endDateRef.current;
+        setIsRefreshing(true);
+        try {
+            // Check if we're viewing old bills
+            const isViewingOldBills = viewOldBillsRef.current;
+            const hasDateRange = startDateRef.current && endDateRef.current;
 
-        if (isViewingOldBills && hasDateRange) {
-            // REFRESH ARCHIVED/OLD BILLS DATA
-            console.log('🔄 Silent refreshing archived sales data...', {
-                startDate: startDateRef.current,
-                endDate: endDateRef.current
-            });
-
-            const response = await api.get(routes.getArchivedSales, {
-                params: {
-                    start_date: startDateRef.current,
-                    end_date: endDateRef.current
-                }
-            });
-
-            if (!isMountedRef.current) return;
-
-            if (response.data.success) {
-                const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-
-                // For archived pending bills: false (show full credit)
-                // For archived applied bills (completed): true (show actual remaining credit)
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
-
-                // Update archived data
-                setArchivedData({
-                    pendingBills: updatedPending,
-                    appliedBills: updatedApplied,
-                    isLoading: false
+            if (isViewingOldBills && hasDateRange) {
+                // REFRESH ARCHIVED/OLD BILLS DATA
+                console.log('🔄 Silent refreshing archived sales data...', {
+                    startDate: startDateRef.current,
+                    endDate: endDateRef.current
                 });
 
-                console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-                
-                // Refresh remaining balances after archived data refresh
-                await fetchRemainingBalances();
-            }
-        } else {
-            // REFRESH CURRENT SALES DATA
-            console.log('🔄 Silent refreshing current sales data...');
+                const response = await api.get(routes.getArchivedSales, {
+                    params: {
+                        start_date: startDateRef.current,
+                        end_date: endDateRef.current
+                    }
+                });
 
-            // Fetch fresh sales data
-            const [salesRes, customersRes] = await Promise.all([
-                api.get(routes.getAllSales),
-                api.get(routes.customers)
-            ]);
+                if (!isMountedRef.current) return;
 
-            if (!isMountedRef.current) return;
+                if (response.data.success) {
+                    const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
 
-            const salesData = salesRes.data.sales || salesRes.data || [];
-            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
-            const { pendingBills, appliedBills } = processBillData(salesData);
+                    // For archived pending bills: false (show full credit)
+                    // For archived applied bills (completed): true (show actual remaining credit)
+                    const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
+                    const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
 
-            // For pending bills: false (always show full credit amount, not reduced)
-            // For applied bills (completed): true (show actual remaining credit from debtor table)
-            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
-            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
+                    // Update archived data
+                    setArchivedData({
+                        pendingBills: updatedPending,
+                        appliedBills: updatedApplied,
+                        isLoading: false
+                    });
 
-            // Update state without changing isLoading (so no loading skeleton)
-            setState(prev => ({
-                ...prev,
-                pendingBills: updatedPending,
-                appliedBills: updatedApplied,
-                customers: customersData,
-            }));
+                    console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
 
-            // If there's a selected bill, update its data silently
-            if (state.selectedBill && isMountedRef.current) {
-                const isApplied = state.selectedBill.givenAmountApplied === 'Y';
-                const updatedBillsList = isApplied ? updatedApplied : updatedPending;
-                const updatedBill = updatedBillsList.find(b => b.billNo === state.selectedBill.billNo);
-
-                if (updatedBill && updatedBill !== state.selectedBill) {
-                    setState(prev => ({
-                        ...prev,
-                        selectedBill: {
-                            ...prev.selectedBill,
-                            remainingCredit: updatedBill.remainingCredit,
-                            creditAmount: updatedBill.creditAmount,
-                            givenAmount: updatedBill.givenAmount,
-                            cashPayments: updatedBill.cashPayments,
-                            totalAmount: updatedBill.totalAmount
-                        }
-                    }));
+                    // Refresh remaining balances after archived data refresh
+                    await fetchRemainingBalances();
                 }
+            } else {
+                // REFRESH CURRENT SALES DATA
+                console.log('🔄 Silent refreshing current sales data...');
 
-                // Also refresh debtor data for selected bill
-                try {
-                    const debtorResponse = await api.get(`/debtors/${state.selectedBill.billNo}`);
-                    if (debtorResponse.data.success && debtorResponse.data.data) {
-                        const debtorData = debtorResponse.data.data;
-                        setSelectedBillDebtor(debtorData);
+                // Fetch fresh sales data
+                const [salesRes, customersRes] = await Promise.all([
+                    api.get(routes.getAllSales),
+                    api.get(routes.customers)
+                ]);
 
+                if (!isMountedRef.current) return;
+
+                const salesData = salesRes.data.sales || salesRes.data || [];
+                const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+                const { pendingBills, appliedBills } = processBillData(salesData);
+
+                // For pending bills: false (always show full credit amount, not reduced)
+                // For applied bills (completed): true (show actual remaining credit from debtor table)
+                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
+                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
+
+                // Update state without changing isLoading (so no loading skeleton)
+                setState(prev => ({
+                    ...prev,
+                    pendingBills: updatedPending,
+                    appliedBills: updatedApplied,
+                    customers: customersData,
+                }));
+
+                // If there's a selected bill, update its data silently
+                if (state.selectedBill && isMountedRef.current) {
+                    const isApplied = state.selectedBill.givenAmountApplied === 'Y';
+                    const updatedBillsList = isApplied ? updatedApplied : updatedPending;
+                    const updatedBill = updatedBillsList.find(b => b.billNo === state.selectedBill.billNo);
+
+                    if (updatedBill && updatedBill !== state.selectedBill) {
                         setState(prev => ({
                             ...prev,
                             selectedBill: {
                                 ...prev.selectedBill,
-                                remainingCredit: debtorData.remaining_amount || 0,
-                                creditAmount: debtorData.credit_amount || prev.selectedBill?.creditAmount || 0
+                                remainingCredit: updatedBill.remainingCredit,
+                                creditAmount: updatedBill.creditAmount,
+                                givenAmount: updatedBill.givenAmount,
+                                cashPayments: updatedBill.cashPayments,
+                                totalAmount: updatedBill.totalAmount
                             }
                         }));
                     }
-                } catch (debtorError) {
-                    console.log('Error refreshing debtor data:', debtorError);
-                }
-            }
 
-            // ***** ADD THIS SECTION - Refresh Supplier Loan Data *****
-            // Calculate total funds from the updated data
-            const pendingGiven = updatedPending.reduce((sum, b) => {
-                let total = 0;
-                const history = b.paymentHistory || b.payment_history;
-                if (history) {
-                    let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                    if (Array.isArray(payments)) {
-                        payments.forEach(p => {
-                            if (p.method !== 'Credit') {
-                                total += parseFloat(p.amount) || 0;
-                            }
-                        });
+                    // Also refresh debtor data for selected bill
+                    try {
+                        const debtorResponse = await api.get(`/debtors/${state.selectedBill.billNo}`);
+                        if (debtorResponse.data.success && debtorResponse.data.data) {
+                            const debtorData = debtorResponse.data.data;
+                            setSelectedBillDebtor(debtorData);
+
+                            setState(prev => ({
+                                ...prev,
+                                selectedBill: {
+                                    ...prev.selectedBill,
+                                    remainingCredit: debtorData.remaining_amount || 0,
+                                    creditAmount: debtorData.credit_amount || prev.selectedBill?.creditAmount || 0
+                                }
+                            }));
+                        }
+                    } catch (debtorError) {
+                        console.log('Error refreshing debtor data:', debtorError);
                     }
                 }
-                return sum + total;
-            }, 0);
 
-            const appliedGiven = updatedApplied.reduce((sum, b) => {
-                let total = 0;
-                const history = b.paymentHistory || b.payment_history;
-                if (history) {
-                    let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                    if (Array.isArray(payments)) {
-                        payments.forEach(p => {
-                            if (p.method !== 'Credit') {
-                                total += parseFloat(p.amount) || 0;
-                            }
-                        });
+                // ***** ADD THIS SECTION - Refresh Supplier Loan Data *****
+                // Calculate total funds from the updated data
+                const pendingGiven = updatedPending.reduce((sum, b) => {
+                    let total = 0;
+                    const history = b.paymentHistory || b.payment_history;
+                    if (history) {
+                        let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                        if (Array.isArray(payments)) {
+                            payments.forEach(p => {
+                                if (p.method !== 'Credit') {
+                                    total += parseFloat(p.amount) || 0;
+                                }
+                            });
+                        }
                     }
+                    return sum + total;
+                }, 0);
+
+                const appliedGiven = updatedApplied.reduce((sum, b) => {
+                    let total = 0;
+                    const history = b.paymentHistory || b.payment_history;
+                    if (history) {
+                        let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                        if (Array.isArray(payments)) {
+                            payments.forEach(p => {
+                                if (p.method !== 'Credit') {
+                                    total += parseFloat(p.amount) || 0;
+                                }
+                            });
+                        }
+                    }
+                    return sum + total;
+                }, 0);
+
+                const totalFunds = pendingGiven + appliedGiven;
+
+                // Fetch updated supplier loan data
+                if (totalFunds > 0) {
+                    await fetchAdjustedSupplierLoan(totalFunds);
                 }
-                return sum + total;
-            }, 0);
+                // ***** END OF ADDED SECTION *****
 
-            const totalFunds = pendingGiven + appliedGiven;
+                // ========== REFRESH REMAINING BALANCES ==========
+                // Fetch remaining cash and bank balances from cashier_balances table
+                await fetchRemainingBalances();
+                // ========== END OF REMAINING BALANCES REFRESH ==========
 
-            // Fetch updated supplier loan data
-            if (totalFunds > 0) {
-                await fetchAdjustedSupplierLoan(totalFunds);
+                console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
+                console.log(`💰 Total Funds: Rs. ${formatDecimal(totalFunds)}`);
             }
-            // ***** END OF ADDED SECTION *****
 
-            // ========== REFRESH REMAINING BALANCES ==========
-            // Fetch remaining cash and bank balances from cashier_balances table
-            await fetchRemainingBalances();
-            // ========== END OF REMAINING BALANCES REFRESH ==========
-
-            console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-            console.log(`💰 Total Funds: Rs. ${formatDecimal(totalFunds)}`);
+        } catch (error) {
+            console.error("Silent refresh error:", error);
+        } finally {
+            if (isMountedRef.current) {
+                setIsRefreshing(false);
+            }
         }
-
-    } catch (error) {
-        console.error("Silent refresh error:", error);
-    } finally {
-        if (isMountedRef.current) {
-            setIsRefreshing(false);
-        }
-    }
-}, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
+    }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
@@ -4026,104 +4026,104 @@ const silentRefresh = useCallback(async () => {
                         minWidth: '280px',
                         textAlign: 'center'
                     }}>
- {/* TOTAL FUNDS CARD - Compact Top Right */}
-<div style={{
-    background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-    borderRadius: '12px',
-    padding: '6px 10px',          // 🔥 reduced padding
-    boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-    minWidth: '260px',
-    maxWidth: '320px'
-}}>
+                        {/* TOTAL FUNDS CARD - Compact Top Right */}
+                        <div style={{
+                            background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                            borderRadius: '12px',
+                            padding: '6px 10px',          // 🔥 reduced padding
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                            minWidth: '260px',
+                            maxWidth: '320px'
+                        }}>
 
-    {/* ROW: CASH + BANK */}
-    <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '10px',
-        height: '28px'             // 🔥 force compact height
-    }}>
+                            {/* ROW: CASH + BANK */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '10px',
+                                height: '28px'             // 🔥 force compact height
+                            }}>
 
-        {/* CASH */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-            <span style={{
-                fontSize: '9px',
-                fontWeight: 700,
-                color: '#94a3b8',
-                letterSpacing: '0.5px'
-            }}>
-                💰 CASH
-            </span>
+                                {/* CASH */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                    <span style={{
+                                        fontSize: '9px',
+                                        fontWeight: 700,
+                                        color: '#94a3b8',
+                                        letterSpacing: '0.5px'
+                                    }}>
+                                        💰 CASH
+                                    </span>
 
-            <span style={{
-                fontSize: '13px',
-                fontWeight: 800,
-                fontFamily: 'monospace',
-                color: remainingBalances.cash_remaining >= 0 ? '#10b981' : '#ef4444',
-                lineHeight: '1'
-            }}>
-                Rs {formatDecimal(remainingBalances.cash_remaining)}
-            </span>
-        </div>
+                                    <span style={{
+                                        fontSize: '13px',
+                                        fontWeight: 800,
+                                        fontFamily: 'monospace',
+                                        color: remainingBalances.cash_remaining >= 0 ? '#10b981' : '#ef4444',
+                                        lineHeight: '1'
+                                    }}>
+                                        Rs {formatDecimal(remainingBalances.cash_remaining)}
+                                    </span>
+                                </div>
 
-        {/* BANK (CLICKABLE) */}
-        <div
-            onClick={() => setShowBankBreakdownModal(true)}
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                flex: 1,
-                cursor: 'pointer',
-                padding: '2px 6px',
-                borderRadius: '6px'
-            }}
-            onMouseEnter={(e) =>
-                e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
-            }
-            onMouseLeave={(e) =>
-                e.currentTarget.style.background = 'transparent'
-            }
-        >
-            <span style={{
-                fontSize: '9px',
-                fontWeight: 700,
-                color: '#94a3b8',
-                letterSpacing: '0.5px'
-            }}>
-                🏦 BANK
-            </span>
+                                {/* BANK (CLICKABLE) */}
+                                <div
+                                    onClick={() => setShowBankBreakdownModal(true)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        flex: 1,
+                                        cursor: 'pointer',
+                                        padding: '2px 6px',
+                                        borderRadius: '6px'
+                                    }}
+                                    onMouseEnter={(e) =>
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+                                    }
+                                    onMouseLeave={(e) =>
+                                        e.currentTarget.style.background = 'transparent'
+                                    }
+                                >
+                                    <span style={{
+                                        fontSize: '9px',
+                                        fontWeight: 700,
+                                        color: '#94a3b8',
+                                        letterSpacing: '0.5px'
+                                    }}>
+                                        🏦 BANK
+                                    </span>
 
-            <span style={{
-                fontSize: '13px',
-                fontWeight: 800,
-                fontFamily: 'monospace',
-                color: remainingBalances.total_bank_remaining >= 0 ? '#60a5fa' : '#ef4444',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '3px',
-                lineHeight: '1'
-            }}>
-                Rs {formatDecimal(remainingBalances.total_bank_remaining)}
-                <span style={{ fontSize: '9px', color: '#64748b' }}>▼</span>
-            </span>
-        </div>
+                                    <span style={{
+                                        fontSize: '13px',
+                                        fontWeight: 800,
+                                        fontFamily: 'monospace',
+                                        color: remainingBalances.total_bank_remaining >= 0 ? '#60a5fa' : '#ef4444',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        lineHeight: '1'
+                                    }}>
+                                        Rs {formatDecimal(remainingBalances.total_bank_remaining)}
+                                        <span style={{ fontSize: '9px', color: '#64748b' }}>▼</span>
+                                    </span>
+                                </div>
 
-    </div>
+                            </div>
 
-    {/* LOADING (compact, no extra height) */}
-    {isLoadingRemaining && (
-        <div style={{
-            fontSize: '9px',
-            color: '#64748b',
-            textAlign: 'center',
-            marginTop: '2px'
-        }}>
-            🔄 Updating...
-        </div>
-    )}
-</div>
+                            {/* LOADING (compact, no extra height) */}
+                            {isLoadingRemaining && (
+                                <div style={{
+                                    fontSize: '9px',
+                                    color: '#64748b',
+                                    textAlign: 'center',
+                                    marginTop: '2px'
+                                }}>
+                                    🔄 Updating...
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -4670,11 +4670,11 @@ const silentRefresh = useCallback(async () => {
                 adjustedLoanData={adjustedLoanData}
             />
             {/* Bank Breakdown Modal */}
-<BankBreakdownModal
-    isOpen={showBankBreakdownModal}
-    onClose={() => setShowBankBreakdownModal(false)}
-    bankBreakdown={remainingBalances.bank_breakdown}
-/>
+            <BankBreakdownModal
+                isOpen={showBankBreakdownModal}
+                onClose={() => setShowBankBreakdownModal(false)}
+                bankBreakdown={remainingBalances.bank_breakdown}
+            />
         </div>
     );
 } 

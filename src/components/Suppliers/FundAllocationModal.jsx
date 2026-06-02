@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
 
-const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) => {
+const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxAmount }) => {
     const [allocationType, setAllocationType] = useState('cash');
     const [amount, setAmount] = useState('');
     const [selectedBank, setSelectedBank] = useState('');
@@ -18,10 +18,14 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
     const bankSelectRef = useRef(null);
     const confirmButtonRef = useRef(null);
 
-    // Set amount from selectedAmount prop when modal opens
+    // Set amount from selectedAmount prop when modal opens (if provided)
     useEffect(() => {
-        if (isOpen && selectedAmount > 0) {
-            setAmount(selectedAmount.toString());
+        if (isOpen) {
+            if (selectedAmount && selectedAmount > 0) {
+                setAmount(selectedAmount.toString());
+            } else {
+                setAmount('');
+            }
             setTimeout(() => {
                 if (amountInputRef.current) {
                     amountInputRef.current.focus();
@@ -77,7 +81,20 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
     if (!isOpen) return null;
 
     const formatCurrency = (amount) => {
-        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const numAmount = typeof amount === 'object' ? 0 : (parseFloat(amount) || 0);
+        return `Rs. ${numAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    // Helper function to safely extract number from various response formats
+    const safeExtractNumber = (value, defaultValue = 0) => {
+        if (value === null || value === undefined) return defaultValue;
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') return parseFloat(value) || defaultValue;
+        if (typeof value === 'object') {
+            // Try to extract from common object properties
+            return safeExtractNumber(value.amount || value.value || value.total || value.balance, defaultValue);
+        }
+        return defaultValue;
     };
 
     const handleAllocate = async () => {
@@ -87,22 +104,28 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
             return;
         }
 
+        // Check against maxAmount if provided (from income totals)
+        if (maxAmount && maxAmount > 0 && amountNum > maxAmount) {
+            alert(`Amount exceeds available total income! Maximum available: ${formatCurrency(maxAmount)}`);
+            return;
+        }
+
         if (allocationType === 'bank' && !selectedBank) {
             alert('Please select a bank');
             return;
         }
 
         // Check if amount exceeds available balance for the selected source
-        let maxAmount = 0;
+        let maxSourceAmount = 0;
         if (allocationType === 'cash') {
-            maxAmount = cashBalance;
+            maxSourceAmount = cashBalance;
         } else if (selectedBank) {
             const bankKey = selectedBank.toUpperCase().replace(/ /g, '_');
-            maxAmount = bankBalances[bankKey] || 0;
+            maxSourceAmount = bankBalances[bankKey] || 0;
         }
 
-        if (amountNum > maxAmount && maxAmount > 0) {
-            alert(`Amount exceeds available ${allocationType === 'cash' ? 'cash' : 'bank'} balance! Available: ${formatCurrency(maxAmount)}`);
+        if (amountNum > maxSourceAmount && maxSourceAmount > 0) {
+            alert(`Amount exceeds available ${allocationType === 'cash' ? 'cash' : 'bank'} balance! Available: ${formatCurrency(maxSourceAmount)}`);
             return;
         }
 
@@ -120,21 +143,75 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
             const response = await api.post('/cashier-balance/allocate-funds', payload);
             
             if (response.data.success) {
-                alert(response.data.message);
-                if (onAllocate) {
-                    onAllocate(response.data.data);
+                // SAFELY EXTRACT THE REMAINING BALANCE - CRITICAL FIX
+                let remainingBalance = 0;
+                const responseData = response.data.data || {};
+                
+                // Try multiple possible field names and formats
+                if (responseData.remaining_balance !== undefined) {
+                    remainingBalance = safeExtractNumber(responseData.remaining_balance);
+                } else if (responseData.remaining !== undefined) {
+                    remainingBalance = safeExtractNumber(responseData.remaining);
+                } else if (responseData.balance !== undefined) {
+                    remainingBalance = safeExtractNumber(responseData.balance);
+                } else if (responseData.total_remaining !== undefined) {
+                    remainingBalance = safeExtractNumber(responseData.total_remaining);
+                } else if (responseData.new_balance !== undefined) {
+                    remainingBalance = safeExtractNumber(responseData.new_balance);
+                } else if (responseData.available_balance !== undefined) {
+                    remainingBalance = safeExtractNumber(responseData.available_balance);
                 }
+                
+                // If still 0, try to calculate from previous balance if available
+                if (remainingBalance === 0 && responseData.previous_balance !== undefined) {
+                    const prevBalance = safeExtractNumber(responseData.previous_balance);
+                    remainingBalance = prevBalance - amountNum;
+                }
+                
+                // If all else fails, fetch the updated balance
+                if (remainingBalance === 0) {
+                    try {
+                        const balanceResponse = await api.get('/cashier-balance/balance');
+                        if (balanceResponse.data.success) {
+                            const balanceData = balanceResponse.data.data;
+                            const totalBal = (balanceData.cash_balance || 0) + 
+                                (typeof balanceData.bank_balance === 'number' ? balanceData.bank_balance : 
+                                Object.values(balanceData.bank_balance || {}).reduce((a, b) => a + b, 0));
+                            remainingBalance = totalBal;
+                        }
+                    } catch (balError) {
+                        console.error('Error fetching updated balance:', balError);
+                    }
+                }
+                
+                // Prepare the allocation result object with safe numbers
+                const allocationResult = {
+                    allocated_amount: amountNum,
+                    remaining: remainingBalance,
+                    bank_breakdown: Array.isArray(responseData.bank_breakdown) ? responseData.bank_breakdown : [],
+                    message: response.data.message || 'Funds allocated successfully!'
+                };
+                
+                // Call the onAllocate callback with the structured data
+                if (onAllocate) {
+                    onAllocate(allocationResult);
+                }
+                
+                // Show success message with properly formatted numbers
+                alert(`${response.data.message || 'Funds allocated successfully!'}\n\nAllocated Amount: ${formatCurrency(amountNum)}\nRemaining Balance: ${formatCurrency(remainingBalance)}`);
+                
                 onClose();
                 // Reset form
                 setAmount('');
                 setSelectedBank('');
                 setAllocationType('cash');
             } else {
-                alert(response.data.message);
+                alert(response.data.message || 'Failed to allocate funds');
             }
         } catch (error) {
             console.error('Error allocating funds:', error);
-            alert('Failed to allocate funds: ' + (error.response?.data?.message || error.message));
+            const errorMessage = error.response?.data?.message || error.message || 'Failed to allocate funds';
+            alert('Failed to allocate funds: ' + errorMessage);
         } finally {
             setIsLoading(false);
         }
@@ -166,6 +243,14 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
             return formatCurrency(bankBalances[bankKey] || 0);
         }
         return formatCurrency(totalBalance);
+    };
+
+    // Get max amount display
+    const getMaxAmountDisplay = () => {
+        if (maxAmount && maxAmount > 0) {
+            return formatCurrency(maxAmount);
+        }
+        return getAvailableBalanceDisplay();
     };
 
     return (
@@ -225,6 +310,22 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
                         </div>
                         <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#dc2626' }}>
                             {formatCurrency(parseFloat(amount) || 0)}
+                        </div>
+                    </div>
+
+                    {/* Max Available Display */}
+                    <div style={{
+                        marginBottom: '20px',
+                        padding: '12px',
+                        background: '#dbeafe',
+                        borderRadius: '12px',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{ fontSize: '11px', color: '#1e40af' }}>
+                            Maximum Available for Allocation
+                        </div>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1e3a8a' }}>
+                            {getMaxAmountDisplay()}
                         </div>
                     </div>
 
@@ -382,6 +483,7 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
                                 }
                             }}
                             placeholder="Enter amount"
+                            step="0.01"
                             style={{
                                 width: '100%',
                                 padding: '14px 16px',
@@ -396,6 +498,19 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount }) =>
                             onFocus={(e) => e.target.style.borderColor = '#f59e0b'}
                             onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                         />
+                    </div>
+
+                    {/* Info Message */}
+                    <div style={{
+                        marginBottom: '20px',
+                        padding: '10px',
+                        background: '#fef3c7',
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                        color: '#92400e',
+                        textAlign: 'center'
+                    }}>
+                        💡 Tip: Allocated funds will be deducted from cash/bank balances and added to Funds Allocated
                     </div>
 
                     {/* Action Buttons */}

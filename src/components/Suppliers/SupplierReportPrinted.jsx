@@ -1782,6 +1782,170 @@ const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
         </div>
     );
 };
+// ==================== BANK ALLOCATION MODAL ====================
+const BankAllocationModal = ({ isOpen, onClose, bankBreakdown, cashAllocated, totalAllocated }) => {
+    if (!isOpen) return null;
+
+    const formatCurrency = (amount) => {
+        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20008
+        }} onClick={onClose}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '20px',
+                width: '450px',
+                maxWidth: '90%',
+                padding: '24px',
+                maxHeight: '80vh',
+                overflowY: 'auto'
+            }} onClick={(e) => e.stopPropagation()}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '20px',
+                    paddingBottom: '12px',
+                    borderBottom: '2px solid #e2e8f0'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '28px' }}>💰</span>
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Funds Allocation Details</h3>
+                    </div>
+                    <button onClick={onClose} style={{
+                        background: '#f1f5f9',
+                        border: 'none',
+                        fontSize: '20px',
+                        cursor: 'pointer',
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%'
+                    }}>×</button>
+                </div>
+
+                {/* Total Allocated */}
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    marginBottom: '20px',
+                    textAlign: 'center',
+                    color: 'white'
+                }}>
+                    <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '4px' }}>📊 Total Allocated Funds</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(totalAllocated)}</div>
+                </div>
+
+                {/* Cash Allocated */}
+                <div style={{
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    color: 'white'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '24px' }}>💰</span>
+                        <span style={{ fontWeight: '600' }}>Cash Allocated</span>
+                    </div>
+                    <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                        {formatCurrency(cashAllocated)}
+                    </div>
+                </div>
+
+                {/* Bank Allocated Section */}
+                <div style={{ marginBottom: '16px' }}>
+                    <div style={{
+                        background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        marginBottom: '12px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        color: 'white'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '24px' }}>🏦</span>
+                            <span style={{ fontWeight: '600' }}>Bank Allocated</span>
+                        </div>
+                        <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                            {formatCurrency(bankBreakdown.reduce((sum, bank) => sum + (bank.amount || 0), 0))}
+                        </div>
+                    </div>
+
+                    {/* Individual Bank Breakdown */}
+                    {bankBreakdown && bankBreakdown.length > 0 ? (
+                        <div style={{ paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
+                            {bankBreakdown.map((bank, index) => (
+                                <div key={index} style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '12px 16px',
+                                    marginBottom: '8px',
+                                    background: '#fef3c7',
+                                    borderRadius: '10px',
+                                    borderLeft: '3px solid #f59e0b'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '18px' }}>🏦</span>
+                                        <span style={{ fontWeight: '600', color: '#92400e', fontSize: '13px' }}>{bank.bank_name}</span>
+                                    </div>
+                                    <div style={{ fontSize: '16px', fontWeight: '700', color: '#dc2626' }}>
+                                        {formatCurrency(bank.amount)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{
+                            padding: '20px',
+                            textAlign: 'center',
+                            color: '#94a3b8',
+                            fontSize: '13px',
+                            background: '#f8fafc',
+                            borderRadius: '10px'
+                        }}>
+                            No bank allocations available
+                        </div>
+                    )}
+                </div>
+
+                <button onClick={onClose} style={{
+                    width: '100%',
+                    marginTop: '20px',
+                    padding: '12px',
+                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                }}>
+                    Close
+                </button>
+            </div>
+        </div>
+    );
+};
 // ==================== INCOME SOURCES MODAL ====================
 const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, filterOptions, onAllocateFunds }) => {
     const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
@@ -1794,16 +1958,6 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
     const [selectedCashierName, setSelectedCashierName] = useState('all');
     const [localFilterOptions, setLocalFilterOptions] = useState(filterOptions || { unique_codes: [], bank_names: [], cashier_names: [] });
     const [isLoadingOptions, setIsLoadingOptions] = useState(false);
-
-    // Checkbox states for each income type
-    const [selectedIncomeTypes, setSelectedIncomeTypes] = useState({
-        cash: true,
-        cheque: true,
-        bank_transfer: true,
-        bag_to_box: true,
-        bill_to_bill: true,
-        bad_debt: true
-    });
 
     // NEW: Fund Allocation Modal State
     const [showFundAllocationModal, setShowFundAllocationModal] = useState(false);
@@ -1831,7 +1985,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         try {
             let url = '/cashier-balance/detailed-balance';
             const params = new URLSearchParams();
-            
+
             if (selectedCashierName && selectedCashierName !== 'all') {
                 params.append('cashier_name', selectedCashierName);
             }
@@ -1841,13 +1995,13 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
             if (dateRange.endDate) {
                 params.append('end_date', dateRange.endDate);
             }
-            
+
             if (params.toString()) {
                 url += `?${params.toString()}`;
             }
-            
+
             const response = await api.get(url);
-            
+
             if (response.data.success) {
                 setCashierBalance(response.data.data);
                 console.log('Cashier balance fetched:', response.data.data);
@@ -1865,12 +2019,12 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         try {
             // Fetch income filter options
             const incomeResponse = await api.get('/income-filter-options');
-            
+
             // Fetch cashier names from cashier balance
             const cashierResponse = await api.get('/cashier-balance/detailed-balance');
-            
+
             const cashierNames = cashierResponse.data.success ? cashierResponse.data.data.cashier_names : [];
-            
+
             setLocalFilterOptions({
                 unique_codes: incomeResponse.data.data?.unique_codes || [],
                 bank_names: incomeResponse.data.data?.bank_names || [],
@@ -1989,47 +2143,48 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         }
     };
 
-    const calculateSelectedTotal = () => {
-        let total = 0;
-        if (selectedIncomeTypes.cash) total += localTotals?.cash || 0;
-        if (selectedIncomeTypes.cheque) total += localTotals?.cheque || 0;
-        if (selectedIncomeTypes.bank_transfer) total += localTotals?.bank_transfer || 0;
-        if (selectedIncomeTypes.bag_to_box) total += localTotals?.bag_to_box || 0;
-        if (selectedIncomeTypes.bill_to_bill) total += localTotals?.bill_to_bill || 0;
-        if (selectedIncomeTypes.bad_debt) total += localTotals?.bad_debt || 0;
-        return total;
-    };
+    const totalIncome = (localTotals?.cash || 0) + (localTotals?.cheque || 0) + (localTotals?.bank_transfer || 0) +
+        (localTotals?.bag_to_box || 0) + (localTotals?.bill_to_bill || 0) + (localTotals?.bad_debt || 0);
 
-    const handleCheckboxChange = (type) => {
-        setSelectedIncomeTypes(prev => ({
-            ...prev,
-            [type]: !prev[type]
-        }));
-    };
-
-    // UPDATED: Open fund allocation modal instead of directly allocating
+    // UPDATED: Open fund allocation modal - pass 0 or null to indicate custom amount
     const handleAllocateFunds = () => {
-        const selectedTotal = calculateSelectedTotal();
-        if (selectedTotal > 0) {
-            setSelectedTotalForAllocation(selectedTotal);
+        if (totalIncome > 0) {
+            setSelectedTotalForAllocation(0); // Set to 0 to indicate custom amount in modal
             setShowFundAllocationModal(true);
         } else {
-            alert('Please select at least one income source to allocate funds.');
+            alert('No income available to allocate funds.');
         }
     };
-
-    // Handle successful allocation
+    // In IncomeSourcesModal
     const handleAllocationComplete = (allocationData) => {
         console.log('Allocation completed:', allocationData);
-        // Refresh cashier balance to show updated values
-        fetchCashierBalance();
-        // Call the parent's onAllocateFunds to update the Funds Allocated in navbar
-        if (onAllocateFunds) {
-            onAllocateFunds(selectedTotalForAllocation);
-        }
-        alert(`✅ Funds allocated successfully!\n\nAllocated Amount: ${formatCurrency(selectedTotalForAllocation)}\nRemaining Balance: ${formatCurrency(allocationData.remaining)}`);
-    };
 
+        // Safely extract allocated amount
+        let allocatedAmount = 0;
+        let remainingBalance = 0;
+
+        if (typeof allocationData === 'number') {
+            allocatedAmount = allocationData;
+        } else if (allocationData && typeof allocationData === 'object') {
+            allocatedAmount = allocationData.allocated_amount || allocationData.amount || 0;
+            remainingBalance = allocationData.remaining || allocationData.remaining_balance || 0;
+        }
+
+        // Update funds in parent component
+        if (onAllocateFunds) {
+            onAllocateFunds(allocatedAmount);
+        }
+
+        // Refresh cashier balance
+        fetchCashierBalance();
+
+        // Show success message with proper formatting
+        const formatCurrency = (amount) => {
+            return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        };
+
+        alert(`✅ Funds allocated successfully!\n\nAllocated Amount: ${formatCurrency(allocatedAmount)}\nRemaining Balance: ${formatCurrency(remainingBalance)}`);
+    };
     const incomeItems = [
         { id: 'cash', icon: '💰', label: 'Cash Payments', value: localTotals?.cash || 0, color: '#10b981', bg: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' },
         { id: 'cheque', icon: '💳', label: 'Cheque Payments', value: localTotals?.cheque || 0, color: '#8b5cf6', bg: 'linear-gradient(135deg, #ede9fe, #ddd6fe)' },
@@ -2038,11 +2193,6 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         { id: 'bill_to_bill', icon: '📄', label: 'Bill to Bill Transfer', value: localTotals?.bill_to_bill || 0, color: '#3b82f6', bg: 'linear-gradient(135deg, #dbeafe, #bfdbfe)' },
         { id: 'bad_debt', icon: '⚠️', label: 'Bad Debt Write-off', value: localTotals?.bad_debt || 0, color: '#ef4444', bg: 'linear-gradient(135deg, #fee2e2, #fecaca)' }
     ];
-
-    const totalIncome = (localTotals?.cash || 0) + (localTotals?.cheque || 0) + (localTotals?.bank_transfer || 0) +
-        (localTotals?.bag_to_box || 0) + (localTotals?.bill_to_bill || 0) + (localTotals?.bad_debt || 0);
-
-    const selectedTotal = calculateSelectedTotal();
 
     return (
         <div
@@ -2414,7 +2564,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                             </div>
                         </div>
 
-                        {/* Income Items with Checkboxes */}
+                        {/* Income Items (without checkboxes) */}
                         {incomeItems.map((item, idx) => (
                             <div
                                 key={idx}
@@ -2425,24 +2575,9 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                                     marginBottom: '10px',
                                     background: item.bg,
                                     borderRadius: '12px',
-                                    borderLeft: `4px solid ${item.color}`,
-                                    cursor: 'pointer'
+                                    borderLeft: `4px solid ${item.color}`
                                 }}
-                                onClick={() => handleCheckboxChange(item.id)}
                             >
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIncomeTypes[item.id]}
-                                    onChange={() => handleCheckboxChange(item.id)}
-                                    style={{
-                                        width: '20px',
-                                        height: '20px',
-                                        marginRight: '12px',
-                                        cursor: 'pointer',
-                                        accentColor: item.color
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
                                 <div style={{ flex: 1 }}>
                                     <span style={{ fontSize: '20px', marginRight: '8px' }}>{item.icon}</span>
                                     <span style={{
@@ -2461,27 +2596,6 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                                 </div>
                             </div>
                         ))}
-
-                        {/* Selected Total Display */}
-                        <div
-                            style={{
-                                marginTop: '16px',
-                                padding: '16px',
-                                background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
-                                borderRadius: '12px',
-                                border: '2px solid #f59e0b'
-                            }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <span style={{ fontSize: '20px', marginRight: '8px' }}>✅</span>
-                                    <span style={{ fontWeight: '700', fontSize: '14px', color: '#92400e' }}>Selected Total:</span>
-                                </div>
-                                <div style={{ fontSize: '22px', fontWeight: '800', color: '#dc2626' }}>
-                                    {formatCurrency(selectedTotal)}
-                                </div>
-                            </div>
-                        </div>
 
                         <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '16px 0' }}></div>
 
@@ -2506,26 +2620,26 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                             </div>
                         </div>
 
-                        {/* Allocate Funds Button - Opens Modal */}
+                        {/* Allocate Funds Button - Opens modal where user can enter custom amount */}
                         <button
                             onClick={handleAllocateFunds}
-                            disabled={selectedTotal === 0}
+                            disabled={totalIncome === 0}
                             style={{
                                 width: '100%',
                                 marginTop: '16px',
                                 padding: '14px',
-                                background: selectedTotal === 0 ? '#9ca3af' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                background: totalIncome === 0 ? '#9ca3af' : 'linear-gradient(135deg, #f59e0b, #d97706)',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '10px',
-                                cursor: selectedTotal === 0 ? 'not-allowed' : 'pointer',
+                                cursor: totalIncome === 0 ? 'not-allowed' : 'pointer',
                                 fontWeight: '700',
                                 fontSize: '16px',
-                                opacity: selectedTotal === 0 ? 0.6 : 1,
+                                opacity: totalIncome === 0 ? 0.6 : 1,
                                 transition: 'transform 0.2s'
                             }}
                             onMouseEnter={(e) => {
-                                if (selectedTotal > 0) {
+                                if (totalIncome > 0) {
                                     e.currentTarget.style.transform = 'scale(1.02)';
                                 }
                             }}
@@ -2533,7 +2647,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                                 e.currentTarget.style.transform = 'scale(1)';
                             }}
                         >
-                            💵 Allocate Selected Funds ({formatCurrency(selectedTotal)})
+                            💵 Allocate Funds
                         </button>
 
                         {/* Active Filters Display */}
@@ -2594,7 +2708,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                 </button>
             </div>
 
-            {/* Fund Allocation Modal */}
+            {/* Fund Allocation Modal - User will enter custom amount */}
             <FundAllocationModal
                 isOpen={showFundAllocationModal}
                 onClose={() => {
@@ -2602,7 +2716,8 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                     setSelectedTotalForAllocation(0);
                 }}
                 onAllocate={handleAllocationComplete}
-                selectedAmount={selectedTotalForAllocation}
+                selectedAmount={null} // Pass null so modal allows custom amount entry
+                maxAmount={totalIncome} // Pass max available amount for validation
             />
         </div>
     );
@@ -2920,6 +3035,45 @@ export default function SupplierReport() {
         total_customers: 0
     });
     const [isLoadingIncome, setIsLoadingIncome] = useState(false);
+    //ne fund balance
+    // Add these with your other state declarations
+    // Add these with your other state declarations
+    const [allocatedBreakdown, setAllocatedBreakdown] = useState({
+        cash_allocated: 0,
+        bank_breakdown: [],
+        total_bank_allocated: 0,
+        total_allocated: 0
+    });
+    const [isLoadingAllocated, setIsLoadingAllocated] = useState(false);
+    const [showAllocatedBankModal, setShowAllocatedBankModal] = useState(false);
+    // Fetch allocated breakdown from cashier_balances table
+    const fetchAllocatedBreakdown = async () => {
+        setIsLoadingAllocated(true);
+        try {
+            const response = await api.get('/cashier-balance/allocated-breakdown');
+            if (response.data.success) {
+                setAllocatedBreakdown(response.data.data);
+                console.log('Allocated breakdown fetched:', response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching allocated breakdown:', error);
+        } finally {
+            setIsLoadingAllocated(false);
+        }
+    };
+    // Fetch allocated breakdown on component mount
+    useEffect(() => {
+        fetchAllocatedBreakdown();
+
+        // Refresh allocated breakdown every 30 seconds
+        const allocatedInterval = setInterval(() => {
+            if (!modalOpenRef.current) {
+                fetchAllocatedBreakdown();
+            }
+        }, 30000);
+
+        return () => clearInterval(allocatedInterval);
+    }, []);
     // Auto-refresh polling every 10 seconds - FIXED MEMORY LEAK
     useEffect(() => {
         let isSubscribed = true;
@@ -5131,29 +5285,53 @@ export default function SupplierReport() {
                 >
                     💰 Income Sources
                 </button>
+                {/* Funds Allocated Button - Shows Cash and Bank Allocated separately */}
+                <div style={{ position: 'relative', display: 'inline-flex', gap: '4px' }}>
+                    <button
+                        onClick={() => setShowFundsAllocated(true)}
+                        onContextMenu={handleFundsAllocatedContextMenu}
+                        style={{
+                            padding: '8px 20px',
+                            background: fundsAllocated < 0
+                                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+                                : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px 0 0 8px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        {fundsAllocated < 0 ? '⚠️' : '💵'} Funds Allocated: {fundsAllocated < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(fundsAllocated))}
+                        {fundsAllocated < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Due)</span>}
+                    </button>
 
-                {/* Funds Allocated Button */}
-                <button
-                    onClick={() => setShowFundsAllocated(true)}
-                    onContextMenu={handleFundsAllocatedContextMenu}
-                    style={{
-                        padding: '8px 20px',
-                        background: fundsAllocated < 0
-                            ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-                            : 'linear-gradient(135deg, #f59e0b, #d97706)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    {fundsAllocated < 0 ? '⚠️' : '💵'} Funds Allocated: {fundsAllocated < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(fundsAllocated))}
-                    {fundsAllocated < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Due)</span>}
-                </button>
+                    {/* Dropdown indicator button */}
+                    <button
+                        onClick={() => setShowAllocatedBankModal(true)}
+                        style={{
+                            padding: '8px 12px',
+                            background: fundsAllocated < 0
+                                ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
+                                : 'linear-gradient(135deg, #d97706, #b45309)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '0 8px 8px 0',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}
+                        title="View allocation details"
+                    >
+                        <span>📊</span>
+                        <span style={{ fontSize: '10px' }}>▼</span>
+                    </button>
+                </div>
                 {/* Context Menu for Funds Allocated */}
                 {contextMenu.visible && (
                     <>
@@ -6074,6 +6252,15 @@ export default function SupplierReport() {
                 isOpen={showAdjustmentSummary}
                 onClose={() => setShowAdjustmentSummary(false)}
                 totals={adjustmentTotals}
+            />
+
+            {/* Bank Allocation Modal */}
+            <BankAllocationModal
+                isOpen={showAllocatedBankModal}
+                onClose={() => setShowAllocatedBankModal(false)}
+                bankBreakdown={allocatedBreakdown.bank_breakdown || []}
+                cashAllocated={allocatedBreakdown.cash_allocated || 0}
+                totalAllocated={allocatedBreakdown.total_allocated || 0}
             />
 
             {/* Farmer Selector Modal */}
