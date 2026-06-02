@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { useNavigate } from "react-router-dom";
 import api from "../../api";
 import ReactDOM from 'react-dom';
+import FundAllocationModal from './FundAllocationModal';
 
 const routes = {
     getSuppliers: "/suppliers/supplierloans",
@@ -1804,6 +1805,10 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         bad_debt: true
     });
 
+    // NEW: Fund Allocation Modal State
+    const [showFundAllocationModal, setShowFundAllocationModal] = useState(false);
+    const [selectedTotalForAllocation, setSelectedTotalForAllocation] = useState(0);
+
     // Cashier Balance States
     const [cashierBalance, setCashierBalance] = useState({
         cash_balance: 0,
@@ -2002,14 +2007,27 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
         }));
     };
 
+    // UPDATED: Open fund allocation modal instead of directly allocating
     const handleAllocateFunds = () => {
         const selectedTotal = calculateSelectedTotal();
         if (selectedTotal > 0) {
-            onAllocateFunds(selectedTotal);
-            alert(`✅ Funds Allocated: ${formatCurrency(selectedTotal)}\n\nThis amount has been added to the Funds Allocated total in the navbar.`);
+            setSelectedTotalForAllocation(selectedTotal);
+            setShowFundAllocationModal(true);
         } else {
             alert('Please select at least one income source to allocate funds.');
         }
+    };
+
+    // Handle successful allocation
+    const handleAllocationComplete = (allocationData) => {
+        console.log('Allocation completed:', allocationData);
+        // Refresh cashier balance to show updated values
+        fetchCashierBalance();
+        // Call the parent's onAllocateFunds to update the Funds Allocated in navbar
+        if (onAllocateFunds) {
+            onAllocateFunds(selectedTotalForAllocation);
+        }
+        alert(`✅ Funds allocated successfully!\n\nAllocated Amount: ${formatCurrency(selectedTotalForAllocation)}\nRemaining Balance: ${formatCurrency(allocationData.remaining)}`);
     };
 
     const incomeItems = [
@@ -2488,7 +2506,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                             </div>
                         </div>
 
-                        {/* Allocate Funds Button */}
+                        {/* Allocate Funds Button - Opens Modal */}
                         <button
                             onClick={handleAllocateFunds}
                             disabled={selectedTotal === 0}
@@ -2575,6 +2593,17 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                     Close
                 </button>
             </div>
+
+            {/* Fund Allocation Modal */}
+            <FundAllocationModal
+                isOpen={showFundAllocationModal}
+                onClose={() => {
+                    setShowFundAllocationModal(false);
+                    setSelectedTotalForAllocation(0);
+                }}
+                onAllocate={handleAllocationComplete}
+                selectedAmount={selectedTotalForAllocation}
+            />
         </div>
     );
 };
