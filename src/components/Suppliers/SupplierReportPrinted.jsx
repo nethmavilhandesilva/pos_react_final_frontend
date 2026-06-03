@@ -255,16 +255,22 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
     const handleBankSelect = (bankId) => {
         setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }));
     };
-
     const handleSubmit = () => {
         if (!chequeDetails.cheq_date || !chequeDetails.cheq_no || !chequeDetails.bank_account_id) {
             alert("Please fill all cheque details and select a bank account");
             return;
         }
-        onConfirm(chequeDetails);
+
+        // Get bank name from selected bank
+        const selectedBankObj = banks.find(bank => bank.id === chequeDetails.bank_account_id);
+        const chequeDataWithBank = {
+            ...chequeDetails,
+            bank_name: selectedBankObj ? selectedBankObj.bank_name : null
+        };
+
+        onConfirm(chequeDataWithBank);
         setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
     };
-
     return (
         <div style={{
             position: 'fixed',
@@ -377,7 +383,15 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) =
             alert("Please enter transaction reference number");
             return;
         }
-        onConfirm(transferDetails);
+
+        // Get bank name from selected bank
+        const selectedBankObj = banks.find(bank => bank.id === transferDetails.bank_account_id);
+        const transferDataWithBank = {
+            ...transferDetails,
+            bank_name: selectedBankObj ? selectedBankObj.bank_name : null
+        };
+
+        onConfirm(transferDataWithBank);
     };
 
     return (
@@ -886,6 +900,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
     const nicBackRef = useRef(null);
     const submitButtonRef = useRef(null);
     const backButtonRef = useRef(null);
+    const mainInputRef = useRef(null); // Add ref for main input
 
     // Auto-focus name field when supplier form opens
     useEffect(() => {
@@ -896,6 +911,15 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
         }
     }, [showSupplierForm]);
 
+    // Auto-focus main input when modal opens
+    useEffect(() => {
+        if (isOpen && !showSupplierForm && mainInputRef.current) {
+            setTimeout(() => {
+                mainInputRef.current.focus();
+            }, 100);
+        }
+    }, [isOpen, showSupplierForm]);
+
     // IMPORTANT: Keep formData.code in sync with supplierCode
     useEffect(() => {
         if (supplierCode) {
@@ -904,9 +928,14 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
     }, [supplierCode]);
 
     useEffect(() => {
-        if (initialSupplierCode) setSupplierCode(initialSupplierCode);
-        if (initialBillNo) setBillNo(initialBillNo);
-    }, [initialSupplierCode, initialBillNo]);
+        // Only set initial values when modal first opens, not on every prop change
+        if (isOpen && initialSupplierCode && supplierCode === '') {
+            setSupplierCode(initialSupplierCode);
+        }
+        if (isOpen && initialBillNo && billNo === '') {
+            setBillNo(initialBillNo);
+        }
+    }, [isOpen, initialSupplierCode, initialBillNo]);
 
     useEffect(() => {
         if (supplierCode && supplierCode.length > 0 && !selectedFromDropdown) {
@@ -932,6 +961,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
     };
 
     const handleSupplierCodeChange = (e) => {
+        console.log('Supplier code changed:', e.target.value); // Debug log
         const newCode = e.target.value.toUpperCase();
         setSupplierCode(newCode);
         setFormData(prev => ({ ...prev, code: newCode }));
@@ -1053,7 +1083,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 overflowY: 'auto',
                 display: 'flex',
                 justifyContent: 'center',
-                alignItems: 'center'
+                alignItems: 'center',
+                pointerEvents: 'auto'
             }} onClick={onClose}>
                 <div style={{
                     backgroundColor: 'white',
@@ -1137,6 +1168,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                     name="name"
                                     placeholder="Enter supplier name"
                                     required
+                                    value={formData.name}
                                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                     onKeyPress={(e) => handleKeyPress(e, dobRef)}
                                     style={{
@@ -1146,7 +1178,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                         borderRadius: '10px',
                                         fontSize: '13px',
                                         outline: 'none',
-                                        transition: 'border-color 0.2s'
+                                        transition: 'border-color 0.2s',
+                                        background: 'white'
                                     }}
                                     onFocus={(e) => e.target.style.borderColor = '#667eea'}
                                     onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
@@ -1161,6 +1194,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                     ref={dobRef}
                                     type="date"
                                     name="dob"
+                                    value={formData.dob}
                                     onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
                                     onKeyPress={(e) => handleKeyPress(e, addressRef)}
                                     style={{
@@ -1169,7 +1203,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                         border: '2px solid #e2e8f0',
                                         borderRadius: '10px',
                                         fontSize: '13px',
-                                        outline: 'none'
+                                        outline: 'none',
+                                        background: 'white'
                                     }}
                                 />
                             </div>
@@ -1184,6 +1219,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                     placeholder="Enter full address"
                                     required
                                     rows="2"
+                                    value={formData.address}
                                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                                     onKeyPress={(e) => handleKeyPress(e, telephoneRef)}
                                     style={{
@@ -1193,7 +1229,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                         borderRadius: '10px',
                                         fontSize: '13px',
                                         outline: 'none',
-                                        resize: 'vertical'
+                                        resize: 'vertical',
+                                        background: 'white'
                                     }}
                                 />
                             </div>
@@ -1208,6 +1245,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                     name="telephone_no"
                                     placeholder="Enter telephone number"
                                     required
+                                    value={formData.telephone_no}
                                     onChange={(e) => setFormData({ ...formData, telephone_no: e.target.value })}
                                     onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
                                     style={{
@@ -1216,7 +1254,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                         border: '2px solid #e2e8f0',
                                         borderRadius: '10px',
                                         fontSize: '13px',
-                                        outline: 'none'
+                                        outline: 'none',
+                                        background: 'white'
                                     }}
                                 />
                             </div>
@@ -1234,7 +1273,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                         accept="image/*"
                                         onChange={(e) => handleImageChange(e, 'profile_pic')}
                                         onKeyPress={(e) => handleKeyPress(e, nicFrontRef)}
-                                        style={{ flex: 1, padding: '8px' }}
+                                        style={{ flex: 1, padding: '8px', background: 'white' }}
                                     />
                                     {previewImages.profile_pic && (
                                         <img src={previewImages.profile_pic} alt="Preview" style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover' }} />
@@ -1254,7 +1293,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                         accept="image/*"
                                         onChange={(e) => handleImageChange(e, 'nic_front')}
                                         onKeyPress={(e) => handleKeyPress(e, nicBackRef)}
-                                        style={{ width: '100%', padding: '8px' }}
+                                        style={{ width: '100%', padding: '8px', background: 'white' }}
                                     />
                                     {previewImages.nic_front && (
                                         <img src={previewImages.nic_front} alt="NIC Front" style={{ width: '100%', maxHeight: '80px', objectFit: 'cover', marginTop: '8px', borderRadius: '8px' }} />
@@ -1271,7 +1310,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                         accept="image/*"
                                         onChange={(e) => handleImageChange(e, 'nic_back')}
                                         onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
-                                        style={{ width: '100%', padding: '8px' }}
+                                        style={{ width: '100%', padding: '8px', background: 'white' }}
                                     />
                                     {previewImages.nic_back && (
                                         <img src={previewImages.nic_back} alt="NIC Back" style={{ width: '100%', maxHeight: '80px', objectFit: 'cover', marginTop: '8px', borderRadius: '8px' }} />
@@ -1361,7 +1400,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            zIndex: 20001
+            zIndex: 20001,
+            pointerEvents: 'auto'
         }} onClick={onClose}>
             <div style={{
                 backgroundColor: 'white',
@@ -1371,7 +1411,8 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 maxHeight: '90vh',
                 display: 'flex',
                 flexDirection: 'column',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                pointerEvents: 'auto'
             }} onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div style={{
@@ -1419,6 +1460,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                             Supplier Code <span style={{ color: '#ef4444' }}>*</span>
                         </label>
                         <input
+                            ref={mainInputRef}
                             type="text"
                             value={supplierCode}
                             onChange={handleSupplierCodeChange}
@@ -1433,7 +1475,9 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                                 fontFamily: 'monospace',
                                 fontWeight: 'bold',
                                 outline: 'none',
-                                transition: 'border-color 0.2s'
+                                transition: 'border-color 0.2s',
+                                background: 'white',
+                                color: '#1e293b'
                             }}
                             onFocus={(e) => e.target.style.borderColor = '#667eea'}
                             onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
@@ -1783,7 +1827,37 @@ const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
     );
 };
 // ==================== BANK ALLOCATION MODAL ====================
-const BankAllocationModal = ({ isOpen, onClose, bankBreakdown, cashAllocated, totalAllocated }) => {
+const BankAllocationModal = ({ isOpen, onClose }) => {
+    const [allocatedBreakdown, setAllocatedBreakdown] = useState({
+        cash_allocated: 0,
+        bank_breakdown: [],
+        total_bank_allocated: 0,
+        total_allocated: 0
+    });
+    const [isLoading, setIsLoading] = useState(false);
+
+    // Fetch allocated breakdown when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            fetchAllocatedBreakdown();
+        }
+    }, [isOpen]);
+
+    const fetchAllocatedBreakdown = async () => {
+        setIsLoading(true);
+        try {
+            const response = await api.get('/cashier-balance/allocated-breakdown');
+            if (response.data.success) {
+                setAllocatedBreakdown(response.data.data);
+                console.log('Allocated breakdown fetched:', response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching allocated breakdown:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     if (!isOpen) return null;
 
     const formatCurrency = (amount) => {
@@ -1836,97 +1910,106 @@ const BankAllocationModal = ({ isOpen, onClose, bankBreakdown, cashAllocated, to
                     }}>×</button>
                 </div>
 
-                {/* Total Allocated */}
-                <div style={{
-                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    marginBottom: '20px',
-                    textAlign: 'center',
-                    color: 'white'
-                }}>
-                    <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '4px' }}>📊 Total Allocated Funds</div>
-                    <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(totalAllocated)}</div>
-                </div>
-
-                {/* Cash Allocated */}
-                <div style={{
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    marginBottom: '16px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    color: 'white'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '24px' }}>💰</span>
-                        <span style={{ fontWeight: '600' }}>Cash Allocated</span>
+                {isLoading ? (
+                    <div style={{ textAlign: 'center', padding: '40px' }}>
+                        <div style={{ fontSize: '40px', marginBottom: '16px' }}>⏳</div>
+                        <p>Loading allocation details...</p>
                     </div>
-                    <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
-                        {formatCurrency(cashAllocated)}
-                    </div>
-                </div>
-
-                {/* Bank Allocated Section */}
-                <div style={{ marginBottom: '16px' }}>
-                    <div style={{
-                        background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                        borderRadius: '12px',
-                        padding: '16px',
-                        marginBottom: '12px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        color: 'white'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{ fontSize: '24px' }}>🏦</span>
-                            <span style={{ fontWeight: '600' }}>Bank Allocated</span>
-                        </div>
-                        <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
-                            {formatCurrency(bankBreakdown.reduce((sum, bank) => sum + (bank.amount || 0), 0))}
-                        </div>
-                    </div>
-
-                    {/* Individual Bank Breakdown */}
-                    {bankBreakdown && bankBreakdown.length > 0 ? (
-                        <div style={{ paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
-                            {bankBreakdown.map((bank, index) => (
-                                <div key={index} style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '12px 16px',
-                                    marginBottom: '8px',
-                                    background: '#fef3c7',
-                                    borderRadius: '10px',
-                                    borderLeft: '3px solid #f59e0b'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ fontSize: '18px' }}>🏦</span>
-                                        <span style={{ fontWeight: '600', color: '#92400e', fontSize: '13px' }}>{bank.bank_name}</span>
-                                    </div>
-                                    <div style={{ fontSize: '16px', fontWeight: '700', color: '#dc2626' }}>
-                                        {formatCurrency(bank.amount)}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
+                ) : (
+                    <>
+                        {/* Total Allocated */}
                         <div style={{
-                            padding: '20px',
+                            background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                            borderRadius: '12px',
+                            padding: '16px',
+                            marginBottom: '20px',
                             textAlign: 'center',
-                            color: '#94a3b8',
-                            fontSize: '13px',
-                            background: '#f8fafc',
-                            borderRadius: '10px'
+                            color: 'white'
                         }}>
-                            No bank allocations available
+                            <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '4px' }}>📊 Total Allocated Funds</div>
+                            <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(allocatedBreakdown.total_allocated)}</div>
                         </div>
-                    )}
-                </div>
+
+                        {/* Cash Allocated */}
+                        <div style={{
+                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                            borderRadius: '12px',
+                            padding: '16px',
+                            marginBottom: '16px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            color: 'white'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '24px' }}>💰</span>
+                                <span style={{ fontWeight: '600' }}>Cash Allocated</span>
+                            </div>
+                            <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                                {formatCurrency(allocatedBreakdown.cash_allocated)}
+                            </div>
+                        </div>
+
+                        {/* Bank Allocated Section */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <div style={{
+                                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                marginBottom: '12px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                color: 'white'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{ fontSize: '24px' }}>🏦</span>
+                                    <span style={{ fontWeight: '600' }}>Bank Allocated</span>
+                                </div>
+                                <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
+                                    {formatCurrency(allocatedBreakdown.total_bank_allocated)}
+                                </div>
+                            </div>
+
+                            {/* Individual Bank Breakdown */}
+                            {allocatedBreakdown.bank_breakdown && allocatedBreakdown.bank_breakdown.length > 0 ? (
+                                <div style={{ paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
+                                    {allocatedBreakdown.bank_breakdown.map((bank, index) => (
+                                        <div key={index} style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '12px 16px',
+                                            marginBottom: '8px',
+                                            background: '#fef3c7',
+                                            borderRadius: '10px',
+                                            borderLeft: '3px solid #f59e0b'
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ fontSize: '18px' }}>🏦</span>
+                                                <span style={{ fontWeight: '600', color: '#92400e', fontSize: '13px' }}>{bank.bank_name}</span>
+                                            </div>
+                                            <div style={{ fontSize: '16px', fontWeight: '700', color: '#dc2626' }}>
+                                                {formatCurrency(bank.amount)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    padding: '20px',
+                                    textAlign: 'center',
+                                    color: '#94a3b8',
+                                    fontSize: '13px',
+                                    background: '#f8fafc',
+                                    borderRadius: '10px'
+                                }}>
+                                    No bank allocations available
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
 
                 <button onClick={onClose} style={{
                     width: '100%',
@@ -2986,6 +3069,7 @@ export default function SupplierReport() {
 
     const processingPaymentRef = useRef(false);
     const lastPaymentDataRef = useRef(null);
+    const modalOpenRef = useRef(false);
 
     // Add these with your other state declarations
     const [paymentLock, setPaymentLock] = useState(false);
@@ -3061,6 +3145,83 @@ export default function SupplierReport() {
             setIsLoadingAllocated(false);
         }
     };
+    // Add this with your other state declarations
+    const [netAvailableAmount, setNetAvailableAmount] = useState(0);
+    const [isLoadingNetAvailable, setIsLoadingNetAvailable] = useState(false);
+    // Add this function with your other fetch functions
+ const fetchNetAvailableAmount = async () => {
+    console.log('🔵 FETCH NET AVAILABLE - STARTED');
+    console.log('🔵 Current URL:', window.location.origin);
+    
+    setIsLoadingNetAvailable(true);
+    try {
+        const url = '/cashier-balance/deduct-allocated-funds';
+        const payload = {
+            amount: 0,
+            payment_method: 'Cash',
+            include_supplier_loans: true
+        };
+        
+        console.log('🔵 Calling API:', url);
+        console.log('🔵 Payload:', payload);
+        
+        const response = await api.post(url, payload);
+        
+        console.log('🔵 API Response Status:', response.status);
+        console.log('🔵 API Response Data:', response.data);
+        
+        if (response.data.success) {
+            const netAmount = response.data.data.effective_available || 0;
+            console.log('💰 Net Available Amount:', netAmount);
+            setNetAvailableAmount(netAmount);
+        } else {
+            console.error('❌ API returned success=false:', response.data.message);
+            setNetAvailableAmount(0);
+        }
+    } catch (error) {
+        console.error('❌ Error fetching net available amount:');
+        console.error('Error details:', error);
+        console.error('Response:', error.response);
+        console.error('Status:', error.response?.status);
+        console.error('Data:', error.response?.data);
+        
+        if (error.response?.status === 401) {
+            console.error('Authentication error - user may not be logged in');
+        } else if (error.response?.status === 404) {
+            console.error('Route not found - check your API endpoint');
+        } else if (error.response?.status === 500) {
+            console.error('Server error - check Laravel logs');
+        }
+        
+        setNetAvailableAmount(allocatedBreakdown.total_allocated || 0);
+    } finally {
+        setIsLoadingNetAvailable(false);
+        console.log('🔵 FETCH NET AVAILABLE - COMPLETED');
+    }
+};
+    //allocation amount reducing function
+    const deductAllocatedFunds = async (amount, paymentMethod, bankName = null) => {
+        try {
+            const response = await api.post('/cashier-balance/deduct-allocated-funds', {
+                amount: amount,
+                payment_method: paymentMethod,
+                bank_name: bankName
+            });
+
+            if (response.data.success) {
+                console.log('✅ Allocated funds deducted successfully:', response.data);
+                // Refresh the allocated breakdown after deduction
+                await fetchAllocatedBreakdown();
+                return true;
+            } else {
+                console.error('Failed to deduct allocated funds:', response.data.message);
+                return false;
+            }
+        } catch (error) {
+            console.error('Error deducting allocated funds:', error);
+            return false;
+        }
+    };
     // Fetch allocated breakdown on component mount
     useEffect(() => {
         fetchAllocatedBreakdown();
@@ -3073,6 +3234,20 @@ export default function SupplierReport() {
         }, 30000);
 
         return () => clearInterval(allocatedInterval);
+    }, []);
+    // Fetch net available amount on component mount and periodically
+    useEffect(() => {
+        // Initial fetch
+        fetchNetAvailableAmount();
+
+        // Refresh net available amount every 30 seconds
+        const netAvailableInterval = setInterval(() => {
+            if (!modalOpenRef.current) {
+                fetchNetAvailableAmount();
+            }
+        }, 30000);
+
+        return () => clearInterval(netAvailableInterval);
     }, []);
     // Auto-refresh polling every 10 seconds - FIXED MEMORY LEAK
     useEffect(() => {
@@ -4455,7 +4630,7 @@ export default function SupplierReport() {
 
             const paymentRecord = {
                 id: uniqueId,
-                idempotency_key: idempotencyKey, // Add idempotency key to record
+                idempotency_key: idempotencyKey,
                 date: new Date().toISOString(),
                 amount: paymentAmount,
                 method: paymentMethod,
@@ -4468,6 +4643,9 @@ export default function SupplierReport() {
                 is_credit_settlement: isCreditSettlementPayment
             };
 
+            // Track bank name for allocation deduction
+            let bankNameForAllocation = null;
+
             if (isCheque && chequeDetails) {
                 paymentRecord.reference = chequeDetails.cheq_no;
                 paymentRecord.details = {
@@ -4475,6 +4653,8 @@ export default function SupplierReport() {
                     cheque_date: chequeDetails.cheq_date,
                     bank_account_id: chequeDetails.bank_account_id
                 };
+                // Get bank name for allocation deduction
+                bankNameForAllocation = chequeDetails.bank_name || null;
             } else if (isBankTransfer && bankTransferDetails) {
                 paymentRecord.reference = bankTransferDetails.reference_no;
                 paymentRecord.details = {
@@ -4483,6 +4663,8 @@ export default function SupplierReport() {
                     bank_account_id: bankTransferDetails.bank_account_id,
                     notes: bankTransferDetails.notes
                 };
+                // Get bank name for allocation deduction
+                bankNameForAllocation = bankTransferDetails.bank_name || null;
             } else if (isAdjustment && adjustmentDetails) {
                 if (adjustmentDetails.type === 'bag_to_box') {
                     paymentRecord.details = {
@@ -4521,7 +4703,7 @@ export default function SupplierReport() {
                         bill_no: state.selectedBillNo,
                         payment_amount: paymentAmount,
                         payment_method: paymentMethodForCreditor,
-                        idempotency_key: idempotencyKey // Send idempotency key to backend
+                        idempotency_key: idempotencyKey
                     });
 
                     console.log(`🟢 [${callId}] Creditor update response:`, updateResponse.data);
@@ -4560,7 +4742,7 @@ export default function SupplierReport() {
                     payment_details: allPaymentDetails,
                     use_history: isViewingHistory,
                     is_credit_settlement: isCreditSettlementPayment,
-                    idempotency_key: idempotencyKey // Add to payload
+                    idempotency_key: idempotencyKey
                 };
 
                 if (isCheque && chequeDetails) {
@@ -4607,7 +4789,7 @@ export default function SupplierReport() {
                     payment_details: allPaymentDetails,
                     use_history: isViewingHistory,
                     is_credit_settlement: isCreditSettlementPayment,
-                    idempotency_key: idempotencyKey // Add to payload
+                    idempotency_key: idempotencyKey
                 };
 
                 if (isCheque && chequeDetails) {
@@ -4646,10 +4828,14 @@ export default function SupplierReport() {
             if (response.data.success) {
                 console.log(`✅ [${callId}] Payment successful!`, response.data);
 
-                // ========== DEDUCT FROM FUNDS ALLOCATED ==========
+                // ========== DEDUCT FROM ALLOCATED FUNDS (for all payment methods except Credit) ==========
                 if (paymentMethod !== 'Credit') {
+                    // Call the API to deduct from allocated funds
+                    await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
+                    console.log(`💰 [${callId}] Deducted Rs. ${paymentAmount} from allocated funds for ${paymentMethod} payment`);
+
+                    // Also keep the local fundsAllocated for backward compatibility
                     deductFromFundsAllocated(paymentAmount);
-                    console.log(`💰 [${callId}] Deducted Rs. ${paymentAmount} from fundsAllocated for ${paymentMethod} payment`);
                 }
 
                 await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
@@ -4740,14 +4926,20 @@ export default function SupplierReport() {
 
         setState(prev => ({ ...prev, isPrinting: true }));
 
+        // Track bank name for allocation deduction
+        let bankNameForAllocation = null;
+        let paymentMethod = 'Cash';
+        let paymentMethodForCreditor = 'cash';
+
         try {
-            let paymentMethod = 'Cash', paymentMethodForCreditor = 'cash';
             if (isBankTransfer) {
                 paymentMethod = 'Bank Transfer';
                 paymentMethodForCreditor = 'bank_transfer';
+                bankNameForAllocation = bankTransferDetails?.bank_name || null;
             } else if (isCheque) {
                 paymentMethod = 'Cheque';
                 paymentMethodForCreditor = 'cheque';
+                bankNameForAllocation = chequeDetails?.bank_name || null;
             }
 
             if (paymentAmount > selectedBillCreditor.remaining_amount) {
@@ -4823,10 +5015,13 @@ export default function SupplierReport() {
                 const loanResponse = await api.post('/supplier-loan', payload);
 
                 if (loanResponse.data.success) {
-                    // ========== DEDUCT FROM FUNDS ALLOCATED ==========
-                    // Deduct credit settlement payment from fundsAllocated
+                    // ========== DEDUCT FROM ALLOCATED FUNDS ==========
+                    // For credit settlement payments, deduct from allocated funds
+                    await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
+                    console.log(`💰 Deducted Rs. ${paymentAmount} from allocated funds for credit settlement`);
+
+                    // Also keep local deduction for backward compatibility
                     deductFromFundsAllocated(paymentAmount);
-                    console.log(`💰 Deducted Rs. ${paymentAmount} from fundsAllocated for credit settlement`);
                     // ========== END OF DEDUCTION ==========
 
                     // Refresh data
@@ -5285,53 +5480,61 @@ export default function SupplierReport() {
                 >
                     💰 Income Sources
                 </button>
-              {/* Funds Allocated Button - Shows Cash and Bank Allocated separately */}
-<div style={{ position: 'relative', display: 'inline-flex', gap: '4px' }}>
-    <button
-        onClick={() => setShowFundsAllocated(true)}
-        onContextMenu={handleFundsAllocatedContextMenu}
-        style={{
-            padding: '8px 20px',
-            background: (allocatedBreakdown.total_allocated || 0) < 0
-                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-                : 'linear-gradient(135deg, #f59e0b, #d97706)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px 0 0 8px',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-        }}
-    >
-        {(allocatedBreakdown.total_allocated || 0) < 0 ? '⚠️' : '💵'} Funds Allocated: {(allocatedBreakdown.total_allocated || 0) < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(allocatedBreakdown.total_allocated || 0))}
-        {(allocatedBreakdown.total_allocated || 0) < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Due)</span>}
-    </button>
+                {/* Funds Allocated Button - Shows Cash and Bank Allocated separately */}
+                <div style={{ position: 'relative', display: 'inline-flex', gap: '4px' }}>
+                    <button
+                        onClick={() => setShowFundsAllocated(true)}
+                        onContextMenu={handleFundsAllocatedContextMenu}
+                        style={{
+                            padding: '8px 20px',
+                            background: (netAvailableAmount || 0) < 0
+                                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+                                : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px 0 0 8px',
+                            cursor: isLoadingNetAvailable ? 'wait' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            opacity: isLoadingNetAvailable ? 0.7 : 1
+                        }}
+                    >
+                        {isLoadingNetAvailable ? (
+                            <span>⏳ Calculating...</span>
+                        ) : (
+                            <>
+                                {(netAvailableAmount || 0) < 0 ? '⚠️' : '💵'}
+                                Net Available: {(netAvailableAmount || 0) < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(netAvailableAmount || 0))}
+                                {(netAvailableAmount || 0) < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Overspent)</span>}
+                            </>
+                        )}
+                    </button>
 
-    {/* Dropdown indicator button */}
-    <button
-        onClick={() => setShowAllocatedBankModal(true)}
-        style={{
-            padding: '8px 12px',
-            background: (allocatedBreakdown.total_allocated || 0) < 0
-                ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
-                : 'linear-gradient(135deg, #d97706, #b45309)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '0 8px 8px 0',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px'
-        }}
-        title="View allocation details"
-    >
-        <span>📊</span>
-        <span style={{ fontSize: '10px' }}>▼</span>
-    </button>
-</div>
+                    {/* Dropdown indicator button */}
+                    <button
+                        onClick={() => setShowAllocatedBankModal(true)}
+                        style={{
+                            padding: '8px 12px',
+                            background: (allocatedBreakdown.total_allocated || 0) < 0
+                                ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
+                                : 'linear-gradient(135deg, #d97706, #b45309)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '0 8px 8px 0',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}
+                        title="View allocation details"
+                    >
+                        <span>📊</span>
+                        <span style={{ fontSize: '10px' }}>▼</span>
+                    </button>
+                </div>
                 {/* Context Menu for Funds Allocated */}
                 {contextMenu.visible && (
                     <>
@@ -6255,13 +6458,11 @@ export default function SupplierReport() {
             />
 
             {/* Bank Allocation Modal */}
-            <BankAllocationModal
-                isOpen={showAllocatedBankModal}
-                onClose={() => setShowAllocatedBankModal(false)}
-                bankBreakdown={allocatedBreakdown.bank_breakdown || []}
-                cashAllocated={allocatedBreakdown.cash_allocated || 0}
-                totalAllocated={allocatedBreakdown.total_allocated || 0}
-            />
+            {/* Bank Allocation Modal - Now fetches its own data */}
+<BankAllocationModal
+    isOpen={showAllocatedBankModal}
+    onClose={() => setShowAllocatedBankModal(false)}
+/>
 
             {/* Farmer Selector Modal */}
             {showFarmerModal && (
