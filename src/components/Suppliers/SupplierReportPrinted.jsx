@@ -5285,53 +5285,53 @@ export default function SupplierReport() {
                 >
                     💰 Income Sources
                 </button>
-                {/* Funds Allocated Button - Shows Cash and Bank Allocated separately */}
-                <div style={{ position: 'relative', display: 'inline-flex', gap: '4px' }}>
-                    <button
-                        onClick={() => setShowFundsAllocated(true)}
-                        onContextMenu={handleFundsAllocatedContextMenu}
-                        style={{
-                            padding: '8px 20px',
-                            background: fundsAllocated < 0
-                                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-                                : 'linear-gradient(135deg, #f59e0b, #d97706)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px 0 0 8px',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
-                        }}
-                    >
-                        {fundsAllocated < 0 ? '⚠️' : '💵'} Funds Allocated: {fundsAllocated < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(fundsAllocated))}
-                        {fundsAllocated < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Due)</span>}
-                    </button>
+              {/* Funds Allocated Button - Shows Cash and Bank Allocated separately */}
+<div style={{ position: 'relative', display: 'inline-flex', gap: '4px' }}>
+    <button
+        onClick={() => setShowFundsAllocated(true)}
+        onContextMenu={handleFundsAllocatedContextMenu}
+        style={{
+            padding: '8px 20px',
+            background: (allocatedBreakdown.total_allocated || 0) < 0
+                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+                : 'linear-gradient(135deg, #f59e0b, #d97706)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px 0 0 8px',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+        }}
+    >
+        {(allocatedBreakdown.total_allocated || 0) < 0 ? '⚠️' : '💵'} Funds Allocated: {(allocatedBreakdown.total_allocated || 0) < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(allocatedBreakdown.total_allocated || 0))}
+        {(allocatedBreakdown.total_allocated || 0) < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Due)</span>}
+    </button>
 
-                    {/* Dropdown indicator button */}
-                    <button
-                        onClick={() => setShowAllocatedBankModal(true)}
-                        style={{
-                            padding: '8px 12px',
-                            background: fundsAllocated < 0
-                                ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
-                                : 'linear-gradient(135deg, #d97706, #b45309)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '0 8px 8px 0',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}
-                        title="View allocation details"
-                    >
-                        <span>📊</span>
-                        <span style={{ fontSize: '10px' }}>▼</span>
-                    </button>
-                </div>
+    {/* Dropdown indicator button */}
+    <button
+        onClick={() => setShowAllocatedBankModal(true)}
+        style={{
+            padding: '8px 12px',
+            background: (allocatedBreakdown.total_allocated || 0) < 0
+                ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
+                : 'linear-gradient(135deg, #d97706, #b45309)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '0 8px 8px 0',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px'
+        }}
+        title="View allocation details"
+    >
+        <span>📊</span>
+        <span style={{ fontSize: '10px' }}>▼</span>
+    </button>
+</div>
                 {/* Context Menu for Funds Allocated */}
                 {contextMenu.visible && (
                     <>
