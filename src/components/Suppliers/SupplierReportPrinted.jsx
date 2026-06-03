@@ -3223,29 +3223,30 @@ const fetchNetAvailableAmount = async () => {
         console.log('🔵 FETCH NET AVAILABLE - COMPLETED');
     }
 };
-    //allocation amount reducing function
-    const deductAllocatedFunds = async (amount, paymentMethod, bankName = null) => {
-        try {
-            const response = await api.post('/cashier-balance/deduct-allocated-funds', {
-                amount: amount,
-                payment_method: paymentMethod,
-                bank_name: bankName
-            });
+   const deductAllocatedFunds = async (amount, paymentMethod, bankName = null) => {
+    try {
+        const response = await api.post('/cashier-balance/deduct-allocated-funds', {
+            amount: amount,
+            payment_method: paymentMethod,
+            bank_name: bankName
+        });
 
-            if (response.data.success) {
-                console.log('✅ Allocated funds deducted successfully:', response.data);
-                // Refresh the allocated breakdown after deduction
-                await fetchAllocatedBreakdown();
-                return true;
-            } else {
-                console.error('Failed to deduct allocated funds:', response.data.message);
-                return false;
-            }
-        } catch (error) {
-            console.error('Error deducting allocated funds:', error);
+        if (response.data.success) {
+            console.log('✅ Allocated funds deducted successfully:', response.data);
+            // Refresh the allocated breakdown after deduction
+            await fetchAllocatedBreakdown();
+            // Refresh net available amount as well
+            await fetchNetAvailableAmount();
+            return true;
+        } else {
+            console.error('Failed to deduct allocated funds:', response.data.message);
             return false;
         }
-    };
+    } catch (error) {
+        console.error('Error deducting allocated funds:', error);
+        return false;
+    }
+};
     // Fetch allocated breakdown on component mount
     useEffect(() => {
         fetchAllocatedBreakdown();
@@ -4857,9 +4858,6 @@ const fetchNetAvailableAmount = async () => {
                     // Call the API to deduct from allocated funds
                     await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
                     console.log(`💰 [${callId}] Deducted Rs. ${paymentAmount} from allocated funds for ${paymentMethod} payment`);
-
-                    // Also keep the local fundsAllocated for backward compatibility
-                    deductFromFundsAllocated(paymentAmount);
                 }
 
                 await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
@@ -5044,8 +5042,7 @@ const fetchNetAvailableAmount = async () => {
                     await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
                     console.log(`💰 Deducted Rs. ${paymentAmount} from allocated funds for credit settlement`);
 
-                    // Also keep local deduction for backward compatibility
-                    deductFromFundsAllocated(paymentAmount);
+                  
                     // ========== END OF DEDUCTION ==========
 
                     // Refresh data
@@ -5152,13 +5149,7 @@ const fetchNetAvailableAmount = async () => {
         closeContextMenu();
     };
     // Function to deduct payment from fundsAllocated
-    const deductFromFundsAllocated = (amount) => {
-        setFundsAllocated(prev => {
-            const newAmount = prev - amount;
-            console.log(`💰 Deducting Rs. ${amount} from fundsAllocated. Old balance: Rs. ${prev}, New balance: Rs. ${newAmount}`);
-            return newAmount;
-        });
-    };
+ 
     const handleChequePayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true })); };
     const handleChequeConfirm = async (details) => {
         const amount = state.pendingChequeAmount;
