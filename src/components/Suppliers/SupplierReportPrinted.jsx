@@ -244,6 +244,29 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
         cheq_no: '',
         bank_account_id: null
     });
+    const [banks, setBanks] = useState([]); // Add this state
+    const [loading, setLoading] = useState(true); // Add loading state
+
+    // Fetch banks when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            fetchBanks();
+        }
+    }, [isOpen]);
+
+    const fetchBanks = async () => {
+        setLoading(true);
+        try {
+            const response = await api.get(routes.getBanks);
+            if (response.data.success) {
+                setBanks(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching banks:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -255,6 +278,7 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
     const handleBankSelect = (bankId) => {
         setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }));
     };
+
     const handleSubmit = () => {
         if (!chequeDetails.cheq_date || !chequeDetails.cheq_no || !chequeDetails.bank_account_id) {
             alert("Please fill all cheque details and select a bank account");
@@ -269,8 +293,10 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
         };
 
         onConfirm(chequeDataWithBank);
+        // Reset form after submission
         setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
     };
+
     return (
         <div style={{
             position: 'fixed',
@@ -300,35 +326,58 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
 
                 <div style={{ background: '#dbeafe', padding: '10px', borderRadius: '10px', marginBottom: '16px', textAlign: 'center' }}>
                     <label style={{ display: 'block', fontWeight: '600', fontSize: '12px', color: '#1e40af', marginBottom: '4px' }}>Payment Amount</label>
-                    <div style={{ fontSize: '22px', fontWeight: '800', color: '#1e3a8a', fontFamily: 'monospace' }}>Rs. {amount.toFixed(2)}</div>
+                    <div style={{ fontSize: '22px', fontWeight: '800', color: '#1e3a8a', fontFamily: 'monospace' }}>Rs. {amount?.toFixed(2) || '0.00'}</div>
                 </div>
 
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>📅 Cheque Date <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input type="date" name="cheq_date" value={chequeDetails.cheq_date} onChange={handleChange}
-                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }} />
+                    <input 
+                        type="date" 
+                        name="cheq_date" 
+                        value={chequeDetails.cheq_date} 
+                        onChange={handleChange}
+                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }} 
+                    />
                 </div>
 
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>🔢 Cheque Number <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input type="text" name="cheq_no" value={chequeDetails.cheq_no} onChange={handleChange}
+                    <input 
+                        type="text" 
+                        name="cheq_no" 
+                        value={chequeDetails.cheq_no} 
+                        onChange={handleChange}
                         placeholder="Enter cheque number"
-                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }} />
+                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }} 
+                    />
                 </div>
 
                 <div style={{ marginBottom: '18px' }}>
-                    <BankAccountSelector selectedAccountId={chequeDetails.bank_account_id} onSelect={handleBankSelect} disabled={false} />
+                    <BankAccountSelector 
+                        selectedAccountId={chequeDetails.bank_account_id} 
+                        onSelect={handleBankSelect} 
+                        disabled={loading} 
+                    />
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                    <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}>Cancel</button>
-                    <button onClick={handleSubmit} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}>Confirm Payment</button>
+                    <button 
+                        onClick={onClose} 
+                        style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleSubmit} 
+                        style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
+                    >
+                        Confirm Payment
+                    </button>
                 </div>
             </div>
         </div>
     );
 };
-
 // ==================== BANK TO BANK MODAL ====================
 const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) => {
     const [transferDetails, setTransferDetails] = useState({
@@ -3149,29 +3198,17 @@ export default function SupplierReport() {
     const [netAvailableAmount, setNetAvailableAmount] = useState(0);
     const [isLoadingNetAvailable, setIsLoadingNetAvailable] = useState(false);
     // Add this function with your other fetch functions
- const fetchNetAvailableAmount = async () => {
+const fetchNetAvailableAmount = async () => {
     console.log('🔵 FETCH NET AVAILABLE - STARTED');
-    console.log('🔵 Current URL:', window.location.origin);
     
     setIsLoadingNetAvailable(true);
     try {
-        const url = '/cashier-balance/deduct-allocated-funds';
-        const payload = {
-            amount: 0,
-            payment_method: 'Cash',
-            include_supplier_loans: true
-        };
+        const response = await api.get('/cashier-balance/net-available');
         
-        console.log('🔵 Calling API:', url);
-        console.log('🔵 Payload:', payload);
-        
-        const response = await api.post(url, payload);
-        
-        console.log('🔵 API Response Status:', response.status);
-        console.log('🔵 API Response Data:', response.data);
+        console.log('🔵 API Response:', response.data);
         
         if (response.data.success) {
-            const netAmount = response.data.data.effective_available || 0;
+            const netAmount = response.data.data.net_available || 0;
             console.log('💰 Net Available Amount:', netAmount);
             setNetAvailableAmount(netAmount);
         } else {
@@ -3179,21 +3216,8 @@ export default function SupplierReport() {
             setNetAvailableAmount(0);
         }
     } catch (error) {
-        console.error('❌ Error fetching net available amount:');
-        console.error('Error details:', error);
-        console.error('Response:', error.response);
-        console.error('Status:', error.response?.status);
-        console.error('Data:', error.response?.data);
-        
-        if (error.response?.status === 401) {
-            console.error('Authentication error - user may not be logged in');
-        } else if (error.response?.status === 404) {
-            console.error('Route not found - check your API endpoint');
-        } else if (error.response?.status === 500) {
-            console.error('Server error - check Laravel logs');
-        }
-        
-        setNetAvailableAmount(allocatedBreakdown.total_allocated || 0);
+        console.error('❌ Error fetching net available amount:', error);
+        setNetAvailableAmount(0);
     } finally {
         setIsLoadingNetAvailable(false);
         console.log('🔵 FETCH NET AVAILABLE - COMPLETED');

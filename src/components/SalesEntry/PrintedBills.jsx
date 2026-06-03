@@ -4111,18 +4111,6 @@ export default function PrintedBills() {
                                 </div>
 
                             </div>
-
-                            {/* LOADING (compact, no extra height) */}
-                            {isLoadingRemaining && (
-                                <div style={{
-                                    fontSize: '9px',
-                                    color: '#64748b',
-                                    textAlign: 'center',
-                                    marginTop: '2px'
-                                }}>
-                                    🔄 Updating...
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
