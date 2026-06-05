@@ -16,6 +16,9 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
     const [totalBankRemaining, setTotalBankRemaining] = useState(0);
     const [totalRemaining, setTotalRemaining] = useState(0);
     
+    // Auto-refresh timer reference
+    const refreshTimerRef = useRef(null);
+    
     // Refs for Enter key navigation
     const amountInputRef = useRef(null);
     const bankSelectRef = useRef(null);
@@ -42,8 +45,39 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
         if (isOpen) {
             fetchRemainingBalances();
             fetchBankList();
+            
+            // Start auto-refresh every 10 seconds when modal is open
+            startAutoRefresh();
         }
+        
+        // Cleanup timer when modal closes or component unmounts
+        return () => {
+            stopAutoRefresh();
+        };
     }, [isOpen]);
+
+    // Start auto-refresh timer
+    const startAutoRefresh = () => {
+        // Clear any existing timer first
+        stopAutoRefresh();
+        
+        // Set up new timer to refresh every 10 seconds
+        refreshTimerRef.current = setInterval(() => {
+            console.log('Auto-refreshing remaining balances...');
+            fetchRemainingBalances();
+            if (allocationType === 'bank') {
+                fetchBankList();
+            }
+        }, 10000); // 10 seconds
+    };
+
+    // Stop auto-refresh timer
+    const stopAutoRefresh = () => {
+        if (refreshTimerRef.current) {
+            clearInterval(refreshTimerRef.current);
+            refreshTimerRef.current = null;
+        }
+    };
 
     // Fetch remaining balances directly from the 'remaining' column
     const fetchRemainingBalances = async () => {
@@ -248,13 +282,28 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                     padding: '20px 24px',
                     color: 'white'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span style={{ fontSize: '28px' }}>💵</span>
-                        <div>
-                            <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700' }}>Allocate Funds</h3>
-                            <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
-                                Select source and confirm allocation amount
-                            </p>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ fontSize: '28px' }}>💵</span>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700' }}>Allocate Funds</h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
+                                    Select source and confirm allocation amount
+                                </p>
+                            </div>
+                        </div>
+                        {/* Auto-refresh indicator */}
+                        <div style={{ 
+                            fontSize: '11px', 
+                            background: 'rgba(255,255,255,0.2)', 
+                            padding: '4px 8px', 
+                            borderRadius: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}>
+                            <span>🔄</span>
+                            <span>Auto-refresh: 10s</span>
                         </div>
                     </div>
                 </div>
@@ -286,7 +335,8 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                         marginBottom: '20px',
                         padding: '12px',
                         background: '#f8fafc',
-                        borderRadius: '12px'
+                        borderRadius: '12px',
+                        position: 'relative'
                     }}>
                         <div style={{ textAlign: 'center' }}>
                             <div style={{ fontSize: '11px', color: '#64748b' }}>💰 Cash Remaining</div>
@@ -299,6 +349,16 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                             <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#3b82f6' }}>
                                 {formatCurrency(totalBankRemaining)}
                             </div>
+                        </div>
+                        {/* Last updated indicator */}
+                        <div style={{ 
+                            position: 'absolute', 
+                            bottom: '-20px', 
+                            right: '0',
+                            fontSize: '9px', 
+                            color: '#94a3b8'
+                        }}>
+                            Auto-updates every 10s
                         </div>
                     </div>
 
@@ -449,6 +509,8 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                         textAlign: 'center'
                     }}>
                         💡 Available amounts shown are from the remaining column (total received minus allocated funds)
+                        <br />
+                        🔄 Balances automatically refresh every 10 seconds
                     </div>
 
                     {/* Action Buttons */}

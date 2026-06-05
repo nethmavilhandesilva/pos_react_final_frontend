@@ -331,44 +331,44 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
 
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>📅 Cheque Date <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input 
-                        type="date" 
-                        name="cheq_date" 
-                        value={chequeDetails.cheq_date} 
+                    <input
+                        type="date"
+                        name="cheq_date"
+                        value={chequeDetails.cheq_date}
                         onChange={handleChange}
-                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }} 
+                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }}
                     />
                 </div>
 
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>🔢 Cheque Number <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input 
-                        type="text" 
-                        name="cheq_no" 
-                        value={chequeDetails.cheq_no} 
+                    <input
+                        type="text"
+                        name="cheq_no"
+                        value={chequeDetails.cheq_no}
                         onChange={handleChange}
                         placeholder="Enter cheque number"
-                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }} 
+                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }}
                     />
                 </div>
 
                 <div style={{ marginBottom: '18px' }}>
-                    <BankAccountSelector 
-                        selectedAccountId={chequeDetails.bank_account_id} 
-                        onSelect={handleBankSelect} 
-                        disabled={loading} 
+                    <BankAccountSelector
+                        selectedAccountId={chequeDetails.bank_account_id}
+                        onSelect={handleBankSelect}
+                        disabled={loading}
                     />
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                    <button 
-                        onClick={onClose} 
+                    <button
+                        onClick={onClose}
                         style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
                     >
                         Cancel
                     </button>
-                    <button 
-                        onClick={handleSubmit} 
+                    <button
+                        onClick={handleSubmit}
                         style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
                     >
                         Confirm Payment
@@ -3072,6 +3072,61 @@ export default function SupplierReport() {
         }
         return 0;
     });
+    // Add these state variables with your other state declarations (around line ~40-50)
+    const [editingRecord, setEditingRecord] = useState(null);
+    const [newFarmerCode, setNewFarmerCode] = useState('');
+    const [newCustomerCode, setNewCustomerCode] = useState('');
+
+const handleUpdateFarmer = async () => {
+    if (!editingRecord) return;
+    
+    const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
+    const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
+
+    try {
+        // Use setIsDetailsLoading if you have it, or set a local loading state
+        // If you don't have setIsDetailsLoading, you can remove it or add a local loading state
+        const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
+            supplier_code: finalSupplierCode,
+            customer_code: finalCustomerCode
+        });
+
+        if (response.status === 200) {
+            // Close the modal
+            setEditingRecord(null);
+            setNewFarmerCode('');
+            setNewCustomerCode('');
+
+            // Refresh the current supplier details to show updated data
+            // Get the current selected supplier and bill from state
+            const currentSupplier = state.selectedSupplier;
+            const currentBillNo = state.selectedBillNo;
+            
+            if (currentSupplier && currentBillNo) {
+                // Refresh the current bill details
+                await handleSupplierClick(currentSupplier, currentBillNo);
+            }
+            
+            // Also refresh the supplier list data
+            await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, false);
+            
+            // Show success message
+            alert('✅ Record updated successfully!');
+            
+            // If the customer code was changed, you might want to show additional info
+            if (finalCustomerCode && finalCustomerCode !== editingRecord.customer_code) {
+                console.log('Customer code updated from', editingRecord.customer_code, 'to', finalCustomerCode);
+            }
+            if (finalSupplierCode && finalSupplierCode !== editingRecord.supplier_code) {
+                console.log('Supplier code updated from', editingRecord.supplier_code, 'to', finalSupplierCode);
+            }
+        }
+    } catch (error) {
+        console.error("Update failed:", error);
+        const errorMessage = error.response?.data?.message || error.message || "Failed to update records. Please try again.";
+        alert(`Update failed: ${errorMessage}`);
+    }
+};
     const [showFundsAllocated, setShowFundsAllocated] = useState(false);
     const isFirstRender = useRef(true);
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
@@ -3198,55 +3253,55 @@ export default function SupplierReport() {
     const [netAvailableAmount, setNetAvailableAmount] = useState(0);
     const [isLoadingNetAvailable, setIsLoadingNetAvailable] = useState(false);
     // Add this function with your other fetch functions
-const fetchNetAvailableAmount = async () => {
-    console.log('🔵 FETCH NET AVAILABLE - STARTED');
-    
-    setIsLoadingNetAvailable(true);
-    try {
-        const response = await api.get('/cashier-balance/net-available');
-        
-        console.log('🔵 API Response:', response.data);
-        
-        if (response.data.success) {
-            const netAmount = response.data.data.net_available || 0;
-            console.log('💰 Net Available Amount:', netAmount);
-            setNetAvailableAmount(netAmount);
-        } else {
-            console.error('❌ API returned success=false:', response.data.message);
-            setNetAvailableAmount(0);
-        }
-    } catch (error) {
-        console.error('❌ Error fetching net available amount:', error);
-        setNetAvailableAmount(0);
-    } finally {
-        setIsLoadingNetAvailable(false);
-        console.log('🔵 FETCH NET AVAILABLE - COMPLETED');
-    }
-};
-   const deductAllocatedFunds = async (amount, paymentMethod, bankName = null) => {
-    try {
-        const response = await api.post('/cashier-balance/deduct-allocated-funds', {
-            amount: amount,
-            payment_method: paymentMethod,
-            bank_name: bankName
-        });
+    const fetchNetAvailableAmount = async () => {
+        console.log('🔵 FETCH NET AVAILABLE - STARTED');
 
-        if (response.data.success) {
-            console.log('✅ Allocated funds deducted successfully:', response.data);
-            // Refresh the allocated breakdown after deduction
-            await fetchAllocatedBreakdown();
-            // Refresh net available amount as well
-            await fetchNetAvailableAmount();
-            return true;
-        } else {
-            console.error('Failed to deduct allocated funds:', response.data.message);
+        setIsLoadingNetAvailable(true);
+        try {
+            const response = await api.get('/cashier-balance/net-available');
+
+            console.log('🔵 API Response:', response.data);
+
+            if (response.data.success) {
+                const netAmount = response.data.data.net_available || 0;
+                console.log('💰 Net Available Amount:', netAmount);
+                setNetAvailableAmount(netAmount);
+            } else {
+                console.error('❌ API returned success=false:', response.data.message);
+                setNetAvailableAmount(0);
+            }
+        } catch (error) {
+            console.error('❌ Error fetching net available amount:', error);
+            setNetAvailableAmount(0);
+        } finally {
+            setIsLoadingNetAvailable(false);
+            console.log('🔵 FETCH NET AVAILABLE - COMPLETED');
+        }
+    };
+    const deductAllocatedFunds = async (amount, paymentMethod, bankName = null) => {
+        try {
+            const response = await api.post('/cashier-balance/deduct-allocated-funds', {
+                amount: amount,
+                payment_method: paymentMethod,
+                bank_name: bankName
+            });
+
+            if (response.data.success) {
+                console.log('✅ Allocated funds deducted successfully:', response.data);
+                // Refresh the allocated breakdown after deduction
+                await fetchAllocatedBreakdown();
+                // Refresh net available amount as well
+                await fetchNetAvailableAmount();
+                return true;
+            } else {
+                console.error('Failed to deduct allocated funds:', response.data.message);
+                return false;
+            }
+        } catch (error) {
+            console.error('Error deducting allocated funds:', error);
             return false;
         }
-    } catch (error) {
-        console.error('Error deducting allocated funds:', error);
-        return false;
-    }
-};
+    };
     // Fetch allocated breakdown on component mount
     useEffect(() => {
         fetchAllocatedBreakdown();
@@ -3270,7 +3325,7 @@ const fetchNetAvailableAmount = async () => {
             if (!modalOpenRef.current) {
                 fetchNetAvailableAmount();
             }
-        }, 30000);
+        }, 3000);
 
         return () => clearInterval(netAvailableInterval);
     }, []);
@@ -5042,7 +5097,7 @@ const fetchNetAvailableAmount = async () => {
                     await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
                     console.log(`💰 Deducted Rs. ${paymentAmount} from allocated funds for credit settlement`);
 
-                  
+
                     // ========== END OF DEDUCTION ==========
 
                     // Refresh data
@@ -5149,7 +5204,7 @@ const fetchNetAvailableAmount = async () => {
         closeContextMenu();
     };
     // Function to deduct payment from fundsAllocated
- 
+
     const handleChequePayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true })); };
     const handleChequeConfirm = async (details) => {
         const amount = state.pendingChequeAmount;
@@ -5365,6 +5420,50 @@ const fetchNetAvailableAmount = async () => {
     }, [state.selectedSupplier, totalPayable, state.supplierDetails, state.currentPaidAmount, selectedBillCreditor, state.isUpdatingCompletedBill, state.currentBillTotal]);
 
     if (state.isLoading) return <LoadingSkeleton />;
+    const renderEditModal = () => {
+    if (!editingRecord) return null;
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+            <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+                <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
+
+                <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
+                    <p style={{ margin: '2px 0' }}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
+                    <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
+                </div>
+
+                <div style={{ marginTop: '15px' }}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
+                    <input
+                        type="text"
+                        placeholder={editingRecord.supplier_code}
+                        value={newFarmerCode}
+                        onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
+                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                        autoFocus
+                    />
+                </div>
+
+                <div style={{ marginTop: '15px' }}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
+                    <input
+                        type="text"
+                        placeholder={editingRecord.customer_code}
+                        value={newCustomerCode}
+                        onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
+                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                    />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                    <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
+                    <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                </div>
+            </div>
+        </div>
+        
+    );
+};
 
     return (
         <div style={styles.app}>
@@ -5946,32 +6045,48 @@ const fetchNetAvailableAmount = async () => {
                                             <span>📋</span> Item Details
                                             <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'normal' }}>({state.supplierDetails.length} items)</span>
                                         </div>
-                                        <div style={{ overflowX: 'auto', maxHeight: '300px', overflowY: 'auto' }}>
+                                        <div style={{ marginTop: '20px', overflowX: 'auto' }}>
                                             <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                                                 <thead style={{ position: 'sticky', top: 0, background: 'white' }}>
                                                     <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
                                                         <th style={{ padding: '10px 8px', textAlign: 'left' }}>Customer</th>
                                                         <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
                                                         <th style={{ padding: '10px 8px', textAlign: 'right' }}>Wt (kg)</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>Price (Rs.)</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>Total (Rs.)</th>
+                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>ගනුදෙ මිල</th>
+                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>සැපයුම් මිල	</th>
+                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>ගනුදෙ එක</th>
+                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>සැපයුම් එක</th>
+                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>කොමි</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {state.supplierDetails.map((sale, idx) => (
-                                                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                        <tr
+                                                            key={idx}
+                                                            style={{
+                                                                borderBottom: '1px solid #f1f5f9',
+                                                                cursor: 'pointer',
+                                                                transition: 'background-color 0.2s ease'
+                                                            }}
+                                                            onClick={() => setEditingRecord(sale)}
+                                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e3f2fd'}
+                                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                                        >
                                                             <td style={{ padding: '10px 8px', fontWeight: '500' }}>{sale.customer_code || 'N/A'}</td>
                                                             <td style={{ padding: '10px 8px' }}>{sale.item_name || 'N/A'}</td>
                                                             <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.weight)}</td>
+                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.price_per_kg)}</td>
                                                             <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.SupplierPricePerKg)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', color: '#059669', fontFamily: 'monospace' }}>Rs. {formatDecimal(sale.SupplierTotal)}</td>
+                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.total)}</td>
+                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', color: '#059669', fontFamily: 'monospace' }}>{formatDecimal(sale.SupplierTotal)}</td>
+                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.commission_amount)}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
                                                 <tfoot>
                                                     <tr style={{ background: '#f8fafc', fontWeight: 'bold', borderTop: '2px solid #e2e8f0' }}>
                                                         <td colSpan="4" style={{ padding: '12px 8px', textAlign: 'right' }}>Total:</td>
-                                                        <td style={{ padding: '12px 8px', textAlign: 'right', color: '#dc2626' }}>Rs. {formatDecimal(totalPayable)}</td>
+                                                        <td style={{ padding: '12px 8px', textAlign: 'right', color: '#dc2626' }}>{formatDecimal(totalPayable)}</td>
                                                     </tr>
                                                 </tfoot>
                                             </table>
@@ -6474,10 +6589,10 @@ const fetchNetAvailableAmount = async () => {
 
             {/* Bank Allocation Modal */}
             {/* Bank Allocation Modal - Now fetches its own data */}
-<BankAllocationModal
-    isOpen={showAllocatedBankModal}
-    onClose={() => setShowAllocatedBankModal(false)}
-/>
+            <BankAllocationModal
+                isOpen={showAllocatedBankModal}
+                onClose={() => setShowAllocatedBankModal(false)}
+            />
 
             {/* Farmer Selector Modal */}
             {showFarmerModal && (
@@ -6573,6 +6688,7 @@ const fetchNetAvailableAmount = async () => {
                     </div>
                 </div>
             )}
+             {renderEditModal()}
         </div>
     );
 }
