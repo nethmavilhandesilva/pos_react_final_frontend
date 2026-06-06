@@ -23,10 +23,11 @@ const routes = {
 };
 
 // ==================== BANK ACCOUNT SELECTOR COMPONENT ====================
-const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) => {
+const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false, id = "bank-select", onEnterPress = null }) => {
     const [banks, setBanks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const selectRef = useRef(null);
 
     useEffect(() => {
         fetchBanks();
@@ -48,6 +49,16 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) 
         }
     };
 
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (onEnterPress) {
+                onEnterPress();
+            }
+        }
+    };
+
     if (loading) {
         return <div style={{ padding: '10px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>Loading bank accounts...</div>;
     }
@@ -62,9 +73,11 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) 
                 Select Bank Account <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <select
+                ref={selectRef}
+                id={id}
                 value={selectedAccountId || ''}
                 onChange={(e) => onSelect(e.target.value ? parseInt(e.target.value) : null)}
-                disabled={disabled}
+                onKeyPress={handleKeyPress}
                 style={{
                     width: '100%',
                     padding: '10px',
@@ -74,6 +87,7 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) 
                     background: 'white',
                     cursor: 'pointer'
                 }}
+                disabled={disabled}
             >
                 <option value="">-- Select Bank Account --</option>
                 {banks.map(bank => (
@@ -85,7 +99,6 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false }) 
         </div>
     );
 };
-
 // ==================== PAYMENT HISTORY MODAL ====================
 const PaymentHistoryModal = ({ isOpen, onClose, payments, totalPaid, totalBill, remaining }) => {
     if (!isOpen) return null;
@@ -244,13 +257,25 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
         cheq_no: '',
         bank_account_id: null
     });
-    const [banks, setBanks] = useState([]); // Add this state
-    const [loading, setLoading] = useState(true); // Add loading state
+    const [banks, setBanks] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    // Refs for input fields
+    const dateRef = useRef(null);
+    const chequeNoRef = useRef(null);
+    const cancelButtonRef = useRef(null);
+    const confirmButtonRef = useRef(null);
 
     // Fetch banks when modal opens
     useEffect(() => {
         if (isOpen) {
             fetchBanks();
+            // Auto-focus date field when modal opens
+            setTimeout(() => {
+                if (dateRef.current) {
+                    dateRef.current.focus();
+                }
+            }, 100);
         }
     }, [isOpen]);
 
@@ -285,7 +310,6 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
             return;
         }
 
-        // Get bank name from selected bank
         const selectedBankObj = banks.find(bank => bank.id === chequeDetails.bank_account_id);
         const chequeDataWithBank = {
             ...chequeDetails,
@@ -293,8 +317,61 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
         };
 
         onConfirm(chequeDataWithBank);
-        // Reset form after submission
         setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
+    };
+
+    // Handle Enter key navigation using onKeyDown instead of onKeyPress
+    const handleChequeDateKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            // Use setTimeout to ensure the date picker closes before moving focus
+            setTimeout(() => {
+                if (chequeNoRef.current) {
+                    chequeNoRef.current.focus();
+                }
+            }, 50);
+        }
+    };
+
+    // Handle Enter key from cheque number to focus bank select
+    const handleChequeNoKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            // Focus the bank select element by its ID
+            const bankSelect = document.getElementById('cheque-bank-select');
+            if (bankSelect) {
+                bankSelect.focus();
+            }
+        }
+    };
+
+    // Handle Enter key on bank select - move to confirm button
+    const handleBankSelectEnter = () => {
+        setTimeout(() => {
+            if (confirmButtonRef.current) {
+                confirmButtonRef.current.focus();
+            }
+        }, 50);
+    };
+
+    // Handle Enter key on confirm button to submit
+    const handleConfirmKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            handleSubmit();
+        }
+    };
+
+    // Handle Enter key on cancel button to close
+    const handleCancelKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+        }
     };
 
     return (
@@ -332,10 +409,12 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>📅 Cheque Date <span style={{ color: '#ef4444' }}>*</span></label>
                     <input
+                        ref={dateRef}
                         type="date"
                         name="cheq_date"
                         value={chequeDetails.cheq_date}
                         onChange={handleChange}
+                        onKeyDown={handleChequeDateKeyDown}
                         style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }}
                     />
                 </div>
@@ -343,32 +422,40 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
                 <div style={{ marginBottom: '14px' }}>
                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>🔢 Cheque Number <span style={{ color: '#ef4444' }}>*</span></label>
                     <input
+                        ref={chequeNoRef}
                         type="text"
                         name="cheq_no"
                         value={chequeDetails.cheq_no}
                         onChange={handleChange}
                         placeholder="Enter cheque number"
+                        onKeyDown={handleChequeNoKeyDown}
                         style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }}
                     />
                 </div>
 
                 <div style={{ marginBottom: '18px' }}>
                     <BankAccountSelector
+                        id="cheque-bank-select"
                         selectedAccountId={chequeDetails.bank_account_id}
                         onSelect={handleBankSelect}
                         disabled={loading}
+                        onEnterPress={handleBankSelectEnter}
                     />
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
                     <button
+                        ref={cancelButtonRef}
                         onClick={onClose}
+                        onKeyDown={handleCancelKeyDown}
                         style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
                     >
                         Cancel
                     </button>
                     <button
+                        ref={confirmButtonRef}
                         onClick={handleSubmit}
+                        onKeyDown={handleConfirmKeyDown}
                         style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
                     >
                         Confirm Payment
