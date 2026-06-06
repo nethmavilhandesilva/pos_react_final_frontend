@@ -6008,83 +6008,119 @@ const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
 
             <div style={styles.container}>
                 <div style={styles.threeColumns}>
-                    {/* LEFT PANEL - Not Settled */}
-                    <div style={styles.panel}>
-                        <div style={styles.panelHeader}><h2 style={styles.panelTitle}><span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%' }}></span>Not Settled</h2></div>
-                        <div style={{ padding: '12px 16px 0 16px' }}><input type="text" placeholder="🔍 Search not settled..." value={state.searchPendingQuery} onChange={(e) => setState(prev => ({ ...prev, searchPendingQuery: e.target.value.toUpperCase() }))} style={styles.searchInput} /></div>
-                        <div style={styles.panelContent}>
-                            {filterPendingSuppliers.length === 0 ? <EmptyState message="No pending suppliers" /> :
-                                filterPendingSuppliers.map((item, index) => {
-                                    const remaining = item.total_amount || 0;
-                                    const displayBillNo = item.supplier_bill_no || 'Pending';
-                                    const isHistory = item.is_history;
-                                    return (
-                                        <div key={index}
-                                            style={{
-                                                ...styles.billItem,
-                                                ...styles.billPending,
-                                                ...(state.selectedSupplier === item.supplier_code && state.selectedBillNo === displayBillNo ? styles.billSelected : {}),
-                                                borderLeft: isHistory ? '4px solid #8b5cf6' : 'none'
-                                            }}
-                                            onClick={() => handleSupplierClick(item.supplier_code, displayBillNo)}
-                                            onContextMenu={(e) => handleContextMenu(e, item.supplier_code, displayBillNo)}>
-                                            <div style={styles.billRow}>
-                                                <div style={styles.billLeft}>
-                                                    <div style={styles.billNo}>{item.supplier_code}</div>
-                                                    <div style={styles.billCustomer}>Bill: {displayBillNo}</div>
-                                                    {isHistory && <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>📜 History</div>}
-                                                </div>
-                                                <div style={styles.billRight}>
-                                                    <div style={styles.billTotal}>Rs. {formatDecimal(remaining)}</div>
-                                                    {item.loan_amount > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(item.loan_amount)}</div>}
+                   {/* LEFT PANEL - Not Settled */}
+<div style={styles.panel}>
+    <div style={styles.panelHeader}>
+        <h2 style={styles.panelTitle}>
+            <span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%' }}></span>
+            Not Settled
+        </h2>
+    </div>
+    <div style={{ padding: '12px 16px 0 16px' }}>
+        <input 
+            type="text" 
+            placeholder="🔍 Search not settled..." 
+            value={state.searchPendingQuery} 
+            onChange={(e) => setState(prev => ({ ...prev, searchPendingQuery: e.target.value.toUpperCase() }))} 
+            style={styles.searchInput} 
+        />
+    </div>
+    <div style={styles.panelContent}>
+        {filterPendingSuppliers.length === 0 ? 
+            <EmptyState message="No pending suppliers" /> :
+            (() => {
+                // Group items by bill number
+                const groupedByBill = filterPendingSuppliers.reduce((groups, item) => {
+                    const billNo = item.supplier_bill_no || 'Pending';
+                    if (!groups[billNo]) {
+                        groups[billNo] = [];
+                    }
+                    groups[billNo].push(item);
+                    return groups;
+                }, {});
 
-                                                    {/* Show credit amount prominently if it exists */}
-                                                    {item.credit_amount > 0 && (
-                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
-                                                        </div>
-                                                    )}
+                // Convert to array for rendering
+                return Object.entries(groupedByBill).map(([billNo, items]) => {
+                    // Aggregate data from all items in this bill group
+                    const firstItem = items[0];
+                    const totalAmount = items.reduce((sum, item) => sum + (item.total_amount || 0), 0);
+                    const totalLoanAmount = items.reduce((sum, item) => sum + (item.loan_amount || 0), 0);
+                    const totalCreditAmount = items.reduce((sum, item) => sum + (item.credit_amount || 0), 0);
+                    const totalNetRemaining = items.reduce((sum, item) => sum + (item.net_remaining || 0), 0);
+                    const remaining = totalAmount - totalLoanAmount - totalCreditAmount;
+                    const isHistory = items.some(item => item.is_history);
+                    
+                    return (
+                        <div key={billNo}
+                            style={{
+                                ...styles.billItem,
+                                ...styles.billPending,
+                                ...(state.selectedSupplier === firstItem.supplier_code && state.selectedBillNo === billNo ? styles.billSelected : {}),
+                                borderLeft: isHistory ? '4px solid #8b5cf6' : 'none'
+                            }}
+                            onClick={() => handleSupplierClick(firstItem.supplier_code, billNo)}
+                            onContextMenu={(e) => handleContextMenu(e, firstItem.supplier_code, billNo)}>
+                            <div style={styles.billRow}>
+                                <div style={styles.billLeft}>
+                                    <div style={styles.billNo}>{firstItem.supplier_code}</div>
+                                    <div style={styles.billCustomer}>Bill: {billNo}</div>
+                                   
+                                    {isHistory && <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>📜 History</div>}
+                                </div>
+                                <div style={styles.billRight}>
+                                    <div style={styles.billTotal}>Rs. {formatDecimal(totalAmount)}</div>
+                                    {totalLoanAmount > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(totalLoanAmount)}</div>}
 
-                                                    {/* If credit has covered the full bill amount */}
-                                                    {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount === 0 && (
-                                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            ✅ Bill Covered by Credit
-                                                        </div>
-                                                    )}
-
-                                                    {/* If credit has covered the full bill and there's also actual payments */}
-                                                    {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount > 0 && (
-                                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            ✅ Bill Fully Covered
-                                                        </div>
-                                                    )}
-
-                                                    {/* Show remaining amount for each bill (works without clicking) */}
-                                                    {item.net_remaining > 0 && (
-                                                        <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
-                                                            Remaining: Rs. {formatDecimal(item.net_remaining)}
-                                                        </div>
-                                                    )}
-                                                    {/* If there's credit but no remaining payment, show that bill is covered but credit outstanding */}
-                                                    {item.net_remaining > 0 && item.credit_amount > 0 && item.loan_amount >= (item.total_amount - 0.01) && (
-                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
-                                                        </div>
-                                                    )}
-
-                                                    {/* If credit alone covers the bill but no actual payments */}
-                                                    {item.credit_amount >= (item.total_amount - 0.01) && item.loan_amount === 0 && (
-                                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                                            💳 Credit: Rs. {formatDecimal(item.credit_amount)}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
+                                    {/* Show credit amount prominently if it exists */}
+                                    {totalCreditAmount > 0 && (
+                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                            💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
                                         </div>
-                                    );
-                                })}
+                                    )}
+
+                                    {/* If credit has covered the full bill amount */}
+                                    {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount === 0 && (
+                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
+                                            ✅ Bill Covered by Credit
+                                        </div>
+                                    )}
+
+                                    {/* If credit has covered the full bill and there's also actual payments */}
+                                    {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount > 0 && (
+                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
+                                            ✅ Bill Fully Covered
+                                        </div>
+                                    )}
+
+                                    {/* Show remaining amount for each bill */}
+                                    {totalNetRemaining > 0 && (
+                                        <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
+                                            Remaining: Rs. {formatDecimal(totalNetRemaining)}
+                                        </div>
+                                    )}
+                                    
+                                    {/* If there's credit but no remaining payment */}
+                                    {totalNetRemaining > 0 && totalCreditAmount > 0 && totalLoanAmount >= (totalAmount - 0.01) && (
+                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                            💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
+                                        </div>
+                                    )}
+
+                                    {/* If credit alone covers the bill but no actual payments */}
+                                    {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount === 0 && (
+                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                            💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    );
+                });
+            })()
+        }
+    </div>
+</div>
 
                     {/* ENHANCED MIDDLE PANEL - Supplier Details */}
                     <div style={{ background: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', position: 'relative' }}>

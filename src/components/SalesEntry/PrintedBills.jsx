@@ -3914,7 +3914,7 @@ export default function PrintedBills() {
                                 e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
                             }}
                         >
-                            <span>📜</span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
+                            <span></span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
                         </button>
 
                         {viewOldBills && (
