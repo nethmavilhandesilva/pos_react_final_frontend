@@ -4206,10 +4206,14 @@ export default function SupplierReport() {
         return groups;
     }, [filteredFarmerOptions]);
 
-   const handleCreditorConfirm = async (supplier) => {
+ const handleCreditorConfirm = async (supplier) => {
+    // Save the current selected supplier and bill before any refresh
+    const currentSupplier = state.selectedSupplier;
+    const currentBillNo = state.selectedBillNo;
+    
     // Save creditor mode for this bill
-    if (state.selectedBillNo) {
-        const billKey = `${state.selectedSupplier}-${state.selectedBillNo}`;
+    if (currentBillNo) {
+        const billKey = `${currentSupplier}-${currentBillNo}`;
         setBillModeSelections(prev => ({
             ...prev,
             [billKey]: 'creditor'
@@ -4217,10 +4221,173 @@ export default function SupplierReport() {
     }
     
     alert(`Supplier ${supplier.code} marked as creditor successfully!`);
-    await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-
+    
+    // Refresh data silently WITHOUT resetting the selected bill
+    await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
+    
+    // Re-select the same bill after refresh
+    if (currentSupplier && currentBillNo) {
+        // Check if the bill still exists after refresh
+        const billStillExists = [...state.pendingSuppliers, ...state.completedSuppliers].some(
+            item => item.supplier_code === currentSupplier && 
+                   item.supplier_bill_no === currentBillNo
+        );
+        
+        if (billStillExists) {
+            // Re-select the bill without showing the lock screen
+            setIsMiddlePanelLocked(false);
+            
+            // Fetch the refreshed details for this bill
+            await refreshSupplierDetailsAfterCreditor(currentSupplier, currentBillNo);
+            
+            // Update the selected state without triggering a full reset
+            setState(prev => ({ 
+                ...prev, 
+                selectedSupplier: currentSupplier, 
+                selectedBillNo: currentBillNo,
+                selectedMode: 'creditor'
+            }));
+        } else {
+            // Bill no longer exists, clear selection
+            setState(prev => ({
+                ...prev,
+                selectedSupplier: null,
+                selectedBillNo: null,
+                supplierDetails: [],
+                paymentAmount: "",
+                currentPaidAmount: 0,
+                paymentBreakdown: [],
+                currentBillTotal: 0
+            }));
+            setSelectedBillCreditor(null);
+            setIsMiddlePanelLocked(true);
+        }
+    }
+    
     setIsMiddlePanelLocked(false);
-    await handleSupplierClick(supplier.code, state.selectedBillNo);
+};
+
+// Add this helper function to refresh supplier details without resetting selection
+const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
+    try {
+        let url, response;
+        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+
+        if (billNo) {
+            url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+            if (useHistoryParam) {
+                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+            }
+            response = await api.get(url);
+        } else {
+            url = `${routes.getUnprintedDetails}/${supplierCode}`;
+            if (useHistoryParam) {
+                url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+            }
+            response = await api.get(url);
+        }
+
+        const salesData = response.data.sales || response.data;
+
+        let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+        const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+        );
+
+        let actualBillTotal = calculatedTotal;
+        if (billFromState && billFromState.total_amount) {
+            actualBillTotal = parseFloat(billFromState.total_amount);
+        }
+
+        const total = actualBillTotal;
+        let currentPaid = 0;
+        let paymentBreakdown = [];
+
+        if (billNo) {
+            try {
+                let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
+                if (useHistoryParam) {
+                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                const loanRes = await api.get(loanUrl);
+                if (loanRes.data) {
+                    const paymentDetails = loanRes.data.payment_details || [];
+                    if (typeof paymentDetails === 'string') {
+                        paymentBreakdown = JSON.parse(paymentDetails);
+                    } else {
+                        paymentBreakdown = paymentDetails;
+                    }
+
+                    const isFromFullySettled = state.completedSuppliers.some(
+                        item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+                    );
+
+                    let totalPaidFromPayments = 0;
+                    if (Array.isArray(paymentBreakdown)) {
+                        paymentBreakdown.forEach(payment => {
+                            const amount = parseFloat(payment.amount) || 0;
+                            if (isFromFullySettled && payment.method === 'Credit') {
+                                // Exclude Credit from Total Paid display for Fully Settled bills
+                            } else {
+                                totalPaidFromPayments += amount;
+                            }
+                        });
+                    }
+                    currentPaid = totalPaidFromPayments;
+                }
+            } catch (loanError) {
+                console.error('Error fetching loan details during refresh:', loanError);
+            }
+        }
+
+        // Get updated creditor info
+        let creditorInfo = null;
+        if (billNo) {
+            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+            setSelectedBillCreditor(creditorInfo);
+        } else {
+            setSelectedBillCreditor(null);
+        }
+
+        const isFromNotSettled = state.pendingSuppliers.some(
+            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+        );
+
+        const isFromFullySettled = state.completedSuppliers.some(
+            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+        );
+
+        let totalRemainingAmount = 0;
+        let isUpdatingCompletedBill = false;
+
+        if (isFromNotSettled) {
+            const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+            totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
+            isUpdatingCompletedBill = false;
+        } else if (isFromFullySettled) {
+            totalRemainingAmount = creditorInfo?.remaining_amount || 0;
+            isUpdatingCompletedBill = true;
+        }
+
+        const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
+
+        // Update state without clearing the selection
+        setState(prev => ({
+            ...prev,
+            supplierDetails: salesData || [],
+            currentPaidAmount: currentPaid,
+            paymentBreakdown: paymentBreakdown,
+            currentBillTotal: total,
+            isUpdatingCompletedBill: isUpdatingCompletedBill,
+            paymentAmount: defaultPaymentAmount
+        }));
+
+        console.log('✅ Supplier details refreshed after creditor creation');
+        
+    } catch (error) {
+        console.error('Error refreshing supplier details after creditor:', error);
+    }
 };
 
  const handleSupplierClick = async (supplierCode, billNo = null) => {
