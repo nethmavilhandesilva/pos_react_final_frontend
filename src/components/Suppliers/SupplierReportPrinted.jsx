@@ -3077,56 +3077,56 @@ export default function SupplierReport() {
     const [newFarmerCode, setNewFarmerCode] = useState('');
     const [newCustomerCode, setNewCustomerCode] = useState('');
 
-const handleUpdateFarmer = async () => {
-    if (!editingRecord) return;
-    
-    const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
-    const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
+    const handleUpdateFarmer = async () => {
+        if (!editingRecord) return;
 
-    try {
-        // Use setIsDetailsLoading if you have it, or set a local loading state
-        // If you don't have setIsDetailsLoading, you can remove it or add a local loading state
-        const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
-            supplier_code: finalSupplierCode,
-            customer_code: finalCustomerCode
-        });
+        const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
+        const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
 
-        if (response.status === 200) {
-            // Close the modal
-            setEditingRecord(null);
-            setNewFarmerCode('');
-            setNewCustomerCode('');
+        try {
+            // Use setIsDetailsLoading if you have it, or set a local loading state
+            // If you don't have setIsDetailsLoading, you can remove it or add a local loading state
+            const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
+                supplier_code: finalSupplierCode,
+                customer_code: finalCustomerCode
+            });
 
-            // Refresh the current supplier details to show updated data
-            // Get the current selected supplier and bill from state
-            const currentSupplier = state.selectedSupplier;
-            const currentBillNo = state.selectedBillNo;
-            
-            if (currentSupplier && currentBillNo) {
-                // Refresh the current bill details
-                await handleSupplierClick(currentSupplier, currentBillNo);
+            if (response.status === 200) {
+                // Close the modal
+                setEditingRecord(null);
+                setNewFarmerCode('');
+                setNewCustomerCode('');
+
+                // Refresh the current supplier details to show updated data
+                // Get the current selected supplier and bill from state
+                const currentSupplier = state.selectedSupplier;
+                const currentBillNo = state.selectedBillNo;
+
+                if (currentSupplier && currentBillNo) {
+                    // Refresh the current bill details
+                    await handleSupplierClick(currentSupplier, currentBillNo);
+                }
+
+                // Also refresh the supplier list data
+                await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, false);
+
+                // Show success message
+                alert('✅ Record updated successfully!');
+
+                // If the customer code was changed, you might want to show additional info
+                if (finalCustomerCode && finalCustomerCode !== editingRecord.customer_code) {
+                    console.log('Customer code updated from', editingRecord.customer_code, 'to', finalCustomerCode);
+                }
+                if (finalSupplierCode && finalSupplierCode !== editingRecord.supplier_code) {
+                    console.log('Supplier code updated from', editingRecord.supplier_code, 'to', finalSupplierCode);
+                }
             }
-            
-            // Also refresh the supplier list data
-            await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, false);
-            
-            // Show success message
-            alert('✅ Record updated successfully!');
-            
-            // If the customer code was changed, you might want to show additional info
-            if (finalCustomerCode && finalCustomerCode !== editingRecord.customer_code) {
-                console.log('Customer code updated from', editingRecord.customer_code, 'to', finalCustomerCode);
-            }
-            if (finalSupplierCode && finalSupplierCode !== editingRecord.supplier_code) {
-                console.log('Supplier code updated from', editingRecord.supplier_code, 'to', finalSupplierCode);
-            }
+        } catch (error) {
+            console.error("Update failed:", error);
+            const errorMessage = error.response?.data?.message || error.message || "Failed to update records. Please try again.";
+            alert(`Update failed: ${errorMessage}`);
         }
-    } catch (error) {
-        console.error("Update failed:", error);
-        const errorMessage = error.response?.data?.message || error.message || "Failed to update records. Please try again.";
-        alert(`Update failed: ${errorMessage}`);
-    }
-};
+    };
     const [showFundsAllocated, setShowFundsAllocated] = useState(false);
     const isFirstRender = useRef(true);
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
@@ -4112,9 +4112,10 @@ const handleUpdateFarmer = async () => {
 
     const handleModeChange = (mode) => {
         // First unlock the panel when a mode is selected
-        setIsMiddlePanelLocked(false);
+        setIsMiddlePanelLocked(false);  // ✅ Always unlock when mode is selected
 
         setState(prev => ({ ...prev, selectedMode: mode }));
+
         if (mode === 'creditor') {
             if (!state.selectedSupplier) {
                 alert('Please select a supplier/bill first before marking as creditor.');
@@ -4350,11 +4351,12 @@ const handleUpdateFarmer = async () => {
                 isUpdatingCompletedBill = true;
             }
 
-            // ⭐ CRITICAL: Final unlock decision - based on hasCreditor
-            // If bill has creditor, panel should be UNLOCKED (false)
-            // If no creditor, panel should be LOCKED (true) - user must select mode
             if (hasCreditor) {
                 console.log('✅ Bill HAS CREDITOR - Setting panel to UNLOCKED (false)');
+                setIsMiddlePanelLocked(false);
+            } else if (state.selectedMode === 'walking_seller') {
+                // If user already selected walking seller mode, don't lock the panel
+                console.log('✅ Walking Seller Mode already selected - Keeping panel UNLOCKED');
                 setIsMiddlePanelLocked(false);
             } else {
                 console.log('❌ Bill has NO CREDITOR - Setting panel to LOCKED (true)');
@@ -5421,49 +5423,49 @@ const handleUpdateFarmer = async () => {
 
     if (state.isLoading) return <LoadingSkeleton />;
     const renderEditModal = () => {
-    if (!editingRecord) return null;
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
-            <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-                <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
+        if (!editingRecord) return null;
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+                    <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
 
-                <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
-                    <p style={{ margin: '2px 0' }}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
-                    <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
-                </div>
+                    <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
+                        <p style={{ margin: '2px 0' }}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
+                        <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
+                    </div>
 
-                <div style={{ marginTop: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
-                    <input
-                        type="text"
-                        placeholder={editingRecord.supplier_code}
-                        value={newFarmerCode}
-                        onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
-                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                        autoFocus
-                    />
-                </div>
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
+                        <input
+                            type="text"
+                            placeholder={editingRecord.supplier_code}
+                            value={newFarmerCode}
+                            onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
+                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                            autoFocus
+                        />
+                    </div>
 
-                <div style={{ marginTop: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
-                    <input
-                        type="text"
-                        placeholder={editingRecord.customer_code}
-                        value={newCustomerCode}
-                        onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
-                        style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                    />
-                </div>
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
+                        <input
+                            type="text"
+                            placeholder={editingRecord.customer_code}
+                            value={newCustomerCode}
+                            onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
+                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                        />
+                    </div>
 
-                <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
-                    <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
-                    <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                        <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
+                        <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                    </div>
                 </div>
             </div>
-        </div>
-        
-    );
-};
+
+        );
+    };
 
     return (
         <div style={styles.app}>
@@ -6688,7 +6690,7 @@ const handleUpdateFarmer = async () => {
                     </div>
                 </div>
             )}
-             {renderEditModal()}
+            {renderEditModal()}
         </div>
     );
 }
