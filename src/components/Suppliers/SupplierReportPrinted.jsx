@@ -2340,7 +2340,8 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                 dateRange.startDate,
                 dateRange.endDate,
                 selectedUniqueCode,
-                selectedBankName
+                selectedBankName,
+                selectedCashierName
             );
             await fetchCashierBalance();
         } finally {
@@ -3094,7 +3095,7 @@ const FundsAllocatedModal = ({ isOpen, onClose, fundsAllocated }) => {
     );
 };
 // ==================== MAIN COMPONENT ====================
-export default function SupplierReport() {
+export default function SupplierReportPrinted() {
     const navigate = useNavigate();
     const [showFarmerModal, setShowFarmerModal] = useState(false);
     const [selectedBillCreditor, setSelectedBillCreditor] = useState(null);
@@ -3476,7 +3477,7 @@ export default function SupplierReport() {
         };
     }, [isPolling, state.isPrinting, isProcessingPayment, isRefreshing, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, state.selectedSupplier, state.selectedBillNo]);
     // Add this function to fetch income sources with filters
-    const fetchIncomeSources = async (startDate = null, endDate = null, uniqueCode = null, bankName = null) => {
+    const fetchIncomeSources = async (startDate = null, endDate = null, uniqueCode = null, bankName = null, cashierName = null) => {
         setIsLoadingIncome(true);
         try {
             let url = '/income-sources';
@@ -3486,6 +3487,7 @@ export default function SupplierReport() {
             if (endDate) params.append('end_date', endDate);
             if (uniqueCode && uniqueCode !== 'all') params.append('unique_code', uniqueCode);
             if (bankName && bankName !== 'all') params.append('bank_name', bankName);
+            if (cashierName && cashierName !== 'all') params.append('cashier_name', cashierName);
 
             if (params.toString()) {
                 url += `?${params.toString()}`;

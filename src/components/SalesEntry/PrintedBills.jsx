@@ -1783,7 +1783,7 @@ export default function PrintedBills() {
             // 1. Not already refreshing
             // 2. Component is mounted
             // 3. No modal is open
-            if (!isRefreshing && isMountedRef.current && !modalOpenRef.current) {
+            if (!isRefreshingRef.current && isMountedRef.current && !modalOpenRef.current) {
                 silentRefresh();
             }
         }, 3000); // 3 seconds
@@ -1946,39 +1946,83 @@ export default function PrintedBills() {
     }, [endDate]);
     const [selectedBillDebtor, setSelectedBillDebtor] = useState(null);
     const [user, setUser] = useState(null);
+    const [isChangingFilter, setIsChangingFilter] = useState(false);
+    const filterChangeTimeoutRef = useRef(null);
+    const lastSelectedCodeRef = useRef('all');
+    const [uniqueCodes, setUniqueCodes] = useState([]);
+    const [selectedUniqueCode, setSelectedUniqueCode] = useState(() => {
+        return localStorage.getItem('printedBills_selectedUniqueCode') || 'all';
+    });
+    const [isLoadingUniqueCodes, setIsLoadingUniqueCodes] = useState(false);
+    const selectedUniqueCodeRef = useRef(selectedUniqueCode);
+    const isRefreshingRef = useRef(false);
+
+    useEffect(() => {
+        selectedUniqueCodeRef.current = selectedUniqueCode;
+    }, [selectedUniqueCode]);
+
+    useEffect(() => {
+        isRefreshingRef.current = isRefreshing;
+    }, [isRefreshing]);
+
     //cashier balance route
     // ==================== RECORD CASHIER BALANCE ====================
-    const recordCashierTransaction = async (paymentData) => {
+ // Find this function in your code and update it to pass the selected cashier name
+const recordCashierTransaction = async (paymentData) => {
+    try {
+        console.log('📝 Recording cashier transaction:', paymentData);
+
+        // Get the currently selected cashier from the dropdown
+        const selectedCashier = selectedUniqueCode === 'all' ? null : selectedUniqueCode;
+
+        const response = await api.post('/cashier-balance/record-payment', {
+            payment_amount: paymentData.paymentAmount,
+            payment_method: paymentData.paymentMethod,
+            bill_no: paymentData.billNo,
+            customer_code: paymentData.customerCode,
+            bank_name: paymentData.bankName || null,
+            cheque_number: paymentData.chequeNumber || null,
+            transfer_reference: paymentData.transferReference || null,
+            cashier_name: selectedCashier  // ← Pass the selected dropdown value
+        });
+
+        if (response.data.success) {
+            console.log('✅ Cashier balance updated:', response.data.data);
+            if (response.data.data.bank_balance_formatted) {
+                console.log('   🏦 Bank Balances:', response.data.data.bank_balance_formatted);
+            }
+            console.log('   💰 Cash Balance: Rs.', response.data.data.cash_balance);
+            console.log('   🏦 Bank Balance:', response.data.data.bank_balance);
+            return response.data.data;
+        }
+    } catch (error) {
+        console.error('❌ Failed to record cashier transaction:', error);
+        if (error.response) {
+            console.error('   Server response:', error.response.data);
+        }
+        return null;
+    }
+};
+    //cashier categorization
+    // Add this function to fetch unique codes
+    const fetchUniqueCodes = useCallback(async () => {
+        setIsLoadingUniqueCodes(true);
         try {
-            console.log('📝 Recording cashier transaction:', paymentData);
-
-            const response = await api.post('/cashier-balance/record-payment', {
-                payment_amount: paymentData.paymentAmount,
-                payment_method: paymentData.paymentMethod,
-                bill_no: paymentData.billNo,
-                customer_code: paymentData.customerCode,
-                bank_name: paymentData.bankName || null,
-                cheque_number: paymentData.chequeNumber || null,
-                transfer_reference: paymentData.transferReference || null
-            });
-
+            const response = await api.get('/sales/unique-codes');
             if (response.data.success) {
-                console.log('✅ Cashier balance updated:', response.data.data);
-                if (response.data.data.bank_balance_formatted) {
-                    console.log('   🏦 Bank Balances:', response.data.data.bank_balance_formatted);
-                }
-                console.log('   💰 Cash Balance: Rs.', response.data.data.cash_balance);
-                console.log('   🏦 Bank Balance:', response.data.data.bank_balance);
-                return response.data.data;
+                setUniqueCodes(response.data.unique_codes);
             }
         } catch (error) {
-            console.error('❌ Failed to record cashier transaction:', error);
-            if (error.response) {
-                console.error('   Server response:', error.response.data);
-            }
-            return null;
+            console.error('Error fetching unique codes:', error);
+        } finally {
+            setIsLoadingUniqueCodes(false);
         }
-    };
+    }, []);
+
+    // Fetch unique codes on component mount
+    useEffect(() => {
+        fetchUniqueCodes();
+    }, [fetchUniqueCodes]);
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
@@ -2344,15 +2388,34 @@ export default function PrintedBills() {
             </div>
         );
     };
-    const fetchSalesData = async () => {
+    const fetchSalesData = async (uniqueCode = selectedUniqueCode) => {
+        // Don't fetch if we're currently changing the filter (to prevent race conditions)
+        if (isChangingFilter) {
+            console.log('Skipping fetchSalesData - filter is changing');
+            return;
+        }
+
         try {
-            const [salesRes, customersRes] = await Promise.all([api.get(routes.getAllSales), api.get(routes.customers)]);
+            let url = routes.getAllSales;
+            let params = {};
+
+            // If a specific cashier is selected (not 'all'), use the filtered endpoint
+            if (uniqueCode && uniqueCode !== 'all') {
+                url = '/sales/all-with-filter';
+                params = { unique_code: uniqueCode };
+            }
+
+            console.log('Fetching sales with filter:', { url, uniqueCode, params });
+
+            const [salesRes, customersRes] = await Promise.all([
+                api.get(url, { params }),
+                api.get(routes.customers)
+            ]);
+
             const salesData = salesRes.data.sales || salesRes.data || [];
             const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
             const { pendingBills, appliedBills } = processBillData(salesData);
 
-            // For pending bills: false (always show full credit amount, not reduced)
-            // For applied bills (completed): true (show actual remaining credit from debtor table)
             const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchSalesData-pending', false);
             const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchSalesData-applied', true);
 
@@ -2364,12 +2427,10 @@ export default function PrintedBills() {
                 isLoading: false
             }));
 
-            // Also update selected bill's credit if it exists
-            if (prev.selectedBill) {
-                const isApplied = prev.selectedBill.givenAmountApplied === 'Y';
+            if (state.selectedBill) {
+                const isApplied = state.selectedBill.givenAmountApplied === 'Y';
                 const updatedBillsList = isApplied ? updatedApplied : updatedPending;
-                const updatedBill = updatedBillsList.find(b => b.billNo === prev.selectedBill.billNo);
-
+                const updatedBill = updatedBillsList.find(b => b.billNo === state.selectedBill.billNo);
                 if (updatedBill) {
                     setState(prev => ({
                         ...prev,
@@ -2386,6 +2447,7 @@ export default function PrintedBills() {
             setState(prev => ({ ...prev, isLoading: false }));
         }
     };
+
     const refreshCustomersList = useCallback(async () => {
         try {
             const response = await api.get(routes.customers);
@@ -2395,7 +2457,13 @@ export default function PrintedBills() {
             console.error('Error refreshing customers:', error);
         }
     }, []);
-    const fetchArchivedSales = async (isFromStorage = false) => {
+    const fetchArchivedSales = async (isFromStorage = false, uniqueCode = selectedUniqueCode) => {
+        // Don't fetch if we're currently changing the filter
+        if (isChangingFilter) {
+            console.log('Skipping fetchArchivedSales - filter is changing');
+            return;
+        }
+
         if (!startDate || !endDate) {
             return;
         }
@@ -2406,15 +2474,24 @@ export default function PrintedBills() {
 
         setArchivedData(prev => ({ ...prev, isLoading: true }));
         try {
-            const response = await api.get(routes.getArchivedSales, {
-                params: { start_date: startDate, end_date: endDate }
-            });
+            let url = routes.getArchivedSales;
+            let params = {
+                start_date: startDate,
+                end_date: endDate
+            };
+
+            // If a specific cashier is selected (not 'all'), use the filtered endpoint
+            if (uniqueCode && uniqueCode !== 'all') {
+                url = '/sales/archived-with-filter';
+                params.unique_code = uniqueCode;
+            }
+
+            console.log('Fetching archived sales with filter:', { url, params, uniqueCode });
+
+            const response = await api.get(url, { params });
 
             if (response.data.success) {
                 const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-
-                // For archived pending bills: false (show full credit)
-                // For archived applied bills (completed): true (show actual remaining credit)
                 const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchArchivedSales-pending', false);
                 const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchArchivedSales-applied', true);
 
@@ -2425,6 +2502,7 @@ export default function PrintedBills() {
                 localStorage.setItem('printedBills_endDate', endDate);
                 localStorage.setItem('printedBills_dataSource', 'sales_history');
                 localStorage.setItem('printedBills_viewOldBills', 'true');
+                localStorage.setItem('printedBills_selectedUniqueCode', selectedUniqueCode);
 
                 if (!isFromStorage) {
                     alert(`Loaded ${updatedPending.length + updatedApplied.length} bills from ${startDate} to ${endDate}`);
@@ -2439,6 +2517,36 @@ export default function PrintedBills() {
             setArchivedData(prev => ({ ...prev, isLoading: false }));
         }
     };
+    // Add this new handler for filter changes
+    const handleUniqueCodeChange = useCallback((newValue) => {
+        // Clear any pending timeout
+        if (filterChangeTimeoutRef.current) {
+            clearTimeout(filterChangeTimeoutRef.current);
+        }
+
+        // Set flag to prevent auto-refresh during filter change
+        setIsChangingFilter(true);
+
+        // Store the new value
+        lastSelectedCodeRef.current = newValue;
+        selectedUniqueCodeRef.current = newValue;
+        setSelectedUniqueCode(newValue);
+
+        // Save to localStorage
+        localStorage.setItem('printedBills_selectedUniqueCode', newValue);
+
+        // Manually fetch data with the selected cashier value immediately
+        if (!viewOldBills) {
+            fetchSalesData(newValue);
+        } else if (startDate && endDate) {
+            fetchArchivedSales(true, newValue);
+        }
+
+        // Reset the changing flag after 2 seconds to allow auto-refresh to resume
+        filterChangeTimeoutRef.current = setTimeout(() => {
+            setIsChangingFilter(false);
+        }, 2000);
+    }, [viewOldBills, startDate, endDate, fetchSalesData, fetchArchivedSales]);
     // Add this function near your other functions (around line 1400)
     const refreshBeforeLoadingOldBills = async () => {
         try {
@@ -3173,47 +3281,48 @@ export default function PrintedBills() {
             return null;
         }
     }, []);
-    // Silent refresh function - updates data without showing loading skeleton
     const silentRefresh = useCallback(async () => {
         if (!isMountedRef.current) return;
 
-        // Don't refresh if a modal is open
-        if (modalOpenRef.current) {
-            console.log('Modal is open, skipping silent refresh');
+        // Don't refresh if modal is open OR we're currently changing the filter
+        if (modalOpenRef.current || isChangingFilter) {
+            console.log('Skipping silent refresh - modal open or filter changing');
             return;
         }
 
         setIsRefreshing(true);
         try {
-            // Check if we're viewing old bills
             const isViewingOldBills = viewOldBillsRef.current;
             const hasDateRange = startDateRef.current && endDateRef.current;
 
             if (isViewingOldBills && hasDateRange) {
-                // REFRESH ARCHIVED/OLD BILLS DATA
+                const currentUniqueCode = selectedUniqueCodeRef.current;
                 console.log('🔄 Silent refreshing archived sales data...', {
                     startDate: startDateRef.current,
-                    endDate: endDateRef.current
+                    endDate: endDateRef.current,
+                    uniqueCode: currentUniqueCode
                 });
 
-                const response = await api.get(routes.getArchivedSales, {
-                    params: {
-                        start_date: startDateRef.current,
-                        end_date: endDateRef.current
-                    }
-                });
+                let url = routes.getArchivedSales;
+                let params = {
+                    start_date: startDateRef.current,
+                    end_date: endDateRef.current
+                };
+
+                if (currentUniqueCode && currentUniqueCode !== 'all') {
+                    url = '/sales/archived-with-filter';
+                    params.unique_code = currentUniqueCode;
+                }
+
+                const response = await api.get(url, { params });
 
                 if (!isMountedRef.current) return;
 
                 if (response.data.success) {
                     const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-
-                    // For archived pending bills: false (show full credit)
-                    // For archived applied bills (completed): true (show actual remaining credit)
                     const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
                     const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
 
-                    // Update archived data
                     setArchivedData({
                         pendingBills: updatedPending,
                         appliedBills: updatedApplied,
@@ -3221,17 +3330,22 @@ export default function PrintedBills() {
                     });
 
                     console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-
-                    // Refresh remaining balances after archived data refresh
                     await fetchRemainingBalances();
                 }
             } else {
-                // REFRESH CURRENT SALES DATA
-                console.log('🔄 Silent refreshing current sales data...');
+                const currentUniqueCode = selectedUniqueCodeRef.current;
+                console.log('🔄 Silent refreshing current sales data...', { uniqueCode: currentUniqueCode });
 
-                // Fetch fresh sales data
+                let url = routes.getAllSales;
+                let params = {};
+
+                if (currentUniqueCode && currentUniqueCode !== 'all') {
+                    url = '/sales/all-with-filter';
+                    params = { unique_code: currentUniqueCode };
+                }
+
                 const [salesRes, customersRes] = await Promise.all([
-                    api.get(routes.getAllSales),
+                    api.get(url, { params }),
                     api.get(routes.customers)
                 ]);
 
@@ -3241,12 +3355,9 @@ export default function PrintedBills() {
                 const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
                 const { pendingBills, appliedBills } = processBillData(salesData);
 
-                // For pending bills: false (always show full credit amount, not reduced)
-                // For applied bills (completed): true (show actual remaining credit from debtor table)
                 const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
                 const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
 
-                // Update state without changing isLoading (so no loading skeleton)
                 setState(prev => ({
                     ...prev,
                     pendingBills: updatedPending,
@@ -3254,7 +3365,6 @@ export default function PrintedBills() {
                     customers: customersData,
                 }));
 
-                // If there's a selected bill, update its data silently
                 if (state.selectedBill && isMountedRef.current) {
                     const isApplied = state.selectedBill.givenAmountApplied === 'Y';
                     const updatedBillsList = isApplied ? updatedApplied : updatedPending;
@@ -3274,13 +3384,11 @@ export default function PrintedBills() {
                         }));
                     }
 
-                    // Also refresh debtor data for selected bill
                     try {
                         const debtorResponse = await api.get(`/debtors/${state.selectedBill.billNo}`);
                         if (debtorResponse.data.success && debtorResponse.data.data) {
                             const debtorData = debtorResponse.data.data;
                             setSelectedBillDebtor(debtorData);
-
                             setState(prev => ({
                                 ...prev,
                                 selectedBill: {
@@ -3295,8 +3403,6 @@ export default function PrintedBills() {
                     }
                 }
 
-                // ***** ADD THIS SECTION - Refresh Supplier Loan Data *****
-                // Calculate total funds from the updated data
                 const pendingGiven = updatedPending.reduce((sum, b) => {
                     let total = 0;
                     const history = b.paymentHistory || b.payment_history;
@@ -3331,21 +3437,15 @@ export default function PrintedBills() {
 
                 const totalFunds = pendingGiven + appliedGiven;
 
-                // Fetch updated supplier loan data
                 if (totalFunds > 0) {
                     await fetchAdjustedSupplierLoan(totalFunds);
                 }
-                // ***** END OF ADDED SECTION *****
 
-                // ========== REFRESH REMAINING BALANCES ==========
-                // Fetch remaining cash and bank balances from cashier_balances table
                 await fetchRemainingBalances();
-                // ========== END OF REMAINING BALANCES REFRESH ==========
 
                 console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
                 console.log(`💰 Total Funds: Rs. ${formatDecimal(totalFunds)}`);
             }
-
         } catch (error) {
             console.error("Silent refresh error:", error);
         } finally {
@@ -3353,7 +3453,19 @@ export default function PrintedBills() {
                 setIsRefreshing(false);
             }
         }
-    }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
+    }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances, selectedUniqueCode, isChangingFilter]);
+
+
+
+    // Add useEffect to refetch when selectedUniqueCode changes
+    useEffect(() => {
+        if (!viewOldBills) {
+            fetchSalesData(selectedUniqueCode);
+        } else if (startDate && endDate) {
+            fetchArchivedSales(true, selectedUniqueCode);
+        }
+        localStorage.setItem('printedBills_selectedUniqueCode', selectedUniqueCode);
+    }, [selectedUniqueCode, viewOldBills, startDate, endDate]);
     // Process Credit Payment function
     const processCreditPayment = async (paymentAmount) => {
         if (!state.selectedBill || state.isPrinting) return;
@@ -3635,18 +3747,7 @@ export default function PrintedBills() {
         // Check if the warning has already been shown in this session
         const warningAlreadyShown = sessionStorage.getItem('net_negative_warning_shown') === 'true';
 
-        // Show warning only ONCE per browser session when net becomes zero or negative
-        if (actualNet <= 0 && !warningAlreadyShown && stats.totalFunds > 0) {
-            // Show warning notification
-            const warningMessage = actualNet === 0
-                ? `⚠️ WARNING: Your payments have exactly matched your income!\n\nNet Available: Rs. 0.00\n\nYour payments equal your total income.`
-                : `⚠️ CRITICAL WARNING: Your payments are exceeding your income!\n\nNet Available: Rs. ${formatDecimal(actualNet)}\n\nYou have paid out Rs. ${formatDecimal(Math.abs(actualNet))} more than you have received.\n\nPlease review your transactions immediately!`;
-
-            alert(warningMessage);
-
-            // Set flag in sessionStorage to prevent showing again in this session
-            sessionStorage.setItem('net_negative_warning_shown', 'true');
-        }
+      
 
         // Reset the session flag when value becomes positive again (so it can trigger again if it goes negative later)
         if (actualNet > 0) {
@@ -3871,23 +3972,16 @@ export default function PrintedBills() {
         <div style={styles.app}>
             <div style={styles.container}>
                 {/* Old Bills Bar with Total Funds */}
+                {/* Updated Bar with UniqueCode Dropdown */}
                 <div style={{ ...styles.oldBillsBar, justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
                         <button
                             onClick={async () => {
                                 if (viewOldBills) {
-                                    // Switching from Old Bills to Current Bills
                                     resetToCurrentSales();
-                                    // Reset customer type to null (user must select again)
                                     setState(prev => ({ ...prev, customerType: null }));
                                 } else {
-                                    // Switching from Current Bills to Old Bills
                                     setViewOldBills(true);
-                                    // Auto-select Walking Customer when viewing old bills
-                                    //    setState(prev => ({ ...prev, customerType: 'walking' }));
-
-                                    // Don't fetch immediately - let user select dates first
-                                    // Just show the date pickers
                                 }
                             }}
                             style={{
@@ -3914,8 +4008,41 @@ export default function PrintedBills() {
                                 e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
                             }}
                         >
-                            <span></span>{viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
+                            <span>{viewOldBills ? '📅' : '📜'}</span>
+                            {viewOldBills ? 'View Current Bills' : 'View Old Bills'}
                         </button>
+
+                        {/* UniqueCode Dropdown */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>
+                                👤 Cashier:
+                            </label>
+                            <select
+                                value={selectedUniqueCode}
+                                onChange={(e) => handleUniqueCodeChange(e.target.value)}  // ← Use the new handler
+                                disabled={isLoadingUniqueCodes || isChangingFilter}
+                                style={{
+                                    padding: '8px 16px',
+                                    border: '2px solid #e2e8f0',
+                                    borderRadius: '10px',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    background: 'white',
+                                    cursor: (isLoadingUniqueCodes || isChangingFilter) ? 'not-allowed' : 'pointer',
+                                    minWidth: '150px'
+                                }}
+                            >
+                                <option value="all">📊 All Cashiers</option>
+                                {uniqueCodes.map(code => (
+                                    <option key={code} value={code}>
+                                        🧑‍💼 {code}
+                                    </option>
+                                ))}
+                            </select>
+                            {isLoadingUniqueCodes && (
+                                <span style={{ fontSize: '12px', color: '#64748b' }}>⏳ Loading...</span>
+                            )}
+                        </div>
 
                         {viewOldBills && (
                             <div style={styles.datePickerContainer}>
@@ -3926,7 +4053,6 @@ export default function PrintedBills() {
                                         value={startDate}
                                         onChange={(e) => {
                                             setStartDate(e.target.value);
-                                            // Auto-fetch when both dates are selected
                                             if (endDate && e.target.value) {
                                                 setTimeout(() => {
                                                     fetchArchivedSales();
@@ -3943,7 +4069,6 @@ export default function PrintedBills() {
                                         value={endDate}
                                         onChange={(e) => {
                                             setEndDate(e.target.value);
-                                            // Auto-fetch when both dates are selected
                                             if (startDate && e.target.value) {
                                                 setTimeout(() => {
                                                     fetchArchivedSales();
@@ -3956,10 +4081,9 @@ export default function PrintedBills() {
                                 <button
                                     onClick={async () => {
                                         if (startDate && endDate) {
-                                            // Add refresh here too
                                             setArchivedData(prev => ({ ...prev, isLoading: true }));
-                                            await refreshBeforeLoadingOldBills(); // Refresh current data first
-                                            await fetchArchivedSales(); // Then fetch archived
+                                            await refreshBeforeLoadingOldBills();
+                                            await fetchArchivedSales();
                                         } else {
                                             alert('Please select both start and end dates');
                                         }
@@ -4017,7 +4141,7 @@ export default function PrintedBills() {
                         )}
                     </div>
 
-                    {/* TOTAL FUNDS CARD - Top Right Corner with Supplier Loan Adjustment */}
+                    {/* TOTAL FUNDS CARD */}
                     <div style={{
                         background: 'linear-gradient(135deg, #1e293b, #0f172a)',
                         borderRadius: '16px',
@@ -4026,25 +4150,21 @@ export default function PrintedBills() {
                         minWidth: '280px',
                         textAlign: 'center'
                     }}>
-                        {/* TOTAL FUNDS CARD - Compact Top Right */}
                         <div style={{
                             background: 'linear-gradient(135deg, #1e293b, #0f172a)',
                             borderRadius: '12px',
-                            padding: '6px 10px',          // 🔥 reduced padding
+                            padding: '6px 10px',
                             boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
                             minWidth: '260px',
                             maxWidth: '320px'
                         }}>
-
-                            {/* ROW: CASH + BANK */}
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
                                 gap: '10px',
-                                height: '28px'             // 🔥 force compact height
+                                height: '28px'
                             }}>
-
                                 {/* CASH */}
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                     <span style={{
@@ -4055,7 +4175,6 @@ export default function PrintedBills() {
                                     }}>
                                         💰 CASH
                                     </span>
-
                                     <span style={{
                                         fontSize: '13px',
                                         fontWeight: 800,
@@ -4094,7 +4213,6 @@ export default function PrintedBills() {
                                     }}>
                                         🏦 BANK
                                     </span>
-
                                     <span style={{
                                         fontSize: '13px',
                                         fontWeight: 800,
@@ -4109,7 +4227,6 @@ export default function PrintedBills() {
                                         <span style={{ fontSize: '9px', color: '#64748b' }}>▼</span>
                                     </span>
                                 </div>
-
                             </div>
                         </div>
                     </div>
