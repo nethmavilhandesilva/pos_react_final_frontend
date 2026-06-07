@@ -3380,6 +3380,18 @@ const silentRefresh = useCallback(async () => {
         
         console.log('🔄 Silent refresh starting with cashier:', currentUniqueCode);
 
+        // REFRESH DROPDOWN OPTIONS FIRST (fetch unique codes)
+        try {
+            const uniqueCodesResponse = await api.get('/sales/unique-codes');
+            if (uniqueCodesResponse.data.success && isMountedRef.current) {
+                const newUniqueCodes = uniqueCodesResponse.data.unique_codes;
+                setUniqueCodes(newUniqueCodes);
+                console.log('🔄 Dropdown options refreshed:', newUniqueCodes);
+            }
+        } catch (uniqueError) {
+            console.error('Error refreshing unique codes:', uniqueError);
+        }
+
         if (isViewingOldBills && hasDateRange) {
             // Fetch archived sales with current filter
             let url = routes.getArchivedSales;
