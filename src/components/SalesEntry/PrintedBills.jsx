@@ -2535,7 +2535,6 @@ useEffect(() => {
             setArchivedData(prev => ({ ...prev, isLoading: false }));
         }
     };
-    // Add this new handler for filter changes
 const handleUniqueCodeChange = useCallback((newValue) => {
     // Clear any pending timeout
     if (filterChangeTimeoutRef.current) {
@@ -2544,6 +2543,11 @@ const handleUniqueCodeChange = useCallback((newValue) => {
 
     // Set flag to prevent auto-refresh during filter change
     setIsChangingFilter(true);
+    
+    // Cancel any ongoing refresh
+    if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+    }
 
     // Store the new value
     lastSelectedCodeRef.current = newValue;
@@ -2553,21 +2557,71 @@ const handleUniqueCodeChange = useCallback((newValue) => {
     // Save to localStorage
     localStorage.setItem('printedBills_selectedUniqueCode', newValue);
 
-    // Manually fetch data with the selected cashier value immediately
+    // Clear existing data immediately to prevent showing wrong data
     if (!viewOldBills) {
-        fetchSalesData(newValue);
-    } else if (startDate && endDate) {
-        fetchArchivedSales(true, newValue);
+        setState(prev => ({ 
+            ...prev, 
+            pendingBills: [], 
+            appliedBills: [], 
+            isLoading: true 
+        }));
+    } else {
+        setArchivedData(prev => ({ ...prev, pendingBills: [], appliedBills: [], isLoading: true }));
     }
-    
-    // 🔄 Refresh remaining balances for the selected cashier (use explicit newValue)
-    fetchRemainingBalances(newValue);
 
-    // Reset the changing flag after 2 seconds to allow auto-refresh to resume
-    filterChangeTimeoutRef.current = setTimeout(() => {
-        setIsChangingFilter(false);
-    }, 2000);
-}, [viewOldBills, startDate, endDate, fetchSalesData, fetchArchivedSales, fetchRemainingBalances]); // ← Add fetchRemainingBalances to dependencies
+    // Manually fetch data with the selected cashier value
+    const fetchData = async () => {
+        if (!viewOldBills) {
+            await fetchSalesData(newValue);
+        } else if (startDate && endDate) {
+            await fetchArchivedSales(true, newValue);
+        }
+        
+        // Refresh remaining balances for the selected cashier
+        await fetchRemainingBalances(newValue);
+        
+        // Reset the changing flag after data is loaded
+        setTimeout(() => {
+            setIsChangingFilter(false);
+        }, 500);
+    };
+    
+    fetchData();
+}, [viewOldBills, startDate, endDate, fetchSalesData, fetchArchivedSales, fetchRemainingBalances]);
+// Update the interval useEffect (around line 1440)
+useEffect(() => {
+    isMountedRef.current = true;
+
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) setUser(JSON.parse(storedUser));
+
+    // Initial load with loading indicator
+    const initialLoad = async () => {
+        setState(prev => ({ ...prev, isLoading: true }));
+        await fetchSalesData();
+        setState(prev => ({ ...prev, isLoading: false }));
+    };
+    initialLoad();
+
+    // Set up interval for silent refresh every 5 seconds (increased from 3)
+    const intervalId = setInterval(() => {
+        // Only refresh if not changing filter and no modal open
+        if (!isRefreshingRef.current && isMountedRef.current && !modalOpenRef.current && !isChangingFilter) {
+            silentRefresh();
+        } else {
+            console.log('⏸️ Interval skip - conditions not met');
+        }
+    }, 5000); // Increased to 5 seconds for better stability
+
+    // Cleanup on unmount
+    return () => {
+        isMountedRef.current = false;
+        if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+        }
+        clearInterval(intervalId);
+    };
+}, []);
     // Add this function near your other functions (around line 1400)
     const refreshBeforeLoadingOldBills = async () => {
         try {
@@ -3302,83 +3356,87 @@ const handleUniqueCodeChange = useCallback((newValue) => {
             return null;
         }
     }, []);
-    const silentRefresh = useCallback(async () => {
-        if (!isMountedRef.current) return;
+// Replace the silentRefresh function (around line 1580)
+const silentRefresh = useCallback(async () => {
+    if (!isMountedRef.current) return;
 
-        // Don't refresh if modal is open OR we're currently changing the filter
-        if (modalOpenRef.current || isChangingFilter) {
-            console.log('Skipping silent refresh - modal open or filter changing');
-            return;
-        }
+    // CRITICAL: Don't refresh if modal is open, filter is changing, or we're already refreshing
+    if (modalOpenRef.current || isChangingFilter || isRefreshingRef.current) {
+        console.log('⏸️ Skipping silent refresh -', {
+            modalOpen: modalOpenRef.current,
+            isChangingFilter: isChangingFilter,
+            isRefreshing: isRefreshingRef.current
+        });
+        return;
+    }
 
-        setIsRefreshing(true);
-        try {
-            const isViewingOldBills = viewOldBillsRef.current;
-            const hasDateRange = startDateRef.current && endDateRef.current;
+    setIsRefreshing(true);
+    try {
+        const isViewingOldBills = viewOldBillsRef.current;
+        const hasDateRange = startDateRef.current && endDateRef.current;
+        
+        // Get the CURRENT selected unique code at refresh time
+        const currentUniqueCode = selectedUniqueCodeRef.current;
+        
+        console.log('🔄 Silent refresh starting with cashier:', currentUniqueCode);
 
-            if (isViewingOldBills && hasDateRange) {
-                const currentUniqueCode = selectedUniqueCodeRef.current;
-                console.log('🔄 Silent refreshing archived sales data...', {
-                    startDate: startDateRef.current,
-                    endDate: endDateRef.current,
-                    uniqueCode: currentUniqueCode
+        if (isViewingOldBills && hasDateRange) {
+            // Fetch archived sales with current filter
+            let url = routes.getArchivedSales;
+            let params = {
+                start_date: startDateRef.current,
+                end_date: endDateRef.current
+            };
+
+            if (currentUniqueCode && currentUniqueCode !== 'all') {
+                url = '/sales/archived-with-filter';
+                params.unique_code = currentUniqueCode;
+            }
+
+            const response = await api.get(url, { params });
+
+            if (!isMountedRef.current) return;
+
+            if (response.data.success) {
+                const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
+                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
+                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
+
+                setArchivedData({
+                    pendingBills: updatedPending,
+                    appliedBills: updatedApplied,
+                    isLoading: false
                 });
 
-                let url = routes.getArchivedSales;
-                let params = {
-                    start_date: startDateRef.current,
-                    end_date: endDateRef.current
-                };
+                console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
+                await fetchRemainingBalances();
+            }
+        } else {
+            // Fetch current sales with current filter
+            let url = routes.getAllSales;
+            let params = {};
 
-                if (currentUniqueCode && currentUniqueCode !== 'all') {
-                    url = '/sales/archived-with-filter';
-                    params.unique_code = currentUniqueCode;
-                }
+            if (currentUniqueCode && currentUniqueCode !== 'all') {
+                url = '/sales/all-with-filter';
+                params = { unique_code: currentUniqueCode };
+            }
 
-                const response = await api.get(url, { params });
+            const [salesRes, customersRes] = await Promise.all([
+                api.get(url, { params }),
+                api.get(routes.customers)
+            ]);
 
-                if (!isMountedRef.current) return;
+            if (!isMountedRef.current) return;
 
-                if (response.data.success) {
-                    const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-                    const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
-                    const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
+            const salesData = salesRes.data.sales || salesRes.data || [];
+            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+            const { pendingBills, appliedBills } = processBillData(salesData);
 
-                    setArchivedData({
-                        pendingBills: updatedPending,
-                        appliedBills: updatedApplied,
-                        isLoading: false
-                    });
+            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
+            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
 
-                    console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-                    await fetchRemainingBalances();
-                }
-            } else {
-                const currentUniqueCode = selectedUniqueCodeRef.current;
-                console.log('🔄 Silent refreshing current sales data...', { uniqueCode: currentUniqueCode });
-
-                let url = routes.getAllSales;
-                let params = {};
-
-                if (currentUniqueCode && currentUniqueCode !== 'all') {
-                    url = '/sales/all-with-filter';
-                    params = { unique_code: currentUniqueCode };
-                }
-
-                const [salesRes, customersRes] = await Promise.all([
-                    api.get(url, { params }),
-                    api.get(routes.customers)
-                ]);
-
-                if (!isMountedRef.current) return;
-
-                const salesData = salesRes.data.sales || salesRes.data || [];
-                const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
-                const { pendingBills, appliedBills } = processBillData(salesData);
-
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
-
+            // Only update if the filter hasn't changed during this refresh
+            if (selectedUniqueCodeRef.current === currentUniqueCode) {
                 setState(prev => ({
                     ...prev,
                     pendingBills: updatedPending,
@@ -3386,6 +3444,7 @@ const handleUniqueCodeChange = useCallback((newValue) => {
                     customers: customersData,
                 }));
 
+                // Update selected bill if needed
                 if (state.selectedBill && isMountedRef.current) {
                     const isApplied = state.selectedBill.givenAmountApplied === 'Y';
                     const updatedBillsList = isApplied ? updatedApplied : updatedPending;
@@ -3403,24 +3462,6 @@ const handleUniqueCodeChange = useCallback((newValue) => {
                                 totalAmount: updatedBill.totalAmount
                             }
                         }));
-                    }
-
-                    try {
-                        const debtorResponse = await api.get(`/debtors/${state.selectedBill.billNo}`);
-                        if (debtorResponse.data.success && debtorResponse.data.data) {
-                            const debtorData = debtorResponse.data.data;
-                            setSelectedBillDebtor(debtorData);
-                            setState(prev => ({
-                                ...prev,
-                                selectedBill: {
-                                    ...prev.selectedBill,
-                                    remainingCredit: debtorData.remaining_amount || 0,
-                                    creditAmount: debtorData.credit_amount || prev.selectedBill?.creditAmount || 0
-                                }
-                            }));
-                        }
-                    } catch (debtorError) {
-                        console.log('Error refreshing debtor data:', debtorError);
                     }
                 }
 
@@ -3465,18 +3506,18 @@ const handleUniqueCodeChange = useCallback((newValue) => {
                 await fetchRemainingBalances();
 
                 console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-                console.log(`💰 Total Funds: Rs. ${formatDecimal(totalFunds)}`);
-            }
-        } catch (error) {
-            console.error("Silent refresh error:", error);
-        } finally {
-            if (isMountedRef.current) {
-                setIsRefreshing(false);
+            } else {
+                console.log('⏭️ Skipping state update - filter changed during refresh');
             }
         }
-    }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances, selectedUniqueCode, isChangingFilter]);
-
-
+    } catch (error) {
+        console.error("Silent refresh error:", error);
+    } finally {
+        if (isMountedRef.current) {
+            setIsRefreshing(false);
+        }
+    }
+}, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
 
     // Add useEffect to refetch when selectedUniqueCode changes
     useEffect(() => {
