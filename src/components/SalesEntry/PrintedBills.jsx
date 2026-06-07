@@ -2025,13 +2025,26 @@ export default function PrintedBills() {
         fetchUniqueCodes();
     }, [fetchUniqueCodes]);
 
+    // REPLACE with this corrected useEffect
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
         if (storedUser) setUser(JSON.parse(storedUser));
-        fetchSalesData();
-        const interval = setInterval(fetchSalesData, 30000);
-        return () => clearInterval(interval);
-    }, []);
+
+        // Initial load - this will use the current selectedUniqueCode
+        const initialLoad = async () => {
+            setState(prev => ({ ...prev, isLoading: true }));
+            await fetchSalesData(selectedUniqueCode);  // Pass the current filter!
+            setState(prev => ({ ...prev, isLoading: false }));
+        };
+        initialLoad();
+
+        // NO separate interval here - silent refresh already handles it
+        // The silent refresh interval is already set up in the other useEffect
+
+        return () => {
+            // Cleanup if needed
+        };
+    }, [selectedUniqueCode]);  // Add selectedUniqueCode as dependency
     const handleAdjustmentTypeSelect = (type) => {
         setState(prev => ({
             ...prev,
@@ -2415,16 +2428,21 @@ export default function PrintedBills() {
         }
 
         try {
+            // ALWAYS use the filtered endpoint when a specific cashier is selected
             let url = routes.getAllSales;
             let params = {};
 
-            // If a specific cashier is selected (not 'all'), use the filtered endpoint
             if (uniqueCode && uniqueCode !== 'all') {
                 url = '/sales/all-with-filter';
                 params = { unique_code: uniqueCode };
             }
 
-            console.log('Fetching sales with filter:', { url, uniqueCode, params });
+            console.log('🔄 Fetching sales with filter:', {
+                url,
+                uniqueCode,
+                params,
+                viewOldBills: viewOldBills
+            });
 
             const [salesRes, customersRes] = await Promise.all([
                 api.get(url, { params }),
@@ -2433,6 +2451,12 @@ export default function PrintedBills() {
 
             const salesData = salesRes.data.sales || salesRes.data || [];
             const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+
+            // Log to verify filtering is working
+            const uniqueCodesInData = [...new Set(salesData.map(s => s.UniqueCode))];
+            console.log('📊 Sales data unique codes:', uniqueCodesInData);
+            console.log('📊 Requested filter:', uniqueCode);
+
             const { pendingBills, appliedBills } = processBillData(salesData);
 
             const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchSalesData-pending', false);
@@ -2493,7 +2517,6 @@ export default function PrintedBills() {
 
         setArchivedData(prev => ({ ...prev, isLoading: true }));
         try {
-            // ALWAYS use the same URL - routes.getArchivedSales is "/sales/archived"
             const url = routes.getArchivedSales;
             const params = {
                 start_date: startDate,
@@ -2505,7 +2528,7 @@ export default function PrintedBills() {
                 params.unique_code = uniqueCode;
             }
 
-            console.log('Fetching archived sales with filter:', { url, params, uniqueCode });
+            console.log('🔄 Fetching archived sales with filter:', { url, params, uniqueCode });
 
             const response = await api.get(url, { params });
 
@@ -2628,8 +2651,19 @@ export default function PrintedBills() {
         try {
             console.log('🔄 Refreshing current data before loading old bills...');
 
+            const currentUniqueCode = selectedUniqueCodeRef.current;
+
+            let url = '/sales/all-with-filter';
+            const params = {};
+
+            if (currentUniqueCode && currentUniqueCode !== 'all') {
+                params.unique_code = currentUniqueCode;
+            } else if (currentUniqueCode === 'all') {
+                params.unique_code = 'all';
+            }
+
             const [salesRes, customersRes] = await Promise.all([
-                api.get(routes.getAllSales),
+                api.get(url, { params }),
                 api.get(routes.customers)
             ]);
 
@@ -3357,7 +3391,6 @@ export default function PrintedBills() {
             return null;
         }
     }, []);
-    // Replace the silentRefresh function (around line 1580)
     const silentRefresh = useCallback(async () => {
         if (!isMountedRef.current) return;
 
@@ -3394,7 +3427,7 @@ export default function PrintedBills() {
             }
 
             if (isViewingOldBills && hasDateRange) {
-                // Fetch archived sales with current filter - ALWAYS use the same URL
+                // Fetch archived sales with current filter
                 const url = routes.getArchivedSales;
                 const params = {
                     start_date: startDateRef.current,
@@ -3404,6 +3437,10 @@ export default function PrintedBills() {
                 // Add unique_code as a parameter if a specific cashier is selected
                 if (currentUniqueCode && currentUniqueCode !== 'all') {
                     params.unique_code = currentUniqueCode;
+                } else {
+                    // IMPORTANT: When 'all' is selected, we still need to ensure we're getting the right data
+                    // For 'all', we don't add the unique_code parameter
+                    console.log('📊 Fetching all cashiers data');
                 }
 
                 console.log('🔄 Silent refresh fetching archived sales with params:', params);
@@ -3430,13 +3467,18 @@ export default function PrintedBills() {
                 }
             } else {
                 // Fetch current sales with current filter
-                let url = routes.getAllSales;
-                let params = {};
+                let url = '/sales/all-with-filter';
+                const params = {};
 
+                // ALWAYS pass the unique_code parameter, even for 'all' we pass 'all' to backend
+                // This ensures consistent behavior
                 if (currentUniqueCode && currentUniqueCode !== 'all') {
-                    url = '/sales/all-with-filter';
-                    params = { unique_code: currentUniqueCode };
+                    params.unique_code = currentUniqueCode;
+                } else if (currentUniqueCode === 'all') {
+                    params.unique_code = 'all';
                 }
+
+                console.log('🔄 Silent refresh fetching current sales with:', { url, params, currentUniqueCode });
 
                 const [salesRes, customersRes] = await Promise.all([
                     api.get(url, { params }),
@@ -3447,6 +3489,12 @@ export default function PrintedBills() {
 
                 const salesData = salesRes.data.sales || salesRes.data || [];
                 const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+
+                // Log the unique codes in the fetched data
+                const uniqueCodesInData = [...new Set(salesData.map(s => s.UniqueCode))];
+                console.log('📊 Unique codes in fetched data:', uniqueCodesInData);
+                console.log('📊 Current filter:', currentUniqueCode);
+
                 const { pendingBills, appliedBills } = processBillData(salesData);
 
                 const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
@@ -4098,7 +4146,7 @@ export default function PrintedBills() {
                             </label>
                             <select
                                 value={selectedUniqueCode}
-                                onChange={(e) => handleUniqueCodeChange(e.target.value)}  // ← Use the new handler
+                                onChange={(e) => handleUniqueCodeChange(e.target.value)}
                                 disabled={isLoadingUniqueCodes || isChangingFilter}
                                 style={{
                                     padding: '8px 16px',
@@ -4111,7 +4159,7 @@ export default function PrintedBills() {
                                     minWidth: '150px'
                                 }}
                             >
-
+                                <option value="all">🧑‍💼 All Cashiers</option>
                                 {uniqueCodes.map(code => (
                                     <option key={code} value={code}>
                                         🧑‍💼 {code}

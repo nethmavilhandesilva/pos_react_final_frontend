@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Container,
   Grid,
@@ -45,7 +45,9 @@ import {
   CheckCircle as CheckCircleIcon,
   LocalAtm as LocalAtmIcon,
   CreditCard as CreditCardIcon,
-  AccountBalanceWallet as AccountBalanceWalletIcon
+  AccountBalanceWallet as AccountBalanceWalletIcon,
+  ArrowBack as ArrowBackIcon,
+  Category as CategoryIcon
 } from '@mui/icons-material';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -213,6 +215,7 @@ const globalStyles = {
 
 const ExpenseDashboard = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [selectedCashier, setSelectedCashier] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [expenseTypes, setExpenseTypes] = useState([]);
@@ -413,6 +416,15 @@ const ExpenseDashboard = () => {
     setErrors({});
   };
 
+  // Navigation handlers
+  const handleBack = () => {
+    navigate('/printed-bills');
+  };
+
+  const handleExpenseTypes = () => {
+    navigate('/utility-types');
+  };
+
   const renderConditionalFields = () => {
     if (formData.payment_method === 'cheque') {
       return (
@@ -574,6 +586,36 @@ const ExpenseDashboard = () => {
                   )}
                 </Box>
                 <Stack direction="row" spacing={2}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<ArrowBackIcon />}
+                    onClick={handleBack}
+                    sx={{ 
+                      borderRadius: '14px',
+                      textTransform: 'none',
+                      px: 3,
+                      borderColor: 'rgba(255,255,255,0.2)',
+                      color: '#e2e8f0',
+                      '&:hover': { borderColor: '#818cf8', bgcolor: 'rgba(129,140,248,0.08)' }
+                    }}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<CategoryIcon />}
+                    onClick={handleExpenseTypes}
+                    sx={{ 
+                      borderRadius: '14px',
+                      textTransform: 'none',
+                      px: 3,
+                      borderColor: 'rgba(255,255,255,0.2)',
+                      color: '#e2e8f0',
+                      '&:hover': { borderColor: '#818cf8', bgcolor: 'rgba(129,140,248,0.08)' }
+                    }}
+                  >
+                    Expense Types
+                  </Button>
                   <Button
                     variant="outlined"
                     startIcon={<RefreshIcon />}

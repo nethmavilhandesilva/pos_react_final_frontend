@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../api';
 
 const UtilityTypeManager = () => {
+    const navigate = useNavigate();
     const [utilityTypes, setUtilityTypes] = useState([]);
     const [statistics, setStatistics] = useState({
         total: 0,
@@ -198,6 +200,11 @@ const UtilityTypeManager = () => {
             : { background: '#ef4444', color: 'white' };
     };
 
+    // Handle back navigation
+    const handleBackToExpenses = () => {
+        navigate('/expenses');
+    };
+
     // Full page styles that override everything
     const styles = {
         // Global reset styles
@@ -224,6 +231,14 @@ const UtilityTypeManager = () => {
         header: {
             marginBottom: '24px'
         },
+        headerRow: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px',
+            flexWrap: 'wrap',
+            gap: '16px'
+        },
         title: {
             fontSize: '32px',
             fontWeight: '700',
@@ -234,6 +249,21 @@ const UtilityTypeManager = () => {
         subtitle: {
             color: 'rgba(255,255,255,0.9)',
             fontSize: '14px'
+        },
+        backButton: {
+            padding: '10px 24px',
+            border: '2px solid rgba(255,255,255,0.3)',
+            borderRadius: '12px',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'rgba(255,255,255,0.1)',
+            color: 'white',
+            backdropFilter: 'blur(10px)'
         },
         statsRow: {
             display: 'grid',
@@ -542,8 +572,26 @@ const UtilityTypeManager = () => {
         <div style={styles.globalReset}>
             <div style={styles.container}>
                 <div style={styles.header}>
-                    <h1 style={styles.title}>💰 Income & Expense Manager</h1>
-                    <p style={styles.subtitle}>Manage income and expense categories for your business</p>
+                    <div style={styles.headerRow}>
+                        <div>
+                            <h1 style={styles.title}>💰 Income & Expense Manager</h1>
+                            <p style={styles.subtitle}>Manage income and expense categories for your business</p>
+                        </div>
+                        <button
+                            onClick={handleBackToExpenses}
+                            style={styles.backButton}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                            }}
+                        >
+                            ← Back to Expenses
+                        </button>
+                    </div>
                 </div>
 
                 {/* Statistics Cards */}
