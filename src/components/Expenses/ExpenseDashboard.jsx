@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Container,
   Grid,
@@ -211,6 +212,8 @@ const globalStyles = {
 };
 
 const ExpenseDashboard = () => {
+  const location = useLocation();
+  const [selectedCashier, setSelectedCashier] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [expenseTypes, setExpenseTypes] = useState([]);
   const [banks, setBanks] = useState([]);
@@ -242,6 +245,15 @@ const ExpenseDashboard = () => {
   });
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Get the selected cashier from navigation state
+  useEffect(() => {
+    if (location.state && location.state.selectedCashier) {
+      const cashier = location.state.selectedCashier;
+      setSelectedCashier(cashier);
+      console.log('📋 Selected Cashier from PrintedBills:', cashier);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     fetchExpenseTypes();
@@ -318,7 +330,8 @@ const ExpenseDashboard = () => {
         ...formData,
         date: formData.date.format('YYYY-MM-DD'),
         cheque_date: formData.cheque_date ? formData.cheque_date.format('YYYY-MM-DD') : null,
-        transfer_date: formData.transfer_date ? formData.transfer_date.format('YYYY-MM-DD') : null
+        transfer_date: formData.transfer_date ? formData.transfer_date.format('YYYY-MM-DD') : null,
+        cashier_name: selectedCashier // Add the selected cashier here
       };
 
       let response;
@@ -545,6 +558,20 @@ const ExpenseDashboard = () => {
                   <Typography variant="body2" sx={{ color: '#94a3b8' }}>
                     Track, manage, and analyze your expenses efficiently
                   </Typography>
+                  {/* Display selected cashier if available */}
+                  {selectedCashier && (
+                    <Typography variant="caption" sx={{ 
+                      color: '#60a5fa', 
+                      display: 'block', 
+                      mt: 1,
+                      background: 'rgba(96,165,250,0.1)',
+                      padding: '4px 8px',
+                      borderRadius: '8px',
+                      display: 'inline-block'
+                    }}>
+                      👤 Cashier: {selectedCashier}
+                    </Typography>
+                  )}
                 </Box>
                 <Stack direction="row" spacing={2}>
                   <Button
