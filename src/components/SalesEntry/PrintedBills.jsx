@@ -2057,33 +2057,51 @@ const recordCashierTransaction = async (paymentData) => {
     const [isLoadingRemaining, setIsLoadingRemaining] = useState(false);
     const [showBankBreakdownModal, setShowBankBreakdownModal] = useState(false);
     // Fetch remaining balances from cashier_balances table
-    const fetchRemainingBalances = async () => {
-        setIsLoadingRemaining(true);
-        try {
-            const response = await api.get('/cashier-balance/remaining-balances');
-            if (response.data.success) {
-                setRemainingBalances(response.data.data);
-                console.log('Remaining balances fetched:', response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching remaining balances:', error);
-        } finally {
-            setIsLoadingRemaining(false);
+const fetchRemainingBalances = useCallback(async (cashierName) => {
+    setIsLoadingRemaining(true);
+    try {
+        const params = {};
+
+        // Use explicit caller-provided cashierName when available,
+        // otherwise fall back to the ref (keeps value correct during immediate calls)
+        const cashier = (typeof cashierName !== 'undefined' && cashierName !== null)
+            ? cashierName
+            : (selectedUniqueCodeRef.current || 'all');
+
+        if (cashier && cashier !== 'all') {
+            params.cashier_name = cashier;
         }
-    };
+
+        console.log('🔍 Fetching balances for cashier (param/ref):', { cashier, params });
+
+        const response = await api.get('/cashier-balance/remaining-balances', { params });
+
+        console.log('📊 Response received:', response.data);
+
+        if (response.data.success) {
+            setRemainingBalances(response.data.data);
+            console.log('✅ Balances updated:', response.data.data);
+        }
+    } catch (error) {
+        console.error('❌ Error fetching remaining balances:', error);
+    } finally {
+        setIsLoadingRemaining(false);
+    }
+}, []); // stable - uses ref when needed
     // Fetch remaining balances on component mount
-    useEffect(() => {
-        fetchRemainingBalances();
+    
+useEffect(() => {
+    fetchRemainingBalances();
 
-        // Refresh remaining balances every 30 seconds
-        const remainingBalanceInterval = setInterval(() => {
-            if (!modalOpenRef.current) {
-                fetchRemainingBalances();
-            }
-        }, 30000);
+    // Refresh remaining balances every 30 seconds
+    const remainingBalanceInterval = setInterval(() => {
+        if (!modalOpenRef.current) {
+            fetchRemainingBalances();
+        }
+    }, 30000);
 
-        return () => clearInterval(remainingBalanceInterval);
-    }, []);
+    return () => clearInterval(remainingBalanceInterval);
+}, [fetchRemainingBalances]); // Add fetchRemainingBalances as dependency
 
 
     const handleAdjustmentPayment = async () => {
@@ -2518,35 +2536,38 @@ const recordCashierTransaction = async (paymentData) => {
         }
     };
     // Add this new handler for filter changes
-    const handleUniqueCodeChange = useCallback((newValue) => {
-        // Clear any pending timeout
-        if (filterChangeTimeoutRef.current) {
-            clearTimeout(filterChangeTimeoutRef.current);
-        }
+const handleUniqueCodeChange = useCallback((newValue) => {
+    // Clear any pending timeout
+    if (filterChangeTimeoutRef.current) {
+        clearTimeout(filterChangeTimeoutRef.current);
+    }
 
-        // Set flag to prevent auto-refresh during filter change
-        setIsChangingFilter(true);
+    // Set flag to prevent auto-refresh during filter change
+    setIsChangingFilter(true);
 
-        // Store the new value
-        lastSelectedCodeRef.current = newValue;
-        selectedUniqueCodeRef.current = newValue;
-        setSelectedUniqueCode(newValue);
+    // Store the new value
+    lastSelectedCodeRef.current = newValue;
+    selectedUniqueCodeRef.current = newValue;
+    setSelectedUniqueCode(newValue);
 
-        // Save to localStorage
-        localStorage.setItem('printedBills_selectedUniqueCode', newValue);
+    // Save to localStorage
+    localStorage.setItem('printedBills_selectedUniqueCode', newValue);
 
-        // Manually fetch data with the selected cashier value immediately
-        if (!viewOldBills) {
-            fetchSalesData(newValue);
-        } else if (startDate && endDate) {
-            fetchArchivedSales(true, newValue);
-        }
+    // Manually fetch data with the selected cashier value immediately
+    if (!viewOldBills) {
+        fetchSalesData(newValue);
+    } else if (startDate && endDate) {
+        fetchArchivedSales(true, newValue);
+    }
+    
+    // 🔄 Refresh remaining balances for the selected cashier (use explicit newValue)
+    fetchRemainingBalances(newValue);
 
-        // Reset the changing flag after 2 seconds to allow auto-refresh to resume
-        filterChangeTimeoutRef.current = setTimeout(() => {
-            setIsChangingFilter(false);
-        }, 2000);
-    }, [viewOldBills, startDate, endDate, fetchSalesData, fetchArchivedSales]);
+    // Reset the changing flag after 2 seconds to allow auto-refresh to resume
+    filterChangeTimeoutRef.current = setTimeout(() => {
+        setIsChangingFilter(false);
+    }, 2000);
+}, [viewOldBills, startDate, endDate, fetchSalesData, fetchArchivedSales, fetchRemainingBalances]); // ← Add fetchRemainingBalances to dependencies
     // Add this function near your other functions (around line 1400)
     const refreshBeforeLoadingOldBills = async () => {
         try {
@@ -4032,7 +4053,7 @@ const recordCashierTransaction = async (paymentData) => {
                                     minWidth: '150px'
                                 }}
                             >
-                                <option value="all">📊 All Cashiers</option>
+                               
                                 {uniqueCodes.map(code => (
                                     <option key={code} value={code}>
                                         🧑‍💼 {code}

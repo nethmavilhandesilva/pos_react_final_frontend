@@ -2198,39 +2198,53 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
     const filterPollingIntervalRef = useRef(null);
     const cashierBalanceIntervalRef = useRef(null);
 
-    // Fetch cashier balance data
-    const fetchCashierBalance = async () => {
-        setIsLoadingCashierBalance(true);
-        try {
-            let url = '/cashier-balance/detailed-balance';
-            const params = new URLSearchParams();
+  const fetchCashierBalance = async () => {
+    console.log('🟢 FETCHING CASHIER BALANCE...');
+    setIsLoadingCashierBalance(true);
+    try {
+        let url = '/cashier-balance/detailed-balance';
+        const params = new URLSearchParams();
 
-            if (selectedCashierName && selectedCashierName !== 'all') {
-                params.append('cashier_name', selectedCashierName);
-            }
-            if (dateRange.startDate) {
-                params.append('start_date', dateRange.startDate);
-            }
-            if (dateRange.endDate) {
-                params.append('end_date', dateRange.endDate);
-            }
-
-            if (params.toString()) {
-                url += `?${params.toString()}`;
-            }
-
-            const response = await api.get(url);
-
-            if (response.data.success) {
-                setCashierBalance(response.data.data);
-                console.log('Cashier balance fetched:', response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching cashier balance:', error);
-        } finally {
-            setIsLoadingCashierBalance(false);
+        if (selectedCashierName && selectedCashierName !== 'all') {
+            params.append('cashier_name', selectedCashierName);
         }
-    };
+        if (dateRange.startDate) {
+            params.append('start_date', dateRange.startDate);
+        }
+        if (dateRange.endDate) {
+            params.append('end_date', dateRange.endDate);
+        }
+
+        if (params.toString()) {
+            url += `?${params.toString()}`;
+        }
+
+        console.log('📡 Fetching from URL:', url);
+        const response = await api.get(url);
+        console.log('📦 Cashier Balance Response:', response.data);
+
+        if (response.data.success) {
+            // The data is now at the root of response.data.data
+            const data = response.data.data;
+            setCashierBalance({
+                cash_balance: data.cash_balance || 0,
+                bank_balance: data.bank_balance || 0,
+                bank_breakdown: data.bank_breakdown || {},
+                total_balance: data.total_balance || 0,
+                cashier_names: data.cashier_names || [],
+                session_count: data.session_count || 0
+            });
+            console.log('✅ Cashier balance set:', data);
+        } else {
+            console.error('❌ API returned success=false:', response.data.message);
+        }
+    } catch (error) {
+        console.error('❌ Error fetching cashier balance:', error);
+        console.error('Error details:', error.response?.data);
+    } finally {
+        setIsLoadingCashierBalance(false);
+    }
+};
 
     // Fetch filter options (including cashier names)
     const fetchFilterOptions = async () => {
