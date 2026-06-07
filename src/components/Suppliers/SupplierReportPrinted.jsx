@@ -2198,53 +2198,53 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
     const filterPollingIntervalRef = useRef(null);
     const cashierBalanceIntervalRef = useRef(null);
 
-  const fetchCashierBalance = async () => {
-    console.log('🟢 FETCHING CASHIER BALANCE...');
-    setIsLoadingCashierBalance(true);
-    try {
-        let url = '/cashier-balance/detailed-balance';
-        const params = new URLSearchParams();
+    const fetchCashierBalance = async () => {
+        console.log('🟢 FETCHING CASHIER BALANCE...');
+        setIsLoadingCashierBalance(true);
+        try {
+            let url = '/cashier-balance/detailed-balance';
+            const params = new URLSearchParams();
 
-        if (selectedCashierName && selectedCashierName !== 'all') {
-            params.append('cashier_name', selectedCashierName);
-        }
-        if (dateRange.startDate) {
-            params.append('start_date', dateRange.startDate);
-        }
-        if (dateRange.endDate) {
-            params.append('end_date', dateRange.endDate);
-        }
+            if (selectedCashierName && selectedCashierName !== 'all') {
+                params.append('cashier_name', selectedCashierName);
+            }
+            if (dateRange.startDate) {
+                params.append('start_date', dateRange.startDate);
+            }
+            if (dateRange.endDate) {
+                params.append('end_date', dateRange.endDate);
+            }
 
-        if (params.toString()) {
-            url += `?${params.toString()}`;
-        }
+            if (params.toString()) {
+                url += `?${params.toString()}`;
+            }
 
-        console.log('📡 Fetching from URL:', url);
-        const response = await api.get(url);
-        console.log('📦 Cashier Balance Response:', response.data);
+            console.log('📡 Fetching from URL:', url);
+            const response = await api.get(url);
+            console.log('📦 Cashier Balance Response:', response.data);
 
-        if (response.data.success) {
-            // The data is now at the root of response.data.data
-            const data = response.data.data;
-            setCashierBalance({
-                cash_balance: data.cash_balance || 0,
-                bank_balance: data.bank_balance || 0,
-                bank_breakdown: data.bank_breakdown || {},
-                total_balance: data.total_balance || 0,
-                cashier_names: data.cashier_names || [],
-                session_count: data.session_count || 0
-            });
-            console.log('✅ Cashier balance set:', data);
-        } else {
-            console.error('❌ API returned success=false:', response.data.message);
+            if (response.data.success) {
+                // The data is now at the root of response.data.data
+                const data = response.data.data;
+                setCashierBalance({
+                    cash_balance: data.cash_balance || 0,
+                    bank_balance: data.bank_balance || 0,
+                    bank_breakdown: data.bank_breakdown || {},
+                    total_balance: data.total_balance || 0,
+                    cashier_names: data.cashier_names || [],
+                    session_count: data.session_count || 0
+                });
+                console.log('✅ Cashier balance set:', data);
+            } else {
+                console.error('❌ API returned success=false:', response.data.message);
+            }
+        } catch (error) {
+            console.error('❌ Error fetching cashier balance:', error);
+            console.error('Error details:', error.response?.data);
+        } finally {
+            setIsLoadingCashierBalance(false);
         }
-    } catch (error) {
-        console.error('❌ Error fetching cashier balance:', error);
-        console.error('Error details:', error.response?.data);
-    } finally {
-        setIsLoadingCashierBalance(false);
-    }
-};
+    };
 
     // Fetch filter options (including cashier names)
     const fetchFilterOptions = async () => {
@@ -3354,6 +3354,9 @@ export default function SupplierReportPrinted() {
     // Add this with your other state declarations
     const [netAvailableAmount, setNetAvailableAmount] = useState(0);
     const [isLoadingNetAvailable, setIsLoadingNetAvailable] = useState(false);
+    const [totalAllocatedAmount, setTotalAllocatedAmount] = useState(0);
+
+    const [supplierPaymentsTotal, setSupplierPaymentsTotal] = useState(0);
     // Add this function with your other fetch functions
     const fetchNetAvailableAmount = async () => {
         console.log('🔵 FETCH NET AVAILABLE - STARTED');
@@ -3365,21 +3368,39 @@ export default function SupplierReportPrinted() {
             console.log('🔵 API Response:', response.data);
 
             if (response.data.success) {
-                const netAmount = response.data.data.net_available || 0;
-                console.log('💰 Net Available Amount:', netAmount);
+                // Use the grand totals from the response
+                const grandTotals = response.data.data.grand_totals;
+                const netAmount = grandTotals.net_available || 0;
+                const totalAllocated = grandTotals.total_allocated || 0;
+                const supplierPaymentsTotal = response.data.data.supplier_payments_total || 0;
+
+                console.log('💰 Grand Totals:', {
+                    net_available: netAmount,
+                    total_allocated: totalAllocated,
+                    supplier_payments: supplierPaymentsTotal,
+                    total_records: grandTotals.total_records
+                });
+
                 setNetAvailableAmount(netAmount);
+                setTotalAllocatedAmount(totalAllocated);
+                setSupplierPaymentsTotal(supplierPaymentsTotal);
             } else {
                 console.error('❌ API returned success=false:', response.data.message);
                 setNetAvailableAmount(0);
+                setTotalAllocatedAmount(0);
+                setSupplierPaymentsTotal(0);
             }
         } catch (error) {
             console.error('❌ Error fetching net available amount:', error);
             setNetAvailableAmount(0);
+            setTotalAllocatedAmount(0);
+            setSupplierPaymentsTotal(0);
         } finally {
             setIsLoadingNetAvailable(false);
             console.log('🔵 FETCH NET AVAILABLE - COMPLETED');
         }
     };
+    const [showDirectFundAllocationModal, setShowDirectFundAllocationModal] = useState(false);
     const deductAllocatedFunds = async (amount, paymentMethod, bankName = null) => {
         try {
             const response = await api.post('/cashier-balance/deduct-allocated-funds', {
@@ -4226,38 +4247,38 @@ export default function SupplierReportPrinted() {
         };
     }, []); // Empty dependency array - runs once on mount
 
-  const handleModeChange = (mode) => {
-    // Store the mode selection for this specific bill
-    if (state.selectedBillNo) {
-        const billKey = `${state.selectedSupplier}-${state.selectedBillNo}`;
-        setBillModeSelections(prev => ({
-            ...prev,
-            [billKey]: mode
-        }));
-    }
-    
-    // Unlock the panel when a mode is selected
-    setIsMiddlePanelLocked(false);
-    
-    setState(prev => ({ ...prev, selectedMode: mode }));
-    
-    if (mode === 'creditor') {
-        if (!state.selectedSupplier) {
-            alert('Please select a supplier/bill first before marking as creditor.');
-            setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-            setIsMiddlePanelLocked(true);
-            return;
+    const handleModeChange = (mode) => {
+        // Store the mode selection for this specific bill
+        if (state.selectedBillNo) {
+            const billKey = `${state.selectedSupplier}-${state.selectedBillNo}`;
+            setBillModeSelections(prev => ({
+                ...prev,
+                [billKey]: mode
+            }));
         }
-        if (!state.selectedBillNo) {
-            alert('Please select a bill that has a bill number.');
-            setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-            setIsMiddlePanelLocked(true);
-            return;
+
+        // Unlock the panel when a mode is selected
+        setIsMiddlePanelLocked(false);
+
+        setState(prev => ({ ...prev, selectedMode: mode }));
+
+        if (mode === 'creditor') {
+            if (!state.selectedSupplier) {
+                alert('Please select a supplier/bill first before marking as creditor.');
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                setIsMiddlePanelLocked(true);
+                return;
+            }
+            if (!state.selectedBillNo) {
+                alert('Please select a bill that has a bill number.');
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+                setIsMiddlePanelLocked(true);
+                return;
+            }
+            setSelectedBillForCreditor({ supplierCode: state.selectedSupplier, billNo: state.selectedBillNo });
+            setShowCreditorModal(true);
         }
-        setSelectedBillForCreditor({ supplierCode: state.selectedSupplier, billNo: state.selectedBillNo });
-        setShowCreditorModal(true);
-    }
-};
+    };
 
     const handleCreditorSave = async (saved, creditorNo = null) => {
         if (saved && pendingCreditorBill) {
@@ -4309,385 +4330,385 @@ export default function SupplierReportPrinted() {
         return groups;
     }, [filteredFarmerOptions]);
 
- const handleCreditorConfirm = async (supplier) => {
-    // Save the current selected supplier and bill before any refresh
-    const currentSupplier = state.selectedSupplier;
-    const currentBillNo = state.selectedBillNo;
-    
-    // Save creditor mode for this bill
-    if (currentBillNo) {
-        const billKey = `${currentSupplier}-${currentBillNo}`;
-        setBillModeSelections(prev => ({
-            ...prev,
-            [billKey]: 'creditor'
-        }));
-    }
-    
-    alert(`Supplier ${supplier.code} marked as creditor successfully!`);
-    
-    // Refresh data silently WITHOUT resetting the selected bill
-    await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
-    
-    // Re-select the same bill after refresh
-    if (currentSupplier && currentBillNo) {
-        // Check if the bill still exists after refresh
-        const billStillExists = [...state.pendingSuppliers, ...state.completedSuppliers].some(
-            item => item.supplier_code === currentSupplier && 
-                   item.supplier_bill_no === currentBillNo
-        );
-        
-        if (billStillExists) {
-            // Re-select the bill without showing the lock screen
-            setIsMiddlePanelLocked(false);
-            
-            // Fetch the refreshed details for this bill
-            await refreshSupplierDetailsAfterCreditor(currentSupplier, currentBillNo);
-            
-            // Update the selected state without triggering a full reset
-            setState(prev => ({ 
-                ...prev, 
-                selectedSupplier: currentSupplier, 
-                selectedBillNo: currentBillNo,
-                selectedMode: 'creditor'
+    const handleCreditorConfirm = async (supplier) => {
+        // Save the current selected supplier and bill before any refresh
+        const currentSupplier = state.selectedSupplier;
+        const currentBillNo = state.selectedBillNo;
+
+        // Save creditor mode for this bill
+        if (currentBillNo) {
+            const billKey = `${currentSupplier}-${currentBillNo}`;
+            setBillModeSelections(prev => ({
+                ...prev,
+                [billKey]: 'creditor'
             }));
-        } else {
-            // Bill no longer exists, clear selection
+        }
+
+        alert(`Supplier ${supplier.code} marked as creditor successfully!`);
+
+        // Refresh data silently WITHOUT resetting the selected bill
+        await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
+
+        // Re-select the same bill after refresh
+        if (currentSupplier && currentBillNo) {
+            // Check if the bill still exists after refresh
+            const billStillExists = [...state.pendingSuppliers, ...state.completedSuppliers].some(
+                item => item.supplier_code === currentSupplier &&
+                    item.supplier_bill_no === currentBillNo
+            );
+
+            if (billStillExists) {
+                // Re-select the bill without showing the lock screen
+                setIsMiddlePanelLocked(false);
+
+                // Fetch the refreshed details for this bill
+                await refreshSupplierDetailsAfterCreditor(currentSupplier, currentBillNo);
+
+                // Update the selected state without triggering a full reset
+                setState(prev => ({
+                    ...prev,
+                    selectedSupplier: currentSupplier,
+                    selectedBillNo: currentBillNo,
+                    selectedMode: 'creditor'
+                }));
+            } else {
+                // Bill no longer exists, clear selection
+                setState(prev => ({
+                    ...prev,
+                    selectedSupplier: null,
+                    selectedBillNo: null,
+                    supplierDetails: [],
+                    paymentAmount: "",
+                    currentPaidAmount: 0,
+                    paymentBreakdown: [],
+                    currentBillTotal: 0
+                }));
+                setSelectedBillCreditor(null);
+                setIsMiddlePanelLocked(true);
+            }
+        }
+
+        setIsMiddlePanelLocked(false);
+    };
+
+    // Add this helper function to refresh supplier details without resetting selection
+    const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
+        try {
+            let url, response;
+            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+
+            if (billNo) {
+                url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+                if (useHistoryParam) {
+                    url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                response = await api.get(url);
+            } else {
+                url = `${routes.getUnprintedDetails}/${supplierCode}`;
+                if (useHistoryParam) {
+                    url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                response = await api.get(url);
+            }
+
+            const salesData = response.data.sales || response.data;
+
+            let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            let actualBillTotal = calculatedTotal;
+            if (billFromState && billFromState.total_amount) {
+                actualBillTotal = parseFloat(billFromState.total_amount);
+            }
+
+            const total = actualBillTotal;
+            let currentPaid = 0;
+            let paymentBreakdown = [];
+
+            if (billNo) {
+                try {
+                    let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
+                    if (useHistoryParam) {
+                        loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                    }
+                    const loanRes = await api.get(loanUrl);
+                    if (loanRes.data) {
+                        const paymentDetails = loanRes.data.payment_details || [];
+                        if (typeof paymentDetails === 'string') {
+                            paymentBreakdown = JSON.parse(paymentDetails);
+                        } else {
+                            paymentBreakdown = paymentDetails;
+                        }
+
+                        const isFromFullySettled = state.completedSuppliers.some(
+                            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+                        );
+
+                        let totalPaidFromPayments = 0;
+                        if (Array.isArray(paymentBreakdown)) {
+                            paymentBreakdown.forEach(payment => {
+                                const amount = parseFloat(payment.amount) || 0;
+                                if (isFromFullySettled && payment.method === 'Credit') {
+                                    // Exclude Credit from Total Paid display for Fully Settled bills
+                                } else {
+                                    totalPaidFromPayments += amount;
+                                }
+                            });
+                        }
+                        currentPaid = totalPaidFromPayments;
+                    }
+                } catch (loanError) {
+                    console.error('Error fetching loan details during refresh:', loanError);
+                }
+            }
+
+            // Get updated creditor info
+            let creditorInfo = null;
+            if (billNo) {
+                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+                setSelectedBillCreditor(creditorInfo);
+            } else {
+                setSelectedBillCreditor(null);
+            }
+
+            const isFromNotSettled = state.pendingSuppliers.some(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            const isFromFullySettled = state.completedSuppliers.some(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            let totalRemainingAmount = 0;
+            let isUpdatingCompletedBill = false;
+
+            if (isFromNotSettled) {
+                const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+                totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
+                isUpdatingCompletedBill = false;
+            } else if (isFromFullySettled) {
+                totalRemainingAmount = creditorInfo?.remaining_amount || 0;
+                isUpdatingCompletedBill = true;
+            }
+
+            const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
+
+            // Update state without clearing the selection
             setState(prev => ({
                 ...prev,
-                selectedSupplier: null,
-                selectedBillNo: null,
-                supplierDetails: [],
-                paymentAmount: "",
-                currentPaidAmount: 0,
-                paymentBreakdown: [],
-                currentBillTotal: 0
+                supplierDetails: salesData || [],
+                currentPaidAmount: currentPaid,
+                paymentBreakdown: paymentBreakdown,
+                currentBillTotal: total,
+                isUpdatingCompletedBill: isUpdatingCompletedBill,
+                paymentAmount: defaultPaymentAmount
             }));
+
+            console.log('✅ Supplier details refreshed after creditor creation');
+
+        } catch (error) {
+            console.error('Error refreshing supplier details after creditor:', error);
+        }
+    };
+
+    const handleSupplierClick = async (supplierCode, billNo = null) => {
+        if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
+            setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
+            setSelectedBillCreditor(null);
+            setIsMiddlePanelLocked(true);
+            return;
+        }
+
+        // ⭐ CRITICAL: Immediately check for creditor before any loading
+        let hasCreditor = false;
+        let creditorInfo = null;
+
+        if (billNo) {
+            try {
+                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
+                console.log('🔍 Pre-check creditor status:', { supplierCode, billNo, hasCreditor, creditorInfo });
+            } catch (error) {
+                console.log('Error checking creditor status:', error);
+            }
+        }
+
+        // ⭐ Check if this specific bill has a previously selected mode
+        const billKey = `${supplierCode}-${billNo}`;
+        const savedMode = billModeSelections[billKey];
+
+        // ⭐ DECISION LOGIC:
+        // 1. If bill has creditor → ALWAYS UNLOCK (no lock screen)
+        // 2. If bill has saved mode (previously clicked walking/creditor) → UNLOCK
+        // 3. Otherwise → LOCK the panel (show lock screen)
+
+        if (hasCreditor) {
+            console.log('✅ Bill HAS CREDITOR - Panel UNLOCKED (no lock screen)');
+            setIsMiddlePanelLocked(false);
+            if (!state.selectedMode || state.selectedMode === 'walking_seller') {
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+            }
+        } else if (savedMode) {
+            console.log(`✅ Bill has previously selected mode: ${savedMode} - Panel UNLOCKED`);
+            setIsMiddlePanelLocked(false);
+            setState(prev => ({ ...prev, selectedMode: savedMode }));
+        } else {
+            console.log('❌ New bill - NO creditor, NO previous selection - Panel LOCKED');
+            setIsMiddlePanelLocked(true);
+            setState(prev => ({ ...prev, selectedMode: null }));
+        }
+
+        setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
+
+        try {
+            let url, response;
+            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+
+            if (billNo) {
+                url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+                if (useHistoryParam) {
+                    url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                response = await api.get(url);
+            } else {
+                url = `${routes.getUnprintedDetails}/${supplierCode}`;
+                if (useHistoryParam) {
+                    url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                response = await api.get(url);
+            }
+
+            const salesData = response.data.sales || response.data;
+
+            let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+
+            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            let actualBillTotal = calculatedTotal;
+            let creditAmount = 0;
+            let creditorRemainingAmount = 0;
+
+            if (billFromState && billFromState.total_amount) {
+                actualBillTotal = parseFloat(billFromState.total_amount);
+            }
+
+            const total = actualBillTotal;
+
+            let currentPaid = 0;
+            let paymentBreakdown = [];
+
+            if (billNo) {
+                try {
+                    let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
+                    if (useHistoryParam) {
+                        loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                    }
+                    const loanRes = await api.get(loanUrl);
+                    if (loanRes.data) {
+                        const paymentDetails = loanRes.data.payment_details || [];
+                        if (typeof paymentDetails === 'string') {
+                            paymentBreakdown = JSON.parse(paymentDetails);
+                        } else {
+                            paymentBreakdown = paymentDetails;
+                        }
+
+                        const isFromFullySettled = state.completedSuppliers.some(
+                            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+                        );
+
+                        let totalPaidFromPayments = 0;
+                        if (Array.isArray(paymentBreakdown)) {
+                            paymentBreakdown.forEach(payment => {
+                                const amount = parseFloat(payment.amount) || 0;
+                                if (isFromFullySettled && payment.method === 'Credit') {
+                                    // Exclude Credit from Total Paid display for Fully Settled bills
+                                } else {
+                                    totalPaidFromPayments += amount;
+                                }
+                            });
+                        }
+                        currentPaid = totalPaidFromPayments;
+                    }
+                } catch (loanError) {
+                    console.error('Error fetching loan details:', loanError);
+                }
+            }
+
+            // Get creditor info again (or use the one we already have)
+            if (billNo && !creditorInfo) {
+                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+                setSelectedBillCreditor(creditorInfo);
+
+                // Update hasCreditor based on fresh data
+                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
+
+                if (creditorInfo) {
+                    creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
+                    creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
+                }
+            } else if (creditorInfo) {
+                setSelectedBillCreditor(creditorInfo);
+                creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
+                creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
+            } else {
+                setSelectedBillCreditor(null);
+            }
+
+            // CRITICAL: Check which section this bill belongs to
+            const isFromNotSettled = state.pendingSuppliers.some(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            const isFromFullySettled = state.completedSuppliers.some(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            // Calculate the TOTAL remaining amount
+            let totalRemainingAmount = 0;
+            let isUpdatingCompletedBill = false;
+
+            if (isFromNotSettled) {
+                const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+                totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
+                isUpdatingCompletedBill = false;
+            } else if (isFromFullySettled) {
+                totalRemainingAmount = creditorRemainingAmount;
+                isUpdatingCompletedBill = true;
+            }
+
+            // Don't change lock state here - preserve our decision
+            // Only update if the bill has creditor and we need to ensure unlock
+            if (hasCreditor && isMiddlePanelLocked) {
+                setIsMiddlePanelLocked(false);
+            }
+
+            // Set the payment amount
+            const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
+
+            setState(prev => ({
+                ...prev,
+                supplierDetails: salesData || [],
+                paymentAmount: defaultPaymentAmount,
+                currentPaidAmount: currentPaid,
+                paymentBreakdown: paymentBreakdown,
+                isPrinting: false,
+                currentBillTotal: total,
+                isUpdatingCompletedBill: isUpdatingCompletedBill
+            }));
+
+            console.log('✅ State updated - hasCreditor:', hasCreditor, 'savedMode:', savedMode, 'isMiddlePanelLocked:', isMiddlePanelLocked);
+        } catch (error) {
+            console.error('Error fetching supplier details:', error);
+            setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
             setSelectedBillCreditor(null);
             setIsMiddlePanelLocked(true);
         }
-    }
-    
-    setIsMiddlePanelLocked(false);
-};
-
-// Add this helper function to refresh supplier details without resetting selection
-const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
-    try {
-        let url, response;
-        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-
-        if (billNo) {
-            url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
-            if (useHistoryParam) {
-                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            response = await api.get(url);
-        } else {
-            url = `${routes.getUnprintedDetails}/${supplierCode}`;
-            if (useHistoryParam) {
-                url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            response = await api.get(url);
-        }
-
-        const salesData = response.data.sales || response.data;
-
-        let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-
-        const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        let actualBillTotal = calculatedTotal;
-        if (billFromState && billFromState.total_amount) {
-            actualBillTotal = parseFloat(billFromState.total_amount);
-        }
-
-        const total = actualBillTotal;
-        let currentPaid = 0;
-        let paymentBreakdown = [];
-
-        if (billNo) {
-            try {
-                let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-                if (useHistoryParam) {
-                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                const loanRes = await api.get(loanUrl);
-                if (loanRes.data) {
-                    const paymentDetails = loanRes.data.payment_details || [];
-                    if (typeof paymentDetails === 'string') {
-                        paymentBreakdown = JSON.parse(paymentDetails);
-                    } else {
-                        paymentBreakdown = paymentDetails;
-                    }
-
-                    const isFromFullySettled = state.completedSuppliers.some(
-                        item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-                    );
-
-                    let totalPaidFromPayments = 0;
-                    if (Array.isArray(paymentBreakdown)) {
-                        paymentBreakdown.forEach(payment => {
-                            const amount = parseFloat(payment.amount) || 0;
-                            if (isFromFullySettled && payment.method === 'Credit') {
-                                // Exclude Credit from Total Paid display for Fully Settled bills
-                            } else {
-                                totalPaidFromPayments += amount;
-                            }
-                        });
-                    }
-                    currentPaid = totalPaidFromPayments;
-                }
-            } catch (loanError) {
-                console.error('Error fetching loan details during refresh:', loanError);
-            }
-        }
-
-        // Get updated creditor info
-        let creditorInfo = null;
-        if (billNo) {
-            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-            setSelectedBillCreditor(creditorInfo);
-        } else {
-            setSelectedBillCreditor(null);
-        }
-
-        const isFromNotSettled = state.pendingSuppliers.some(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        const isFromFullySettled = state.completedSuppliers.some(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        let totalRemainingAmount = 0;
-        let isUpdatingCompletedBill = false;
-
-        if (isFromNotSettled) {
-            const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-            totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
-            isUpdatingCompletedBill = false;
-        } else if (isFromFullySettled) {
-            totalRemainingAmount = creditorInfo?.remaining_amount || 0;
-            isUpdatingCompletedBill = true;
-        }
-
-        const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
-
-        // Update state without clearing the selection
-        setState(prev => ({
-            ...prev,
-            supplierDetails: salesData || [],
-            currentPaidAmount: currentPaid,
-            paymentBreakdown: paymentBreakdown,
-            currentBillTotal: total,
-            isUpdatingCompletedBill: isUpdatingCompletedBill,
-            paymentAmount: defaultPaymentAmount
-        }));
-
-        console.log('✅ Supplier details refreshed after creditor creation');
-        
-    } catch (error) {
-        console.error('Error refreshing supplier details after creditor:', error);
-    }
-};
-
- const handleSupplierClick = async (supplierCode, billNo = null) => {
-    if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
-        setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
-        setSelectedBillCreditor(null);
-        setIsMiddlePanelLocked(true);
-        return;
-    }
-
-    // ⭐ CRITICAL: Immediately check for creditor before any loading
-    let hasCreditor = false;
-    let creditorInfo = null;
-
-    if (billNo) {
-        try {
-            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-            hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
-            console.log('🔍 Pre-check creditor status:', { supplierCode, billNo, hasCreditor, creditorInfo });
-        } catch (error) {
-            console.log('Error checking creditor status:', error);
-        }
-    }
-
-    // ⭐ Check if this specific bill has a previously selected mode
-    const billKey = `${supplierCode}-${billNo}`;
-    const savedMode = billModeSelections[billKey];
-    
-    // ⭐ DECISION LOGIC:
-    // 1. If bill has creditor → ALWAYS UNLOCK (no lock screen)
-    // 2. If bill has saved mode (previously clicked walking/creditor) → UNLOCK
-    // 3. Otherwise → LOCK the panel (show lock screen)
-    
-    if (hasCreditor) {
-        console.log('✅ Bill HAS CREDITOR - Panel UNLOCKED (no lock screen)');
-        setIsMiddlePanelLocked(false);
-        if (!state.selectedMode || state.selectedMode === 'walking_seller') {
-            setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-        }
-    } else if (savedMode) {
-        console.log(`✅ Bill has previously selected mode: ${savedMode} - Panel UNLOCKED`);
-        setIsMiddlePanelLocked(false);
-        setState(prev => ({ ...prev, selectedMode: savedMode }));
-    } else {
-        console.log('❌ New bill - NO creditor, NO previous selection - Panel LOCKED');
-        setIsMiddlePanelLocked(true);
-        setState(prev => ({ ...prev, selectedMode: null }));
-    }
-
-    setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
-
-    try {
-        let url, response;
-        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-
-        if (billNo) {
-            url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
-            if (useHistoryParam) {
-                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            response = await api.get(url);
-        } else {
-            url = `${routes.getUnprintedDetails}/${supplierCode}`;
-            if (useHistoryParam) {
-                url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            response = await api.get(url);
-        }
-
-        const salesData = response.data.sales || response.data;
-
-        let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-
-        const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        let actualBillTotal = calculatedTotal;
-        let creditAmount = 0;
-        let creditorRemainingAmount = 0;
-
-        if (billFromState && billFromState.total_amount) {
-            actualBillTotal = parseFloat(billFromState.total_amount);
-        }
-
-        const total = actualBillTotal;
-
-        let currentPaid = 0;
-        let paymentBreakdown = [];
-
-        if (billNo) {
-            try {
-                let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-                if (useHistoryParam) {
-                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                const loanRes = await api.get(loanUrl);
-                if (loanRes.data) {
-                    const paymentDetails = loanRes.data.payment_details || [];
-                    if (typeof paymentDetails === 'string') {
-                        paymentBreakdown = JSON.parse(paymentDetails);
-                    } else {
-                        paymentBreakdown = paymentDetails;
-                    }
-
-                    const isFromFullySettled = state.completedSuppliers.some(
-                        item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-                    );
-
-                    let totalPaidFromPayments = 0;
-                    if (Array.isArray(paymentBreakdown)) {
-                        paymentBreakdown.forEach(payment => {
-                            const amount = parseFloat(payment.amount) || 0;
-                            if (isFromFullySettled && payment.method === 'Credit') {
-                                // Exclude Credit from Total Paid display for Fully Settled bills
-                            } else {
-                                totalPaidFromPayments += amount;
-                            }
-                        });
-                    }
-                    currentPaid = totalPaidFromPayments;
-                }
-            } catch (loanError) {
-                console.error('Error fetching loan details:', loanError);
-            }
-        }
-
-        // Get creditor info again (or use the one we already have)
-        if (billNo && !creditorInfo) {
-            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-            setSelectedBillCreditor(creditorInfo);
-
-            // Update hasCreditor based on fresh data
-            hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
-
-            if (creditorInfo) {
-                creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
-                creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
-            }
-        } else if (creditorInfo) {
-            setSelectedBillCreditor(creditorInfo);
-            creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
-            creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
-        } else {
-            setSelectedBillCreditor(null);
-        }
-
-        // CRITICAL: Check which section this bill belongs to
-        const isFromNotSettled = state.pendingSuppliers.some(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        const isFromFullySettled = state.completedSuppliers.some(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        // Calculate the TOTAL remaining amount
-        let totalRemainingAmount = 0;
-        let isUpdatingCompletedBill = false;
-
-        if (isFromNotSettled) {
-            const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-            totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
-            isUpdatingCompletedBill = false;
-        } else if (isFromFullySettled) {
-            totalRemainingAmount = creditorRemainingAmount;
-            isUpdatingCompletedBill = true;
-        }
-
-        // Don't change lock state here - preserve our decision
-        // Only update if the bill has creditor and we need to ensure unlock
-        if (hasCreditor && isMiddlePanelLocked) {
-            setIsMiddlePanelLocked(false);
-        }
-
-        // Set the payment amount
-        const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
-
-        setState(prev => ({
-            ...prev,
-            supplierDetails: salesData || [],
-            paymentAmount: defaultPaymentAmount,
-            currentPaidAmount: currentPaid,
-            paymentBreakdown: paymentBreakdown,
-            isPrinting: false,
-            currentBillTotal: total,
-            isUpdatingCompletedBill: isUpdatingCompletedBill
-        }));
-
-        console.log('✅ State updated - hasCreditor:', hasCreditor, 'savedMode:', savedMode, 'isMiddlePanelLocked:', isMiddlePanelLocked);
-    } catch (error) {
-        console.error('Error fetching supplier details:', error);
-        setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
-        setSelectedBillCreditor(null);
-        setIsMiddlePanelLocked(true);
-    }
-};
+    };
     const generateBillContent = async (billNo) => {
         try {
             const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
@@ -5879,9 +5900,9 @@ const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
                 </div>
 
                 <button
-                    onClick={async () => {
-                        await fetchIncomeSources();
-                        setShowIncomeSourcesModal(true);
+                    onClick={() => {
+                        // Open FundAllocationModal directly without showing IncomeSourcesModal
+                        setShowDirectFundAllocationModal(true);
                     }}
                     style={{
                         padding: '8px 20px',
@@ -5896,7 +5917,7 @@ const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
                         gap: '8px'
                     }}
                 >
-                    💰 Income Sources
+                    💰 Allocate Funds
                 </button>
                 {/* Funds Allocated Button - Shows Cash and Bank Allocated separately */}
                 <div style={{ position: 'relative', display: 'inline-flex', gap: '4px' }}>
@@ -5923,8 +5944,11 @@ const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
                             <span>⏳ Calculating...</span>
                         ) : (
                             <>
-                                {(netAvailableAmount || 0) < 0 ? '⚠️' : '💵'}
-                                Net Available: {(netAvailableAmount || 0) < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(netAvailableAmount || 0))}
+                                {(netAvailableAmount || 0) < 0 ? '⚠️' : '💰'}
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: '1.2' }}>
+                                    <span>Net Available: {(netAvailableAmount || 0) < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(netAvailableAmount || 0))}</span>
+
+                                </div>
                                 {(netAvailableAmount || 0) < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Overspent)</span>}
                             </>
                         )}
@@ -6024,119 +6048,119 @@ const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
 
             <div style={styles.container}>
                 <div style={styles.threeColumns}>
-                   {/* LEFT PANEL - Not Settled */}
-<div style={styles.panel}>
-    <div style={styles.panelHeader}>
-        <h2 style={styles.panelTitle}>
-            <span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%' }}></span>
-            Not Settled
-        </h2>
-    </div>
-    <div style={{ padding: '12px 16px 0 16px' }}>
-        <input 
-            type="text" 
-            placeholder="🔍 Search not settled..." 
-            value={state.searchPendingQuery} 
-            onChange={(e) => setState(prev => ({ ...prev, searchPendingQuery: e.target.value.toUpperCase() }))} 
-            style={styles.searchInput} 
-        />
-    </div>
-    <div style={styles.panelContent}>
-        {filterPendingSuppliers.length === 0 ? 
-            <EmptyState message="No pending suppliers" /> :
-            (() => {
-                // Group items by bill number
-                const groupedByBill = filterPendingSuppliers.reduce((groups, item) => {
-                    const billNo = item.supplier_bill_no || 'Pending';
-                    if (!groups[billNo]) {
-                        groups[billNo] = [];
-                    }
-                    groups[billNo].push(item);
-                    return groups;
-                }, {});
-
-                // Convert to array for rendering
-                return Object.entries(groupedByBill).map(([billNo, items]) => {
-                    // Aggregate data from all items in this bill group
-                    const firstItem = items[0];
-                    const totalAmount = items.reduce((sum, item) => sum + (item.total_amount || 0), 0);
-                    const totalLoanAmount = items.reduce((sum, item) => sum + (item.loan_amount || 0), 0);
-                    const totalCreditAmount = items.reduce((sum, item) => sum + (item.credit_amount || 0), 0);
-                    const totalNetRemaining = items.reduce((sum, item) => sum + (item.net_remaining || 0), 0);
-                    const remaining = totalAmount - totalLoanAmount - totalCreditAmount;
-                    const isHistory = items.some(item => item.is_history);
-                    
-                    return (
-                        <div key={billNo}
-                            style={{
-                                ...styles.billItem,
-                                ...styles.billPending,
-                                ...(state.selectedSupplier === firstItem.supplier_code && state.selectedBillNo === billNo ? styles.billSelected : {}),
-                                borderLeft: isHistory ? '4px solid #8b5cf6' : 'none'
-                            }}
-                            onClick={() => handleSupplierClick(firstItem.supplier_code, billNo)}
-                            onContextMenu={(e) => handleContextMenu(e, firstItem.supplier_code, billNo)}>
-                            <div style={styles.billRow}>
-                                <div style={styles.billLeft}>
-                                    <div style={styles.billNo}>{firstItem.supplier_code}</div>
-                                    <div style={styles.billCustomer}>Bill: {billNo}</div>
-                                   
-                                    {isHistory && <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>📜 History</div>}
-                                </div>
-                                <div style={styles.billRight}>
-                                    <div style={styles.billTotal}>Rs. {formatDecimal(totalAmount)}</div>
-                                    {totalLoanAmount > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(totalLoanAmount)}</div>}
-
-                                    {/* Show credit amount prominently if it exists */}
-                                    {totalCreditAmount > 0 && (
-                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                            💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
-                                        </div>
-                                    )}
-
-                                    {/* If credit has covered the full bill amount */}
-                                    {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount === 0 && (
-                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
-                                            ✅ Bill Covered by Credit
-                                        </div>
-                                    )}
-
-                                    {/* If credit has covered the full bill and there's also actual payments */}
-                                    {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount > 0 && (
-                                        <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
-                                            ✅ Bill Fully Covered
-                                        </div>
-                                    )}
-
-                                    {/* Show remaining amount for each bill */}
-                                    {totalNetRemaining > 0 && (
-                                        <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
-                                            Remaining: Rs. {formatDecimal(totalNetRemaining)}
-                                        </div>
-                                    )}
-                                    
-                                    {/* If there's credit but no remaining payment */}
-                                    {totalNetRemaining > 0 && totalCreditAmount > 0 && totalLoanAmount >= (totalAmount - 0.01) && (
-                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                            💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
-                                        </div>
-                                    )}
-
-                                    {/* If credit alone covers the bill but no actual payments */}
-                                    {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount === 0 && (
-                                        <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                            💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                    {/* LEFT PANEL - Not Settled */}
+                    <div style={styles.panel}>
+                        <div style={styles.panelHeader}>
+                            <h2 style={styles.panelTitle}>
+                                <span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%' }}></span>
+                                Not Settled
+                            </h2>
                         </div>
-                    );
-                });
-            })()
-        }
-    </div>
-</div>
+                        <div style={{ padding: '12px 16px 0 16px' }}>
+                            <input
+                                type="text"
+                                placeholder="🔍 Search not settled..."
+                                value={state.searchPendingQuery}
+                                onChange={(e) => setState(prev => ({ ...prev, searchPendingQuery: e.target.value.toUpperCase() }))}
+                                style={styles.searchInput}
+                            />
+                        </div>
+                        <div style={styles.panelContent}>
+                            {filterPendingSuppliers.length === 0 ?
+                                <EmptyState message="No pending suppliers" /> :
+                                (() => {
+                                    // Group items by bill number
+                                    const groupedByBill = filterPendingSuppliers.reduce((groups, item) => {
+                                        const billNo = item.supplier_bill_no || 'Pending';
+                                        if (!groups[billNo]) {
+                                            groups[billNo] = [];
+                                        }
+                                        groups[billNo].push(item);
+                                        return groups;
+                                    }, {});
+
+                                    // Convert to array for rendering
+                                    return Object.entries(groupedByBill).map(([billNo, items]) => {
+                                        // Aggregate data from all items in this bill group
+                                        const firstItem = items[0];
+                                        const totalAmount = items.reduce((sum, item) => sum + (item.total_amount || 0), 0);
+                                        const totalLoanAmount = items.reduce((sum, item) => sum + (item.loan_amount || 0), 0);
+                                        const totalCreditAmount = items.reduce((sum, item) => sum + (item.credit_amount || 0), 0);
+                                        const totalNetRemaining = items.reduce((sum, item) => sum + (item.net_remaining || 0), 0);
+                                        const remaining = totalAmount - totalLoanAmount - totalCreditAmount;
+                                        const isHistory = items.some(item => item.is_history);
+
+                                        return (
+                                            <div key={billNo}
+                                                style={{
+                                                    ...styles.billItem,
+                                                    ...styles.billPending,
+                                                    ...(state.selectedSupplier === firstItem.supplier_code && state.selectedBillNo === billNo ? styles.billSelected : {}),
+                                                    borderLeft: isHistory ? '4px solid #8b5cf6' : 'none'
+                                                }}
+                                                onClick={() => handleSupplierClick(firstItem.supplier_code, billNo)}
+                                                onContextMenu={(e) => handleContextMenu(e, firstItem.supplier_code, billNo)}>
+                                                <div style={styles.billRow}>
+                                                    <div style={styles.billLeft}>
+                                                        <div style={styles.billNo}>{firstItem.supplier_code}</div>
+                                                        <div style={styles.billCustomer}>Bill: {billNo}</div>
+
+                                                        {isHistory && <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>📜 History</div>}
+                                                    </div>
+                                                    <div style={styles.billRight}>
+                                                        <div style={styles.billTotal}>Rs. {formatDecimal(totalAmount)}</div>
+                                                        {totalLoanAmount > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(totalLoanAmount)}</div>}
+
+                                                        {/* Show credit amount prominently if it exists */}
+                                                        {totalCreditAmount > 0 && (
+                                                            <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                                                💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
+                                                            </div>
+                                                        )}
+
+                                                        {/* If credit has covered the full bill amount */}
+                                                        {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount === 0 && (
+                                                            <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
+                                                                ✅ Bill Covered by Credit
+                                                            </div>
+                                                        )}
+
+                                                        {/* If credit has covered the full bill and there's also actual payments */}
+                                                        {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount > 0 && (
+                                                            <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
+                                                                ✅ Bill Fully Covered
+                                                            </div>
+                                                        )}
+
+                                                        {/* Show remaining amount for each bill */}
+                                                        {totalNetRemaining > 0 && (
+                                                            <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
+                                                                Remaining: Rs. {formatDecimal(totalNetRemaining)}
+                                                            </div>
+                                                        )}
+
+                                                        {/* If there's credit but no remaining payment */}
+                                                        {totalNetRemaining > 0 && totalCreditAmount > 0 && totalLoanAmount >= (totalAmount - 0.01) && (
+                                                            <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                                                💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
+                                                            </div>
+                                                        )}
+
+                                                        {/* If credit alone covers the bill but no actual payments */}
+                                                        {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount === 0 && (
+                                                            <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
+                                                                💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    });
+                                })()
+                            }
+                        </div>
+                    </div>
 
                     {/* ENHANCED MIDDLE PANEL - Supplier Details */}
                     <div style={{ background: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', position: 'relative' }}>
@@ -6932,6 +6956,17 @@ const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
             <BankAllocationModal
                 isOpen={showAllocatedBankModal}
                 onClose={() => setShowAllocatedBankModal(false)}
+            />
+            <FundAllocationModal
+                isOpen={showDirectFundAllocationModal}
+                onClose={() => setShowDirectFundAllocationModal(false)}
+                onAllocate={(result) => {
+                    console.log('Funds allocated:', result);
+                    // Optionally update any local state here
+                    alert(`✅ ${result.message || 'Funds allocated successfully!'}\n\nAllocated Amount: Rs. ${result.allocated_amount.toFixed(2)}\nCashier: ${result.cashier_name}`);
+                }}
+                selectedAmount={null}
+                maxAmount={null}
             />
 
             {/* Farmer Selector Modal */}
