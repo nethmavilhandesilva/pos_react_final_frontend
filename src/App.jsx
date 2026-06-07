@@ -47,6 +47,9 @@ import UtilityTypeManager from './components/UtilityTypes/UtilityTypeManager';
 import IncomeExpenseReport2 from './components/CustomersLoans/IncomeExpenseReport2';
 import DebtorCreditorReport from './components/Reports/DebtorCreditorReport';
 import DebtorsList from './components/Debtors/DebtorsList';
+import ExpenseDashboard from './components/Expenses/ExpenseDashboard';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
 
 const getBasePath = () => {
     if (window.location.hostname === 'goviraju.lk') {
@@ -325,9 +328,10 @@ const AppRoutes = () => {
                 <Route path="/payment-collection-report2" element={<PaymentCollectionReport2 />} />
                 <Route path="/utility-types" element={<UtilityTypeManager />} />
                 <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
-                    <Route path="/debtor-creditor-report" element={<DebtorCreditorReport />} />
-                    <Route path="/debtors" element={<DebtorsList />} />
+                <Route path="/debtor-creditor-report" element={<DebtorCreditorReport />} />
+                <Route path="/debtors" element={<DebtorsList />} />
             </Route>
+             <Route path="/expenses" element={<ExpenseDashboard />} />
 
             {/* Catch all - redirect to login */}
             <Route path="*" element={<Navigate to="/login" replace />} />

@@ -11,9 +11,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.0.1",
+    "@mui/material": "^9.0.1",
+    "@mui/x-date-pickers": "^9.4.0",
     "axios": "^1.15.2",
     "bootstrap": "^5.3.8",
     "chart.js": "^4.5.1",
+    "dayjs": "^1.11.21",
     "face-api.js": "^0.22.2",
     "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
