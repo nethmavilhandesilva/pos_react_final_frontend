@@ -1962,15 +1962,17 @@ const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
         </div>
     );
 };
-// ==================== BANK ALLOCATION MODAL ====================
+// ==================== BANK ALLOCATION MODAL (UPDATED) ====================
 const BankAllocationModal = ({ isOpen, onClose }) => {
-    const [allocatedBreakdown, setAllocatedBreakdown] = useState({
-        cash_allocated: 0,
-        bank_breakdown: [],
+    const [allocatedRecords, setAllocatedRecords] = useState([]);
+    const [grandTotals, setGrandTotals] = useState({
+        total_cash_allocated: 0,
         total_bank_allocated: 0,
-        total_allocated: 0
+        total_allocated: 0,
+        total_records: 0
     });
     const [isLoading, setIsLoading] = useState(false);
+    const [expandedCashier, setExpandedCashier] = useState(null);
 
     // Fetch allocated breakdown when modal opens
     useEffect(() => {
@@ -1984,8 +1986,18 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
         try {
             const response = await api.get('/cashier-balance/allocated-breakdown');
             if (response.data.success) {
-                setAllocatedBreakdown(response.data.data);
-                console.log('Allocated breakdown fetched:', response.data.data);
+                // The API returns records array with cashier-specific data
+                const records = response.data.data.records || [];
+                const totals = response.data.data.grand_totals || {
+                    total_cash_allocated: 0,
+                    total_bank_allocated: 0,
+                    total_allocated: 0,
+                    total_records: 0
+                };
+                
+                setAllocatedRecords(records);
+                setGrandTotals(totals);
+                console.log('Allocated breakdown fetched:', { records, totals });
             }
         } catch (error) {
             console.error('Error fetching allocated breakdown:', error);
@@ -1998,6 +2010,14 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
 
     const formatCurrency = (amount) => {
         return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const toggleCashierExpand = (cashierName) => {
+        if (expandedCashier === cashierName) {
+            setExpandedCashier(null);
+        } else {
+            setExpandedCashier(cashierName);
+        }
     };
 
     return (
@@ -2017,7 +2037,7 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
             <div style={{
                 backgroundColor: 'white',
                 borderRadius: '20px',
-                width: '450px',
+                width: '550px',
                 maxWidth: '90%',
                 padding: '24px',
                 maxHeight: '80vh',
@@ -2053,7 +2073,7 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
                     </div>
                 ) : (
                     <>
-                        {/* Total Allocated */}
+                        {/* Grand Totals Summary */}
                         <div style={{
                             background: 'linear-gradient(135deg, #667eea, #764ba2)',
                             borderRadius: '12px',
@@ -2062,85 +2082,185 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
                             textAlign: 'center',
                             color: 'white'
                         }}>
-                            <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '4px' }}>📊 Total Allocated Funds</div>
-                            <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(allocatedBreakdown.total_allocated)}</div>
-                        </div>
-
-                        {/* Cash Allocated */}
-                        <div style={{
-                            background: 'linear-gradient(135deg, #10b981, #059669)',
-                            borderRadius: '12px',
-                            padding: '16px',
-                            marginBottom: '16px',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            color: 'white'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ fontSize: '24px' }}>💰</span>
-                                <span style={{ fontWeight: '600' }}>Cash Allocated</span>
-                            </div>
-                            <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
-                                {formatCurrency(allocatedBreakdown.cash_allocated)}
+                            <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '4px' }}>📊 Total Allocated Funds (All Cashiers)</div>
+                            <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(grandTotals.total_allocated)}</div>
+                            <div style={{ fontSize: '11px', marginTop: '8px', opacity: 0.8 }}>
+                                Across {grandTotals.total_records} cashier record(s)
                             </div>
                         </div>
 
-                        {/* Bank Allocated Section */}
+                        {/* Cashier-wise Breakdown */}
                         <div style={{ marginBottom: '16px' }}>
                             <div style={{
-                                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                                background: 'linear-gradient(135deg, #1e293b, #0f172a)',
                                 borderRadius: '12px',
-                                padding: '16px',
+                                padding: '12px 16px',
                                 marginBottom: '12px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
                                 color: 'white'
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <span style={{ fontSize: '24px' }}>🏦</span>
-                                    <span style={{ fontWeight: '600' }}>Bank Allocated</span>
-                                </div>
-                                <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
-                                    {formatCurrency(allocatedBreakdown.total_bank_allocated)}
+                                    <span style={{ fontSize: '20px' }}>👤</span>
+                                    <span style={{ fontWeight: '600' }}>Cashier-wise Breakdown</span>
                                 </div>
                             </div>
 
-                            {/* Individual Bank Breakdown */}
-                            {allocatedBreakdown.bank_breakdown && allocatedBreakdown.bank_breakdown.length > 0 ? (
-                                <div style={{ paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
-                                    {allocatedBreakdown.bank_breakdown.map((bank, index) => (
-                                        <div key={index} style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            padding: '12px 16px',
-                                            marginBottom: '8px',
-                                            background: '#fef3c7',
-                                            borderRadius: '10px',
-                                            borderLeft: '3px solid #f59e0b'
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span style={{ fontSize: '18px' }}>🏦</span>
-                                                <span style={{ fontWeight: '600', color: '#92400e', fontSize: '13px' }}>{bank.bank_name}</span>
+                            {allocatedRecords.length > 0 ? (
+                                <div style={{ paddingLeft: '8px' }}>
+                                    {allocatedRecords.map((record, index) => {
+                                        const isExpanded = expandedCashier === record.cashier_name;
+                                        const hasBankAllocations = record.bank_breakdown && record.bank_breakdown.length > 0;
+                                        
+                                        return (
+                                            <div key={record.id || index} style={{
+                                                marginBottom: '12px',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '12px',
+                                                overflow: 'hidden',
+                                                background: 'white'
+                                            }}>
+                                                {/* Cashier Header - Clickable */}
+                                                <div 
+                                                    onClick={() => toggleCashierExpand(record.cashier_name)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        padding: '12px 16px',
+                                                        background: '#f8fafc',
+                                                        cursor: 'pointer',
+                                                        borderBottom: isExpanded ? '1px solid #e2e8f0' : 'none',
+                                                        transition: 'background 0.2s'
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                                >
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <span style={{ fontSize: '18px' }}>👤</span>
+                                                        <div>
+                                                            <div style={{ fontWeight: '700', color: '#1e293b' }}>{record.cashier_name}</div>
+                                                            <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                                                Total: {formatCurrency(record.total_allocated)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span style={{ fontSize: '18px', color: '#64748b' }}>
+                                                        {isExpanded ? '▲' : '▼'}
+                                                    </span>
+                                                </div>
+
+                                                {/* Expanded Content */}
+                                                {isExpanded && (
+                                                    <div style={{ padding: '16px' }}>
+                                                        {/* Cash Allocated */}
+                                                        <div style={{
+                                                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                                                            borderRadius: '10px',
+                                                            padding: '12px 16px',
+                                                            marginBottom: '12px',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            color: 'white'
+                                                        }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                <span style={{ fontSize: '20px' }}>💰</span>
+                                                                <span style={{ fontWeight: '600' }}>Cash Allocated</span>
+                                                            </div>
+                                                            <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                                                                {formatCurrency(record.cash_allocated)}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Bank Allocated Section */}
+                                                        <div>
+                                                            <div style={{
+                                                                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                                                                borderRadius: '10px',
+                                                                padding: '12px 16px',
+                                                                marginBottom: '12px',
+                                                                display: 'flex',
+                                                                justifyContent: 'space-between',
+                                                                alignItems: 'center',
+                                                                color: 'white'
+                                                            }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <span style={{ fontSize: '20px' }}>🏦</span>
+                                                                    <span style={{ fontWeight: '600' }}>Bank Allocated</span>
+                                                                </div>
+                                                                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                                                                    {formatCurrency(record.total_bank_allocated)}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Individual Bank Breakdown */}
+                                                            {hasBankAllocations ? (
+                                                                <div style={{ paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
+                                                                    {record.bank_breakdown.map((bank, bankIdx) => (
+                                                                        <div key={bankIdx} style={{
+                                                                            display: 'flex',
+                                                                            justifyContent: 'space-between',
+                                                                            alignItems: 'center',
+                                                                            padding: '10px 14px',
+                                                                            marginBottom: '8px',
+                                                                            background: '#fef3c7',
+                                                                            borderRadius: '8px',
+                                                                            borderLeft: '3px solid #f59e0b'
+                                                                        }}>
+                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                                <span style={{ fontSize: '16px' }}>🏦</span>
+                                                                                <span style={{ fontWeight: '600', color: '#92400e', fontSize: '13px' }}>
+                                                                                    {bank.bank_name}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div style={{ fontSize: '15px', fontWeight: '700', color: '#dc2626' }}>
+                                                                                {formatCurrency(bank.amount)}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{
+                                                                    padding: '12px',
+                                                                    textAlign: 'center',
+                                                                    color: '#94a3b8',
+                                                                    fontSize: '12px',
+                                                                    background: '#f8fafc',
+                                                                    borderRadius: '8px'
+                                                                }}>
+                                                                    No bank allocations for this cashier
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Last Updated Info */}
+                                                        {record.last_updated && (
+                                                            <div style={{
+                                                                marginTop: '12px',
+                                                                padding: '8px',
+                                                                textAlign: 'center',
+                                                                fontSize: '10px',
+                                                                color: '#94a3b8',
+                                                                borderTop: '1px solid #e2e8f0'
+                                                            }}>
+                                                                Last updated: {new Date(record.last_updated).toLocaleString()}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div style={{ fontSize: '16px', fontWeight: '700', color: '#dc2626' }}>
-                                                {formatCurrency(bank.amount)}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             ) : (
                                 <div style={{
-                                    padding: '20px',
+                                    padding: '40px',
                                     textAlign: 'center',
                                     color: '#94a3b8',
                                     fontSize: '13px',
                                     background: '#f8fafc',
                                     borderRadius: '10px'
                                 }}>
-                                    No bank allocations available
+                                    No allocation records found
                                 </div>
                             )}
                         </div>
