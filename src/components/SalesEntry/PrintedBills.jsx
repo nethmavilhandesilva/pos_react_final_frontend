@@ -2475,66 +2475,66 @@ useEffect(() => {
             console.error('Error refreshing customers:', error);
         }
     }, []);
-    const fetchArchivedSales = async (isFromStorage = false, uniqueCode = selectedUniqueCode) => {
-        // Don't fetch if we're currently changing the filter
-        if (isChangingFilter) {
-            console.log('Skipping fetchArchivedSales - filter is changing');
-            return;
+  const fetchArchivedSales = async (isFromStorage = false, uniqueCode = selectedUniqueCode) => {
+    // Don't fetch if we're currently changing the filter
+    if (isChangingFilter) {
+        console.log('Skipping fetchArchivedSales - filter is changing');
+        return;
+    }
+
+    if (!startDate || !endDate) {
+        return;
+    }
+
+    if (viewOldBills) {
+        await refreshBeforeLoadingOldBills();
+    }
+
+    setArchivedData(prev => ({ ...prev, isLoading: true }));
+    try {
+        // ALWAYS use the same URL - routes.getArchivedSales is "/sales/archived"
+        const url = routes.getArchivedSales;
+        const params = {
+            start_date: startDate,
+            end_date: endDate
+        };
+
+        // Add unique_code as a parameter if a specific cashier is selected
+        if (uniqueCode && uniqueCode !== 'all') {
+            params.unique_code = uniqueCode;
         }
 
-        if (!startDate || !endDate) {
-            return;
-        }
+        console.log('Fetching archived sales with filter:', { url, params, uniqueCode });
 
-        if (viewOldBills) {
-            await refreshBeforeLoadingOldBills();
-        }
+        const response = await api.get(url, { params });
 
-        setArchivedData(prev => ({ ...prev, isLoading: true }));
-        try {
-            let url = routes.getArchivedSales;
-            let params = {
-                start_date: startDate,
-                end_date: endDate
-            };
+        if (response.data.success) {
+            const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
+            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchArchivedSales-pending', false);
+            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchArchivedSales-applied', true);
 
-            // If a specific cashier is selected (not 'all'), use the filtered endpoint
-            if (uniqueCode && uniqueCode !== 'all') {
-                url = '/sales/archived-with-filter';
-                params.unique_code = uniqueCode;
+            setArchivedData({ pendingBills: updatedPending, appliedBills: updatedApplied, isLoading: false });
+            setDataSource('sales_history');
+
+            localStorage.setItem('printedBills_startDate', startDate);
+            localStorage.setItem('printedBills_endDate', endDate);
+            localStorage.setItem('printedBills_dataSource', 'sales_history');
+            localStorage.setItem('printedBills_viewOldBills', 'true');
+            localStorage.setItem('printedBills_selectedUniqueCode', selectedUniqueCode);
+
+            if (!isFromStorage) {
+                alert(`Loaded ${updatedPending.length + updatedApplied.length} bills from ${startDate} to ${endDate}`);
             }
-
-            console.log('Fetching archived sales with filter:', { url, params, uniqueCode });
-
-            const response = await api.get(url, { params });
-
-            if (response.data.success) {
-                const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchArchivedSales-pending', false);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchArchivedSales-applied', true);
-
-                setArchivedData({ pendingBills: updatedPending, appliedBills: updatedApplied, isLoading: false });
-                setDataSource('sales_history');
-
-                localStorage.setItem('printedBills_startDate', startDate);
-                localStorage.setItem('printedBills_endDate', endDate);
-                localStorage.setItem('printedBills_dataSource', 'sales_history');
-                localStorage.setItem('printedBills_viewOldBills', 'true');
-                localStorage.setItem('printedBills_selectedUniqueCode', selectedUniqueCode);
-
-                if (!isFromStorage) {
-                    alert(`Loaded ${updatedPending.length + updatedApplied.length} bills from ${startDate} to ${endDate}`);
-                }
-            } else {
-                if (!isFromStorage) alert('Failed to fetch archived data');
-                setArchivedData(prev => ({ ...prev, isLoading: false }));
-            }
-        } catch (error) {
-            console.error('Error fetching archived sales:', error);
+        } else {
             if (!isFromStorage) alert('Failed to fetch archived data');
             setArchivedData(prev => ({ ...prev, isLoading: false }));
         }
-    };
+    } catch (error) {
+        console.error('Error fetching archived sales:', error);
+        if (!isFromStorage) alert('Failed to fetch archived data');
+        setArchivedData(prev => ({ ...prev, isLoading: false }));
+    }
+};
 const handleUniqueCodeChange = useCallback((newValue) => {
     // Clear any pending timeout
     if (filterChangeTimeoutRef.current) {
@@ -3393,17 +3393,19 @@ const silentRefresh = useCallback(async () => {
         }
 
         if (isViewingOldBills && hasDateRange) {
-            // Fetch archived sales with current filter
-            let url = routes.getArchivedSales;
-            let params = {
+            // Fetch archived sales with current filter - ALWAYS use the same URL
+            const url = routes.getArchivedSales;
+            const params = {
                 start_date: startDateRef.current,
                 end_date: endDateRef.current
             };
 
+            // Add unique_code as a parameter if a specific cashier is selected
             if (currentUniqueCode && currentUniqueCode !== 'all') {
-                url = '/sales/archived-with-filter';
                 params.unique_code = currentUniqueCode;
             }
+
+            console.log('🔄 Silent refresh fetching archived sales with params:', params);
 
             const response = await api.get(url, { params });
 
@@ -3422,6 +3424,8 @@ const silentRefresh = useCallback(async () => {
 
                 console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
                 await fetchRemainingBalances();
+            } else {
+                console.error('❌ Silent refresh failed - archived sales response not successful:', response.data);
             }
         } else {
             // Fetch current sales with current filter
