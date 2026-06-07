@@ -199,7 +199,7 @@ const RootRedirect = () => {
         } else if (role === 'level3') {
             return <Navigate to="/bank-dashboard" replace />;
         } else if (role === 'level4') {
-            return <Navigate to="/supplierreport" replace />;
+            return <Navigate to="/suppliers/printed-report" replace />;
         } else {
             return <Navigate to="/dashboard" replace />;
         }
@@ -291,11 +291,10 @@ const AppRoutes = () => {
                 <Route path="/commissions" element={<CommissionPage />} />
                 <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
                 {/* Supplier Reports with Role Protection */}
-                <Route path="/supplierreport" element={
-                    <RequireRole allowedRoles={['level4', 'User']}>
-                        <SupplierReport />
-                    </RequireRole>
-                } />
+                <Route
+                    path="/supplierreport"
+                    element={<SupplierReport />}
+                />
 
                 <Route path="/suppliermodal" element={<SupplierDetailsModal />} />
                 <Route path="/supplier-profit" element={<SupplierProfitReport />} />
@@ -305,7 +304,14 @@ const AppRoutes = () => {
                 <Route path="/reports/printed-sales" element={<PrintedSalesReport />} />
                 <Route path="/reports/newsales" element={<SalesReport />} />
                 <Route path="/farmer-loans" element={<FarmerLoanManager />} />
-                <Route path="/suppliers/printed-report" element={<SupplierReportPrinted />} />
+                <Route
+                    path="/suppliers/printed-report"
+                    element={
+                        <RequireRole allowedRoles={['level4', 'User']}>
+                            <SupplierReportPrinted />
+                        </RequireRole>
+                    }
+                />
                 <Route path="/supplier-loan-report" element={<SupplierLoanReport />} />
                 <Route path="/supplier-finalreport" element={<SupplierFinalReport />} />
                 <Route path="/suppliers/dobreport" element={<SupplierdobReport />} />
@@ -331,7 +337,7 @@ const AppRoutes = () => {
                 <Route path="/debtor-creditor-report" element={<DebtorCreditorReport />} />
                 <Route path="/debtors" element={<DebtorsList />} />
             </Route>
-             <Route path="/expenses" element={<ExpenseDashboard />} />
+            <Route path="/expenses" element={<ExpenseDashboard />} />
 
             {/* Catch all - redirect to login */}
             <Route path="*" element={<Navigate to="/login" replace />} />

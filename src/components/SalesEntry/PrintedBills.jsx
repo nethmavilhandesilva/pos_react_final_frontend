@@ -4797,30 +4797,30 @@ export default function PrintedBills() {
                     <button onClick={() => window.location.href = `${basePath}/supplierreport`} style={{ background: 'none', border: 'none', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px', padding: '5px 0' }}>සැපයුම් වාර්තාව</button>
                     {/* NEW BUTTON: Expenses Dashboard */}
                     {/* In the bottom navigation bar, replace the Expenses Dashboard button with: */}
-<button
-    onClick={() => navigate('/expenses', { state: { selectedCashier: selectedUniqueCode } })}
-    style={{
-        padding: '5px 16px',
-        background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-        color: 'white',
-        border: 'none',
-        borderRadius: '5px',
-        cursor: 'pointer',
-        fontWeight: 'bold',
-        fontSize: '12px',
-        transition: 'all 0.2s'
-    }}
-    onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 4px 8px rgba(99,102,241,0.3)';
-    }}
-    onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = 'none';
-    }}
->
-    💰 Expenses Dashboard
-</button>
+                    <button
+                        onClick={() => navigate('/expenses', { state: { selectedCashier: selectedUniqueCode } })}
+                        style={{
+                            padding: '5px 16px',
+                            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '12px',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(99,102,241,0.3)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = 'none';
+                        }}
+                    >
+                        💰 Expenses Dashboard
+                    </button>
                 </div>
             </nav>
 
