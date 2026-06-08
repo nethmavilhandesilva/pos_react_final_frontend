@@ -227,25 +227,7 @@ const DebtorCreditorReport = () => {
                 </div>
             </div>
 
-            {/* Combined Summary Cards */}
-            <div style={styles.statsGrid}>
-                <div style={styles.statCard}>
-                    <div style={styles.statLabel}>Total Debtors</div>
-                    <div style={styles.statValue}>{combinedSummary.total_debtors || 0}</div>
-                </div>
-                <div style={styles.statCard}>
-                    <div style={styles.statLabel}>Total Creditors</div>
-                    <div style={styles.statValue}>{combinedSummary.total_creditors || 0}</div>
-                </div>
-                <div style={styles.statCard}>
-                    <div style={styles.statLabel}>Debtor Outstanding</div>
-                    <div style={styles.statValue}>{formatCurrency(combinedSummary.total_debtor_outstanding)}</div>
-                </div>
-                <div style={styles.statCard}>
-                    <div style={styles.statLabel}>Creditor Outstanding</div>
-                    <div style={styles.statValue}>{formatCurrency(combinedSummary.total_creditor_outstanding)}</div>
-                </div>
-            </div>
+          
 
             {/* Tabs */}
             <div style={styles.tabsContainer}>
