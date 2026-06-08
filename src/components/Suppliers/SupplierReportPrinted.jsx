@@ -5124,77 +5124,197 @@ export default function SupplierReportPrinted() {
             setIsMiddlePanelLocked(true);
         }
     };
-    const generateBillContent = async (billNo) => {
-        try {
-            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-            let url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${state.selectedSupplier}`;
-            if (useHistoryParam) {
-                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            const response = await api.get(url);
-            const details = response.data.sales || response.data;
-            let paymentBreakdown = [], currentPaidAmount = 0;
-            try {
-                let loanUrl = `/supplier-loan/search?code=${state.selectedSupplier}&bill_no=${billNo}`;
-                if (useHistoryParam) {
-                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                const loanRes = await api.get(loanUrl);
-                if (loanRes.data) {
-                    currentPaidAmount = parseFloat(loanRes.data.loan_amount) || 0;
-                    paymentBreakdown = loanRes.data.payment_details || [];
-                }
-            } catch (loanError) { }
-
-            let totalsupplierSales = 0, totalPacksSum = 0;
-            const itemSummaryData = {};
-            details.forEach(record => {
-                const total = parseFloat(record.SupplierTotal) || 0, weight = parseFloat(record.weight) || 0, packs = parseInt(record.packs) || 0, itemName = record.item_name || '';
-                totalsupplierSales += total; totalPacksSum += packs;
-                if (!itemSummaryData[itemName]) itemSummaryData[itemName] = { totalWeight: 0, totalPacks: 0 };
-                itemSummaryData[itemName].totalWeight += weight; itemSummaryData[itemName].totalPacks += packs;
-            });
-
-            const date = new Date().toLocaleDateString('si-LK'), mobile = '0775097620/0761042808';
-            const is4Inch = state.billSize === '4inch', receiptMaxWidth = is4Inch ? '4in' : '350px', fontSizeBody = '25px', fontSizeHeader = '23px', fontSizeTotal = '28px';
-            const paidAmountValue = currentPaidAmount, remainingAfterPayment = Math.max(0, totalsupplierSales - paidAmountValue), advanceAmount = 0;
-            const colGroups = `<colgroup><col style="width:32%;"><col style="width:21%;"><col style="width:21%;"><col style="width:26%;"></colgroup>`;
-            const formatNumber = (value, maxDecimals = 3) => {
-                const number = parseFloat(value);
-                if (isNaN(number)) return '0';
-                if (Number.isInteger(number)) return number.toLocaleString('en-US');
-                const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-                return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-            };
-
-            const detailedItemsHtml = details.map(record => {
-                const weight = parseFloat(record.weight) || 0, packs = parseInt(record.packs) || 0, price = parseFloat(record.SupplierPricePerKg) || 0, total = parseFloat(record.SupplierTotal) || 0, itemName = record.item_name || '', customerCode = record.customer_code?.toUpperCase() || '';
-                return `<tr style="font-size:${fontSizeBody}; font-weight:bold;"><td style="text-align:left; padding:10px 0;">${itemName}<br>${formatNumber(packs)}</td><td style="text-align:right; padding:10px 2px;">${formatNumber(weight.toFixed(2))}</td><td style="text-align:right; padding:10px 2px;">${formatNumber(price.toFixed(2))}</td><td style="padding:10px 0;"><div style="font-size:25px;">${customerCode}</div><div style="font-weight:900;">${formatNumber(total.toFixed(2))}</div></td></tr>`;
-            }).join("");
-
-            const summaryEntries = Object.entries(itemSummaryData);
-            let itemSummaryHtml = '';
-            for (let i = 0; i < summaryEntries.length; i += 2) {
-                const [name1, d1] = summaryEntries[i], [name2, d2] = summaryEntries[i + 1] || [null, null];
-                const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`, text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-                itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold;">${text2}</td></tr>`;
-            }
-
-            const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
-            return `<div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace;">
-                <div style="text-align:center;"><div style="font-size:24px;">Manju</div><div style="display:flex; justify-content:center; gap:15px; margin:12px 0;"><span style="border:2.5px solid #000; padding:5px 12px;">xx</span><div>ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px;">${state.selectedSupplier}</span></div></div><div>එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div></div>
-                <div style="margin-top:10px;"><div>දුර:${mobile}</div><div style="display:flex; justify-content:space-between;"><span>බිල් අංකය:${billNo}</span><span>දිනය:${date}</span></div></div>
-                <hr><table style="width:100%; border-collapse:collapse;">${colGroups}<thead><tr style="border-bottom:2.5px solid #000;"><th>වර්ගය<br>මලු</th><th>කිලෝ</th><th>මිල</th><th>කේතය<br>අගය</th></tr></thead><tbody>${detailedItemsHtml}</tbody><tfoot><tr style="border-top:2.5px solid #000;"><td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td><td colspan="3" style="padding-top:12px; text-align:right;">${totalsupplierSales.toFixed(2)}</td></tr></tfoot></table>
-                <table style="width:100%; margin-top:20px;"><tr><td>මෙම බිලට මුළු අගය:</td><td style="text-align:right;"><span style="border-bottom:2px solid #000; padding:5px 10px;">${totalsupplierSales.toFixed(2)}</span></td></tr>${paidAmountValue > 0 ? `<tr><td>ගෙවූ මුදල (Paid):</td><td style="text-align:right;">- ${paidAmountValue.toFixed(2)}</td></tr><tr><td>ඉතිරි මුදල (Remaining):</td><td style="text-align:right;">${remainingAfterPayment.toFixed(2)}</td></tr><tr><td colspan="2" style="border-top:1px dashed #000;"></td></tr>` : ''}<tr><td>අත්තිකාරම්</td><td style="text-align:right;">- ${advanceAmount.toFixed(2)}</td></tr><tr style="font-weight:900;"><td>ශුද්ධ ඉතිරි ශේෂය:</td><td style="text-align:right;"><span style="border-bottom:5px double #000; border-top:2px solid #000;">${netPayable.toFixed(2)}</span></td></tr></table>
-                <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;"><table style="width:100%;">${itemSummaryHtml}</table></div>
-                <div style="text-align:center; margin-top:20px;"><p>Thank you!</p></div>
-            </div>`;
-        } catch (error) {
-            console.error('Error generating bill:', error);
-            return '<div>Error generating bill</div>';
+const generateBillContent = useCallback(async (billNo) => {
+    try {
+        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+        let url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${state.selectedSupplier}`;
+        if (useHistoryParam) {
+            url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
         }
-    };
+        const response = await api.get(url);
+        const details = response.data.sales || response.data;
+        
+        // Calculate totals from details
+        let totalsupplierSales = 0;
+        let totalPacksSum = 0;
+        const itemSummaryData = {};
+        
+        details.forEach(record => {
+            const total = parseFloat(record.SupplierTotal) || 0;
+            const weight = parseFloat(record.weight) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const itemName = record.item_name || '';
+            
+            totalsupplierSales += total;
+            totalPacksSum += packs;
+            
+            if (!itemSummaryData[itemName]) {
+                itemSummaryData[itemName] = { totalWeight: 0, totalPacks: 0 };
+            }
+            itemSummaryData[itemName].totalWeight += weight;
+            itemSummaryData[itemName].totalPacks += packs;
+        });
+        
+        // Get payment details
+        let paymentBreakdown = [];
+        let currentPaidAmount = 0;
+        try {
+            let loanUrl = `/supplier-loan/search?code=${state.selectedSupplier}&bill_no=${billNo}`;
+            if (useHistoryParam) {
+                loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+            }
+            const loanRes = await api.get(loanUrl);
+            if (loanRes.data) {
+                currentPaidAmount = parseFloat(loanRes.data.loan_amount) || 0;
+                paymentBreakdown = loanRes.data.payment_details || [];
+                if (typeof paymentBreakdown === 'string') {
+                    paymentBreakdown = JSON.parse(paymentBreakdown);
+                }
+            }
+        } catch (loanError) { }
+
+        // Use your bill structure
+        const date = new Date().toLocaleDateString('si-LK');
+        const mobile = '0775097620/0761042808';
+        const is4Inch = state.billSize === '4inch';
+        const receiptMaxWidth = is4Inch ? '4in' : '350px';
+        const fontSizeBody = '25px';
+        const fontSizeHeader = '23px';
+        const fontSizeTotal = '28px';
+
+        const paidAmountValue = currentPaidAmount;
+        const remainingAfterPayment = totalsupplierSales - paidAmountValue;
+        const advanceAmount = 0; // You can get this from creditor info if needed
+
+        const colGroups = `
+        <colgroup>
+            <col style="width:32%;"> 
+            <col style="width:21%;">
+            <col style="width:21%;">
+            <col style="width:26%;">
+        </colgroup>`;
+
+        const formatNumber = (value, maxDecimals = 3) => {
+            if (typeof value !== 'number' && typeof value !== 'string') return '0';
+            const number = parseFloat(value);
+            if (isNaN(number)) return '0';
+            if (Number.isInteger(number)) return number.toLocaleString('en-US');
+            const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
+        };
+
+        const detailedItemsHtml = details.map(record => {
+            const weight = parseFloat(record.weight) || 0;
+            const packs = parseInt(record.packs) || 0;
+            const price = parseFloat(record.SupplierPricePerKg) || 0;
+            const total = parseFloat(record.SupplierTotal) || 0;
+            const itemName = record.item_name || '';
+            const customerCode = record.customer_code?.toUpperCase() || '';
+
+            return `
+            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
+                <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
+                <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
+                <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
+                    <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
+                    <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
+                </td>
+            </tr>`;
+        }).join("");
+
+        const summaryEntries = Object.entries(itemSummaryData);
+        let itemSummaryHtml = '';
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+            itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
+        }
+
+        const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
+
+        return `
+        <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
+            <div style="text-align:center; font-weight:bold;">
+                <div style="font-size:24px;">Manju</div>
+                <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
+                    <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
+                    <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${state.selectedSupplier}</span></div>
+                </div>
+                <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
+            </div>
+            <div style="font-size:19px; margin-top:10px; padding:0 5px;">
+                <div style="font-weight: bold;">දුර:${mobile}</div>
+                <div style="display:flex; justify-content:space-between; margin-top:3px;">
+                    <span>බිල් අංකය:${billNo}</span>
+                    <span>දිනය:${date}</span>
+                </div>
+            </div>
+            <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
+            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+                ${colGroups}
+                <thead>
+                    <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
+                        <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;">කිලෝ</th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
+                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
+                    </tr>
+                </thead>
+                <tbody>${detailedItemsHtml}</tbody>
+                <tfoot>
+                    <tr style="border-top:2.5px solid #000; font-weight:bold;">
+                        <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
+                        <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${totalsupplierSales.toFixed(2)}</div></td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
+                <tr>
+                    <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
+                    <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${totalsupplierSales.toFixed(2)}</span></td>
+                </tr>
+                
+                ${paidAmountValue > 0 ? `
+                <tr style="font-size:18px;">
+                    <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
+                    <td style="text-align:right; padding-top:10px; color:#000;">- ${paidAmountValue.toFixed(2)}</td>
+                </tr>
+                <tr style="font-size:18px;">
+                    <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
+                    <td style="text-align:right; padding-top:5px; color:#000;">${remainingAfterPayment.toFixed(2)}</td>
+                </tr>
+                <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
+                ` : ''}
+
+                <tr style="font-size:18px;">
+                    <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
+                    <td style="text-align:right; padding-top:5px; color:#000;">- ${advanceAmount.toFixed(2)}</td>
+                </tr>
+
+                <tr style="font-weight:900;">
+                    <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
+                    <td style="text-align:right; padding-top:10px;">
+                        <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">
+                        ${netPayable.toFixed(2)}
+                        </span>
+                    </td>
+                </tr>
+            </table>
+
+            <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
+                <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
+            </div>
+        </div>`;
+    } catch (error) {
+        console.error('Error generating bill:', error);
+        return '<div>Error generating bill</div>';
+    }
+}, [state.selectedSupplier, state.billSize, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate]);
     // Add this function to check if loan exists
     const checkLoanExists = async (supplierCode, billNo) => {
         try {
@@ -5253,7 +5373,6 @@ export default function SupplierReportPrinted() {
             return { exists: false, id: null, paymentDetails: [], currentPaid: 0 };
         }
     };
-
     const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
         // ========== IMPROVED RACE CONDITION FIXES ==========
         const callId = Math.random().toString(36).substr(2, 9);
@@ -5421,9 +5540,18 @@ export default function SupplierReportPrinted() {
 
             console.log(`🟢 [${callId}] No duplicate found, proceeding with payment`);
 
+            // ⭐ CRITICAL FIX: Calculate total paid AFTER this payment
             const newTotalPaid = currentPaid + paymentAmount;
             const isFullySettled = newTotalPaid >= totalPayable;
             const newRemaining = Math.max(0, totalPayable - newTotalPaid);
+
+            console.log(`🟢 [${callId}] Payment calculation:`, {
+                currentPaid,
+                paymentAmount,
+                newTotalPaid,
+                totalPayable,
+                isFullySettled
+            });
 
             let paymentMethod = 'Cash';
             if (isAdjustment && adjustmentDetails) {
@@ -5650,19 +5778,42 @@ export default function SupplierReportPrinted() {
 
                 // ========== DEDUCT FROM ALLOCATED FUNDS (for all payment methods except Credit) ==========
                 if (paymentMethod !== 'Credit') {
-                    // Call the API to deduct from allocated funds
                     await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
                     console.log(`💰 [${callId}] Deducted Rs. ${paymentAmount} from allocated funds for ${paymentMethod} payment`);
                 }
 
-                await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
+                // Refresh data to get the updated totals
+                await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
+
+                // ⭐ CRITICAL FIX: Re-fetch the loan data to get the accurate total paid
+                const updatedLoanCheck = await findExistingLoanId(state.selectedSupplier, state.selectedBillNo);
+                const updatedTotalPaid = updatedLoanCheck.currentPaid;
+                const isNowFullySettled = updatedTotalPaid >= totalPayable;
+
+                console.log(`🟢 [${callId}] Updated settlement check:`, {
+                    updatedTotalPaid,
+                    totalPayable,
+                    isNowFullySettled
+                });
+
+                // Re-select the bill to update the UI
                 await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
 
                 // Show appropriate success message
                 let successMessage = `✓ Payment Added: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`;
 
-                if (isFullySettled && !isCreditSettlementPayment) {
-                    successMessage = `✅ Payment Complete!\nPayment: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`;
+                // Only show print modal if the bill is now FULLY SETTLED (total paid >= total bill)
+                if (isNowFullySettled && !isCreditSettlementPayment) {
+                    successMessage = `✅ Payment Complete!\nPayment: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}\nBill is now fully settled!`;
+
+                    // Only show print modal if bill is fully settled
+                    if (state.selectedBillNo && !state.isPrinting) {
+                        // Small delay to ensure data is refreshed
+                        setTimeout(async () => {
+                            const billContent = await generateBillContent(state.selectedBillNo);
+                            setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
+                        }, 500);
+                    }
                 }
 
                 if (isCreditSettlementPayment && creditorUpdateSuccess && !isBillInNotSettled) {
@@ -5679,11 +5830,6 @@ export default function SupplierReportPrinted() {
                 }
 
                 alert(successMessage);
-
-                if (isFullySettled && state.selectedBillNo && !isCreditSettlementPayment) {
-                    const billContent = await generateBillContent(state.selectedBillNo);
-                    setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
-                }
 
                 setState(prev => ({
                     ...prev,
