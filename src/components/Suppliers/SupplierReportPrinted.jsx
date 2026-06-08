@@ -614,7 +614,7 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) =
 };
 
 // ==================== PAYMENT ADJUSTMENT MODAL ====================
-const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCode, originalBillTotal, adjustmentType = 'bag_to_box', onAmountCalculated }) => {
+const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCode, originalBillTotal, adjustmentType = 'bag_to_box', onAmountCalculated, maxAllowedAmount = Infinity }) => {
     const [bagCount, setBagCount] = useState('');
     const [boxCount, setBoxCount] = useState('');
     const [bagValue, setBagValue] = useState('');
@@ -624,6 +624,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
     const [targetSupplierBillValue, setTargetSupplierBillValue] = useState('');
     const [badDebtName, setBadDebtName] = useState('');
     const [badDebtAmount, setBadDebtAmount] = useState('');
+    const [exceedsMax, setExceedsMax] = useState(false);
 
     // Refs for input fields to enable Enter key navigation
     const bagCountRef = useRef(null);
@@ -638,77 +639,116 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
     const cancelButtonRef = useRef(null);
     const confirmButtonRef = useRef(null);
 
+    // Helper function to check if amount exceeds max
+    const checkExceedsMax = (amount) => {
+        if (maxAllowedAmount !== Infinity && amount > maxAllowedAmount) {
+            setExceedsMax(true);
+            return true;
+        }
+        setExceedsMax(false);
+        return false;
+    };
+
     // Effect to auto-calculate and send amount for bag_to_box
     useEffect(() => {
         if (adjustmentType === 'bag_to_box' && onAmountCalculated) {
             const totalBagValue = (parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0);
             const totalBoxValue = (parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0);
             const amount = Math.abs(totalBagValue + totalBoxValue);
-            if (amount > 0) {
+            if (amount > 0 && !checkExceedsMax(amount)) {
                 onAmountCalculated(amount);
+            } else if (amount > 0 && checkExceedsMax(amount)) {
+                onAmountCalculated(0);
             }
         }
-    }, [bagCount, bagValue, boxCount, boxValue, adjustmentType]);
+    }, [bagCount, bagValue, boxCount, boxValue, adjustmentType, maxAllowedAmount]);
 
     // Effect for bill_to_bill
     useEffect(() => {
         if (adjustmentType === 'bill_to_bill' && onAmountCalculated) {
             const amount = parseFloat(targetSupplierBillValue) || 0;
-            if (amount > 0) {
+            if (amount > 0 && !checkExceedsMax(amount)) {
                 onAmountCalculated(amount);
+            } else if (amount > 0 && checkExceedsMax(amount)) {
+                onAmountCalculated(0);
             }
         }
-    }, [targetSupplierBillValue, adjustmentType]);
+    }, [targetSupplierBillValue, adjustmentType, maxAllowedAmount]);
 
     // Effect for bad_debt
     useEffect(() => {
         if (adjustmentType === 'bad_debt' && onAmountCalculated) {
             const amount = parseFloat(badDebtAmount) || 0;
-            if (amount > 0) {
+            if (amount > 0 && !checkExceedsMax(amount)) {
                 onAmountCalculated(amount);
+            } else if (amount > 0 && checkExceedsMax(amount)) {
+                onAmountCalculated(0);
             }
         }
-    }, [badDebtAmount, adjustmentType]);
+    }, [badDebtAmount, adjustmentType, maxAllowedAmount]);
 
     if (!isOpen) return null;
 
     const calculateBagToBoxAdjustment = () => {
         const totalBagValue = (parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0);
         const totalBoxValue = (parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0);
-        return totalBagValue + totalBoxValue;
+        const totalAmount = totalBagValue + totalBoxValue;
+
+        // Check against max allowed amount
+        if (maxAllowedAmount !== Infinity && totalAmount > maxAllowedAmount) {
+            return 0;
+        }
+        return totalAmount;
     };
 
     const handleConfirm = () => {
         const adjustmentData = { adjustment_type: adjustmentType, original_bill_total: originalBillTotal };
+        let amount = 0;
 
         if (adjustmentType === 'bag_to_box') {
             if (!bagCount || !boxCount || !bagValue || !boxValue) {
                 alert('Please fill all bag/box fields');
                 return;
             }
+            amount = Math.abs(calculateBagToBoxAdjustment());
+            if (amount === 0 && maxAllowedAmount !== Infinity) {
+                alert(`Adjustment amount exceeds maximum allowed of Rs. ${formatDecimal(maxAllowedAmount)}`);
+                return;
+            }
             adjustmentData.bag_count = parseInt(bagCount);
             adjustmentData.box_count = parseInt(boxCount);
             adjustmentData.bag_value = parseFloat(bagValue);
             adjustmentData.box_value = parseFloat(boxValue);
-            adjustmentData.amount = Math.abs(calculateBagToBoxAdjustment());
+            adjustmentData.amount = amount;
         } else if (adjustmentType === 'bill_to_bill') {
             if (!targetSupplierCode || !targetSupplierBillNo || !targetSupplierBillValue) {
                 alert('Please fill all bill to bill fields');
                 return;
             }
+            amount = parseFloat(targetSupplierBillValue);
+            if (maxAllowedAmount !== Infinity && amount > maxAllowedAmount) {
+                alert(`Bill amount exceeds maximum allowed of Rs. ${formatDecimal(maxAllowedAmount)}`);
+                return;
+            }
             adjustmentData.target_supplier_code = targetSupplierCode;
             adjustmentData.target_supplier_bill_no = targetSupplierBillNo;
-            adjustmentData.target_supplier_bill_value = parseFloat(targetSupplierBillValue);
-            adjustmentData.amount = parseFloat(targetSupplierBillValue);
+            adjustmentData.target_supplier_bill_value = amount;
+            adjustmentData.amount = amount;
         } else if (adjustmentType === 'bad_debt') {
             if (!badDebtName || !badDebtAmount) {
                 alert('Please enter bad debt name and amount');
                 return;
             }
+            amount = parseFloat(badDebtAmount);
+            if (maxAllowedAmount !== Infinity && amount > maxAllowedAmount) {
+                alert(`Bad debt amount exceeds maximum allowed of Rs. ${formatDecimal(maxAllowedAmount)}`);
+                return;
+            }
             adjustmentData.bad_debt_name = badDebtName;
-            adjustmentData.bad_debt_amount = parseFloat(badDebtAmount);
-            adjustmentData.amount = parseFloat(badDebtAmount);
+            adjustmentData.bad_debt_amount = amount;
+            adjustmentData.amount = amount;
         }
+
         onConfirm(adjustmentData);
         onClose();
     };
@@ -724,6 +764,7 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
         setTargetSupplierBillValue('');
         setBadDebtName('');
         setBadDebtAmount('');
+        setExceedsMax(false);
         onClose();
     };
 
@@ -741,9 +782,9 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
     const handleLastFieldKeyPress = (e, isLastField = false) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            if (isLastField) {
+            if (isLastField && !exceedsMax) {
                 handleConfirm();
-            } else if (confirmButtonRef.current) {
+            } else if (confirmButtonRef.current && !exceedsMax) {
                 confirmButtonRef.current.focus();
             }
         }
@@ -758,6 +799,17 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
         }
     };
 
+    const formatCurrency = (amount) => {
+        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const formatDecimalLocal = (value) => {
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(Number(value || 0));
+    };
+
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }} onClick={handleClose}>
             <div style={{ backgroundColor: 'white', borderRadius: '24px', width: '750px', maxWidth: '90%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={(e) => e.stopPropagation()}>
@@ -768,6 +820,14 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                     </div>
                     <button onClick={handleClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', fontSize: '24px', cursor: 'pointer', color: 'white', width: '34px', height: '34px', borderRadius: '50%' }}>×</button>
                 </div>
+
+                {maxAllowedAmount !== Infinity && (
+                    <div style={{ padding: '12px 24px', background: '#dbeafe', borderBottom: '1px solid #bfdbfe' }}>
+                        <div style={{ fontSize: '12px', color: '#1e40af' }}>
+                            ⚠️ Maximum allowed amount: {formatCurrency(maxAllowedAmount)}
+                        </div>
+                    </div>
+                )}
 
                 <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
                     {/* Show different form based on adjustment type */}
@@ -821,10 +881,15 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                                     />
                                 </div>
                             </div>
-                            <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', padding: '16px', borderRadius: '12px' }}>
+                            <div style={{ background: exceedsMax ? '#fee2e2' : 'linear-gradient(135deg, #fef3c7, #fde68a)', padding: '16px', borderRadius: '12px' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600' }}>📊 Adjustment Summary</div>
                                 <div>Adjustment Amount: Rs. {Math.abs(calculateBagToBoxAdjustment()).toFixed(2)}</div>
-                                {Math.abs(calculateBagToBoxAdjustment()) > 0 && (
+                                {maxAllowedAmount !== Infinity && calculateBagToBoxAdjustment() > maxAllowedAmount && (
+                                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '8px', fontWeight: 'bold' }}>
+                                        ⚠️ Amount exceeds maximum allowed! Max: {formatCurrency(maxAllowedAmount)}
+                                    </div>
+                                )}
+                                {Math.abs(calculateBagToBoxAdjustment()) > 0 && calculateBagToBoxAdjustment() <= maxAllowedAmount && (
                                     <div style={{ marginTop: '8px', fontSize: '11px', color: '#92400e' }}>
                                         💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
                                     </div>
@@ -866,15 +931,32 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                                     ref={targetSupplierBillValueRef}
                                     type="number"
                                     value={targetSupplierBillValue}
-                                    onChange={(e) => setTargetSupplierBillValue(e.target.value)}
+                                    onChange={(e) => {
+                                        let val = e.target.value;
+                                        if (val === "") {
+                                            setTargetSupplierBillValue("");
+                                            return;
+                                        }
+                                        let num = parseFloat(val);
+                                        if (maxAllowedAmount !== Infinity && num > maxAllowedAmount) {
+                                            alert(`Maximum allowed: Rs. ${formatDecimalLocal(maxAllowedAmount)}`);
+                                            return;
+                                        }
+                                        setTargetSupplierBillValue(val);
+                                    }}
                                     onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
                                     style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
                                 />
                             </div>
-                            <div style={{ background: '#dbeafe', padding: '16px', borderRadius: '12px', marginTop: '16px' }}>
+                            <div style={{ background: (parseFloat(targetSupplierBillValue) || 0) > maxAllowedAmount && maxAllowedAmount !== Infinity ? '#fee2e2' : '#dbeafe', padding: '16px', borderRadius: '12px', marginTop: '16px' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600' }}>📊 Transfer Summary</div>
                                 <div>Transfer Amount: Rs. {(parseFloat(targetSupplierBillValue) || 0).toLocaleString()}</div>
-                                {(parseFloat(targetSupplierBillValue) || 0) > 0 && (
+                                {maxAllowedAmount !== Infinity && (parseFloat(targetSupplierBillValue) || 0) > maxAllowedAmount && (
+                                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '8px', fontWeight: 'bold' }}>
+                                        ⚠️ Amount exceeds maximum allowed! Max: {formatCurrency(maxAllowedAmount)}
+                                    </div>
+                                )}
+                                {(parseFloat(targetSupplierBillValue) || 0) > 0 && (parseFloat(targetSupplierBillValue) || 0) <= maxAllowedAmount && (
                                     <div style={{ marginTop: '8px', fontSize: '11px', color: '#1e40af' }}>
                                         💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
                                     </div>
@@ -902,14 +984,31 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                                     ref={badDebtAmountRef}
                                     type="number"
                                     value={badDebtAmount}
-                                    onChange={(e) => setBadDebtAmount(e.target.value)}
+                                    onChange={(e) => {
+                                        let val = e.target.value;
+                                        if (val === "") {
+                                            setBadDebtAmount("");
+                                            return;
+                                        }
+                                        let num = parseFloat(val);
+                                        if (maxAllowedAmount !== Infinity && num > maxAllowedAmount) {
+                                            alert(`Maximum allowed: Rs. ${formatDecimalLocal(maxAllowedAmount)}`);
+                                            return;
+                                        }
+                                        setBadDebtAmount(val);
+                                    }}
                                     onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
                                     style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px' }}
                                 />
                             </div>
-                            <div style={{ background: '#fee2e2', padding: '16px', borderRadius: '12px' }}>
+                            <div style={{ background: (parseFloat(badDebtAmount) || 0) > maxAllowedAmount && maxAllowedAmount !== Infinity ? '#fee2e2' : '#fee2e2', padding: '16px', borderRadius: '12px' }}>
                                 <div style={{ fontSize: '14px', fontWeight: '600' }}>⚠️ Bad Debt Write-off: Rs. {(parseFloat(badDebtAmount) || 0).toLocaleString()}</div>
-                                {(parseFloat(badDebtAmount) || 0) > 0 && (
+                                {maxAllowedAmount !== Infinity && (parseFloat(badDebtAmount) || 0) > maxAllowedAmount && (
+                                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '8px', fontWeight: 'bold' }}>
+                                        ⚠️ Amount exceeds maximum allowed! Max: {formatCurrency(maxAllowedAmount)}
+                                    </div>
+                                )}
+                                {(parseFloat(badDebtAmount) || 0) > 0 && (parseFloat(badDebtAmount) || 0) <= maxAllowedAmount && (
                                     <div style={{ marginTop: '8px', fontSize: '11px', color: '#991b1b' }}>
                                         💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
                                     </div>
@@ -936,13 +1035,23 @@ const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCo
                     <button
                         ref={confirmButtonRef}
                         onClick={handleConfirm}
+                        disabled={exceedsMax}
                         onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !exceedsMax) {
                                 e.preventDefault();
                                 handleConfirm();
                             }
                         }}
-                        style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600' }}
+                        style={{
+                            padding: '10px 24px',
+                            background: exceedsMax ? '#9ca3af' : 'linear-gradient(135deg, #4CAF50, #45a049)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: exceedsMax ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            opacity: exceedsMax ? 0.6 : 1
+                        }}
                     >
                         Apply Adjustment
                     </button>
@@ -1994,7 +2103,7 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
                     total_allocated: 0,
                     total_records: 0
                 };
-                
+
                 setAllocatedRecords(records);
                 setGrandTotals(totals);
                 console.log('Allocated breakdown fetched:', { records, totals });
@@ -2109,7 +2218,7 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
                                     {allocatedRecords.map((record, index) => {
                                         const isExpanded = expandedCashier === record.cashier_name;
                                         const hasBankAllocations = record.bank_breakdown && record.bank_breakdown.length > 0;
-                                        
+
                                         return (
                                             <div key={record.id || index} style={{
                                                 marginBottom: '12px',
@@ -2119,7 +2228,7 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
                                                 background: 'white'
                                             }}>
                                                 {/* Cashier Header - Clickable */}
-                                                <div 
+                                                <div
                                                     onClick={() => toggleCashierExpand(record.cashier_name)}
                                                     style={{
                                                         display: 'flex',
@@ -7011,14 +7120,17 @@ export default function SupplierReportPrinted() {
                 isOpen={showAdjustmentModal}
                 onClose={() => {
                     setShowAdjustmentModal(false);
-                    setCalculatedAdjustmentAmount(0); // Reset when modal closes
+                    setCalculatedAdjustmentAmount(0);
                 }}
                 onConfirm={handleApplyAdjustment}
                 billNo={state.selectedBillNo}
                 supplierCode={state.selectedSupplier}
                 originalBillTotal={totalPayable}
                 adjustmentType={selectedAdjustmentType}
-                onAmountCalculated={handleAdjustmentAmountCalculated}  // Add this line
+                onAmountCalculated={handleAdjustmentAmountCalculated}
+                maxAllowedAmount={state.isUpdatingCompletedBill && selectedBillCreditor?.remaining_amount > 0
+                    ? selectedBillCreditor.remaining_amount
+                    : Math.max(0, totalPayable - state.currentPaidAmount)}
             />
             <PaymentHistoryModal
                 isOpen={state.showPaymentHistoryModal}
