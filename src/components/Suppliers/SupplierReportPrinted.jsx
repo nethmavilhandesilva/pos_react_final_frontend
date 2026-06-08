@@ -477,9 +477,23 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) =
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
+    // Create refs for all input fields
+    const bankSelectRef = useRef(null);
+    const referenceNoRef = useRef(null);
+    const transferDateRef = useRef(null);
+    const notesRef = useRef(null);
+    const cancelButtonRef = useRef(null);
+    const confirmButtonRef = useRef(null);
+
     useEffect(() => {
         if (isOpen) {
             fetchBanks();
+            // Auto-focus the bank select dropdown when modal opens
+            setTimeout(() => {
+                if (bankSelectRef.current) {
+                    bankSelectRef.current.focus();
+                }
+            }, 100);
         }
     }, [isOpen]);
 
@@ -528,6 +542,56 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) =
         };
 
         onConfirm(transferDataWithBank);
+        // Reset form after submit
+        setTransferDetails({
+            bank_account_id: null,
+            reference_no: '',
+            transfer_date: new Date().toISOString().split('T')[0],
+            notes: ''
+        });
+    };
+
+    // Handle Enter key navigation
+    const handleKeyPress = (e, nextRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextRef && nextRef.current) {
+                setTimeout(() => {
+                    nextRef.current.focus();
+                }, 50);
+            }
+        }
+    };
+
+    // Handle Enter key for select element
+    const handleSelectKeyDown = (e, nextRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextRef && nextRef.current) {
+                setTimeout(() => {
+                    nextRef.current.focus();
+                }, 50);
+            } else {
+                // If no next field, submit
+                handleSubmit();
+            }
+        }
+    };
+
+    // Handle Enter key on last field (notes) - submits the form
+    const handleLastFieldKeyPress = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSubmit();
+        }
+    };
+
+    // Handle Enter key on buttons
+    const handleButtonKeyPress = (e, action) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            action();
+        }
     };
 
     return (
@@ -569,50 +633,172 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) =
                     <div style={{ background: '#fdf2f8', padding: '16px', borderRadius: '14px', marginBottom: '24px', border: '1px solid #fbcfe8' }}>
                         <div style={{ fontSize: '13px', fontWeight: '600', color: '#be185d', marginBottom: '10px' }}>💰 Payment Details</div>
                         <div style={{ fontSize: '13px', color: '#9d174d', lineHeight: '1.6' }}>
-                            <strong>Amount:</strong> Rs. {amount.toFixed(2)}<br />
+                            <strong>Amount:</strong> Rs. {amount?.toFixed(2) || '0.00'}<br />
                             <strong>Supplier:</strong> {supplierCode}
                         </div>
                     </div>
 
+                    {/* Bank Account Selector Field */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>🏦 Select Bank Account <span style={{ color: '#ef4444' }}>*</span></label>
-                        <select value={transferDetails.bank_account_id || ''} onChange={(e) => handleBankSelect(e.target.value)} disabled={loading}
-                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', background: 'white' }}>
-                            <option value="">-- Select Bank Account --</option>
-                            {banks.map(bank => <option key={bank.id} value={bank.id}>{bank.bank_name} - {bank.branch} (Acc: {bank.account_no})</option>)}
-                        </select>
+                        {loading ? (
+                            <div style={{ padding: '12px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>Loading banks...</div>
+                        ) : (
+                            <select
+                                ref={bankSelectRef}
+                                value={transferDetails.bank_account_id || ''}
+                                onChange={(e) => handleBankSelect(e.target.value)}
+                                onKeyDown={(e) => handleSelectKeyDown(e, referenceNoRef)}
+                                disabled={loading}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 14px',
+                                    border: '2px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    fontSize: '14px',
+                                    background: 'white',
+                                    cursor: 'pointer',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#ec489a'}
+                                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                            >
+                                <option value="">-- Select Bank Account --</option>
+                                {banks.map(bank => (
+                                    <option key={bank.id} value={bank.id}>
+                                        {bank.bank_name} - {bank.branch} (Acc: {bank.account_no})
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                     </div>
 
+                    {/* Transaction Reference Number Field */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>🔢 Transaction Reference Number <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input type="text" name="reference_no" value={transferDetails.reference_no} onChange={handleChange}
+                        <input
+                            ref={referenceNoRef}
+                            type="text"
+                            name="reference_no"
+                            value={transferDetails.reference_no}
+                            onChange={handleChange}
+                            onKeyPress={(e) => handleKeyPress(e, transferDateRef)}
                             placeholder="Enter transaction ID / Reference"
-                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', outline: 'none', fontFamily: 'monospace' }} />
+                            style={{
+                                width: '100%',
+                                padding: '12px 14px',
+                                border: '2px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontSize: '14px',
+                                outline: 'none',
+                                fontFamily: 'monospace'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#ec489a'}
+                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                        />
                     </div>
 
+                    {/* Transfer Date Field */}
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>📅 Transfer Date <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input type="date" name="transfer_date" value={transferDetails.transfer_date} onChange={handleChange}
-                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', outline: 'none' }} />
+                        <input
+                            ref={transferDateRef}
+                            type="date"
+                            name="transfer_date"
+                            value={transferDetails.transfer_date}
+                            onChange={handleChange}
+                            onKeyPress={(e) => handleKeyPress(e, notesRef)}
+                            style={{
+                                width: '100%',
+                                padding: '12px 14px',
+                                border: '2px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontSize: '14px',
+                                outline: 'none'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#ec489a'}
+                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                        />
                     </div>
 
+                    {/* Notes Field (Last Field - Submits on Enter) */}
                     <div style={{ marginBottom: '24px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>📝 Notes (Optional)</label>
-                        <textarea name="notes" value={transferDetails.notes} onChange={handleChange}
-                            placeholder="Additional notes about the transfer..." rows="3"
-                            style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', outline: 'none', resize: 'vertical' }} />
+                        <textarea
+                            ref={notesRef}
+                            name="notes"
+                            value={transferDetails.notes}
+                            onChange={handleChange}
+                            onKeyDown={handleLastFieldKeyPress}
+                            placeholder="Additional notes about the transfer..."
+                            rows="3"
+                            style={{
+                                width: '100%',
+                                padding: '12px 14px',
+                                border: '2px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontSize: '14px',
+                                outline: 'none',
+                                resize: 'vertical',
+                                fontFamily: 'inherit'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#ec489a'}
+                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                        />
                     </div>
 
+                    {/* Buttons Section */}
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                        <button onClick={onClose} style={{ padding: '10px 24px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Cancel</button>
-                        <button onClick={handleSubmit} style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #ec489a, #db2777)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>Confirm Transfer</button>
+                        <button
+                            ref={cancelButtonRef}
+                            onClick={onClose}
+                            onKeyPress={(e) => handleButtonKeyPress(e, onClose)}
+                            style={{
+                                padding: '10px 24px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '13px',
+                                transition: 'background 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#e2e8f0'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            ref={confirmButtonRef}
+                            onClick={handleSubmit}
+                            onKeyPress={(e) => handleButtonKeyPress(e, handleSubmit)}
+                            style={{
+                                padding: '10px 24px',
+                                background: 'linear-gradient(135deg, #ec489a, #db2777)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '13px',
+                                transition: 'transform 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'scale(1.02)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                        >
+                            Confirm Transfer
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     );
 };
-
 // ==================== PAYMENT ADJUSTMENT MODAL ====================
 const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCode, originalBillTotal, adjustmentType = 'bag_to_box', onAmountCalculated, maxAllowedAmount = Infinity }) => {
     const [bagCount, setBagCount] = useState('');
