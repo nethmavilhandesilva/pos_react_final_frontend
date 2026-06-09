@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api';
 
@@ -17,6 +17,12 @@ const DebtorCreditorReport = () => {
     const [modalData, setModalData] = useState(null);
     const [modalLoading, setModalLoading] = useState(false);
     const [viewOldBills, setViewOldBills] = useState(false);
+    const [autoRefresh, setAutoRefresh] = useState(true);
+    const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
+    const [refreshCountdown, setRefreshCountdown] = useState(10);
+    
+    const intervalRef = useRef(null);
+    const countdownRef = useRef(null);
 
     const fetchCombinedReport = useCallback(async () => {
         setLoading(true);
@@ -30,55 +36,136 @@ const DebtorCreditorReport = () => {
                 setDebtorSummary(response.data.debtor_summary);
                 setCreditorSummary(response.data.creditor_summary);
                 setCombinedSummary(response.data.combined_summary);
+                setLastRefreshTime(new Date());
+                
+                // Show a subtle notification that data was refreshed
+                const refreshNotification = document.createElement('div');
+                refreshNotification.textContent = '✓ Data refreshed automatically';
+                refreshNotification.style.cssText = `
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    background: #10b981;
+                    color: white;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    z-index: 10001;
+                    animation: fadeOut 2s ease-out forwards;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                `;
+                document.body.appendChild(refreshNotification);
+                setTimeout(() => refreshNotification.remove(), 2000);
             }
         } catch (error) {
             console.error('Error fetching combined report:', error);
-            alert('Failed to load report data');
+            // Don't show alert for auto-refresh errors to avoid annoying popups
+            if (!autoRefresh) {
+                alert('Failed to load report data');
+            }
         } finally {
             setLoading(false);
         }
-    }, [searchTerm, limit, viewOldBills]);
+    }, [searchTerm, limit, viewOldBills, autoRefresh]);
 
+    // Countdown timer function
+    const startCountdown = useCallback(() => {
+        if (countdownRef.current) {
+            clearInterval(countdownRef.current);
+        }
+        
+        setRefreshCountdown(10);
+        countdownRef.current = setInterval(() => {
+            setRefreshCountdown(prev => {
+                if (prev <= 1) {
+                    return 10;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }, []);
+
+    // Set up auto-refresh interval
+    useEffect(() => {
+        if (autoRefresh) {
+            // Initial countdown start
+            startCountdown();
+            
+            // Set up main refresh interval
+            intervalRef.current = setInterval(() => {
+                fetchCombinedReport();
+                startCountdown(); // Reset countdown after refresh
+            }, 10000); // Refresh every 10 seconds
+        } else {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+            if (countdownRef.current) {
+                clearInterval(countdownRef.current);
+            }
+            setRefreshCountdown(10);
+        }
+        
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+            if (countdownRef.current) {
+                clearInterval(countdownRef.current);
+            }
+        };
+    }, [autoRefresh, fetchCombinedReport, startCountdown]);
+
+    // Initial data fetch
     useEffect(() => {
         fetchCombinedReport();
-    }, [fetchCombinedReport]);
+        startCountdown();
+        
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+            if (countdownRef.current) {
+                clearInterval(countdownRef.current);
+            }
+        };
+    }, [fetchCombinedReport, startCountdown]);
 
-   const fetchDebtorDetails = async (code) => {
-    setModalLoading(true);
-    setShowDetailsModal(true);
-    try {
-        const response = await api.get(`/debtor-creditor/debtor/${code}`, {
-            params: { view_old_bills: viewOldBills }
-        });
-        if (response.data.success) {
-            setModalData(response.data.data);
+    const fetchDebtorDetails = async (code) => {
+        setModalLoading(true);
+        setShowDetailsModal(true);
+        try {
+            const response = await api.get(`/debtor-creditor/debtor/${code}`, {
+                params: { view_old_bills: viewOldBills }
+            });
+            if (response.data.success) {
+                setModalData(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching debtor details:', error);
+            alert('Failed to load debtor details');
+        } finally {
+            setModalLoading(false);
         }
-    } catch (error) {
-        console.error('Error fetching debtor details:', error);
-        alert('Failed to load debtor details');
-    } finally {
-        setModalLoading(false);
-    }
-};
+    };
 
-
-  const fetchCreditorDetails = async (code) => {
-    setModalLoading(true);
-    setShowDetailsModal(true);
-    try {
-        const response = await api.get(`/debtor-creditor/creditor/${code}`, {
-            params: { view_old_bills: viewOldBills }
-        });
-        if (response.data.success) {
-            setModalData(response.data.data);
+    const fetchCreditorDetails = async (code) => {
+        setModalLoading(true);
+        setShowDetailsModal(true);
+        try {
+            const response = await api.get(`/debtor-creditor/creditor/${code}`, {
+                params: { view_old_bills: viewOldBills }
+            });
+            if (response.data.success) {
+                setModalData(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching creditor details:', error);
+            alert('Failed to load creditor details');
+        } finally {
+            setModalLoading(false);
         }
-    } catch (error) {
-        console.error('Error fetching creditor details:', error);
-        alert('Failed to load creditor details');
-    } finally {
-        setModalLoading(false);
-    }
-};
+    };
 
     const formatCurrency = (amount) => {
         return `Rs. ${(amount || 0).toLocaleString(undefined, {
@@ -88,39 +175,31 @@ const DebtorCreditorReport = () => {
     };
 
     const formatDate = (date) => {
-    if (!date) {
-        console.log('No date provided');
-        return 'N/A';
-    }
-    
-    // If it's an object with a date property
-    if (typeof date === 'object' && date.date) {
-        date = date.date;
-    }
-    
-    // Try to parse the date
-    let parsedDate;
-    try {
-        parsedDate = new Date(date);
-        
-        // Check if valid
-        if (isNaN(parsedDate.getTime())) {
-            console.warn('Invalid date value:', date);
+        if (!date) {
             return 'N/A';
         }
-    } catch (error) {
-        console.error('Date parsing error:', error);
-        return 'N/A';
-    }
-    
-    return parsedDate.toLocaleDateString('en-GB', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-    });
-};
+        
+        if (typeof date === 'object' && date.date) {
+            date = date.date;
+        }
+        
+        let parsedDate;
+        try {
+            parsedDate = new Date(date);
+            if (isNaN(parsedDate.getTime())) {
+                return 'N/A';
+            }
+        } catch (error) {
+            return 'N/A';
+        }
+        
+        return parsedDate.toLocaleDateString('en-GB', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    };
 
-    // Helper function to get image URL
     const getImageUrl = (imagePath) => {
         if (!imagePath) return null;
         if (imagePath.startsWith('http') || imagePath.startsWith('data:')) {
@@ -153,9 +232,33 @@ const DebtorCreditorReport = () => {
     }, [creditors, searchTerm]);
 
     const currentData = activeTab === 'debtors' ? filteredDebtors : filteredCreditors;
-    const currentSummary = activeTab === 'debtors' ? debtorSummary : creditorSummary;
+    
+    // Calculate custom summaries based on the actual displayed data
+    const customSummary = useMemo(() => {
+        if (currentData.length === 0) {
+            return { totalAmount: 0, totalPaid: 0, totalRemaining: 0 };
+        }
+        
+        let totalAmount = 0;
+        let totalPaid = 0;
+        let totalRemaining = 0;
+        
+        currentData.forEach(item => {
+            const amount = activeTab === 'debtors' 
+                ? (item.total_sales || 0)
+                : (item.total_supplier_bill_amount || item.total_supplier_amount || 0);
+            
+            const paid = item.total_paid || 0;
+            const remaining = item.total_remaining || 0;
+            
+            totalAmount += amount;
+            totalPaid += paid;
+            totalRemaining += remaining;
+        });
+        
+        return { totalAmount, totalPaid, totalRemaining };
+    }, [currentData, activeTab]);
 
-    // Function to get payment method icon and color
     const getPaymentMethodStyle = (method) => {
         const methods = {
             'Cash': { icon: '💰', color: '#10b981' },
@@ -169,7 +272,22 @@ const DebtorCreditorReport = () => {
         return methods[method] || { icon: '💰', color: '#6b7280' };
     };
 
-    if (loading) {
+    // Toggle auto-refresh
+    const toggleAutoRefresh = () => {
+        setAutoRefresh(prev => !prev);
+        if (!autoRefresh) {
+            // If turning on, fetch immediately
+            fetchCombinedReport();
+        }
+    };
+
+    // Manual refresh
+    const handleManualRefresh = () => {
+        fetchCombinedReport();
+        startCountdown();
+    };
+
+    if (loading && debtors.length === 0 && creditors.length === 0) {
         return (
             <div style={styles.fullScreenContainer}>
                 <div style={styles.loadingContainer}>
@@ -191,12 +309,45 @@ const DebtorCreditorReport = () => {
                 <div style={styles.headerSubtitle}>
                     Comprehensive report of all debtors and creditors with their transaction details
                 </div>
-                {/* View Old Bills Button */}
+                
+                {/* Auto-refresh status bar */}
+                <div style={styles.autoRefreshBar}>
+                    <div style={styles.autoRefreshInfo}>
+                        <span>🔄 Auto-refresh: {autoRefresh ? 'ON' : 'OFF'}</span>
+                        {autoRefresh && (
+                            <span style={styles.countdownTimer}>
+                                Next refresh in: {refreshCountdown}s
+                            </span>
+                        )}
+                        <span style={styles.lastRefreshTime}>
+                            Last updated: {lastRefreshTime.toLocaleTimeString()}
+                        </span>
+                    </div>
+                    <div style={styles.autoRefreshControls}>
+                        <button
+                            onClick={toggleAutoRefresh}
+                            style={{
+                                ...styles.autoRefreshBtn,
+                                background: autoRefresh ? '#ef4444' : '#10b981'
+                            }}
+                        >
+                            {autoRefresh ? '⏸️ Stop Auto-Refresh' : '▶️ Start Auto-Refresh'}
+                        </button>
+                        <button
+                            onClick={handleManualRefresh}
+                            style={styles.manualRefreshBtn}
+                            disabled={loading}
+                        >
+                            {loading ? '⟳ Refreshing...' : '🔄 Refresh Now'}
+                        </button>
+                    </div>
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
                     <button
                         onClick={() => {
                             setViewOldBills(!viewOldBills);
-                            setLoading(true);
+                            handleManualRefresh();
                         }}
                         style={{
                             padding: '8px 20px',
@@ -213,21 +364,11 @@ const DebtorCreditorReport = () => {
                             transition: 'all 0.2s',
                             boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                         }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-                        }}
                     >
                         {viewOldBills ? '📅 View Current Bills' : '📜 View Old Bills'}
                     </button>
                 </div>
             </div>
-
-          
 
             {/* Tabs */}
             <div style={styles.tabsContainer}>
@@ -259,14 +400,6 @@ const DebtorCreditorReport = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     style={styles.searchInput}
-                    onFocus={(e) => {
-                        e.target.style.borderColor = '#667eea';
-                        e.target.style.boxShadow = '0 0 0 3px rgba(102,126,234,0.1)';
-                    }}
-                    onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0';
-                        e.target.style.boxShadow = 'none';
-                    }}
                 />
                 <select
                     value={limit}
@@ -279,79 +412,57 @@ const DebtorCreditorReport = () => {
                     <option value={200}>Show 200</option>
                 </select>
                 <button
-                    onClick={fetchCombinedReport}
+                    onClick={handleManualRefresh}
                     style={styles.refreshBtn}
-                    onMouseEnter={(e) => e.target.style.background = '#45a049'}
-                    onMouseLeave={(e) => e.target.style.background = '#4CAF50'}
+                    disabled={loading}
                 >
-                    🔄 Refresh
+                    {loading ? '⟳ Refreshing...' : '🔄 Refresh'}
                 </button>
             </div>
 
-            {/* Summary for active tab */}
+            {/* Summary for active tab - Using custom calculated values */}
             <div style={styles.statsGrid}>
                 <div style={styles.statCard}>
                     <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Debtors' : 'Creditors'}</div>
-                    <div style={styles.statValue}>{currentSummary[`total_${activeTab}`] || 0}</div>
+                    <div style={styles.statValue}>{currentData.length}</div>
                 </div>
 
                 <div style={styles.statCard}>
                     <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Sales' : 'Supplier'} Amount</div>
                     <div style={styles.statValue}>
-                        {formatCurrency(currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`])}
+                        {formatCurrency(customSummary.totalAmount)}
                     </div>
                 </div>
 
-                {/* Total Paid Card with Conditional Logic */}
                 <div style={styles.statCard}>
                     <div style={styles.statLabel}>Total Paid</div>
                     <div style={styles.statValue}>
-                        {(() => {
-                            const totalSales = currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`] || 0;
-                            const totalPaid = currentSummary.total_paid_amount || 0;
-                            const totalCreditDeductions = currentSummary.total_credit_deductions || 0;
-
-                            // Apply same logic: if paid > sales, subtract credit deductions
-                            let displayPaid;
-                            if (totalPaid > totalSales) {
-                                displayPaid = totalPaid - totalCreditDeductions;
-                            } else {
-                                displayPaid = totalPaid;
-                            }
-
-                            return formatCurrency(displayPaid);
-                        })()}
+                        {formatCurrency(customSummary.totalPaid)}
                     </div>
-                    {/* Optional: Show adjustment indicator */}
-                    {(() => {
-                        const totalSales = currentSummary[`total_${activeTab === 'debtors' ? 'sales_amount' : 'supplier_amount'}`] || 0;
-                        const totalPaid = currentSummary.total_paid_amount || 0;
-                        if (totalPaid > totalSales && activeTab === 'debtors') {
-                            return (
-                                <div style={{ fontSize: '11px', color: '#8b5cf6', marginTop: '4px' }}>
-                                    (Adjusted: -{formatCurrency(currentSummary.total_credit_deductions)})
-                                </div>
-                            );
-                        }
-                        return null;
-                    })()}
                 </div>
 
-                {/* Credit Deductions Card */}
-                {activeTab === 'debtors' && currentSummary.total_credit_deductions !== undefined && (
+                {activeTab === 'debtors' && (
                     <div style={styles.statCard}>
                         <div style={styles.statLabel}>Credit Deductions</div>
                         <div style={{ ...styles.statValue, color: '#f59e0b' }}>
-                            {formatCurrency(currentSummary.total_credit_deductions)}
+                            {formatCurrency(currentData.reduce((sum, item) => sum + (item.credit_deductions || 0), 0))}
                         </div>
                     </div>
                 )}
 
                 <div style={styles.statCard}>
                     <div style={styles.statLabel}>Total {activeTab === 'debtors' ? 'Remaining' : 'Outstanding'}</div>
-                    <div style={styles.statValue}>{formatCurrency(currentSummary.total_remaining_amount)}</div>
+                    <div style={styles.statValue}>{formatCurrency(customSummary.totalRemaining)}</div>
                 </div>
             </div>
+
+            {/* Loading indicator for auto-refresh */}
+            {loading && debtors.length > 0 && (
+                <div style={styles.refreshLoadingBar}>
+                    <div style={styles.refreshProgressBar}></div>
+                    <span style={styles.refreshLoadingText}>Updating data...</span>
+                </div>
+            )}
 
             {/* Data Table */}
             <div style={styles.tableWrapper}>
@@ -362,7 +473,7 @@ const DebtorCreditorReport = () => {
                             <th style={styles.th}>Code</th>
                             <th style={styles.th}>Name</th>
                             <th style={styles.th}>Telephone</th>
-                            <th style={styles.th}>Total Sales</th>
+                            <th style={styles.th}>Total {activeTab === 'debtors' ? 'Sales' : 'Bill Amount'}</th>
                             <th style={styles.th}>Paid</th>
                             {activeTab === 'debtors' && <th style={styles.th}>Credit</th>}
                             <th style={styles.th}>Remaining</th>
@@ -370,7 +481,6 @@ const DebtorCreditorReport = () => {
                             <th style={styles.th}>Status</th>
                         </tr>
                     </thead>
-
                     <tbody>
                         {currentData.length === 0 ? (
                             <tr>
@@ -380,23 +490,14 @@ const DebtorCreditorReport = () => {
                             </tr>
                         ) : (
                             currentData.map((item, idx) => {
-                                // Calculate values safely
-                                const totalSales = activeTab === 'debtors'
+                                // For creditors, use total_supplier_bill_amount (bills only)
+                                const totalAmount = activeTab === 'debtors'
                                     ? (item.total_sales || 0)
-                                    : (item.total_supplier_amount || 0);
+                                    : (item.total_supplier_bill_amount || item.total_supplier_amount || 0);
 
                                 const paidAmount = item.total_paid || 0;
                                 const creditDeduction = item.credit_deductions || 0;
-
-                                // ✅ CORRECTED CONDITION: 
-                                // If paidAmount is greater than totalSales, subtract credit deductions
-                                // Otherwise show the regular paidAmount
-                                let displayPaid;
-                                if (paidAmount > totalSales) {
-                                    displayPaid = paidAmount - creditDeduction;
-                                } else {
-                                    displayPaid = paidAmount;
-                                }
+                                const remainingAmount = item.total_remaining || 0;
 
                                 return (
                                     <tr
@@ -407,34 +508,26 @@ const DebtorCreditorReport = () => {
                                                 ? fetchDebtorDetails(item.code)
                                                 : fetchCreditorDetails(item.code)
                                         }
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = '#f8fafc';
-                                            e.currentTarget.style.cursor = 'pointer';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = 'white';
-                                        }}
                                     >
                                         <td style={styles.td}>
                                             <strong>{item.debtor_no || '-'}</strong>
                                         </td>
-
                                         <td style={styles.td}>
                                             <strong>{item.code}</strong>
                                         </td>
-
                                         <td style={styles.td}>{item.name || '-'}</td>
                                         <td style={styles.td}>{item.telephone || '-'}</td>
-
                                         <td style={styles.td}>
-                                            <strong>{formatCurrency(totalSales)}</strong>
+                                            <strong>{formatCurrency(totalAmount)}</strong>
+                                            {activeTab === 'creditors' && item.total_loan_amount > 0 && (
+                                                <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>
+                                                    (Loan: {formatCurrency(item.total_loan_amount)})
+                                                </div>
+                                            )}
                                         </td>
-
-                                        {/* ✅ PAID COLUMN WITH CONDITION */}
                                         <td style={styles.td}>
-                                            {formatCurrency(displayPaid)}
+                                            {formatCurrency(paidAmount)}
                                         </td>
-
                                         {activeTab === 'debtors' && (
                                             <td style={styles.td}>
                                                 <span style={{ color: '#f59e0b', fontWeight: '600' }}>
@@ -442,17 +535,14 @@ const DebtorCreditorReport = () => {
                                                 </span>
                                             </td>
                                         )}
-
                                         <td style={styles.td}>
                                             <span style={{
-                                                color: item.total_remaining > 0 ? '#dc2626' : '#10b981'
+                                                color: remainingAmount > 0 ? '#dc2626' : '#10b981'
                                             }}>
-                                                {formatCurrency(item.total_remaining)}
+                                                {formatCurrency(remainingAmount)}
                                             </span>
                                         </td>
-
                                         <td style={styles.td}>{item.bill_count || 0}</td>
-
                                         <td style={styles.td}>
                                             <span style={{
                                                 ...styles.statusBadge,
@@ -472,213 +562,211 @@ const DebtorCreditorReport = () => {
             </div>
 
             {/* Details Modal */}
-           {/* Details Modal */}
-{showDetailsModal && (
-    <div style={styles.modalOverlay} onClick={() => setShowDetailsModal(false)}>
-        <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalHeader}>
-                <div>
-                    <h3 style={styles.modalTitle}>
-                        {activeTab === 'debtors' ? '🧾 Debtor Details' : '🏪 Creditor Details'}
-                    </h3>
-                    <p style={styles.modalSubtitle}>
-                        {modalData?.code} {modalData?.debtor_no && `| Debtor No: ${modalData.debtor_no}`}
-                    </p>
-                </div>
-                <button
-                    onClick={() => setShowDetailsModal(false)}
-                    style={styles.modalCloseBtn}
-                >
-                    ×
-                </button>
-            </div>
-
-            <div style={styles.modalBody}>
-                {modalLoading ? (
-                    <div style={styles.modalLoading}>
-                        <div style={styles.loadingSpinner}>⏳</div>
-                        <p>Loading details...</p>
-                    </div>
-                ) : modalData && (
-                    <>
-                        {/* Profile Section */}
-                        <div style={styles.profileSection}>
-                            {modalData.profile_pic ? (
-                                <img
-                                    src={getImageUrl(modalData.profile_pic)}
-                                    alt="Profile"
-                                    style={styles.profilePic}
-                                    onError={(e) => {
-                                        e.target.style.display = 'none';
-                                        e.target.parentElement.innerHTML += '<div style="width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; font-size: 40px; color: white;">👤</div>';
-                                    }}
-                                />
-                            ) : (
-                                <div style={{
-                                    width: '90px',
-                                    height: '90px',
-                                    borderRadius: '50%',
-                                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '40px',
-                                    color: 'white'
-                                }}>
-                                    👤
-                                </div>
-                            )}
-                            <div style={styles.profileInfo}>
-                                <h4 style={styles.profileName}>{modalData.name || 'N/A'}</h4>
-                                <p style={styles.profileDetail}>📞 {modalData.telephone || 'No phone'}</p>
-                                <p style={styles.profileDetail}>📍 {modalData.address || 'No address'}</p>
-                                {modalData.debtor_no && (
-                                    <p style={styles.profileDetail}>🔢 Debtor Number: <strong>{modalData.debtor_no}</strong></p>
-                                )}
-                                {activeTab === 'debtors' && modalData.credit_limit > 0 && (
-                                    <p style={styles.profileDetail}>💳 Credit Limit: {formatCurrency(modalData.credit_limit)}</p>
-                                )}
+            {showDetailsModal && (
+                <div style={styles.modalOverlay} onClick={() => setShowDetailsModal(false)}>
+                    <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                        <div style={styles.modalHeader}>
+                            <div>
+                                <h3 style={styles.modalTitle}>
+                                    {activeTab === 'debtors' ? '🧾 Debtor Details' : '🏪 Creditor Details'}
+                                </h3>
+                                <p style={styles.modalSubtitle}>
+                                    {modalData?.code} {modalData?.debtor_no && `| Debtor No: ${modalData.debtor_no}`}
+                                </p>
                             </div>
+                            <button
+                                onClick={() => setShowDetailsModal(false)}
+                                style={styles.modalCloseBtn}
+                            >
+                                ×
+                            </button>
                         </div>
 
-                        {/* Bills Section - Simplified - Just display the bills array directly */}
-                        <h4 style={styles.sectionTitle}>📋 Bills & Transactions</h4>
-                        <div style={styles.tableWrapper}>
-                            <table style={styles.detailsTable}>
-                                <thead>
-                                    <tr style={styles.detailsTableHeader}>
-                                        <th style={styles.detailsTh}>Bill No</th>
-                                        <th style={styles.detailsTh}>Date</th>
-                                        <th style={styles.detailsTh}>Total</th>
-                                        <th style={styles.detailsTh}>Paid</th>
-                                        <th style={styles.detailsTh}>Remaining</th>
-                                        <th style={styles.detailsTh}>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(modalData.bills || []).length === 0 ? (
-                                        <tr>
-                                            <td colSpan="6" style={styles.emptyState}>
-                                                No bills found
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        modalData.bills.map((bill, idx) => {
-                                            const isFullyPaid = bill.remaining_amount <= 0;
-                                            return (
-                                                <tr key={idx} style={styles.detailsTableRow}>
-                                                    <td style={styles.detailsTd}>
-                                                        <strong>{bill.bill_no}</strong>
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        {formatDate(bill.date)}
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        <strong>{formatCurrency(bill.total_amount)}</strong>
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        <strong style={{ color: '#059669' }}>
-                                                            {formatCurrency(bill.paid_amount)}
-                                                        </strong>
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        <span style={{
-                                                            color: bill.remaining_amount > 0 ? '#dc2626' : '#10b981'
-                                                        }}>
-                                                            {formatCurrency(bill.remaining_amount)}
-                                                        </span>
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        <span style={{
-                                                            ...styles.statusBadge,
-                                                            ...(isFullyPaid ? styles.statusPaid : styles.statusPending)
-                                                        }}>
-                                                            {isFullyPaid ? 'Paid' : 'Pending'}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })
-                                    )}
-                                </tbody>
-                                {modalData.total_bill_amount > 0 && (
-                                    <tfoot>
-                                        <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
-                                            <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Total Summary:</td>
-                                            <td style={styles.detailsTd}>{formatCurrency(modalData.total_bill_amount)}</td>
-                                            <td style={styles.detailsTd}>{formatCurrency(modalData.total_paid_amount)}</td>
-                                            <td style={styles.detailsTd}>{formatCurrency(modalData.total_remaining)}</td>
-                                            <td style={styles.detailsTd}></td>
-                                        </tr>
-                                    </tfoot>
-                                )}
-                            </table>
-                        </div>
+                        <div style={styles.modalBody}>
+                            {modalLoading ? (
+                                <div style={styles.modalLoading}>
+                                    <div style={styles.loadingSpinner}>⏳</div>
+                                    <p>Loading details...</p>
+                                </div>
+                            ) : modalData && (
+                                <>
+                                    {/* Profile Section */}
+                                    <div style={styles.profileSection}>
+                                        {modalData.profile_pic ? (
+                                            <img
+                                                src={getImageUrl(modalData.profile_pic)}
+                                                alt="Profile"
+                                                style={styles.profilePic}
+                                                onError={(e) => {
+                                                    e.target.style.display = 'none';
+                                                }}
+                                            />
+                                        ) : (
+                                            <div style={{
+                                                width: '90px',
+                                                height: '90px',
+                                                borderRadius: '50%',
+                                                background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '40px',
+                                                color: 'white'
+                                            }}>
+                                                👤
+                                            </div>
+                                        )}
+                                        <div style={styles.profileInfo}>
+                                            <h4 style={styles.profileName}>{modalData.name || 'N/A'}</h4>
+                                            <p style={styles.profileDetail}>📞 {modalData.telephone || 'No phone'}</p>
+                                            <p style={styles.profileDetail}>📍 {modalData.address || 'No address'}</p>
+                                            {modalData.debtor_no && (
+                                                <p style={styles.profileDetail}>🔢 Debtor Number: <strong>{modalData.debtor_no}</strong></p>
+                                            )}
+                                            {activeTab === 'debtors' && modalData.credit_limit > 0 && (
+                                                <p style={styles.profileDetail}>💳 Credit Limit: {formatCurrency(modalData.credit_limit)}</p>
+                                            )}
+                                        </div>
+                                    </div>
 
-                        {/* Payment History Section - Simplified */}
-                        <h4 style={styles.sectionTitle}>📜 Payment History</h4>
-                        <div style={styles.tableWrapper}>
-                            <table style={styles.detailsTable}>
-                                <thead>
-                                    <tr style={styles.detailsTableHeader}>
-                                        <th style={styles.detailsTh}>Bill No</th>
-                                        <th style={styles.detailsTh}>Amount</th>
-                                        <th style={styles.detailsTh}>Payment Method</th>
-                                        <th style={styles.detailsTh}>Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(modalData.payments || []).length === 0 ? (
-                                        <tr>
-                                            <td colSpan="4" style={styles.emptyState}>
-                                                No payment records found
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        modalData.payments.map((payment, idx) => {
-                                            const methodStyle = getPaymentMethodStyle(payment.method);
-                                            return (
-                                                <tr key={idx} style={styles.detailsTableRow}>
-                                                    <td style={styles.detailsTd}>
-                                                        <strong>{payment.bill_no || 'N/A'}</strong>
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        <strong style={{ color: '#059669' }}>
-                                                            {formatCurrency(payment.amount)}
-                                                        </strong>
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        <span style={{ 
-                                                            display: 'inline-flex', 
-                                                            alignItems: 'center', 
-                                                            gap: '6px',
-                                                            padding: '4px 12px',
-                                                            borderRadius: '20px',
-                                                            background: `${methodStyle.color}15`,
-                                                            color: methodStyle.color,
-                                                            fontSize: '12px',
-                                                            fontWeight: '500'
-                                                        }}>
-                                                            <span>{methodStyle.icon}</span>
-                                                            <span>{payment.method_display || payment.method || 'Cash'}</span>
-                                                        </span>
-                                                    </td>
-                                                    <td style={styles.detailsTd}>
-                                                        {formatDate(payment.date)}
-                                                    </td>
+                                    {/* Bills Section */}
+                                    <h4 style={styles.sectionTitle}>📋 Bills & Transactions</h4>
+                                    <div style={styles.tableWrapper}>
+                                        <table style={styles.detailsTable}>
+                                            <thead>
+                                                <tr style={styles.detailsTableHeader}>
+                                                    <th style={styles.detailsTh}>Bill No</th>
+                                                    <th style={styles.detailsTh}>Date</th>
+                                                    <th style={styles.detailsTh}>Total</th>
+                                                    <th style={styles.detailsTh}>Paid</th>
+                                                    <th style={styles.detailsTh}>Remaining</th>
+                                                    <th style={styles.detailsTh}>Status</th>
                                                 </tr>
-                                            );
-                                        })
-                                    )}
-                                </tbody>
-                            </table>
+                                            </thead>
+                                            <tbody>
+                                                {(modalData.bills || []).length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan="6" style={styles.emptyState}>
+                                                            No bills found
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    modalData.bills.map((bill, idx) => {
+                                                        const isFullyPaid = bill.remaining_amount <= 0;
+                                                        return (
+                                                            <tr key={idx} style={styles.detailsTableRow}>
+                                                                <td style={styles.detailsTd}>
+                                                                    <strong>{bill.bill_no}</strong>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    {formatDate(bill.date)}
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    <strong>{formatCurrency(bill.total_amount)}</strong>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    <strong style={{ color: '#059669' }}>
+                                                                        {formatCurrency(bill.paid_amount)}
+                                                                    </strong>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    <span style={{
+                                                                        color: bill.remaining_amount > 0 ? '#dc2626' : '#10b981'
+                                                                    }}>
+                                                                        {formatCurrency(bill.remaining_amount)}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    <span style={{
+                                                                        ...styles.statusBadge,
+                                                                        ...(isFullyPaid ? styles.statusPaid : styles.statusPending)
+                                                                    }}>
+                                                                        {isFullyPaid ? 'Paid' : 'Pending'}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                            {modalData.total_bill_amount > 0 && (
+                                                <tfoot>
+                                                    <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
+                                                        <td colSpan="2" style={{ ...styles.detailsTd, textAlign: 'right' }}>Total Summary:</td>
+                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_bill_amount)}</td>
+                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_paid_amount)}</td>
+                                                        <td style={styles.detailsTd}>{formatCurrency(modalData.total_remaining)}</td>
+                                                        <td style={styles.detailsTd}></td>
+                                                    </tr>
+                                                </tfoot>
+                                            )}
+                                        </table>
+                                    </div>
+
+                                    {/* Payment History Section */}
+                                    <h4 style={styles.sectionTitle}>📜 Payment History</h4>
+                                    <div style={styles.tableWrapper}>
+                                        <table style={styles.detailsTable}>
+                                            <thead>
+                                                <tr style={styles.detailsTableHeader}>
+                                                    <th style={styles.detailsTh}>Bill No</th>
+                                                    <th style={styles.detailsTh}>Amount</th>
+                                                    <th style={styles.detailsTh}>Payment Method</th>
+                                                    <th style={styles.detailsTh}>Date</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(modalData.payments || []).length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan="4" style={styles.emptyState}>
+                                                            No payment records found
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    modalData.payments.map((payment, idx) => {
+                                                        const methodStyle = getPaymentMethodStyle(payment.method);
+                                                        return (
+                                                            <tr key={idx} style={styles.detailsTableRow}>
+                                                                <td style={styles.detailsTd}>
+                                                                    <strong>{payment.bill_no || 'N/A'}</strong>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    <strong style={{ color: '#059669' }}>
+                                                                        {formatCurrency(payment.amount)}
+                                                                    </strong>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    <span style={{ 
+                                                                        display: 'inline-flex', 
+                                                                        alignItems: 'center', 
+                                                                        gap: '6px',
+                                                                        padding: '4px 12px',
+                                                                        borderRadius: '20px',
+                                                                        background: `${methodStyle.color}15`,
+                                                                        color: methodStyle.color,
+                                                                        fontSize: '12px',
+                                                                        fontWeight: '500'
+                                                                    }}>
+                                                                        <span>{methodStyle.icon}</span>
+                                                                        <span>{payment.method_display || payment.method || 'Cash'}</span>
+                                                                    </span>
+                                                                </td>
+                                                                <td style={styles.detailsTd}>
+                                                                    {formatDate(payment.date)}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            )}
                         </div>
-                    </>
-                )}
-            </div>
-        </div>
-    </div>
-)}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -740,6 +828,84 @@ const styles = {
         fontSize: '14px',
         opacity: 0.9,
         marginTop: '8px'
+    },
+    autoRefreshBar: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: '16px',
+        padding: '12px 16px',
+        background: 'rgba(255,255,255,0.15)',
+        borderRadius: '12px',
+        backdropFilter: 'blur(10px)',
+        flexWrap: 'wrap',
+        gap: '12px'
+    },
+    autoRefreshInfo: {
+        display: 'flex',
+        gap: '20px',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        fontSize: '13px'
+    },
+    countdownTimer: {
+        background: 'rgba(0,0,0,0.2)',
+        padding: '4px 12px',
+        borderRadius: '20px',
+        fontFamily: 'monospace',
+        fontWeight: 'bold'
+    },
+    lastRefreshTime: {
+        fontSize: '12px',
+        opacity: 0.9
+    },
+    autoRefreshControls: {
+        display: 'flex',
+        gap: '10px'
+    },
+    autoRefreshBtn: {
+        padding: '6px 16px',
+        border: 'none',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        fontWeight: '600',
+        fontSize: '12px',
+        color: 'white',
+        transition: 'all 0.2s'
+    },
+    manualRefreshBtn: {
+        padding: '6px 16px',
+        background: 'white',
+        color: '#667eea',
+        border: 'none',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        fontWeight: '600',
+        fontSize: '12px',
+        transition: 'all 0.2s'
+    },
+    refreshLoadingBar: {
+        position: 'relative',
+        background: '#e2e8f0',
+        borderRadius: '4px',
+        height: '4px',
+        marginBottom: '16px',
+        overflow: 'hidden'
+    },
+    refreshProgressBar: {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        height: '100%',
+        background: 'linear-gradient(90deg, #667eea, #764ba2)',
+        animation: 'progress 10s linear infinite'
+    },
+    refreshLoadingText: {
+        position: 'absolute',
+        right: '10px',
+        top: '-20px',
+        fontSize: '11px',
+        color: '#64748b'
     },
     statsGrid: {
         display: 'grid',
@@ -864,7 +1030,8 @@ const styles = {
         color: '#334155'
     },
     tableRow: {
-        transition: 'background 0.2s'
+        transition: 'background 0.2s',
+        cursor: 'pointer'
     },
     emptyState: {
         textAlign: 'center',
@@ -1045,6 +1212,24 @@ styleSheet.textContent = `
         to {
             opacity: 1;
             transform: translateY(0);
+        }
+    }
+    @keyframes fadeOut {
+        from {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        to {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+    }
+    @keyframes progress {
+        from {
+            width: 0%;
+        }
+        to {
+            width: 100%;
         }
     }
 `;

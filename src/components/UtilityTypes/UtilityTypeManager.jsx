@@ -202,7 +202,7 @@ const UtilityTypeManager = () => {
 
     // Handle back navigation
     const handleBackToExpenses = () => {
-        navigate('/expenses');
+        navigate('/printed-bills');
     };
 
     // Full page styles that override everything

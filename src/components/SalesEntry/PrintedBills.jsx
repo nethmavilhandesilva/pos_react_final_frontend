@@ -4963,6 +4963,30 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
                     >
                         💰 Expenses Dashboard
                     </button>
+                    <button
+                        onClick={() => navigate('/banks', { state: { selectedCashier: selectedUniqueCode } })}
+                        style={{
+                            padding: '5px 16px',
+                            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '12px',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(99,102,241,0.3)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = 'none';
+                        }}
+                    >
+                       Banks
+                    </button>
                 </div>
             </nav>
 

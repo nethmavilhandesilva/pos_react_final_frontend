@@ -1,9 +1,70 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import bankService from "../../services/bankService";
+import cashierBalanceService from "../../services/cashierBalanceService";
 
-const BankList = ({ banks, onBankDeleted, onRefresh }) => {
+const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) => {
     const [deletingId, setDeletingId] = useState(null);
     const [error, setError] = useState('');
+    const [remainingBalances, setRemainingBalances] = useState({});
+    const [loadingBalances, setLoadingBalances] = useState(true);
+    const [totalBankRemaining, setTotalBankRemaining] = useState(0);
+    
+    // Use ref to store interval ID for cleanup
+    const intervalRef = useRef(null);
+
+    // Fetch remaining balances function
+    const fetchRemainingBalances = async () => {
+        console.log('Fetching remaining balances...', new Date().toLocaleTimeString()); // Debug log
+        setLoadingBalances(true);
+        try {
+            const response = await cashierBalanceService.getRemainingBalances(selectedCashier);
+            console.log('API Response:', response); // Debug log
+            
+            if (response.success && response.data) {
+                // Create a map of bank_name to remaining amount
+                const balanceMap = {};
+                if (response.data.bank_breakdown && Array.isArray(response.data.bank_breakdown)) {
+                    response.data.bank_breakdown.forEach(bank => {
+                        // Store bank name in lowercase for case-insensitive matching
+                        balanceMap[bank.bank_name.toLowerCase()] = bank.amount;
+                        console.log(`Bank: ${bank.bank_name}, Amount: ${bank.amount}`); // Debug log
+                    });
+                }
+                setRemainingBalances(balanceMap);
+                setTotalBankRemaining(response.data.total_bank_remaining || 0);
+                // Clear any existing error on successful fetch
+                if (error) setError('');
+                console.log('Updated remainingBalances:', balanceMap); // Debug log
+            } else {
+                console.log('Invalid response structure:', response);
+            }
+        } catch (error) {
+            console.error('Error fetching remaining balances:', error);
+            setError('Failed to fetch remaining balances');
+        } finally {
+            setLoadingBalances(false);
+        }
+    };
+
+    // Set up auto-refresh every 10 seconds
+    useEffect(() => {
+        // Initial fetch
+        fetchRemainingBalances();
+        
+        // Set up interval for auto-refresh every 10 seconds
+        intervalRef.current = setInterval(() => {
+            console.log('Auto-refresh triggered'); // Debug log
+            fetchRemainingBalances();
+        }, 10000); // 10000 milliseconds = 10 seconds
+        
+        // Cleanup interval on component unmount
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                console.log('Interval cleared'); // Debug log
+            }
+        };
+    }, [selectedCashier]); // Re-run when selectedCashier changes
 
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure you want to delete this bank account?')) {
@@ -21,6 +82,8 @@ const BankList = ({ banks, onBankDeleted, onRefresh }) => {
             if (onRefresh) {
                 onRefresh();
             }
+            // Immediate refresh after deletion (don't wait for next interval)
+            await fetchRemainingBalances();
         } catch (error) {
             setError('Failed to delete bank account. Please try again.');
             console.error('Delete error:', error);
@@ -47,6 +110,20 @@ const BankList = ({ banks, onBankDeleted, onRefresh }) => {
         if (name.includes('axis')) return '🟠';
         if (name.includes('kotak')) return '💚';
         return '💰';
+    };
+
+    const formatCurrency = (amount) => {
+        // Format with Rs instead of ₹
+        return `Rs ${amount.toLocaleString('en-IN', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        })}`;
+    };
+
+    const getRemainingAmountForBank = (bankName) => {
+        const normalizedBankName = bankName.toLowerCase();
+        const amount = remainingBalances[normalizedBankName] || 0;
+        return amount;
     };
 
     const styles = {
@@ -201,6 +278,21 @@ const BankList = ({ banks, onBankDeleted, onRefresh }) => {
             borderRadius: '6px',
             display: 'inline-block'
         },
+        remainingAmount: {
+            fontSize: '14px',
+            fontWeight: '600',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            display: 'inline-block'
+        },
+        positiveAmount: {
+            color: '#059669',
+            background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)'
+        },
+        zeroAmount: {
+            color: '#6b7280',
+            background: '#f3f4f6'
+        },
         deleteButton: {
             background: 'none',
             border: 'none',
@@ -214,6 +306,12 @@ const BankList = ({ banks, onBankDeleted, onRefresh }) => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '6px'
+        },
+        loadingIndicator: {
+            textAlign: 'center',
+            padding: '20px',
+            color: '#6b7280',
+            fontSize: '14px'
         }
     };
 
@@ -256,7 +354,7 @@ const BankList = ({ banks, onBankDeleted, onRefresh }) => {
                         <p style={styles.subtitle}>Manage and track all your bank accounts</p>
                     </div>
                     <div style={styles.statsBadge}>
-                        Total: {banks.length} account{banks.length !== 1 ? 's' : ''}
+                        Total: {banks.length} account{banks.length !== 1 ? 's' : ''} | Total Bank Balance: {formatCurrency(totalBankRemaining)}
                     </div>
                 </div>
             </div>
@@ -277,97 +375,118 @@ const BankList = ({ banks, onBankDeleted, onRefresh }) => {
                             <th style={styles.th}>Bank Name</th>
                             <th style={styles.th}>Branch</th>
                             <th style={styles.th}>Account Number</th>
+                            <th style={styles.th}>Remaining Balance</th>
                             <th style={styles.thRight}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {banks.map((bank, index) => (
-                            <tr
-                                key={bank.id}
-                                style={{
-                                    ...styles.tr,
-                                    background: index % 2 === 0 ? 'white' : '#fafafa',
-                                    cursor: 'pointer'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = '#f3f4f6';
-                                    e.currentTarget.style.transform = 'translateX(4px)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = index % 2 === 0 ? 'white' : '#fafafa';
-                                    e.currentTarget.style.transform = 'translateX(0)';
-                                }}
-                            >
-                                {/* Bank Name Cell */}
-                                <td style={styles.td}>
-                                    <div style={styles.bankCell}>
-                                        <div style={{
-                                            ...styles.bankIconCircle,
-                                            background: getBankGradient(bank.bank_name)
-                                        }}>
-                                            {getBankIcon(bank.bank_name)}
+                        {banks.map((bank, index) => {
+                            const remainingAmount = getRemainingAmountForBank(bank.bank_name);
+                            return (
+                                <tr
+                                    key={bank.id}
+                                    style={{
+                                        ...styles.tr,
+                                        background: index % 2 === 0 ? 'white' : '#fafafa',
+                                        cursor: 'pointer'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = '#f3f4f6';
+                                        e.currentTarget.style.transform = 'translateX(4px)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = index % 2 === 0 ? 'white' : '#fafafa';
+                                        e.currentTarget.style.transform = 'translateX(0)';
+                                    }}
+                                >
+                                    {/* Bank Name Cell */}
+                                    <td style={styles.td}>
+                                        <div style={styles.bankCell}>
+                                            <div style={{
+                                                ...styles.bankIconCircle,
+                                                background: getBankGradient(bank.bank_name)
+                                            }}>
+                                                {getBankIcon(bank.bank_name)}
+                                            </div>
+                                            <div>
+                                                <div style={styles.bankName}>{bank.bank_name}</div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div style={styles.bankName}>{bank.bank_name}</div>
+                                    </td>
+
+                                    {/* Branch Cell */}
+                                    <td style={styles.td}>
+                                        <div style={styles.branchText}>{bank.branch}</div>
+                                    </td>
+
+                                    {/* Account Number Cell */}
+                                    <td style={styles.td}>
+                                        <div style={styles.accountText}>
+                                            {bank.account_no}
                                         </div>
-                                    </div>
-                                </td>
+                                    </td>
 
-                                {/* Branch Cell */}
-                                <td style={styles.td}>
-                                    <div style={styles.branchText}>{bank.branch}</div>
-                                </td>
-
-                                {/* Account Number Cell */}
-                                <td style={styles.td}>
-                                    <div style={styles.accountText}>
-                                        {bank.account_no}
-                                    </div>
-                                </td>
-
-                                {/* Actions Cell */}
-                                <td style={{ ...styles.td, textAlign: 'right' }}>
-                                    <button
-                                        onClick={() => handleDelete(bank.id)}
-                                        disabled={deletingId === bank.id}
-                                        style={{
-                                            ...styles.deleteButton,
-                                            opacity: deletingId === bank.id ? 0.5 : 1,
-                                            cursor: deletingId === bank.id ? 'not-allowed' : 'pointer'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            if (deletingId !== bank.id) {
-                                                e.currentTarget.style.background = '#fee2e2';
-                                                e.currentTarget.style.transform = 'scale(1.05)';
-                                            }
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = 'none';
-                                            e.currentTarget.style.transform = 'scale(1)';
-                                        }}
-                                    >
-                                        {deletingId === bank.id ? (
-                                            <>
-                                                <div style={{
-                                                    width: '16px',
-                                                    height: '16px',
-                                                    border: '2px solid #ef4444',
-                                                    borderTopColor: 'transparent',
-                                                    borderRadius: '50%',
-                                                    animation: 'spin 0.6s linear infinite'
-                                                }} />
-                                                <span>Deleting...</span>
-                                            </>
+                                    {/* Remaining Balance Cell */}
+                                    <td style={styles.td}>
+                                        {loadingBalances ? (
+                                            <div style={styles.loadingIndicator}>
+                                                <span>⟳</span> Loading...
+                                            </div>
                                         ) : (
-                                            <>
-                                                <span>🗑️</span>
-                                                <span>Delete</span>
-                                            </>
+                                            <div style={{
+                                                ...styles.remainingAmount,
+                                                ...(remainingAmount > 0 ? styles.positiveAmount : styles.zeroAmount)
+                                            }}>
+                                                {remainingAmount > 0 ? '💰 ' : '📭 '}
+                                                {formatCurrency(remainingAmount)}
+                                            </div>
                                         )}
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
+                                    </td>
+
+                                    {/* Actions Cell */}
+                                    <td style={{ ...styles.td, textAlign: 'right' }}>
+                                        <button
+                                            onClick={() => handleDelete(bank.id)}
+                                            disabled={deletingId === bank.id}
+                                            style={{
+                                                ...styles.deleteButton,
+                                                opacity: deletingId === bank.id ? 0.5 : 1,
+                                                cursor: deletingId === bank.id ? 'not-allowed' : 'pointer'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                if (deletingId !== bank.id) {
+                                                    e.currentTarget.style.background = '#fee2e2';
+                                                    e.currentTarget.style.transform = 'scale(1.05)';
+                                                }
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.background = 'none';
+                                                e.currentTarget.style.transform = 'scale(1)';
+                                            }}
+                                        >
+                                            {deletingId === bank.id ? (
+                                                <>
+                                                    <div style={{
+                                                        width: '16px',
+                                                        height: '16px',
+                                                        border: '2px solid #ef4444',
+                                                        borderTopColor: 'transparent',
+                                                        borderRadius: '50%',
+                                                        animation: 'spin 0.6s linear infinite'
+                                                    }} />
+                                                    <span>Deleting...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span>🗑️</span>
+                                                    <span>Delete</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

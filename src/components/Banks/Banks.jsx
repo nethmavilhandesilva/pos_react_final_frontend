@@ -59,12 +59,7 @@ const Banks = () => {
     return (
         <div className="min-h-screen bg-gray-100 py-12">
             <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-                {/* Header */}
-                <div className="mb-8 text-center">
-                    <h1 className="text-3xl font-bold text-gray-900">🏦 Bank Account Manager</h1>
-                    <p className="text-gray-600 mt-2">Add and manage your bank accounts</p>
-                </div>
-
+              
                 {/* Error Alert */}
                 {error && (
                     <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
