@@ -13,8 +13,10 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
     
     // Store remaining balances
     const [cashRemaining, setCashRemaining] = useState(0);
-    const [bankRemainingBreakdown, setBankRemainingBreakdown] = useState([]);
     const [totalBankRemaining, setTotalBankRemaining] = useState(0);
+    
+    // Store aggregated bank balances (combined from ALL cashiers)
+    const [aggregatedBankBreakdown, setAggregatedBankBreakdown] = useState([]);
     
     // Auto-refresh timer reference
     const refreshTimerRef = useRef(null);
@@ -49,10 +51,11 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
         }
     }, [isOpen]);
 
-    // Fetch remaining balances when modal opens OR cashier changes
+    // Fetch data when modal opens OR cashier changes
     useEffect(() => {
         if (isOpen) {
-            fetchRemainingBalances();
+            fetchCashierBalance();
+            fetchAggregatedBankBalances();
             startAutoRefresh();
         }
         
@@ -65,8 +68,9 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
     const startAutoRefresh = () => {
         stopAutoRefresh();
         refreshTimerRef.current = setInterval(() => {
-            console.log('Auto-refreshing remaining balances for cashier:', selectedCashier);
-            fetchRemainingBalances();
+            console.log('Auto-refreshing balances...');
+            fetchCashierBalance();
+            fetchAggregatedBankBalances();
         }, 10000);
     };
 
@@ -94,34 +98,82 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
         }
     };
 
-    // Fetch remaining balances
-    const fetchRemainingBalances = async () => {
+    // Fetch balance for selected cashier (for cash allocation and display)
+    const fetchCashierBalance = async () => {
+        if (selectedCashier === 'all') {
+            setCashRemaining(0);
+            setTotalBankRemaining(0);
+            return;
+        }
+        
         try {
-            const url = `/cashier-balance/remaining-balances${selectedCashier !== 'all' ? `?cashier_name=${encodeURIComponent(selectedCashier)}` : ''}`;
+            const url = `/cashier-balance/remaining-balances?cashier_name=${encodeURIComponent(selectedCashier)}`;
             const response = await api.get(url);
             
             if (response.data.success) {
                 const data = response.data.data;
-                
-                // Only show balances if a specific cashier is selected
-                if (selectedCashier !== 'all') {
-                    setCashRemaining(data.cash_remaining || 0);
-                    const bankBreakdown = data.bank_breakdown || [];
-                    setBankRemainingBreakdown(bankBreakdown);
-                    const totalBank = data.total_bank_remaining || 0;
-                    setTotalBankRemaining(totalBank);
-                } else {
-                    // When "All Cashiers" is selected, show 0 or hide balances
-                    setCashRemaining(0);
-                    setBankRemainingBreakdown([]);
-                    setTotalBankRemaining(0);
-                }
+                setCashRemaining(data.cash_remaining || 0);
+                const totalBank = data.total_bank_remaining || 0;
+                setTotalBankRemaining(totalBank);
             }
         } catch (error) {
-            console.error('Error fetching remaining balances:', error);
+            console.error('Error fetching cashier balance:', error);
             setCashRemaining(0);
-            setBankRemainingBreakdown([]);
             setTotalBankRemaining(0);
+        }
+    };
+
+    // Fetch aggregated bank balances from ALL cashiers (combine same bank names)
+    const fetchAggregatedBankBalances = async () => {
+        try {
+            // First get all cashiers list
+            let allCashiers = cashiers;
+            if (allCashiers.length === 0) {
+                const response = await api.get('/cashier-balance/detailed-balance');
+                if (response.data.success) {
+                    allCashiers = response.data.data.cashier_names || [];
+                }
+            }
+            
+            if (allCashiers.length === 0) return;
+            
+            // Fetch balances for each cashier
+            const cashierPromises = allCashiers.map(cashier => 
+                api.get(`/cashier-balance/remaining-balances?cashier_name=${encodeURIComponent(cashier)}`)
+                    .catch(err => ({ error: true, cashier }))
+            );
+            
+            const responses = await Promise.all(cashierPromises);
+            
+            // Aggregate bank balances by bank name (sum same bank names)
+            const bankAggregation = {};
+            
+            responses.forEach(response => {
+                if (!response.error && response.data?.success) {
+                    const bankBreakdown = response.data.data.bank_breakdown || [];
+                    bankBreakdown.forEach(bank => {
+                        const bankName = bank.bank_name;
+                        const amount = parseFloat(bank.amount) || 0;
+                        
+                        if (bankAggregation[bankName]) {
+                            bankAggregation[bankName] += amount;
+                        } else {
+                            bankAggregation[bankName] = amount;
+                        }
+                    });
+                }
+            });
+            
+            // Convert to array format for dropdown
+            const aggregatedBanks = Object.keys(bankAggregation).map(bankName => ({
+                bank_name: bankName,
+                amount: bankAggregation[bankName]
+            }));
+            
+            setAggregatedBankBreakdown(aggregatedBanks);
+            
+        } catch (error) {
+            console.error('Error fetching aggregated bank balances:', error);
         }
     };
 
@@ -139,7 +191,7 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
         if (allocationType === 'cash') {
             return cashRemaining;
         } else if (allocationType === 'bank' && selectedBank) {
-            const bank = bankRemainingBreakdown.find(b => b.bank_name === selectedBank);
+            const bank = aggregatedBankBreakdown.find(b => b.bank_name === selectedBank);
             return bank ? bank.amount : 0;
         }
         return 0;
@@ -159,7 +211,7 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
 
         const maxAllowed = getMaxAllowedAmount();
         if (amountNum > maxAllowed && maxAllowed > 0) {
-            alert(`Amount exceeds available ${allocationType === 'cash' ? 'cash' : 'bank'} remaining balance! Available: ${formatCurrency(maxAllowed)}`);
+            alert(`Amount exceeds available ${allocationType === 'cash' ? 'cash' : 'bank'} balance! Available: ${formatCurrency(maxAllowed)}`);
             return;
         }
 
@@ -185,13 +237,14 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
             const response = await api.post('/cashier-balance/allocate-funds', payload);
             
             if (response.data.success) {
-                await fetchRemainingBalances();
+                await fetchCashierBalance();
+                await fetchAggregatedBankBalances();
                 
                 let remainingBalance = 0;
                 if (allocationType === 'cash') {
                     remainingBalance = cashRemaining - amountNum;
                 } else if (allocationType === 'bank' && selectedBank) {
-                    const bank = bankRemainingBreakdown.find(b => b.bank_name === selectedBank);
+                    const bank = aggregatedBankBreakdown.find(b => b.bank_name === selectedBank);
                     remainingBalance = (bank ? bank.amount : 0) - amountNum;
                 }
                 
@@ -206,7 +259,7 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                     onAllocate(allocationResult);
                 }
                 
-                alert(`✅ Funds allocated successfully!\n\nCashier: ${selectedCashier}\nAmount: ${formatCurrency(amountNum)}\nRemaining: ${formatCurrency(remainingBalance)}`);
+                alert(`✅ Funds allocated successfully!\n\nCashier: ${selectedCashier}\nAmount: ${formatCurrency(amountNum)}\nRemaining in this bank (total across all cashiers): ${formatCurrency(remainingBalance)}`);
                 
                 onClose();
                 setAmount('');
@@ -265,7 +318,7 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                 overflow: 'hidden'
             }} onClick={(e) => e.stopPropagation()}>
                 
-                {/* Header - More Compact */}
+                {/* Header */}
                 <div style={{
                     background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                     padding: '14px 20px',
@@ -294,9 +347,9 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                     </div>
                 </div>
 
-                {/* Content - More Compact */}
+                {/* Content */}
                 <div style={{ padding: '20px' }}>
-                    {/* Cashier Filter Dropdown */}
+                    {/* Cashier Selection */}
                     <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
                             👤 Select Cashier <span style={{ color: '#ef4444' }}>*</span>
@@ -330,12 +383,12 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                         </select>
                         {selectedCashier === 'all' && (
                             <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '4px' }}>
-                                ⚠️ Please select a specific cashier to view balances and allocate funds
+                                ⚠️ Please select a specific cashier to allocate funds
                             </div>
                         )}
                     </div>
 
-                    {/* Balance Summary - Only show when specific cashier selected */}
+                    {/* Balance Summary - Show cash balance for selected cashier */}
                     {selectedCashier !== 'all' && (
                         <div style={{
                             display: 'flex',
@@ -346,17 +399,36 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                             borderRadius: '10px'
                         }}>
                             <div style={{ flex: 1, textAlign: 'center' }}>
-                                <div style={{ fontSize: '10px', color: '#64748b' }}>💰 Cash Available</div>
+                                <div style={{ fontSize: '10px', color: '#64748b' }}>
+                                    💰 Cash Available (This Cashier)
+                                </div>
                                 <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#10b981' }}>
                                     {formatCurrency(cashRemaining)}
                                 </div>
                             </div>
                             <div style={{ flex: 1, textAlign: 'center' }}>
-                                <div style={{ fontSize: '10px', color: '#64748b' }}>🏦 Bank Available</div>
+                                <div style={{ fontSize: '10px', color: '#64748b' }}>
+                                    📊 Total Bank Balance (All Cashiers)
+                                </div>
                                 <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#3b82f6' }}>
-                                    {formatCurrency(totalBankRemaining)}
+                                    {formatCurrency(aggregatedBankBreakdown.reduce((sum, bank) => sum + bank.amount, 0))}
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Info message about bank balances */}
+                    {selectedCashier !== 'all' && aggregatedBankBreakdown.length > 0 && (
+                        <div style={{
+                            marginBottom: '12px',
+                            padding: '6px 10px',
+                            background: '#eff6ff',
+                            borderRadius: '6px',
+                            fontSize: '10px',
+                            color: '#1e40af',
+                            textAlign: 'center'
+                        }}>
+                            💡 Bank balances shown below are TOTAL combined from ALL cashiers
                         </div>
                     )}
 
@@ -410,18 +482,18 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                         </div>
                     </div>
 
-                    {/* Bank Selection - Only show for bank allocation */}
+                    {/* Bank Selection - Shows AGGREGATED balances from ALL cashiers */}
                     {allocationType === 'bank' && selectedCashier !== 'all' && (
                         <div style={{ marginBottom: '16px' }}>
                             <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                🏦 Select Bank
+                                🏦 Select Bank (Showing TOTAL from all cashiers)
                             </label>
                             <select
                                 ref={bankSelectRef}
                                 value={selectedBank}
                                 onChange={(e) => setSelectedBank(e.target.value)}
                                 onKeyPress={(e) => handleKeyPress(e, amountInputRef)}
-                                disabled={bankRemainingBreakdown.length === 0}
+                                disabled={aggregatedBankBreakdown.length === 0}
                                 style={{
                                     width: '100%',
                                     padding: '10px 12px',
@@ -432,12 +504,17 @@ const FundAllocationModal = ({ isOpen, onClose, onAllocate, selectedAmount, maxA
                                 }}
                             >
                                 <option value="">-- Select Bank --</option>
-                                {bankRemainingBreakdown.map((bank, idx) => (
+                                {aggregatedBankBreakdown.map((bank, idx) => (
                                     <option key={idx} value={bank.bank_name}>
-                                        {bank.bank_name} ({formatCurrency(bank.amount)})
+                                        {bank.bank_name} - Total: {formatCurrency(bank.amount)}
                                     </option>
                                 ))}
                             </select>
+                            {selectedBank && (
+                                <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                                    📊 Total available across all cashiers for {selectedBank}
+                                </div>
+                            )}
                         </div>
                     )}
 

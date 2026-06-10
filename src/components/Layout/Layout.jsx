@@ -98,9 +98,14 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
     const closeDayProcessModal = () => setIsDayProcessModalOpen(false);
 
     const handleProfitReportClick = () => {
-        window.location.href = `${basePath}/supplier-profit`;
+        window.location.href = `${basePath}/sop`;
     };
-
+    const handleProfitReportClick2 = () => {
+        window.location.href = `${basePath}/sop2`;
+    };
+       const handleProfitReportClick3 = () => {
+        window.location.href = `${basePath}/commissions`;
+};
     const handleSupplierReportClick = () => {
         navigate(`${basePath}/reports/supplier`);
     };
@@ -159,11 +164,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                     </ul>
                 </div>
 
-                {/* Separate Supplier Report Button */}
-                <Link to={`${basePath}/supplierreport`} className="btn btn-outline-light btn-sm mx-1">
-                    <i className="material-icons align-middle me-1">assessment</i> සැපයුම්කරු වාර්තාව
-                </Link>
-
+               
                 {/* 🛡️ Conditional: Hide for Admin */}
                 {user?.role !== 'Admin' && (
                     <>
@@ -202,23 +203,17 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             {/* Bottom Nav */}
             <nav className="navbar navbar-expand-lg navbar-dark fixed-bottom" style={{ backgroundColor: '#004d00', width: '100%' }}>
                 <div className="container-fluid d-flex justify-content-start align-items-center">
-                    <input
-                        type="password"
-                        placeholder="Enter password"
-                        value={bottomPassword}
-                        onChange={handleBottomPasswordChange}
-                        className="form-control form-control-sm me-3"
-                        style={{ width: '100px', backgroundColor: '#003300', color: '#fff', border: '1px solid #66bb6a' }}
-                    />
-
+                
                     {[
                         { label: 'එළවළු', onClick: openItemReportModal },
-                        { label: 'බර මත', onClick: openWeightReportModal },
+                        { label: 'කිලෝ ප්‍රමාණය', onClick: openWeightReportModal },
+                         { label: 'අතැති මුදල්', onClick: () => window.location.href = `${basePath}/financial-report` },
+                          { label: 'විකුණුම්', onClick: openSalesReportModal },
                         { label: 'වෙනස් කිරීම', onClick: openSalesAdjustmentReportModal },
-                        { label: 'ආදායම් / වියදම්', onClick: () => window.location.href = `${basePath}/financial-report` },
-                        { label: 'විකුණුම් වාර්තාව', onClick: openSalesReportModal },
-                        { label: 'සැපයුම් ලාභ ', onClick: handleProfitReportClick },
-                        { label: 'සැපයුම් වාර්තාව', onClick: handleSupplierReportClick }
+                        { label: 'කොමිස්', onClick: handleProfitReportClick3 },
+                         { label: 'ගොවි ගෙවීම්', onClick: handleProfitReportClick2 },
+                        { label: 'සැපයුම් බිල්පත් ', onClick: handleProfitReportClick },
+                      
                     ].map((btn, idx) => (
                         <button
                             key={idx}

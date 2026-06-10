@@ -266,6 +266,7 @@ const AppRoutes = () => {
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/unauthorized" element={<UnAuthorizedPage />} />
             <Route path="/view-bill/:token" element={<PublicBill />} />
+            <Route path="/sop2" element={<SupplierReport2 />} />
             <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
 
             {/* Protected Routes - All wrapped with AuthLayout */}
@@ -279,6 +280,12 @@ const AppRoutes = () => {
                 <Route path="/items/create" element={<CreateItem />} />
                 <Route path="/items/edit/:id" element={<EditItem />} />
                 <Route path="/suppliers" element={<SupplierList />} />
+                 {/* Supplier Reports with Role Protection */}
+                <Route
+                    path="/sop"
+                    element={<SupplierReport />}
+                />
+              
                 <Route path="/suppliers/create" element={<CreateSupplier />} />
                 <Route path="/suppliers/edit/:id" element={<EditSupplier />} />
                 <Route path="/grn" element={<GrnList />} />
@@ -290,17 +297,13 @@ const AppRoutes = () => {
                 <Route path="/sales" element={<SalesEntry />} />
                 <Route path="/commissions" element={<CommissionPage />} />
                 <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
-                {/* Supplier Reports with Role Protection */}
-                <Route
-                    path="/supplierreport"
-                    element={<SupplierReport />}
-                />
+           
 
                 <Route path="/suppliermodal" element={<SupplierDetailsModal />} />
                 <Route path="/supplier-profit" element={<SupplierProfitReport />} />
                 <Route path="/financial-report" element={<FinancialReport />} />
                 <Route path="/loan-report" element={<LoanReportManager />} />
-                <Route path="/reports/supplier" element={<SupplierReport2 />} />
+                
                 <Route path="/reports/printed-sales" element={<PrintedSalesReport />} />
                 <Route path="/reports/newsales" element={<SalesReport />} />
                 <Route path="/farmer-loans" element={<FarmerLoanManager />} />

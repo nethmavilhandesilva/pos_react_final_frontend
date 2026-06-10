@@ -325,14 +325,9 @@ const Banks = () => {
             <div style={styles.maxWidth}>
                 {/* Header */}
                 <div style={styles.header}>
-                    <div style={styles.headerIcon}>
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5">
-                            <path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                            <path d="M8 6h8M7 12h10" />
-                        </svg>
-                    </div>
+                 
                     <h1 style={styles.title}>Bank Account Manager</h1>
-                    <p style={styles.subtitle}>Add and manage your bank accounts with ease</p>
+                  
                 </div>
 
                 {/* Messages */}

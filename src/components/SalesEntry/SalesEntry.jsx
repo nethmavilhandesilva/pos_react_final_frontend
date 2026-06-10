@@ -1616,57 +1616,49 @@ export default function SalesEntry() {
         });
     };
 
-    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
-        const formatNumber = (num) => {
-            if (typeof num !== 'number' && typeof num !== 'string') return '0';
-            const number = parseFloat(num);
-            if (isNaN(number)) return '0';
+   const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+    const formatNumber = (num) => {
+        if (typeof num !== 'number' && typeof num !== 'string') return '0';
+        const number = parseFloat(num);
+        if (isNaN(number)) return '0';
 
-            if (Number.isInteger(number)) {
-                return number.toLocaleString('en-US');
-            } else {
-                const parts = number.toFixed(2).split('.');
-                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-                return `${wholePart}.${parts[1]}`;
-            }
-        };
+        if (Number.isInteger(number)) {
+            return number.toLocaleString('en-US');
+        } else {
+            const parts = number.toFixed(2).split('.');
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return `${wholePart}.${parts[1]}`;
+        }
+    };
 
-        const date = new Date().toLocaleDateString();
-        const time = new Date().toLocaleTimeString();
-        let totalAmountSum = 0;
-        const consolidatedSummary = {};
+    const date = new Date().toLocaleDateString();
+    const time = new Date().toLocaleTimeString();
+    let totalAmountSum = 0;
+    const consolidatedSummary = {};
 
-        salesData.forEach(s => {
-            const itemName = s.item_name || 'Unknown';
-            if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
-            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
-            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
-            totalAmountSum += parseFloat(s.total) || 0;
-        });
+    salesData.forEach(s => {
+        const itemName = s.item_name || 'Unknown';
+        if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+        consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+        consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+        totalAmountSum += parseFloat(s.total) || 0;
+    });
 
-        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
-        const is4Inch = billSize === '4inch';
-        const receiptMaxWidth = is4Inch ? '4in' : '350px';
+    const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+    const is4Inch = billSize === '4inch';
+    const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-        const fontSizeBody = '25px';
-        const fontSizeHeader = '23px';
-        const fontSizeTotal = '28px';
+    const fontSizeBody = '25px';
+    const fontSizeHeader = '23px';
+    const fontSizeTotal = '28px';
 
-        const colGroups = `
-    <colgroup>
-        <col style="width:32%;"> 
-        <col style="width:21%;">
-        <col style="width:21%;">
-        <col style="width:26%;">
-    </colgroup>`;
+    const itemsHtml = salesData.map(s => {
+        const packs = parseInt(s.packs) || 0;
+        const weight = parseFloat(s.weight) || 0;
+        const price = parseFloat(s.price_per_kg) || 0;
+        const value = (weight * price).toFixed(2);
 
-        const itemsHtml = salesData.map(s => {
-            const packs = parseInt(s.packs) || 0;
-            const weight = parseFloat(s.weight) || 0;
-            const price = parseFloat(s.price_per_kg) || 0;
-            const value = (weight * price).toFixed(2);
-
-            return `
+        return `
     <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom;">
         <td style="text-align:left; padding:10px 0; white-space: nowrap;">
             ${s.item_name || ""}<br>${formatNumber(packs)}
@@ -1680,15 +1672,15 @@ export default function SalesEntry() {
             <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
         </td>
     </tr>`;
-        }).join("");
+    }).join("");
 
-        const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-        const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
-        const finalGrandTotal = totalSales + totalPackCost;
-        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-        const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+    const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+    const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+    const finalGrandTotal = totalSales + totalPackCost;
+    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+    const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
 
-        const loanRow = globalLoanAmount !== 0 ? `
+    const loanRow = globalLoanAmount !== 0 ? `
     <tr>
         <td style="font-size:20px; padding-top:8px;">පෙර ණය:</td>
         <td style="text-align:right; font-size:22px; font-weight:bold; padding-top:8px;">
@@ -1696,21 +1688,21 @@ export default function SalesEntry() {
         </td>
     </tr>` : '';
 
-        const summaryEntries = Object.entries(consolidatedSummary);
-        let summaryHtmlContent = '';
-        for (let i = 0; i < summaryEntries.length; i += 2) {
-            const [name1, d1] = summaryEntries[i];
-            const [name2, d2] = summaryEntries[i + 1] || [null, null];
-            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-            summaryHtmlContent += `
+    const summaryEntries = Object.entries(consolidatedSummary);
+    let summaryHtmlContent = '';
+    for (let i = 0; i < summaryEntries.length; i += 2) {
+        const [name1, d1] = summaryEntries[i];
+        const [name2, d2] = summaryEntries[i + 1] || [null, null];
+        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+        summaryHtmlContent += `
         <tr>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>
         </tr>`;
-        }
+    }
 
-        return `
+    return `
    <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
             <div style="font-size:24px;">Manju</div>
@@ -1740,19 +1732,17 @@ export default function SalesEntry() {
 
         <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
 
-        <!-- ITEMS TABLE WITH PAGE BREAK CONTROL -->
+        <!-- ITEMS TABLE - MODIFIED: Using <tbody> only to prevent header repetition -->
         <div style="page-break-inside: avoid;">
             <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-                ${colGroups}
-                <thead>
+                <!-- HEADER DEFINED ONCE OUTSIDE THEAD TO PREVENT REPETITION -->
+                <tbody>
                     <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
                         <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
                         <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
                         <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px;top: 24px;">මිල</th>
                         <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>
                     </tr>
-                </thead>
-                <tbody>
                     ${itemsHtml}
                 </tbody>
             </table>
@@ -1805,7 +1795,7 @@ export default function SalesEntry() {
             <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
         </div>
     </div>`;
-    };
+};
     const formatReceiptValue = (value) => {
         if (value === null || value === undefined || value === '') return '0.00';
         const num = parseFloat(value);
@@ -1821,26 +1811,21 @@ export default function SalesEntry() {
 
         // Determine which sales to print based on selection
         if (selectedPrintedCustomer) {
-            // For printed customer selection (with bill number)
             if (selectedPrintedCustomer.includes('-')) {
                 const [cCode, bNo] = selectedPrintedCustomer.split('-');
                 customerCode = cCode;
-                // REMOVED the condition s.bill_printed !== 'Y' to allow reprinting
                 salesData = allSales.filter(s =>
                     s.customer_code === cCode &&
                     String(s.bill_no) === String(bNo)
                 );
             } else {
-                // Fallback for single code selection
                 customerCode = selectedPrintedCustomer;
-                // REMOVED the condition s.bill_printed !== 'Y' to allow reprinting
                 salesData = allSales.filter(s =>
                     s.customer_code === selectedPrintedCustomer
                 );
             }
         }
         else if (selectedUnprintedCustomer) {
-            // For unprinted customer selection
             customerCode = selectedUnprintedCustomer;
             salesData = allSales.filter(s =>
                 s.customer_code === selectedUnprintedCustomer &&
@@ -1848,7 +1833,6 @@ export default function SalesEntry() {
             );
         }
         else {
-            // Fallback to displayedSales if no selection (shouldn't happen normally)
             salesData = displayedSales.filter(s => s.id);
         }
 
@@ -1876,7 +1860,6 @@ export default function SalesEntry() {
         try {
             updateState({ isPrinting: true });
 
-            // Get customer name from first sale
             customerName = salesData[0].customer_code || customerCode;
             const mobile = salesData[0].mobile || "0777672838 / 071437115";
 
@@ -1890,18 +1873,15 @@ export default function SalesEntry() {
                 console.warn("Loan fetch failed");
             }
 
-            // Check if these are already printed or not
             const isReprint = salesData.some(s => s.bill_printed === 'Y');
-
             let billNo = "";
             let receiptHtml = "";
 
             if (isReprint) {
-                // For reprint, use the existing bill number from the first sale
                 billNo = salesData[0].bill_no || "N/A";
+                console.log("Reprint - Bill No:", billNo);
                 receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
 
-                // Just print without calling markPrinted API for reprints
                 const printWindow = window.open("", "_blank", "width=800,height=600");
                 if (!printWindow) {
                     alert("Please allow pop-ups for printing");
@@ -1912,7 +1892,6 @@ export default function SalesEntry() {
                 printWindow.document.write(`<html><head><title>Print Bill - Reprint</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
                 printWindow.document.close();
 
-                // Update state to clear selections
                 updateState({
                     selectedPrintedCustomer: null,
                     selectedUnprintedCustomer: null,
@@ -1921,7 +1900,6 @@ export default function SalesEntry() {
 
                 handleClearForm(true);
 
-                // RELOAD THE PAGE AFTER REPRINT
                 const checkWindowClosed = setInterval(() => {
                     if (printWindow.closed) {
                         clearInterval(checkWindowClosed);
@@ -1931,6 +1909,8 @@ export default function SalesEntry() {
 
             } else {
                 // For new prints, call the API
+                console.log("New print - Calling markPrinted API with sales_ids:", salesData.map(s => s.id));
+
                 const printResponse = await api.post(routes.markPrinted, {
                     sales_ids: salesData.map(s => s.id),
                     telephone_no: formData.telephone_no,
@@ -1939,14 +1919,29 @@ export default function SalesEntry() {
                     loan_amount: currentLoan
                 });
 
+                console.log("API Response:", printResponse.data);
+
                 if (printResponse.data.status !== "success") {
                     throw new Error("මුද්‍රණය අසාර්ථකයි");
                 }
 
-                billNo = printResponse.data.bill_no || "";
-                receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
+                // FIX: Get the bill number from customer_bill_no (not bill_no)
+                billNo = printResponse.data.customer_bill_no || "";
+                console.log("New print - Bill No from API:", billNo);
 
-                // Update local state for new prints
+                // CRITICAL FIX: Create a deep copy of salesData and add bill_no to each object
+                const updatedSalesData = salesData.map(s => ({
+                    ...s,
+                    bill_no: billNo,
+                    bill_printed: "Y"
+                }));
+
+                console.log("Updated Sales Data with Bill No:", updatedSalesData);
+
+                // Generate receipt HTML with the updated sales data that now includes bill_no
+                receiptHtml = buildFullReceiptHTML(updatedSalesData, billNo, customerName, mobile, currentLoan, billSize);
+
+                // Update the state with the new bill numbers
                 updateState({
                     allSales: allSales.map(s =>
                         salesData.some(sd => sd.id === s.id)
@@ -1960,7 +1955,6 @@ export default function SalesEntry() {
 
                 handleClearForm(true);
 
-                // Open Print Window
                 const printWindow = window.open("", "_blank", "width=800,height=600");
                 if (!printWindow) {
                     alert("Please allow pop-ups for printing");
@@ -1971,7 +1965,6 @@ export default function SalesEntry() {
                 printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
                 printWindow.document.close();
 
-                // RELOAD THE PAGE AFTER NEW PRINT
                 const checkWindowClosed = setInterval(() => {
                     if (printWindow.closed) {
                         clearInterval(checkWindowClosed);
@@ -1982,7 +1975,7 @@ export default function SalesEntry() {
 
         } catch (error) {
             console.error("Printing error:", error);
-            alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය.");
+            alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + error.message);
             updateState({ isPrinting: false });
         }
     };
@@ -2271,25 +2264,10 @@ export default function SalesEntry() {
                                                             ref={refs.telephone_no}
                                                             name="telephone_no"
                                                             value={formData.telephone_no || ""}
-                                                            onChange={(e) => handleInputChange("telephone_no", e.target.value)}
-                                                            onKeyDown={(e) => handleKeyDown(e, "telephone_no")}
                                                             type="text"
                                                             placeholder="දුරකථන අංකය"
-                                                            disabled={!!selectedPrintedCustomer}
+                                                            disabled={true}
                                                             className="px-2 py-1 font-bold text-sm w-full border rounded text-black placeholder-gray-500"
-                                                            style={{
-                                                                backgroundColor: selectedPrintedCustomer ? '#4a5568' : '#f6f6ff',
-                                                                border: '1px solid #4a5568',
-                                                                color: 'white',
-                                                                height: '36px',
-                                                                fontSize: '1rem',
-                                                                padding: '0 0.75rem',
-                                                                borderRadius: '0.5rem',
-                                                                boxSizing: 'border-box',
-                                                                cursor: selectedPrintedCustomer ? 'not-allowed' : 'text',
-                                                                opacity: selectedPrintedCustomer ? 0.7 : 1,
-                                                                flex: 1
-                                                            }}
                                                         />
                                                         {state.showSavePhoneButton && (
                                                             <button

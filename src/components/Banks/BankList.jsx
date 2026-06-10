@@ -8,33 +8,103 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
     const [remainingBalances, setRemainingBalances] = useState({});
     const [loadingBalances, setLoadingBalances] = useState(true);
     const [totalBankRemaining, setTotalBankRemaining] = useState(0);
+    const [allCashiersBalances, setAllCashiersBalances] = useState([]); // Store all cashiers data
     
     // Use ref to store interval ID for cleanup
     const intervalRef = useRef(null);
 
-    // Fetch remaining balances function
+    // Fetch aggregated bank balances from ALL cashiers (combine same bank names)
+    const fetchAggregatedBankBalances = async () => {
+        console.log('Fetching aggregated bank balances...', new Date().toLocaleTimeString());
+        setLoadingBalances(true);
+        try {
+            // First, get all cashiers list
+            const allCashiersResponse = await cashierBalanceService.getDetailedBalance();
+            let allCashiers = [];
+            
+            if (allCashiersResponse.success && allCashiersResponse.data) {
+                allCashiers = allCashiersResponse.data.cashier_names || [];
+            }
+            
+            if (allCashiers.length === 0) {
+                // If no cashiers found, just fetch for selected cashier or all
+                const response = await cashierBalanceService.getRemainingBalances(selectedCashier);
+                if (response.success && response.data) {
+                    const balanceMap = {};
+                    if (response.data.bank_breakdown && Array.isArray(response.data.bank_breakdown)) {
+                        response.data.bank_breakdown.forEach(bank => {
+                            balanceMap[bank.bank_name.toLowerCase()] = bank.amount;
+                        });
+                    }
+                    setRemainingBalances(balanceMap);
+                    setTotalBankRemaining(response.data.total_bank_remaining || 0);
+                }
+                setLoadingBalances(false);
+                return;
+            }
+            
+            // Fetch balances for each cashier
+            const cashierPromises = allCashiers.map(cashier => 
+                cashierBalanceService.getRemainingBalances(cashier)
+                    .catch(err => ({ error: true, cashier, data: null }))
+            );
+            
+            const responses = await Promise.all(cashierPromises);
+            
+            // Aggregate bank balances by bank name (sum same bank names)
+            const bankAggregation = {};
+            let grandTotal = 0;
+            
+            responses.forEach(response => {
+                if (!response.error && response.success && response.data) {
+                    const bankBreakdown = response.data.bank_breakdown || [];
+                    bankBreakdown.forEach(bank => {
+                        const bankName = bank.bank_name;
+                        const amount = parseFloat(bank.amount) || 0;
+                        const lowerCaseBankName = bankName.toLowerCase();
+                        
+                        if (bankAggregation[lowerCaseBankName]) {
+                            bankAggregation[lowerCaseBankName] += amount;
+                        } else {
+                            bankAggregation[lowerCaseBankName] = amount;
+                        }
+                        grandTotal += amount;
+                    });
+                }
+            });
+            
+            setRemainingBalances(bankAggregation);
+            setTotalBankRemaining(grandTotal);
+            console.log('Aggregated bank balances:', bankAggregation);
+            
+        } catch (error) {
+            console.error('Error fetching aggregated bank balances:', error);
+            setError('Failed to fetch remaining balances');
+        } finally {
+            setLoadingBalances(false);
+        }
+    };
+
+    // Fetch remaining balances function (original - kept for backward compatibility)
     const fetchRemainingBalances = async () => {
-        console.log('Fetching remaining balances...', new Date().toLocaleTimeString()); // Debug log
+        console.log('Fetching remaining balances...', new Date().toLocaleTimeString());
         setLoadingBalances(true);
         try {
             const response = await cashierBalanceService.getRemainingBalances(selectedCashier);
-            console.log('API Response:', response); // Debug log
+            console.log('API Response:', response);
             
             if (response.success && response.data) {
-                // Create a map of bank_name to remaining amount
                 const balanceMap = {};
                 if (response.data.bank_breakdown && Array.isArray(response.data.bank_breakdown)) {
                     response.data.bank_breakdown.forEach(bank => {
-                        // Store bank name in lowercase for case-insensitive matching
                         balanceMap[bank.bank_name.toLowerCase()] = bank.amount;
-                        console.log(`Bank: ${bank.bank_name}, Amount: ${bank.amount}`); // Debug log
+                        console.log(`Bank: ${bank.bank_name}, Amount: ${bank.amount}`);
                     });
                 }
                 setRemainingBalances(balanceMap);
                 setTotalBankRemaining(response.data.total_bank_remaining || 0);
-                // Clear any existing error on successful fetch
                 if (error) setError('');
-                console.log('Updated remainingBalances:', balanceMap); // Debug log
+                console.log('Updated remainingBalances:', balanceMap);
             } else {
                 console.log('Invalid response structure:', response);
             }
@@ -46,25 +116,25 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
         }
     };
 
-    // Set up auto-refresh every 10 seconds
+    // Set up auto-refresh every 10 seconds with aggregated data
     useEffect(() => {
-        // Initial fetch
-        fetchRemainingBalances();
+        // Initial fetch - use aggregated balances from all cashiers
+        fetchAggregatedBankBalances();
         
         // Set up interval for auto-refresh every 10 seconds
         intervalRef.current = setInterval(() => {
-            console.log('Auto-refresh triggered'); // Debug log
-            fetchRemainingBalances();
-        }, 10000); // 10000 milliseconds = 10 seconds
+            console.log('Auto-refresh triggered');
+            fetchAggregatedBankBalances();
+        }, 10000);
         
         // Cleanup interval on component unmount
         return () => {
             if (intervalRef.current) {
                 clearInterval(intervalRef.current);
-                console.log('Interval cleared'); // Debug log
+                console.log('Interval cleared');
             }
         };
-    }, [selectedCashier]); // Re-run when selectedCashier changes
+    }, []); // Run only once on mount, always aggregate all cashiers
 
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure you want to delete this bank account?')) {
@@ -82,8 +152,8 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
             if (onRefresh) {
                 onRefresh();
             }
-            // Immediate refresh after deletion (don't wait for next interval)
-            await fetchRemainingBalances();
+            // Immediate refresh after deletion
+            await fetchAggregatedBankBalances();
         } catch (error) {
             setError('Failed to delete bank account. Please try again.');
             console.error('Delete error:', error);
@@ -113,7 +183,6 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
     };
 
     const formatCurrency = (amount) => {
-        // Format with Rs instead of ₹
         return `Rs ${amount.toLocaleString('en-IN', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
@@ -171,6 +240,15 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
             color: '#60a5fa',
             fontSize: '14px',
             fontWeight: '600'
+        },
+        infoNote: {
+            background: 'rgba(245,158,11,0.1)',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            color: '#f59e0b',
+            fontSize: '11px',
+            fontWeight: '500',
+            marginTop: '8px'
         },
         errorMessage: {
             margin: '16px',
@@ -352,6 +430,9 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                             <h2 style={styles.title}>Saved Bank Accounts</h2>
                         </div>
                         <p style={styles.subtitle}>Manage and track all your bank accounts</p>
+                        <div style={styles.infoNote}>
+                            💡 Showing TOTAL balances combined from ALL cashiers for each bank
+                        </div>
                     </div>
                     <div style={styles.statsBadge}>
                         Total: {banks.length} account{banks.length !== 1 ? 's' : ''} | Total Bank Balance: {formatCurrency(totalBankRemaining)}
@@ -426,7 +507,7 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                                         </div>
                                     </td>
 
-                                    {/* Remaining Balance Cell */}
+                                    {/* Remaining Balance Cell - Shows AGGREGATED total from all cashiers */}
                                     <td style={styles.td}>
                                         {loadingBalances ? (
                                             <div style={styles.loadingIndicator}>
@@ -439,6 +520,15 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                                             }}>
                                                 {remainingAmount > 0 ? '💰 ' : '📭 '}
                                                 {formatCurrency(remainingAmount)}
+                                                {remainingAmount > 0 && (
+                                                    <div style={{
+                                                        fontSize: '10px',
+                                                        marginTop: '4px',
+                                                        opacity: 0.7
+                                                    }}>
+                                                        (Combined from all cashiers)
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </td>

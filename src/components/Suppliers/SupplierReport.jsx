@@ -615,77 +615,127 @@ const handleUpdateFarmer = async () => {
     }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
 
     // --- Print function ---
-    const handlePrint = useCallback(async () => {
-        if (!supplierDetails || supplierDetails.length === 0) return;
+const handlePrint = useCallback(async () => {
+    if (!supplierDetails || supplierDetails.length === 0) return;
 
-        let finalBillNo = selectedBillNo;
+    // 🔴 NEW: Check for supplier prices of 0 or 1 before proceeding
+    if (isUnprintedBill) {
+        const hasInvalidSupplierPrice = supplierDetails.some(record => {
+            const supplierPrice = parseFloat(record.SupplierPricePerKg) || 0;
+            return supplierPrice === 0 || supplierPrice === 1;
+        });
 
-        if (isUnprintedBill) {
+        if (hasInvalidSupplierPrice) {
+            alert('⚠️ මුද්‍රණය කළ නොහැක! සැපයුම් මිල තීරුවේ 0 හෝ 1 අගයන් අඩංගු වේ.\n\nCannot print! The "සැපයුම් මිල" column contains values 0 or 1.');
+            return;
+        }
+    }
+
+    let finalBillNo = selectedBillNo;
+
+    if (isUnprintedBill) {
+        setIsDetailsLoading(true);
+        try {
+            const response = await api.post('/suppliers/mark-as-printed', {
+                transaction_ids: supplierDetails.map(r => r.id),
+                telephone_no: phoneNo,
+                advance_amount: advanceAmount,
+                supplier_code: selectedSupplier
+            });
+
+            finalBillNo = response.data.new_bill_no;
+            setSelectedBillNo(finalBillNo);
+
+            if (phoneNo) {
+                console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
+            }
+        } catch (err) {
+            console.error('Finalize/SMS Error:', err);
+            alert('Finalize failed. SMS could not be sent.');
+            return;
+        } finally {
+            setIsDetailsLoading(false);
+        }
+    } else {
+        if (phoneNo) {
             setIsDetailsLoading(true);
             try {
-                const response = await api.post('/suppliers/mark-as-printed', {
-                    transaction_ids: supplierDetails.map(r => r.id),
+                await api.post('/suppliers/resend-sms', {
+                    bill_no: selectedBillNo,
                     telephone_no: phoneNo,
+                    supplier_code: selectedSupplier,
+                    transaction_ids: supplierDetails.map(r => r.id),
                     advance_amount: advanceAmount,
-                    supplier_code: selectedSupplier
+                    is_reprint: true
                 });
-
-                finalBillNo = response.data.new_bill_no;
-                setSelectedBillNo(finalBillNo);
-
-                if (phoneNo) {
-                    console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
-                }
+                
+                console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
+                setPhoneStatus('📱 SMS resent');
+                setTimeout(() => setPhoneStatus(''), 2000);
+                
             } catch (err) {
-                console.error('Finalize/SMS Error:', err);
-                alert('Finalize failed. SMS could not be sent.');
-                return;
+                console.error('SMS Resend Error:', err);
+                setPhoneStatus('⚠️ SMS failed');
+                setTimeout(() => setPhoneStatus(''), 2000);
             } finally {
                 setIsDetailsLoading(false);
             }
         } else {
-            if (phoneNo) {
-                setIsDetailsLoading(true);
-                try {
-                    await api.post('/suppliers/resend-sms', {
-                        bill_no: selectedBillNo,
-                        telephone_no: phoneNo,
-                        supplier_code: selectedSupplier,
-                        transaction_ids: supplierDetails.map(r => r.id),
-                        advance_amount: advanceAmount,
-                        is_reprint: true
-                    });
-                    
-                    console.log(`Reprint SMS triggered for ${phoneNo} on bill ${selectedBillNo}`);
-                    setPhoneStatus('📱 SMS resent');
-                    setTimeout(() => setPhoneStatus(''), 2000);
-                    
-                } catch (err) {
-                    console.error('SMS Resend Error:', err);
-                    setPhoneStatus('⚠️ SMS failed');
-                    setTimeout(() => setPhoneStatus(''), 2000);
-                } finally {
-                    setIsDetailsLoading(false);
+            setPhoneStatus('⚠️ No phone number');
+            setTimeout(() => setPhoneStatus(''), 2000);
+        }
+    }
+
+    // Generate the bill content
+    const content = getBillContent(finalBillNo);
+    
+    // Create a hidden iframe
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+    
+    // Write content to iframe and print
+    const iframeDoc = iframe.contentWindow.document;
+    iframeDoc.open();
+    iframeDoc.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Print Bill</title>
+            <style>
+                @media print {
+                    body {
+                        margin: 0;
+                        padding: 0;
+                    }
+                    .print-container {
+                        margin: 0;
+                        padding: 0;
+                    }
                 }
-            } else {
-                setPhoneStatus('⚠️ No phone number');
-                setTimeout(() => setPhoneStatus(''), 2000);
-            }
-        }
-
-        const content = getBillContent(finalBillNo);
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-            printWindow.document.write(`<html><body>${content}</body></html>`);
-            printWindow.document.close();
-            printWindow.focus();
-            printWindow.print();
-
-            setTimeout(() => {
-                window.location.reload();
-            }, 500);
-        }
-    }, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
+            </style>
+        </head>
+        <body>
+            <div class="print-container">${content}</div>
+        </body>
+        </html>
+    `);
+    iframeDoc.close();
+    
+    // Focus and print
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    
+    // Remove iframe after print dialog closes
+    setTimeout(() => {
+        document.body.removeChild(iframe);
+        // Reload the page after print dialog is closed
+        window.location.reload();
+    }, 500);
+}, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
 
     // --- Keyboard event listener ---
     useEffect(() => {
