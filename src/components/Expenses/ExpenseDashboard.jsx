@@ -289,7 +289,7 @@ const ExpenseDashboard = () => {
       if (response.data.success) {
         setExpenses(response.data.expenses.data);
         setTotalPages(response.data.expenses.last_page);
-        
+
         const dashboardResponse = await api.get('/expenses/dashboard');
         if (dashboardResponse.data.success) setStats(dashboardResponse.data.stats);
       }
@@ -469,7 +469,7 @@ const ExpenseDashboard = () => {
         </Grid>
       );
     }
-    
+
     if (formData.payment_method === 'bank_transfer') {
       return (
         <Grid container spacing={2}>
@@ -508,7 +508,7 @@ const ExpenseDashboard = () => {
         </Grid>
       );
     }
-    
+
     return null;
   };
 
@@ -517,7 +517,7 @@ const ExpenseDashboard = () => {
       <CssBaseline />
       <GlobalStyles styles={globalStyles} />
       <LocalizationProvider dateAdapter={AdapterDayjs}>
-        <Box sx={{ 
+        <Box sx={{
           minHeight: '100vh',
           width: '100vw',
           maxWidth: '100%',
@@ -536,18 +536,18 @@ const ExpenseDashboard = () => {
           }
         }}>
           {/* Full width content with no padding */}
-          <Box sx={{ 
-            px: { xs: 2, sm: 3, md: 4 }, 
-            py: 4, 
-            position: 'relative', 
+          <Box sx={{
+            px: { xs: 2, sm: 3, md: 4 },
+            py: 4,
+            position: 'relative',
             zIndex: 1,
             width: '100%',
             maxWidth: '100%'
           }}>
             {/* Modern Header - Full Width */}
-            <Paper elevation={0} sx={{ 
-              p: 4, 
-              mb: 4, 
+            <Paper elevation={0} sx={{
+              p: 4,
+              mb: 4,
               borderRadius: '28px',
               background: 'rgba(30,41,59,0.8)',
               backdropFilter: 'blur(10px)',
@@ -557,8 +557,8 @@ const ExpenseDashboard = () => {
             }}>
               <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
                 <Box>
-                  <Typography variant="h4" sx={{ 
-                    fontWeight: 800, 
+                  <Typography variant="h4" sx={{
+                    fontWeight: 800,
                     background: 'linear-gradient(135deg, #a5b4fc 0%, #c084fc 100%)',
                     backgroundClip: 'text',
                     WebkitBackgroundClip: 'text',
@@ -571,15 +571,15 @@ const ExpenseDashboard = () => {
                     Track, manage, and analyze your expenses efficiently
                   </Typography>
                   {/* Display selected cashier if available */}
+                  
                   {selectedCashier && (
-                    <Typography variant="caption" sx={{ 
-                      color: '#60a5fa', 
-                      display: 'block', 
+                    <Typography variant="caption" sx={{
+                      color: '#60a5fa',
+                      display: 'inline-block',
                       mt: 1,
                       background: 'rgba(96,165,250,0.1)',
                       padding: '4px 8px',
-                      borderRadius: '8px',
-                      display: 'inline-block'
+                      borderRadius: '8px'
                     }}>
                       👤 Cashier: {selectedCashier}
                     </Typography>
@@ -590,7 +590,7 @@ const ExpenseDashboard = () => {
                     variant="outlined"
                     startIcon={<ArrowBackIcon />}
                     onClick={handleBack}
-                    sx={{ 
+                    sx={{
                       borderRadius: '14px',
                       textTransform: 'none',
                       px: 3,
@@ -605,7 +605,7 @@ const ExpenseDashboard = () => {
                     variant="outlined"
                     startIcon={<CategoryIcon />}
                     onClick={handleExpenseTypes}
-                    sx={{ 
+                    sx={{
                       borderRadius: '14px',
                       textTransform: 'none',
                       px: 3,
@@ -620,7 +620,7 @@ const ExpenseDashboard = () => {
                     variant="outlined"
                     startIcon={<RefreshIcon />}
                     onClick={fetchExpenses}
-                    sx={{ 
+                    sx={{
                       borderRadius: '14px',
                       textTransform: 'none',
                       px: 3,
@@ -638,7 +638,7 @@ const ExpenseDashboard = () => {
                       resetForm();
                       setOpenDialog(true);
                     }}
-                    sx={{ 
+                    sx={{
                       borderRadius: '14px',
                       textTransform: 'none',
                       px: 4,
@@ -656,9 +656,9 @@ const ExpenseDashboard = () => {
 
             {/* Success Message */}
             {successMessage && (
-              <Alert 
-                severity="success" 
-                sx={{ mb: 3, borderRadius: '16px', background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)', width: '100%' }} 
+              <Alert
+                severity="success"
+                sx={{ mb: 3, borderRadius: '16px', background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)', width: '100%' }}
                 onClose={() => setSuccessMessage('')}
                 icon={<CheckCircleIcon fontSize="inherit" />}
               >
@@ -668,8 +668,8 @@ const ExpenseDashboard = () => {
 
             {/* Payment Methods Summary Cards - Single Horizontal Line */}
             <Box sx={{ mb: 4, width: '100%', display: 'flex', gap: 3, flexDirection: 'row', flexWrap: 'nowrap' }}>
-              <Paper sx={{ 
-                p: 3, 
+              <Paper sx={{
+                p: 3,
                 borderRadius: '20px',
                 background: 'rgba(30,41,59,0.6)',
                 backdropFilter: 'blur(10px)',
@@ -690,9 +690,9 @@ const ExpenseDashboard = () => {
                   </Box>
                 </Box>
               </Paper>
-              
-              <Paper sx={{ 
-                p: 3, 
+
+              <Paper sx={{
+                p: 3,
                 borderRadius: '20px',
                 background: 'rgba(30,41,59,0.6)',
                 backdropFilter: 'blur(10px)',
@@ -713,9 +713,9 @@ const ExpenseDashboard = () => {
                   </Box>
                 </Box>
               </Paper>
-              
-              <Paper sx={{ 
-                p: 3, 
+
+              <Paper sx={{
+                p: 3,
                 borderRadius: '20px',
                 background: 'rgba(30,41,59,0.6)',
                 backdropFilter: 'blur(10px)',
@@ -739,7 +739,7 @@ const ExpenseDashboard = () => {
             </Box>
 
             {/* Expenses Table - Full Width */}
-            <Paper sx={{ 
+            <Paper sx={{
               borderRadius: '24px',
               overflow: 'hidden',
               background: 'rgba(30,41,59,0.6)',
@@ -783,10 +783,10 @@ const ExpenseDashboard = () => {
                         <TableRow key={expense.id} hover sx={{ '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' }, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                           <TableCell sx={{ color: '#cbd5e1' }}>{dayjs(expense.date).format('YYYY-MM-DD')}</TableCell>
                           <TableCell>
-                            <Chip 
-                              label={expense.utility_type?.name || 'N/A'} 
+                            <Chip
+                              label={expense.utility_type?.name || 'N/A'}
                               size="small"
-                              sx={{ 
+                              sx={{
                                 borderRadius: '10px',
                                 bgcolor: 'rgba(129,140,248,0.15)',
                                 color: '#a5b4fc',
@@ -802,10 +802,10 @@ const ExpenseDashboard = () => {
                             </Typography>
                           </TableCell>
                           <TableCell>
-                            <Chip 
+                            <Chip
                               label={expense.payment_method.replace('_', ' ').toUpperCase()}
                               size="small"
-                              sx={{ 
+                              sx={{
                                 borderRadius: '10px',
                                 bgcolor: expense.payment_method === 'cash' ? 'rgba(16,185,129,0.15)' : expense.payment_method === 'cheque' ? 'rgba(59,130,246,0.15)' : 'rgba(236,72,153,0.15)',
                                 color: expense.payment_method === 'cash' ? '#34d399' : expense.payment_method === 'cheque' ? '#60a5fa' : '#f472b6',
@@ -815,16 +815,16 @@ const ExpenseDashboard = () => {
                             />
                           </TableCell>
                           <TableCell>
-                            <IconButton 
-                              size="small" 
-                              onClick={() => handleEdit(expense)} 
+                            <IconButton
+                              size="small"
+                              onClick={() => handleEdit(expense)}
                               sx={{ color: '#818cf8', mr: 1, '&:hover': { bgcolor: 'rgba(129,140,248,0.1)' } }}
                             >
                               <EditIcon fontSize="small" />
                             </IconButton>
-                            <IconButton 
-                              size="small" 
-                              onClick={() => handleDelete(expense.id)} 
+                            <IconButton
+                              size="small"
+                              onClick={() => handleDelete(expense.id)}
                               sx={{ color: '#f87171', '&:hover': { bgcolor: 'rgba(248,113,113,0.1)' } }}
                             >
                               <DeleteIcon fontSize="small" />
@@ -836,15 +836,15 @@ const ExpenseDashboard = () => {
                   </TableBody>
                 </Table>
               </TableContainer>
-              
+
               {totalPages > 1 && (
                 <Box display="flex" justifyContent="center" py={3} borderTop="1px solid rgba(255,255,255,0.05)">
-                  <Pagination 
-                    count={totalPages} 
-                    page={page} 
-                    onChange={(e, v) => setPage(v)} 
+                  <Pagination
+                    count={totalPages}
+                    page={page}
+                    onChange={(e, v) => setPage(v)}
                     sx={{
-                      '& .MuiPaginationItem-root': { 
+                      '& .MuiPaginationItem-root': {
                         borderRadius: '12px',
                         color: '#94a3b8',
                         borderColor: 'rgba(255,255,255,0.1)',
@@ -860,14 +860,14 @@ const ExpenseDashboard = () => {
             </Paper>
 
             {/* Add/Edit Dialog */}
-            <Dialog 
-              open={openDialog} 
-              onClose={() => setOpenDialog(false)} 
-              maxWidth="md" 
+            <Dialog
+              open={openDialog}
+              onClose={() => setOpenDialog(false)}
+              maxWidth="md"
               fullWidth
               PaperProps={{
-                sx: { 
-                  borderRadius: '28px', 
+                sx: {
+                  borderRadius: '28px',
                   overflow: 'hidden',
                   background: 'linear-gradient(145deg, #1e293b 0%, #0f172a 100%)',
                   border: '1px solid rgba(255,255,255,0.1)'
@@ -890,7 +890,7 @@ const ExpenseDashboard = () => {
                           value={formData.expense_type_id}
                           onChange={handleInputChange}
                           label="Expense Type"
-                          sx={{ 
+                          sx={{
                             borderRadius: '14px',
                             color: '#e2e8f0',
                             backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -911,18 +911,18 @@ const ExpenseDashboard = () => {
                         </Select>
                       </FormControl>
                     </Grid>
-                    
+
                     <Grid item xs={12} md={6}>
                       <DatePicker
                         label="Expense Date"
                         value={formData.date}
                         onChange={(value) => handleDateChange('date', value)}
-                        slotProps={{ 
-                          textField: { 
-                            fullWidth: true, 
-                            required: true, 
-                            sx: { 
-                              '& .MuiOutlinedInput-root': { 
+                        slotProps={{
+                          textField: {
+                            fullWidth: true,
+                            required: true,
+                            sx: {
+                              '& .MuiOutlinedInput-root': {
                                 borderRadius: '14px',
                                 color: '#e2e8f0',
                                 backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -939,18 +939,18 @@ const ExpenseDashboard = () => {
                                   borderColor: '#818cf8',
                                 },
                               },
-                              '& .MuiInputLabel-root': { 
+                              '& .MuiInputLabel-root': {
                                 color: '#94a3b8',
                                 '&.Mui-focused': {
                                   color: '#818cf8',
                                 },
                               },
-                            } 
-                          } 
+                            }
+                          }
                         }}
                       />
                     </Grid>
-                    
+
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
@@ -959,8 +959,8 @@ const ExpenseDashboard = () => {
                         value={formData.name}
                         onChange={handleInputChange}
                         required
-                        sx={{ 
-                          '& .MuiOutlinedInput-root': { 
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
                             borderRadius: '14px',
                             color: '#e2e8f0',
                             backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -977,7 +977,7 @@ const ExpenseDashboard = () => {
                               borderColor: '#818cf8',
                             },
                           },
-                          '& .MuiInputLabel-root': { 
+                          '& .MuiInputLabel-root': {
                             color: '#94a3b8',
                             '&.Mui-focused': {
                               color: '#818cf8',
@@ -986,7 +986,7 @@ const ExpenseDashboard = () => {
                         }}
                       />
                     </Grid>
-                    
+
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
@@ -997,8 +997,8 @@ const ExpenseDashboard = () => {
                         onChange={handleInputChange}
                         required
                         inputProps={{ step: "0.01" }}
-                        sx={{ 
-                          '& .MuiOutlinedInput-root': { 
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
                             borderRadius: '14px',
                             color: '#e2e8f0',
                             backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -1015,7 +1015,7 @@ const ExpenseDashboard = () => {
                               borderColor: '#818cf8',
                             },
                           },
-                          '& .MuiInputLabel-root': { 
+                          '& .MuiInputLabel-root': {
                             color: '#94a3b8',
                             '&.Mui-focused': {
                               color: '#818cf8',
@@ -1024,7 +1024,7 @@ const ExpenseDashboard = () => {
                         }}
                       />
                     </Grid>
-                    
+
                     <Grid item xs={12}>
                       <Typography variant="subtitle2" gutterBottom fontWeight={600} sx={{ color: '#cbd5e1' }}>
                         Payment Method
@@ -1035,22 +1035,22 @@ const ExpenseDashboard = () => {
                         <FormControlLabel value="bank_transfer" control={<Radio sx={{ color: '#94a3b8', '&.Mui-checked': { color: '#ec4899' } }} />} label={<span style={{ color: '#e2e8f0' }}>Bank Transfer</span>} />
                       </RadioGroup>
                     </Grid>
-                    
+
                     {renderConditionalFields()}
                   </Grid>
                 </DialogContent>
                 <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                  <Button 
-                    onClick={() => setOpenDialog(false)} 
+                  <Button
+                    onClick={() => setOpenDialog(false)}
                     sx={{ borderRadius: '12px', textTransform: 'none', px: 3, color: '#94a3b8' }}
                   >
                     Cancel
                   </Button>
-                  <Button 
-                    type="submit" 
-                    variant="contained" 
+                  <Button
+                    type="submit"
+                    variant="contained"
                     disabled={loading}
-                    sx={{ 
+                    sx={{
                       borderRadius: '12px',
                       textTransform: 'none',
                       px: 4,
