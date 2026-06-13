@@ -3589,6 +3589,133 @@ export default function SupplierReportPrinted() {
         }
         return 0;
     });
+    // Add these state variables with your other useState declarations (around line ~40-50)
+
+    // Advance state for NEW table
+    const [advanceAmount, setAdvanceAmount] = useState(0);
+    const [advancePayload, setAdvancePayload] = useState({
+        supplier_code: '',
+        supplier_bill_no: '',
+        traveler_code: '',
+        advance_amount: ''
+    });
+    const [advanceLoading, setAdvanceLoading] = useState(false);
+    const [advanceStatus, setAdvanceStatus] = useState({ type: '', text: '' });
+    const [supplierAdvances, setSupplierAdvances] = useState([]);
+    const [totalAdvanceAmount, setTotalAdvanceAmount] = useState(0);
+    const [showAdvanceHistory, setShowAdvanceHistory] = useState(false);
+
+    // Store advance in NEW table
+    const storeAdvance = async (advanceData) => {
+        const response = await api.post('/supplier-advances', advanceData);
+        return response.data;
+    };
+
+    // Fetch supplier advances from NEW table
+    const fetchSupplierAdvances = async (supplierCode, billNo = null) => {
+        if (!supplierCode) return;
+        try {
+            let url = `/supplier-advances/supplier?supplier_code=${supplierCode}`;
+            if (billNo) {
+                url += `&supplier_bill_no=${billNo}`;
+            }
+            const response = await api.get(url);
+            if (response.data.success) {
+                setSupplierAdvances(response.data.data.advances);
+                setTotalAdvanceAmount(response.data.data.summary.total_advance);
+            }
+        } catch (error) {
+            console.error('Error fetching advances:', error);
+        }
+    };
+
+    // Updated handleAdvanceSubmit for NEW table
+    const handleAdvanceSubmit = async (e) => {
+        e.preventDefault();
+
+        if (!state.selectedSupplier) {
+            alert('Please select a supplier first');
+            return;
+        }
+
+        const amount = parseFloat(advancePayload.advance_amount);
+        if (isNaN(amount) || amount <= 0) {
+            alert('Please enter a valid advance amount');
+            return;
+        }
+
+        if (!advancePayload.traveler_code.trim()) {
+            alert('Please enter traveler/trader code');
+            return;
+        }
+
+        setAdvanceLoading(true);
+        setAdvanceStatus({ type: '', text: '' });
+
+        try {
+            const response = await storeAdvance({
+                supplier_code: state.selectedSupplier,
+                supplier_bill_no: state.selectedBillNo || null,
+                traveler_code: advancePayload.traveler_code.toUpperCase(),
+                advance_amount: amount
+            });
+
+            if (response.success) {
+                setAdvanceStatus({
+                    type: 'success',
+                    text: `✅ Advance recorded successfully! Amount: Rs. ${formatDecimal(amount)}`
+                });
+
+                // Reset form - keep supplier code but clear other fields
+                setAdvancePayload({
+                    supplier_code: state.selectedSupplier,
+                    supplier_bill_no: state.selectedBillNo || '',
+                    traveler_code: '',
+                    advance_amount: ''
+                });
+
+                // Refresh advances list from new table
+                await fetchSupplierAdvances(state.selectedSupplier, state.selectedBillNo);
+
+                // Also update the total advance amount for display
+                setAdvanceAmount(prev => prev + amount);
+
+                // Clear success message after 3 seconds
+                setTimeout(() => setAdvanceStatus({ type: '', text: '' }), 3000);
+            } else {
+                throw new Error(response.message || 'Failed to record advance');
+            }
+        } catch (error) {
+            console.error('Advance submission error:', error);
+            setAdvanceStatus({
+                type: 'error',
+                text: `❌ Failed to record advance: ${error.response?.data?.message || error.message}`
+            });
+            setTimeout(() => setAdvanceStatus({ type: '', text: '' }), 5000);
+        } finally {
+            setAdvanceLoading(false);
+        }
+    };
+
+    // Reset advance form and fetch advances when supplier changes
+    useEffect(() => {
+        if (state.selectedSupplier) {
+            setAdvancePayload({
+                supplier_code: state.selectedSupplier,
+                supplier_bill_no: state.selectedBillNo || '',
+                traveler_code: '',
+                advance_amount: ''
+            });
+            // Fetch advances from NEW table
+            fetchSupplierAdvances(state.selectedSupplier, state.selectedBillNo);
+        } else {
+            setSupplierAdvances([]);
+            setTotalAdvanceAmount(0);
+            setAdvanceAmount(0);
+        }
+    }, [state.selectedSupplier, state.selectedBillNo]);
+
+
     // Add these state variables with your other state declarations (around line ~40-50)
     const [editingRecord, setEditingRecord] = useState(null);
     const [newFarmerCode, setNewFarmerCode] = useState('');
@@ -4929,266 +5056,266 @@ export default function SupplierReportPrinted() {
         }
     };
 
-const handleSupplierClick = async (supplierCode, billNo = null) => {
-    if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
-        setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
-        setSelectedBillCreditor(null);
-        setIsMiddlePanelLocked(true);
-        return;
-    }
-
-    // ⭐ CRITICAL: Immediately check for creditor before any loading
-    let hasCreditor = false;
-    let creditorInfo = null;
-
-    if (billNo) {
-        try {
-            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-            hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
-            console.log('🔍 Pre-check creditor status:', { supplierCode, billNo, hasCreditor, creditorInfo });
-        } catch (error) {
-            console.log('Error checking creditor status:', error);
-        }
-    }
-
-    // ⭐ Check if this specific bill has a previously selected mode
-    const billKey = `${supplierCode}-${billNo}`;
-    const savedMode = billModeSelections[billKey];
-
-    // ⭐ DECISION LOGIC:
-    if (hasCreditor) {
-        console.log('✅ Bill HAS CREDITOR - Panel UNLOCKED');
-        setIsMiddlePanelLocked(false);
-        if (!state.selectedMode || state.selectedMode === 'walking_seller') {
-            setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-        }
-    } else if (savedMode) {
-        console.log(`✅ Bill has previously selected mode: ${savedMode} - Panel UNLOCKED`);
-        setIsMiddlePanelLocked(false);
-        setState(prev => ({ ...prev, selectedMode: savedMode }));
-    } else {
-        console.log('❌ New bill - Panel LOCKED');
-        setIsMiddlePanelLocked(true);
-        setState(prev => ({ ...prev, selectedMode: null }));
-    }
-
-    setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
-
-    try {
-        let url, response;
-        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-
-        if (billNo) {
-            url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
-            if (useHistoryParam) {
-                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            response = await api.get(url);
-            console.log('📡 API Response for bill details:', response.data);
-        } else {
-            url = `${routes.getUnprintedDetails}/${supplierCode}`;
-            if (useHistoryParam) {
-                url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            response = await api.get(url);
+    const handleSupplierClick = async (supplierCode, billNo = null) => {
+        if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
+            setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
+            setSelectedBillCreditor(null);
+            setIsMiddlePanelLocked(true);
+            return;
         }
 
-        // CRITICAL FIX: Handle the response correctly for history mode
-        let salesData = [];
-        
-        // For history mode, the response has a 'sales' property
-        if (response.data && response.data.sales) {
-            salesData = response.data.sales;
-            console.log('📋 Using sales data from response.data.sales (history mode)', salesData);
-            console.log('📋 Number of sales records:', salesData.length);
-            if (salesData.length > 0) {
-                console.log('📋 First sales record sample:', salesData[0]);
-            }
-        } 
-        // For normal mode, response is directly an array
-        else if (Array.isArray(response.data)) {
-            salesData = response.data;
-            console.log('📋 Using sales data as array (normal mode)', salesData);
-        }
-        // Check if response has data property
-        else if (response.data && response.data.data) {
-            salesData = Array.isArray(response.data.data) ? response.data.data : [];
-            console.log('📋 Using sales data from response.data.data', salesData);
-        }
-        // Fallback: try to get from response directly
-        else if (response.data) {
-            if (typeof response.data === 'object' && !Array.isArray(response.data)) {
-                // If it's an object with numeric keys, convert to array
-                salesData = Object.values(response.data).filter(item => item && typeof item === 'object' && item.SupplierTotal !== undefined);
-                console.log('📋 Converted object to array', salesData);
-            } else {
-                salesData = [];
-            }
-        }
-
-        // Ensure salesData is an array
-        if (!Array.isArray(salesData)) {
-            salesData = [];
-        }
-
-        console.log('📊 Final salesData length:', salesData.length);
-        
-        // If still no sales data, try to get it from the pending/completed suppliers list
-        if (salesData.length === 0 && billNo) {
-            console.log('⚠️ No sales data from API, checking from state...');
-            const billFromList = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-            if (billFromList && billFromList.sales_data) {
-                salesData = billFromList.sales_data;
-                console.log('📋 Found sales_data in state list:', salesData.length);
-            }
-        }
-
-        let calculatedTotal = 0;
-        if (salesData.length > 0) {
-            calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-            console.log('💰 Calculated total from salesData:', calculatedTotal);
-        } else {
-            console.warn('⚠️ No sales data available for this bill!');
-        }
-
-        const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        let actualBillTotal = calculatedTotal;
-        let creditAmount = 0;
-        let creditorRemainingAmount = 0;
-
-        if (billFromState && billFromState.total_amount) {
-            actualBillTotal = parseFloat(billFromState.total_amount);
-            console.log('📋 Using total_amount from state:', actualBillTotal);
-        } else if (calculatedTotal > 0) {
-            actualBillTotal = calculatedTotal;
-        }
-
-        const total = actualBillTotal;
-
-        let currentPaid = 0;
-        let paymentBreakdown = [];
+        // ⭐ CRITICAL: Immediately check for creditor before any loading
+        let hasCreditor = false;
+        let creditorInfo = null;
 
         if (billNo) {
             try {
-                let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-                if (useHistoryParam) {
-                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                const loanRes = await api.get(loanUrl);
-                console.log('📡 Loan search response:', loanRes.data);
-                if (loanRes.data) {
-                    const paymentDetails = loanRes.data.payment_details || [];
-                    if (typeof paymentDetails === 'string') {
-                        paymentBreakdown = JSON.parse(paymentDetails);
-                    } else {
-                        paymentBreakdown = paymentDetails;
-                    }
-
-                    const isFromFullySettled = state.completedSuppliers.some(
-                        item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-                    );
-
-                    let totalPaidFromPayments = 0;
-                    if (Array.isArray(paymentBreakdown)) {
-                        paymentBreakdown.forEach(payment => {
-                            const amount = parseFloat(payment.amount) || 0;
-                            if (isFromFullySettled && payment.method === 'Credit') {
-                                // Exclude Credit from Total Paid display for Fully Settled bills
-                            } else {
-                                totalPaidFromPayments += amount;
-                            }
-                        });
-                    }
-                    currentPaid = totalPaidFromPayments;
-                    console.log('💰 Current paid amount from loan:', currentPaid);
-                }
-            } catch (loanError) {
-                console.error('Error fetching loan details:', loanError);
+                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
+                console.log('🔍 Pre-check creditor status:', { supplierCode, billNo, hasCreditor, creditorInfo });
+            } catch (error) {
+                console.log('Error checking creditor status:', error);
             }
         }
 
-        // Get creditor info
-        if (billNo && !creditorInfo) {
-            creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-            setSelectedBillCreditor(creditorInfo);
-            hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
-            if (creditorInfo) {
+        // ⭐ Check if this specific bill has a previously selected mode
+        const billKey = `${supplierCode}-${billNo}`;
+        const savedMode = billModeSelections[billKey];
+
+        // ⭐ DECISION LOGIC:
+        if (hasCreditor) {
+            console.log('✅ Bill HAS CREDITOR - Panel UNLOCKED');
+            setIsMiddlePanelLocked(false);
+            if (!state.selectedMode || state.selectedMode === 'walking_seller') {
+                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
+            }
+        } else if (savedMode) {
+            console.log(`✅ Bill has previously selected mode: ${savedMode} - Panel UNLOCKED`);
+            setIsMiddlePanelLocked(false);
+            setState(prev => ({ ...prev, selectedMode: savedMode }));
+        } else {
+            console.log('❌ New bill - Panel LOCKED');
+            setIsMiddlePanelLocked(true);
+            setState(prev => ({ ...prev, selectedMode: null }));
+        }
+
+        setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
+
+        try {
+            let url, response;
+            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+
+            if (billNo) {
+                url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
+                if (useHistoryParam) {
+                    url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                response = await api.get(url);
+                console.log('📡 API Response for bill details:', response.data);
+            } else {
+                url = `${routes.getUnprintedDetails}/${supplierCode}`;
+                if (useHistoryParam) {
+                    url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                response = await api.get(url);
+            }
+
+            // CRITICAL FIX: Handle the response correctly for history mode
+            let salesData = [];
+
+            // For history mode, the response has a 'sales' property
+            if (response.data && response.data.sales) {
+                salesData = response.data.sales;
+                console.log('📋 Using sales data from response.data.sales (history mode)', salesData);
+                console.log('📋 Number of sales records:', salesData.length);
+                if (salesData.length > 0) {
+                    console.log('📋 First sales record sample:', salesData[0]);
+                }
+            }
+            // For normal mode, response is directly an array
+            else if (Array.isArray(response.data)) {
+                salesData = response.data;
+                console.log('📋 Using sales data as array (normal mode)', salesData);
+            }
+            // Check if response has data property
+            else if (response.data && response.data.data) {
+                salesData = Array.isArray(response.data.data) ? response.data.data : [];
+                console.log('📋 Using sales data from response.data.data', salesData);
+            }
+            // Fallback: try to get from response directly
+            else if (response.data) {
+                if (typeof response.data === 'object' && !Array.isArray(response.data)) {
+                    // If it's an object with numeric keys, convert to array
+                    salesData = Object.values(response.data).filter(item => item && typeof item === 'object' && item.SupplierTotal !== undefined);
+                    console.log('📋 Converted object to array', salesData);
+                } else {
+                    salesData = [];
+                }
+            }
+
+            // Ensure salesData is an array
+            if (!Array.isArray(salesData)) {
+                salesData = [];
+            }
+
+            console.log('📊 Final salesData length:', salesData.length);
+
+            // If still no sales data, try to get it from the pending/completed suppliers list
+            if (salesData.length === 0 && billNo) {
+                console.log('⚠️ No sales data from API, checking from state...');
+                const billFromList = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+                    item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+                );
+                if (billFromList && billFromList.sales_data) {
+                    salesData = billFromList.sales_data;
+                    console.log('📋 Found sales_data in state list:', salesData.length);
+                }
+            }
+
+            let calculatedTotal = 0;
+            if (salesData.length > 0) {
+                calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+                console.log('💰 Calculated total from salesData:', calculatedTotal);
+            } else {
+                console.warn('⚠️ No sales data available for this bill!');
+            }
+
+            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            let actualBillTotal = calculatedTotal;
+            let creditAmount = 0;
+            let creditorRemainingAmount = 0;
+
+            if (billFromState && billFromState.total_amount) {
+                actualBillTotal = parseFloat(billFromState.total_amount);
+                console.log('📋 Using total_amount from state:', actualBillTotal);
+            } else if (calculatedTotal > 0) {
+                actualBillTotal = calculatedTotal;
+            }
+
+            const total = actualBillTotal;
+
+            let currentPaid = 0;
+            let paymentBreakdown = [];
+
+            if (billNo) {
+                try {
+                    let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
+                    if (useHistoryParam) {
+                        loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                    }
+                    const loanRes = await api.get(loanUrl);
+                    console.log('📡 Loan search response:', loanRes.data);
+                    if (loanRes.data) {
+                        const paymentDetails = loanRes.data.payment_details || [];
+                        if (typeof paymentDetails === 'string') {
+                            paymentBreakdown = JSON.parse(paymentDetails);
+                        } else {
+                            paymentBreakdown = paymentDetails;
+                        }
+
+                        const isFromFullySettled = state.completedSuppliers.some(
+                            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+                        );
+
+                        let totalPaidFromPayments = 0;
+                        if (Array.isArray(paymentBreakdown)) {
+                            paymentBreakdown.forEach(payment => {
+                                const amount = parseFloat(payment.amount) || 0;
+                                if (isFromFullySettled && payment.method === 'Credit') {
+                                    // Exclude Credit from Total Paid display for Fully Settled bills
+                                } else {
+                                    totalPaidFromPayments += amount;
+                                }
+                            });
+                        }
+                        currentPaid = totalPaidFromPayments;
+                        console.log('💰 Current paid amount from loan:', currentPaid);
+                    }
+                } catch (loanError) {
+                    console.error('Error fetching loan details:', loanError);
+                }
+            }
+
+            // Get creditor info
+            if (billNo && !creditorInfo) {
+                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
+                setSelectedBillCreditor(creditorInfo);
+                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
+                if (creditorInfo) {
+                    creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
+                    creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
+                }
+            } else if (creditorInfo) {
+                setSelectedBillCreditor(creditorInfo);
                 creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
                 creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
+            } else {
+                setSelectedBillCreditor(null);
             }
-        } else if (creditorInfo) {
-            setSelectedBillCreditor(creditorInfo);
-            creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
-            creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
-        } else {
+
+            // Check which section this bill belongs to
+            const isFromNotSettled = state.pendingSuppliers.some(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            const isFromFullySettled = state.completedSuppliers.some(
+                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            );
+
+            // Calculate remaining amount
+            let totalRemainingAmount = 0;
+            let isUpdatingCompletedBill = false;
+
+            if (isFromNotSettled) {
+                const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+                totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
+                isUpdatingCompletedBill = false;
+            } else if (isFromFullySettled) {
+                totalRemainingAmount = creditorRemainingAmount;
+                isUpdatingCompletedBill = true;
+            }
+
+            if (hasCreditor && isMiddlePanelLocked) {
+                setIsMiddlePanelLocked(false);
+            }
+
+            const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
+
+            console.log('📊 Final state update:', {
+                supplierDetailsCount: salesData.length,
+                totalPayable: total,
+                currentPaid: currentPaid,
+                remainingAmount: totalRemainingAmount,
+                isHistory: isViewingHistory
+            });
+
+            setState(prev => ({
+                ...prev,
+                supplierDetails: salesData || [],
+                paymentAmount: defaultPaymentAmount,
+                currentPaidAmount: currentPaid,
+                paymentBreakdown: paymentBreakdown,
+                isPrinting: false,
+                currentBillTotal: total,
+                isUpdatingCompletedBill: isUpdatingCompletedBill
+            }));
+
+            if (salesData.length === 0) {
+                console.warn('⚠️ No sales data found for this bill! This might be an issue with the API response.');
+                alert('Warning: No item details found for this bill. The table may be empty.');
+            }
+
+        } catch (error) {
+            console.error('Error fetching supplier details:', error);
+            setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
             setSelectedBillCreditor(null);
+            setIsMiddlePanelLocked(true);
+            alert('Error loading bill details: ' + (error.response?.data?.message || error.message));
         }
-
-        // Check which section this bill belongs to
-        const isFromNotSettled = state.pendingSuppliers.some(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        const isFromFullySettled = state.completedSuppliers.some(
-            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-        );
-
-        // Calculate remaining amount
-        let totalRemainingAmount = 0;
-        let isUpdatingCompletedBill = false;
-
-        if (isFromNotSettled) {
-            const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-            totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
-            isUpdatingCompletedBill = false;
-        } else if (isFromFullySettled) {
-            totalRemainingAmount = creditorRemainingAmount;
-            isUpdatingCompletedBill = true;
-        }
-
-        if (hasCreditor && isMiddlePanelLocked) {
-            setIsMiddlePanelLocked(false);
-        }
-
-        const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
-
-        console.log('📊 Final state update:', {
-            supplierDetailsCount: salesData.length,
-            totalPayable: total,
-            currentPaid: currentPaid,
-            remainingAmount: totalRemainingAmount,
-            isHistory: isViewingHistory
-        });
-
-        setState(prev => ({
-            ...prev,
-            supplierDetails: salesData || [],
-            paymentAmount: defaultPaymentAmount,
-            currentPaidAmount: currentPaid,
-            paymentBreakdown: paymentBreakdown,
-            isPrinting: false,
-            currentBillTotal: total,
-            isUpdatingCompletedBill: isUpdatingCompletedBill
-        }));
-
-        if (salesData.length === 0) {
-            console.warn('⚠️ No sales data found for this bill! This might be an issue with the API response.');
-            alert('Warning: No item details found for this bill. The table may be empty.');
-        }
-        
-    } catch (error) {
-        console.error('Error fetching supplier details:', error);
-        setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
-        setSelectedBillCreditor(null);
-        setIsMiddlePanelLocked(true);
-        alert('Error loading bill details: ' + (error.response?.data?.message || error.message));
-    }
-};
+    };
 const generateBillContent = useCallback(async (billNo) => {
     try {
         const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
@@ -5198,28 +5325,28 @@ const generateBillContent = useCallback(async (billNo) => {
         }
         const response = await api.get(url);
         const details = response.data.sales || response.data;
-        
+
         // Calculate totals from details
         let totalsupplierSales = 0;
         let totalPacksSum = 0;
         const itemSummaryData = {};
-        
+
         details.forEach(record => {
             const total = parseFloat(record.SupplierTotal) || 0;
             const weight = parseFloat(record.weight) || 0;
             const packs = parseInt(record.packs) || 0;
             const itemName = record.item_name || '';
-            
+
             totalsupplierSales += total;
             totalPacksSum += packs;
-            
+
             if (!itemSummaryData[itemName]) {
                 itemSummaryData[itemName] = { totalWeight: 0, totalPacks: 0 };
             }
             itemSummaryData[itemName].totalWeight += weight;
             itemSummaryData[itemName].totalPacks += packs;
         });
-        
+
         // Get payment details
         let paymentBreakdown = [];
         let currentPaidAmount = 0;
@@ -5249,7 +5376,8 @@ const generateBillContent = useCallback(async (billNo) => {
 
         const paidAmountValue = currentPaidAmount;
         const remainingAfterPayment = totalsupplierSales - paidAmountValue;
-        const advanceAmount = 0; // You can get this from creditor info if needed
+        // ✅ FIX: Get the total advance amount from the supplier_advances table
+        const advanceAmount = totalAdvanceAmount || 0;
 
         const colGroups = `
         <colgroup>
@@ -5299,7 +5427,7 @@ const generateBillContent = useCallback(async (billNo) => {
             itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
         }
 
-        const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
+        const netPayable = advanceAmount - paidAmountValue;
 
         return `
         <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
@@ -5334,7 +5462,7 @@ const generateBillContent = useCallback(async (billNo) => {
                     <tr style="border-top:2.5px solid #000; font-weight:bold;">
                         <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
                         <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${totalsupplierSales.toFixed(2)}</div></td>
-                    </tr>
+                    <tr>
                 </tfoot>
             </table>
 
@@ -5357,8 +5485,8 @@ const generateBillContent = useCallback(async (billNo) => {
                 ` : ''}
 
                 <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
-                    <td style="text-align:right; padding-top:5px; color:#000;">- ${advanceAmount.toFixed(2)}</td>
+                    <td style="font-size:15px; padding-top:5px;">අත්තිකාරම් (Advance):</td>
+                    <td style="text-align:right; padding-top:5px; color:#d97706; font-weight:bold;">- ${advanceAmount.toFixed(2)}</td>
                 </tr>
 
                 <tr style="font-weight:900;">
@@ -5379,7 +5507,7 @@ const generateBillContent = useCallback(async (billNo) => {
         console.error('Error generating bill:', error);
         return '<div>Error generating bill</div>';
     }
-}, [state.selectedSupplier, state.billSize, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate]);
+}, [state.selectedSupplier, state.billSize, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, totalAdvanceAmount]);
     // Add this function to check if loan exists
     const checkLoanExists = async (supplierCode, billNo) => {
         try {
@@ -6504,7 +6632,7 @@ const generateBillContent = useCallback(async (billNo) => {
                                 onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
                             >💰 Loan Report</button>
-                             <button
+                            <button
                                 onClick={() => { navigate('/debtor-creditor-report'); setIsDropdownOpen(false); }}
                                 style={{
                                     padding: '12px 20px',
@@ -6518,7 +6646,7 @@ const generateBillContent = useCallback(async (billNo) => {
                                 }}
                                 onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
-                            >CD REPORT</button>
+                            >💰 Loan Report</button>
 
                             <button
                                 onClick={() => { setShowFarmerModal(true); setIsDropdownOpen(false); }}
@@ -7382,6 +7510,260 @@ const generateBillContent = useCallback(async (billNo) => {
                                             📜 View Full Payment History
                                         </button>
                                     </div>
+                                    {/* Advance Entry Form - Add this after the Action Buttons section */}
+                                    {/* Enhanced Advance Entry Form - Stores in NEW table */}
+                                    {(state.selectedSupplier && (
+                                        <div style={{
+                                            marginTop: '20px',
+                                            padding: '20px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '16px',
+                                            backgroundColor: 'white',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                                        }}>
+                                            <div style={{
+                                                fontSize: '14px',
+                                                fontWeight: '700',
+                                                color: '#f59e0b',
+                                                marginBottom: '16px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                flexWrap: 'wrap',
+                                                gap: '10px'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span>💰</span> අත්තිකාරම් ඇතුලත් කරන්න (Advance Entry)
+                                                </div>
+                                                {totalAdvanceAmount > 0 && (
+                                                    <span style={{
+                                                        fontSize: '12px',
+                                                        color: '#10b981',
+                                                        background: '#d1fae5',
+                                                        padding: '4px 12px',
+                                                        borderRadius: '20px',
+                                                        fontWeight: '600'
+                                                    }}>
+                                                        Total Advance: Rs. {formatDecimal(totalAdvanceAmount)}
+                                                    </span>
+                                                )}
+                                                {supplierAdvances.length > 0 && (
+                                                    <button
+                                                        onClick={() => setShowAdvanceHistory(!showAdvanceHistory)}
+                                                        style={{
+                                                            padding: '4px 12px',
+                                                            fontSize: '11px',
+                                                            background: '#6366f1',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '20px',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        {showAdvanceHistory ? 'Hide History' : `View History (${supplierAdvances.length})`}
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <form onSubmit={handleAdvanceSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                                                    <div style={{ flex: 1, minWidth: '150px' }}>
+                                                        <label style={{
+                                                            fontSize: '11px',
+                                                            fontWeight: '600',
+                                                            color: '#64748b',
+                                                            display: 'block',
+                                                            marginBottom: '5px'
+                                                        }}>
+                                                            Supplier Code
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            value={advancePayload.supplier_code}
+                                                            readOnly
+                                                            style={{
+                                                                width: '100%',
+                                                                padding: '10px 12px',
+                                                                borderRadius: '10px',
+                                                                border: '1px solid #e2e8f0',
+                                                                backgroundColor: '#f1f5f9',
+                                                                color: '#1e293b',
+                                                                fontSize: '13px',
+                                                                fontFamily: 'monospace'
+                                                            }}
+                                                        />
+                                                    </div>
+
+                                                    <div style={{ flex: 1, minWidth: '150px' }}>
+                                                        <label style={{
+                                                            fontSize: '11px',
+                                                            fontWeight: '600',
+                                                            color: '#64748b',
+                                                            display: 'block',
+                                                            marginBottom: '5px'
+                                                        }}>
+                                                            Traveler/Trader Code <span style={{ color: '#ef4444' }}>*</span>
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            name="traveler_code"
+                                                            value={advancePayload.traveler_code}
+                                                            onChange={(e) => setAdvancePayload({ ...advancePayload, traveler_code: e.target.value.toUpperCase() })}
+                                                            style={{
+                                                                width: '100%',
+                                                                padding: '10px 12px',
+                                                                borderRadius: '10px',
+                                                                border: '1px solid #e2e8f0',
+                                                                fontSize: '13px',
+                                                                outline: 'none'
+                                                            }}
+                                                            placeholder="Enter traveler/trader code"
+                                                            required
+                                                            autoFocus
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                                                    <div style={{ flex: 1, minWidth: '150px' }}>
+                                                        <label style={{
+                                                            fontSize: '11px',
+                                                            fontWeight: '600',
+                                                            color: '#64748b',
+                                                            display: 'block',
+                                                            marginBottom: '5px'
+                                                        }}>
+                                                            Advance Amount (Rs.) <span style={{ color: '#ef4444' }}>*</span>
+                                                        </label>
+                                                        <input
+                                                            type="number"
+                                                            name="advance_amount"
+                                                            value={advancePayload.advance_amount}
+                                                            onChange={(e) => setAdvancePayload({ ...advancePayload, advance_amount: e.target.value })}
+                                                            style={{
+                                                                width: '100%',
+                                                                padding: '10px 12px',
+                                                                borderRadius: '10px',
+                                                                border: '1px solid #e2e8f0',
+                                                                fontSize: '14px',
+                                                                outline: 'none',
+                                                                fontFamily: 'monospace'
+                                                            }}
+                                                            placeholder="0.00"
+                                                            required
+                                                            step="0.01"
+                                                            min="0.01"
+                                                        />
+                                                    </div>
+
+                                                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                                                        <button
+                                                            type="submit"
+                                                            disabled={advanceLoading}
+                                                            style={{
+                                                                padding: '10px 24px',
+                                                                backgroundColor: advanceLoading ? '#9ca3af' : '#f59e0b',
+                                                                color: 'white',
+                                                                border: 'none',
+                                                                borderRadius: '10px',
+                                                                cursor: advanceLoading ? 'not-allowed' : 'pointer',
+                                                                fontWeight: '600',
+                                                                fontSize: '13px',
+                                                                height: '42px',
+                                                                transition: 'background 0.2s',
+                                                                opacity: advanceLoading ? 0.6 : 1
+                                                            }}
+                                                            onMouseEnter={(e) => {
+                                                                if (!advanceLoading) {
+                                                                    e.currentTarget.style.backgroundColor = '#d97706';
+                                                                }
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                if (!advanceLoading) {
+                                                                    e.currentTarget.style.backgroundColor = '#f59e0b';
+                                                                }
+                                                            }}
+                                                        >
+                                                            {advanceLoading ? 'Saving...' : 'Record Advance'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </form>
+
+                                            {advanceStatus.text && (
+                                                <p style={{
+                                                    color: advanceStatus.type === 'success' ? '#10b981' : '#ef4444',
+                                                    marginTop: '12px',
+                                                    fontWeight: '600',
+                                                    fontSize: '12px',
+                                                    padding: '8px',
+                                                    backgroundColor: advanceStatus.type === 'success' ? '#f0fdf4' : '#fef2f2',
+                                                    borderRadius: '8px'
+                                                }}>
+                                                    {advanceStatus.text}
+                                                </p>
+                                            )}
+
+                                            {/* Advance History from NEW table */}
+                                            {showAdvanceHistory && supplierAdvances.length > 0 && (
+                                                <div style={{
+                                                    marginTop: '16px',
+                                                    borderTop: '1px solid #e2e8f0',
+                                                    paddingTop: '16px'
+                                                }}>
+                                                    <div style={{
+                                                        fontSize: '12px',
+                                                        fontWeight: '600',
+                                                        color: '#334155',
+                                                        marginBottom: '12px'
+                                                    }}>
+                                                        📋 Advance History (from new table)
+                                                    </div>
+                                                    <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                                                        {supplierAdvances.map((advance) => (
+                                                            <div key={advance.id} style={{
+                                                                padding: '10px',
+                                                                marginBottom: '8px',
+                                                                background: '#f8fafc',
+                                                                borderRadius: '8px',
+                                                                borderLeft: '3px solid #f59e0b'
+                                                            }}>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                                                    <div>
+                                                                        <div><strong>Traveler:</strong> {advance.traveler_code}</div>
+                                                                        <div><strong>Date:</strong> {new Date(advance.created_at).toLocaleDateString()}</div>
+                                                                        {advance.supplier_bill_no && (
+                                                                            <div><strong>Bill No:</strong> {advance.supplier_bill_no}</div>
+                                                                        )}
+                                                                    </div>
+                                                                    <div style={{ textAlign: 'right' }}>
+                                                                        <div><strong>Amount:</strong> Rs. {formatDecimal(advance.advance_amount)}</div>
+                                                                        <div><strong>Recorded by:</strong> {advance.created_by || 'System'}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Info note */}
+                                            <div style={{
+                                                marginTop: '12px',
+                                                padding: '8px',
+                                                background: '#fef3c7',
+                                                borderRadius: '8px',
+                                                fontSize: '11px',
+                                                color: '#92400e',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px'
+                                            }}>
+                                                <span>💡</span>
+                                                <span>Advances are stored in a separate table. Traveler code is required for tracking.</span>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </>
                             ) : (
                                 <div style={{ textAlign: 'center', padding: '80px 20px', color: '#94a3b8' }}>
