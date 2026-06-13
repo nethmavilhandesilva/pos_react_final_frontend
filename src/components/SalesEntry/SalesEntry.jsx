@@ -518,7 +518,7 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                                     <button
                                         onClick={() => handleCustomerClick(type, customerCode, item.billNo || null, billSales)}
                                         className={`py-1 mb-2 rounded-xl border ${isItemSelected ? "border-blue-600" : "bg-gray-50 hover:bg-gray-100 border-gray-200"}`}
-                                        style={isItemSelected ? { backgroundColor: '#93C5FD', paddingLeft: '05px', width: '280px', textAlign: 'left' } : { paddingLeft: '1px', width: '280px', textAlign: 'left' }}
+                                        style={isItemSelected ? { backgroundColor: '#93C5FD', paddingLeft: '05px', width: '280px', textAlign: 'left', fontSize: '12px' } : { paddingLeft: '1px', width: '280px', textAlign: 'left', fontSize: '12px' }}
                                     >
                                         <span
                                             style={{
@@ -750,26 +750,30 @@ export default function SalesEntry() {
     const unprintedCustomers = useMemo(() => filterCustomers(unprintedSales, searchQueries.unprinted), [unprintedSales, searchQueries.unprinted]);
 
     const displayedSales = useMemo(() => {
-        let sales = newSales;
+        let sales = [];
 
         if (selectedUnprintedCustomer) {
             // Filter by customer code for unprinted records
-            sales = [...sales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
+            sales = [...newSales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
         }
         else if (selectedPrintedCustomer) {
             if (selectedPrintedCustomer.includes('-')) {
                 // Split the key "CODE-BILLNO" and filter by both fields
                 const [cCode, bNo] = selectedPrintedCustomer.split('-');
-                sales = [...sales, ...printedSales.filter(s =>
+                sales = [...newSales, ...printedSales.filter(s =>
                     s.customer_code === cCode && String(s.bill_no) === String(bNo)
                 )];
             } else {
                 // Fallback for single code selection
-                sales = [...sales, ...printedSales.filter(s => s.customer_code === selectedPrintedCustomer)];
+                sales = [...newSales, ...printedSales.filter(s => s.customer_code === selectedPrintedCustomer)];
             }
+        } else {
+            sales = newSales;
         }
 
-        return sales.slice().reverse();
+        // CRITICAL FIX: Instead of raw .reverse(), sort consistently by ID or timestamp
+        // This ensures edited rows maintain their static chronological grid position.
+        return sales.slice().sort((a, b) => (b.id || 0) - (a.id || 0));
     }, [newSales, unprintedSales, printedSales, selectedUnprintedCustomer, selectedPrintedCustomer]);
 
     const autoCustomerCode = useMemo(() => displayedSales.length > 0 && !isManualClear ? displayedSales[0].customer_code || "" : "", [displayedSales, isManualClear]);
@@ -1006,101 +1010,101 @@ export default function SalesEntry() {
 
     useEffect(() => { fetchInitialData(); refs.customer_code_input.current?.focus(); }, []);
 
-const handleKeyDown = async (e, currentFieldName) => {
-    if (e.key === "Enter") {
-        e.preventDefault();
+    const handleKeyDown = async (e, currentFieldName) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
 
-        // NEW: Handle ONLY the specific price_per_kg field (not the grid item)
-        if (currentFieldName === "price_per_kg") {
-            // Optional: Quick validation to ensure required fields are filled
-            if (!formData.item_code) {
-                refs.item_code_select.current?.focus();
-                updateState({ errors: { form: 'Please select an item first' } });
-                return;
-            }
-            if (!formData.weight) {
-                refs.weight.current?.focus();
-                updateState({ errors: { form: 'Please enter weight' } });
-                return;
-            }
-            if (!formData.packs) {
-                refs.packs.current?.focus();
-                updateState({ errors: { form: 'Please enter packs' } });
-                return;
-            }
-            await handleSubmit(e);
-            return;
-        }
-
-        // 1. Handle Given Amount
-        if (currentFieldName === "given_amount") {
-            const success = await handleSubmitGivenAmount(e);
-            if (success) {
-                handlePrintAndClear();
-            }
-            return;
-        }
-
-        // 2. Handle Item Packs
-        if (currentFieldName === "packs") return handleSubmit(e);
-
-        // 3. Logic for TELEPHONE input (Reverse Lookup)
-        if (currentFieldName === "telephone_no") {
-            // Hide save button when navigating away
-            updateState({ showSavePhoneButton: false });
-            refs.customer_code_input.current?.focus();
-            return;
-        }
-
-        // 4. Logic for CUSTOMER CODE input - MODIFIED: Removed auto-save
-        if (currentFieldName === "customer_code_input") {
-            const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
-
-            if (code) {
-                // LOCAL LOOKUP ONLY - NO AUTO-SAVE
-                const match = customers.find(c => String(c.short_name).toUpperCase() === code);
-
-                if (match) {
-                    // Only update customer_name
-                    setFormData(prev => ({
-                        ...prev,
-                        customer_name: match.name || ""
-                    }));
-                    fetchLoanAmount(code);
-                } else {
-                    // Optionally show a message that customer doesn't exist
-                    // but don't auto-create
-                    console.log("Customer not found in local data");
+            // NEW: Handle ONLY the specific price_per_kg field (not the grid item)
+            if (currentFieldName === "price_per_kg") {
+                // Optional: Quick validation to ensure required fields are filled
+                if (!formData.item_code) {
+                    refs.item_code_select.current?.focus();
+                    updateState({ errors: { form: 'Please select an item first' } });
+                    return;
                 }
+                if (!formData.weight) {
+                    refs.weight.current?.focus();
+                    updateState({ errors: { form: 'Please enter weight' } });
+                    return;
+                }
+                if (!formData.packs) {
+                    refs.packs.current?.focus();
+                    updateState({ errors: { form: 'Please enter packs' } });
+                    return;
+                }
+                await handleSubmit(e);
+                return;
             }
 
-            refs.supplier_code.current?.focus();
-            return;
-        }
-
-        // 5. General Navigation Logic
-        let nextFieldName = skipMap[currentFieldName];
-        if (!nextFieldName) {
-            const currentIndex = fieldOrder.indexOf(currentFieldName);
-            let nextIndex = currentIndex + 1;
-            while (nextIndex < fieldOrder.length &&
-                ["customer_code_select", "item_name", "total"].includes(fieldOrder[nextIndex])) {
-                nextIndex++;
+            // 1. Handle Given Amount
+            if (currentFieldName === "given_amount") {
+                const success = await handleSubmitGivenAmount(e);
+                if (success) {
+                    handlePrintAndClear();
+                }
+                return;
             }
-            nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
-        }
 
-        const nextRef = refs[nextFieldName];
-        if (nextRef?.current) {
-            requestAnimationFrame(() => {
-                setTimeout(() => {
-                    nextRef.current.focus();
-                    if (!nextFieldName.includes("select")) nextRef.current.select();
-                }, 0);
-            });
+            // 2. Handle Item Packs
+            if (currentFieldName === "packs") return handleSubmit(e);
+
+            // 3. Logic for TELEPHONE input (Reverse Lookup)
+            if (currentFieldName === "telephone_no") {
+                // Hide save button when navigating away
+                updateState({ showSavePhoneButton: false });
+                refs.customer_code_input.current?.focus();
+                return;
+            }
+
+            // 4. Logic for CUSTOMER CODE input - MODIFIED: Removed auto-save
+            if (currentFieldName === "customer_code_input") {
+                const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+
+                if (code) {
+                    // LOCAL LOOKUP ONLY - NO AUTO-SAVE
+                    const match = customers.find(c => String(c.short_name).toUpperCase() === code);
+
+                    if (match) {
+                        // Only update customer_name
+                        setFormData(prev => ({
+                            ...prev,
+                            customer_name: match.name || ""
+                        }));
+                        fetchLoanAmount(code);
+                    } else {
+                        // Optionally show a message that customer doesn't exist
+                        // but don't auto-create
+                        console.log("Customer not found in local data");
+                    }
+                }
+
+                refs.supplier_code.current?.focus();
+                return;
+            }
+
+            // 5. General Navigation Logic
+            let nextFieldName = skipMap[currentFieldName];
+            if (!nextFieldName) {
+                const currentIndex = fieldOrder.indexOf(currentFieldName);
+                let nextIndex = currentIndex + 1;
+                while (nextIndex < fieldOrder.length &&
+                    ["customer_code_select", "item_name", "total"].includes(fieldOrder[nextIndex])) {
+                    nextIndex++;
+                }
+                nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
+            }
+
+            const nextRef = refs[nextFieldName];
+            if (nextRef?.current) {
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        nextRef.current.focus();
+                        if (!nextFieldName.includes("select")) nextRef.current.select();
+                    }, 0);
+                });
+            }
         }
-    }
-};
+    };
 
     const salesTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
     const packCostTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
@@ -1278,9 +1282,10 @@ const handleKeyDown = async (e, currentFieldName) => {
             selectedSaleForBreakdown: sale
         });
 
+        // CHANGE THIS PART - Focus on price field instead of weight
         setTimeout(() => {
-            refs.weight.current?.focus();
-            refs.weight.current?.select();
+            refs.price_per_kg_grid_item.current?.focus();
+            refs.price_per_kg_grid_item.current?.select();
         }, 0);
     };
 
@@ -1638,49 +1643,49 @@ const handleKeyDown = async (e, currentFieldName) => {
         });
     };
 
-   const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
-    const formatNumber = (num) => {
-        if (typeof num !== 'number' && typeof num !== 'string') return '0';
-        const number = parseFloat(num);
-        if (isNaN(number)) return '0';
+    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+        const formatNumber = (num) => {
+            if (typeof num !== 'number' && typeof num !== 'string') return '0';
+            const number = parseFloat(num);
+            if (isNaN(number)) return '0';
 
-        if (Number.isInteger(number)) {
-            return number.toLocaleString('en-US');
-        } else {
-            const parts = number.toFixed(2).split('.');
-            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-            return `${wholePart}.${parts[1]}`;
-        }
-    };
+            if (Number.isInteger(number)) {
+                return number.toLocaleString('en-US');
+            } else {
+                const parts = number.toFixed(2).split('.');
+                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+                return `${wholePart}.${parts[1]}`;
+            }
+        };
 
-    const date = new Date().toLocaleDateString();
-    const time = new Date().toLocaleTimeString();
-    let totalAmountSum = 0;
-    const consolidatedSummary = {};
+        const date = new Date().toLocaleDateString();
+        const time = new Date().toLocaleTimeString();
+        let totalAmountSum = 0;
+        const consolidatedSummary = {};
 
-    salesData.forEach(s => {
-        const itemName = s.item_name || 'Unknown';
-        if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
-        consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
-        consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
-        totalAmountSum += parseFloat(s.total) || 0;
-    });
+        salesData.forEach(s => {
+            const itemName = s.item_name || 'Unknown';
+            if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+            totalAmountSum += parseFloat(s.total) || 0;
+        });
 
-    const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
-    const is4Inch = billSize === '4inch';
-    const receiptMaxWidth = is4Inch ? '4in' : '350px';
+        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+        const is4Inch = billSize === '4inch';
+        const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-    const fontSizeBody = '25px';
-    const fontSizeHeader = '23px';
-    const fontSizeTotal = '28px';
+        const fontSizeBody = '25px';
+        const fontSizeHeader = '23px';
+        const fontSizeTotal = '28px';
 
-    const itemsHtml = salesData.map(s => {
-        const packs = parseInt(s.packs) || 0;
-        const weight = parseFloat(s.weight) || 0;
-        const price = parseFloat(s.price_per_kg) || 0;
-        const value = (weight * price).toFixed(2);
+        const itemsHtml = salesData.map(s => {
+            const packs = parseInt(s.packs) || 0;
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const value = (weight * price).toFixed(2);
 
-        return `
+            return `
     <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom;">
         <td style="text-align:left; padding:10px 0; white-space: nowrap;">
             ${s.item_name || ""}<br>${formatNumber(packs)}
@@ -1694,15 +1699,15 @@ const handleKeyDown = async (e, currentFieldName) => {
             <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
         </td>
     </tr>`;
-    }).join("");
+        }).join("");
 
-    const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-    const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
-    const finalGrandTotal = totalSales + totalPackCost;
-    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-    const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+        const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+        const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+        const finalGrandTotal = totalSales + totalPackCost;
+        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+        const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
 
-    const loanRow = globalLoanAmount !== 0 ? `
+        const loanRow = globalLoanAmount !== 0 ? `
     <tr>
         <td style="font-size:20px; padding-top:8px;">පෙර ණය:</td>
         <td style="text-align:right; font-size:22px; font-weight:bold; padding-top:8px;">
@@ -1710,21 +1715,21 @@ const handleKeyDown = async (e, currentFieldName) => {
         </td>
     </tr>` : '';
 
-    const summaryEntries = Object.entries(consolidatedSummary);
-    let summaryHtmlContent = '';
-    for (let i = 0; i < summaryEntries.length; i += 2) {
-        const [name1, d1] = summaryEntries[i];
-        const [name2, d2] = summaryEntries[i + 1] || [null, null];
-        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-        summaryHtmlContent += `
+        const summaryEntries = Object.entries(consolidatedSummary);
+        let summaryHtmlContent = '';
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+            summaryHtmlContent += `
         <tr>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>
             <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>
         </tr>`;
-    }
+        }
 
-    return `
+        return `
    <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
         <div style="text-align:center; font-weight:bold;">
             <div style="font-size:24px;">Manju</div>
@@ -1817,7 +1822,7 @@ const handleKeyDown = async (e, currentFieldName) => {
             <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
         </div>
     </div>`;
-};
+    };
     const formatReceiptValue = (value) => {
         if (value === null || value === undefined || value === '') return '0.00';
         const num = parseFloat(value);
@@ -2504,14 +2509,32 @@ const handleKeyDown = async (e, currentFieldName) => {
                                 </div>
                                 <div className="flex-grow overflow-y-auto mt-1">
                                     {displayedSales.length === 0 ? (<div className="text-center py-8 text-gray-500 border rounded-lg bg-gray-50">විකුණුම් වාර්තා කිසිවක් හමු නොවීය.</div>) : (
-                                        <table className="min-w-full border-gray-200 rounded-xl text-sm" style={{ backgroundColor: '#000000', color: 'white', borderCollapse: 'collapse', margin: '0px 0', width: '100%' }}>
-                                            <thead><tr style={{ backgroundColor: '#000000' }}>{['Sup code', 'කේතය', 'අයිතමය', 'බර(kg)', 'මිල', 'අගය', 'මලු', 'Actions'].map((header, index) => (<th key={index} className="px-4 py-2 border" style={{ backgroundColor: '#f5fafb', color: '#000000' }}>{header}</th>))}</tr></thead>
-                                            <tbody>{displayedSales.map((s, idx) => (
-                                                <tr key={idx} tabIndex={0} className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={() => handleEditClick(s)} onKeyDown={(e) => handleTableRowKeyDown(e, s)}>
-                                                    <td className="px-4 py-2 border">{s.supplier_code}</td><td className="px-4 py-2 border">{s.item_code}</td><td className="px-4 py-2 border">{s.item_name}</td><td className="px-2 py-2 border">{formatDecimal(s.weight)}</td><td className="px-2 py-2 border">{formatDecimal(s.price_per_kg)}</td><td className="px-2 py-2 border">{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) + (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0))}</td><td className="px-2 py-2 border">{s.packs}</td>
-                                                    <td className="px-2 py-2 border text-center"><button onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }} className="text-black font-bold p-1 rounded-full bg-white hover:bg-gray-200">🗑️</button></td>
+                                        <table className="min-w-full border-gray-200 rounded-xl" style={{ backgroundColor: '#000000', color: 'white', borderCollapse: 'collapse', margin: '0px 0', width: '100%', fontSize: '12px' }}>
+                                            <thead>
+                                                <tr style={{ backgroundColor: '#000000' }}>
+                                                    {['Sup code', 'කේතය', 'අයිතමය', 'බර(kg)', 'මිල', 'අගය', 'මලු', 'Actions'].map((header, index) => (
+                                                        <th key={index} className="border" style={{ backgroundColor: '#f5fafb', color: '#000000', padding: '6px 8px', fontSize: '11px', fontWeight: 'bold' }}>{header}</th>
+                                                    ))}
                                                 </tr>
-                                            ))}</tbody>
+                                            </thead>
+                                            <tbody>
+                                                {displayedSales.map((s, idx) => (
+                                                    <tr key={idx} tabIndex={0} className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={() => handleEditClick(s)} onKeyDown={(e) => handleTableRowKeyDown(e, s)}>
+                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.supplier_code}</td>
+                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.item_code}</td>
+                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.item_name}</td>
+                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{formatDecimal(s.weight)}</td>
+                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{formatDecimal(s.price_per_kg)}</td>
+                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) + (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0))}</td>
+                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.packs}</td>
+                                                        <td className="border text-center" style={{ padding: '6px 8px' }}>
+                                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }} className="text-black font-bold rounded-full bg-white hover:bg-gray-200" style={{ padding: '2px 6px', fontSize: '11px' }}>
+                                                                🗑️
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
                                         </table>
                                     )}
                                     {displayedSales.length > 0 && (<SalesSummaryFooter sales={displayedSales} formatDecimal={formatDecimal} />)}

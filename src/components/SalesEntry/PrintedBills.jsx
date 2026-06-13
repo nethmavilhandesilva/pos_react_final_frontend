@@ -628,6 +628,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
         nic_back: null
     });
     const [loading, setLoading] = useState(false);
+    const [hasSubmitted, setHasSubmitted] = useState(false); // NEW: Track if submission has been made
     const [previewImages, setPreviewImages] = useState({ profile_pic: null, nic_front: null, nic_back: null });
     const [generatedDebtorNo, setGeneratedDebtorNo] = useState(null);
 
@@ -648,6 +649,7 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     useEffect(() => {
         if (isOpen && customerCode) {
             setGeneratedDebtorNo(null);
+            setHasSubmitted(false); // Reset submission flag when modal opens
             // Reset form data when modal opens
             setFormData({
                 name: '',
@@ -696,7 +698,15 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
     };
 
     const handleSubmit = async () => {
+        // Prevent multiple submissions
+        if (loading || hasSubmitted) {
+            console.log('Submission already in progress or completed');
+            return;
+        }
+        
         setLoading(true);
+        setHasSubmitted(true); // Mark as submitted immediately
+        
         try {
             const formDataToSend = new FormData();
             formDataToSend.append('short_name', customerCode.toUpperCase());
@@ -763,8 +773,13 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
             console.error('Error saving debtor:', error);
             console.error('Error response:', error.response?.data);
             alert('Failed to save debtor information. Please check the console for details.');
+            // Reset the flag on error so user can try again
+            setHasSubmitted(false);
         }
-        finally { setLoading(false); }
+        finally { 
+            setLoading(false);
+            // Note: hasSubmitted remains true on success to prevent further submissions
+        }
     };
 
     // Handle Enter key navigation
@@ -1025,11 +1040,11 @@ const DebtorFormModal = ({ isOpen, onClose, onSave, customerCode, billNo = null 
                     <button
                         ref={saveButtonRef}
                         onClick={handleSubmit}
-                        disabled={loading}
+                        disabled={loading || hasSubmitted}
                         onKeyPress={(e) => handleButtonKeyPress(e, handleSubmit)}
-                        style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', opacity: loading ? 0.6 : 1 }}
+                        style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: (loading || hasSubmitted) ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '12px', opacity: (loading || hasSubmitted) ? 0.6 : 1 }}
                     >
-                        {loading ? 'Saving...' : 'Save & Continue'}
+                        {loading ? 'Saving...' : (hasSubmitted ? 'Saved!' : 'Save & Continue')}
                     </button>
                 </div>
             </div>
