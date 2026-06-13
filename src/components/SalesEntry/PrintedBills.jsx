@@ -86,20 +86,11 @@ const processBillData = (salesData) => {
             }
         });
 
-        // IMPORTANT: Do NOT calculate remainingCredit from payment history
-        // The remaining credit should come from the debtor table, not from payment history calculation
-        // We'll set remainingCredit to totalCreditAmount for now, and it will be updated separately
-
-        // Debug logging
-        if (totalCreditAmount > 0) {
-            console.log(`Bill ${billNo}: Credit Taken: ${totalCreditAmount}, Cash Paid: ${totalCashPaid}`);
-        }
-
         const finalGivenAmount = totalGivenAmount;
         const finalCashPayments = totalCashPaid;
         const finalCreditAmount = totalCreditAmount;
 
-        // Initialize remainingCredit as totalCreditAmount (will be updated when we fetch debtor data)
+        // Initialize remainingCredit as totalCreditAmount. It can be refined later from debtor table data.
         let finalRemainingCredit = totalCreditAmount;
 
         const isApplied = sale.given_amount_applied === 'Y';
@@ -1805,46 +1796,6 @@ export default function PrintedBills() {
     const badDebtNameRef = useRef(null);
     const badDebtAmountRef = useRef(null);
 
-    // Replace your existing useEffect with this one (around line 1440)
-    useEffect(() => {
-        isMountedRef.current = true;
-
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) setUser(JSON.parse(storedUser));
-
-        // Initial load with loading indicator
-        const initialLoad = async () => {
-            setState(prev => ({ ...prev, isLoading: true }));
-            await fetchSalesData();
-            setState(prev => ({ ...prev, isLoading: false }));
-
-            // After initial data load, fetch supplier loan data
-            // This will be done inside fetchSalesData or after it completes
-            // You can also add a call here:
-            // await fetchAdjustedSupplierLoan(stats.totalFunds);
-        };
-        initialLoad();
-
-        // Set up interval for silent refresh every 3 seconds
-        const intervalId = setInterval(() => {
-            // Only refresh if:
-            // 1. Not already refreshing
-            // 2. Component is mounted
-            // 3. No modal is open
-            if (!isRefreshingRef.current && isMountedRef.current && !modalOpenRef.current) {
-                silentRefresh();
-            }
-        }, 3000); // 3 seconds
-
-        // Cleanup on unmount
-        return () => {
-            isMountedRef.current = false;
-            if (refreshTimeoutRef.current) {
-                clearTimeout(refreshTimeoutRef.current);
-            }
-            clearInterval(intervalId);
-        };
-    }, []); // Empty dependency array - runs once on mount
     const getTotalReceived = (bill) => {
         if (!bill) return 0;
 
@@ -2085,26 +2036,6 @@ useEffect(() => {
         fetchUniqueCodes();
     }, [fetchUniqueCodes]);
 
-    // REPLACE with this corrected useEffect
-    useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) setUser(JSON.parse(storedUser));
-
-        // Initial load - this will use the current selectedUniqueCode
-        const initialLoad = async () => {
-            setState(prev => ({ ...prev, isLoading: true }));
-            await fetchSalesData(selectedUniqueCode);  // Pass the current filter!
-            setState(prev => ({ ...prev, isLoading: false }));
-        };
-        initialLoad();
-
-        // NO separate interval here - silent refresh already handles it
-        // The silent refresh interval is already set up in the other useEffect
-
-        return () => {
-            // Cleanup if needed
-        };
-    }, [selectedUniqueCode]);  // Add selectedUniqueCode as dependency
     const handleAdjustmentTypeSelect = (type) => {
         setState(prev => ({
             ...prev,
@@ -2256,7 +2187,7 @@ useEffect(() => {
             customerType: null
         }));
     };
-    const updateCreditAmountsFromDebtorTable = useCallback(async (bills, source = 'unknown', isAppliedSection = false) => {
+    const updateCreditAmountsFromDebtorTable = useCallback(async (bills, source = 'unknown', isAppliedSection = false, debtorMap = {}) => {
         if (!bills || bills.length === 0) return bills || [];
 
         const updatedBills = [...bills];
@@ -2268,23 +2199,15 @@ useEffect(() => {
             const previousCredit = bill.remainingCredit;
 
             if (isAppliedSection) {
-                // For COMPLETED section: Get actual remaining credit from debtor table
-                try {
-                    const response = await api.get(`/debtors/${bill.billNo}`);
-                    if (response.data.success && response.data.data) {
-                        const debtor = response.data.data;
-                        updatedBills[i].remainingCredit = debtor.remaining_amount || 0;
-                        console.log(`[COMPLETED] Bill ${bill.billNo}: Unsettled credit = ${debtor.remaining_amount}`);
-                    } else {
-                        updatedBills[i].remainingCredit = 0;
-                        console.log(`[COMPLETED] Bill ${bill.billNo}: No debtor record, credit = 0`);
-                    }
-                } catch (e) {
-                    updatedBills[i].remainingCredit = 0;
-                    console.log(`[COMPLETED] Bill ${bill.billNo}: Error fetching debtor: ${e.message}`);
+                const debtor = debtorMap[bill.billNo];
+                if (debtor) {
+                    updatedBills[i].remainingCredit = debtor.remaining_amount || 0;
+                    console.log(`[COMPLETED] Bill ${bill.billNo}: Unsettled credit = ${debtor.remaining_amount}`);
+                } else {
+                    updatedBills[i].remainingCredit = bill.creditAmount || 0;
+                    console.log(`[COMPLETED] Bill ${bill.billNo}: No debtor record found, using credit amount = ${updatedBills[i].remainingCredit}`);
                 }
             } else {
-                // For PENDING section: Always show the FULL credit amount, never reduced
                 updatedBills[i].remainingCredit = bill.creditAmount || 0;
                 console.log(`[PENDING] Bill ${bill.billNo}: Full credit amount = ${bill.creditAmount}`);
             }
@@ -2504,13 +2427,19 @@ useEffect(() => {
                 viewOldBills: viewOldBills
             });
 
-            const [salesRes, customersRes] = await Promise.all([
+            const [salesRes, customersRes, debtorsRes] = await Promise.all([
                 api.get(url, { params }),
-                api.get(routes.customers)
+                api.get(routes.customers),
+                api.get(routes.debtors.getPending)
             ]);
 
             const salesData = salesRes.data.sales || salesRes.data || [];
             const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
+            const debtorsData = debtorsRes.data?.data || [];
+            const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
+                if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
+                return acc;
+            }, {});
 
             // Log to verify filtering is working
             const uniqueCodesInData = [...new Set(salesData.map(s => s.UniqueCode))];
@@ -2519,8 +2448,8 @@ useEffect(() => {
 
             const { pendingBills, appliedBills } = processBillData(salesData);
 
-            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchSalesData-pending', false);
-            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchSalesData-applied', true);
+            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchSalesData-pending', false, debtorMap);
+            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchSalesData-applied', true, debtorMap);
 
             setState(prev => ({
                 ...prev,
@@ -2594,8 +2523,14 @@ useEffect(() => {
 
             if (response.data.success) {
                 const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchArchivedSales-pending', false);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchArchivedSales-applied', true);
+                const debtorsRes = await api.get(routes.debtors.getPending);
+                const debtorsData = debtorsRes.data?.data || [];
+                const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
+                    if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
+                    return acc;
+                }, {});
+                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchArchivedSales-pending', false, debtorMap);
+                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchArchivedSales-applied', true, debtorMap);
 
                 setArchivedData({ pendingBills: updatedPending, appliedBills: updatedApplied, isLoading: false });
                 setDataSource('sales_history');
@@ -2730,11 +2665,17 @@ useEffect(() => {
             const salesData = salesRes.data.sales || salesRes.data || [];
             const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
             const { pendingBills, appliedBills } = processBillData(salesData);
+            const debtorsRes = await api.get(routes.debtors.getPending);
+            const debtorsData = debtorsRes.data?.data || [];
+            const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
+                if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
+                return acc;
+            }, {});
 
             // For pending bills: false (show full credit)
             // For applied bills (completed): true (show actual remaining credit)
-            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'refreshBeforeLoadingOldBills-pending', false);
-            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'refreshBeforeLoadingOldBills-applied', true);
+            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'refreshBeforeLoadingOldBills-pending', false, debtorMap);
+            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'refreshBeforeLoadingOldBills-applied', true, debtorMap);
 
             setState(prev => ({
                 ...prev,
@@ -3541,8 +3482,14 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
 
                 if (response.data.success) {
                     const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-                    const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false);
-                    const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true);
+                    const debtorsRes = await api.get(routes.debtors.getPending);
+                    const debtorsData = debtorsRes.data?.data || [];
+                    const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
+                        if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
+                        return acc;
+                    }, {});
+                    const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false, debtorMap);
+                    const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true, debtorMap);
 
                     setArchivedData({
                         pendingBills: updatedPending,
@@ -3586,9 +3533,15 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
                 console.log('📊 Current filter:', currentUniqueCode);
 
                 const { pendingBills, appliedBills } = processBillData(salesData);
+                const debtorsRes = await api.get(routes.debtors.getPending);
+                const debtorsData = debtorsRes.data?.data || [];
+                const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
+                    if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
+                    return acc;
+                }, {});
 
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true);
+                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false, debtorMap);
+                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true, debtorMap);
 
                 // Only update if the filter hasn't changed during this refresh
                 if (selectedUniqueCodeRef.current === currentUniqueCode) {
@@ -3674,15 +3627,6 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
         }
     }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
 
-    // Add useEffect to refetch when selectedUniqueCode changes
-    useEffect(() => {
-        if (!viewOldBills) {
-            fetchSalesData(selectedUniqueCode);
-        } else if (startDate && endDate) {
-            fetchArchivedSales(true, selectedUniqueCode);
-        }
-        localStorage.setItem('printedBills_selectedUniqueCode', selectedUniqueCode);
-    }, [selectedUniqueCode, viewOldBills, startDate, endDate]);
     // Process Credit Payment function
  const processCreditPayment = async (paymentAmount) => {
     if (!state.selectedBill || state.isPrinting) return;

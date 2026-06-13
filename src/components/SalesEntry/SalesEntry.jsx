@@ -1006,79 +1006,101 @@ export default function SalesEntry() {
 
     useEffect(() => { fetchInitialData(); refs.customer_code_input.current?.focus(); }, []);
 
-    const handleKeyDown = async (e, currentFieldName) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
+const handleKeyDown = async (e, currentFieldName) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
 
-            // 1. Handle Given Amount
-            if (currentFieldName === "given_amount") {
-                const success = await handleSubmitGivenAmount(e);
-                if (success) {
-                    handlePrintAndClear();
-                }
+        // NEW: Handle ONLY the specific price_per_kg field (not the grid item)
+        if (currentFieldName === "price_per_kg") {
+            // Optional: Quick validation to ensure required fields are filled
+            if (!formData.item_code) {
+                refs.item_code_select.current?.focus();
+                updateState({ errors: { form: 'Please select an item first' } });
                 return;
             }
-
-            // 2. Handle Item Packs
-            if (currentFieldName === "packs") return handleSubmit(e);
-
-            // 3. Logic for TELEPHONE input (Reverse Lookup)
-            if (currentFieldName === "telephone_no") {
-                // Hide save button when navigating away
-                updateState({ showSavePhoneButton: false });
-                refs.customer_code_input.current?.focus();
+            if (!formData.weight) {
+                refs.weight.current?.focus();
+                updateState({ errors: { form: 'Please enter weight' } });
                 return;
             }
-
-            // 4. Logic for CUSTOMER CODE input - MODIFIED: Removed auto-save
-            if (currentFieldName === "customer_code_input") {
-                const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
-
-                if (code) {
-                    // LOCAL LOOKUP ONLY - NO AUTO-SAVE
-                    const match = customers.find(c => String(c.short_name).toUpperCase() === code);
-
-                    if (match) {
-                        // Only update customer_name
-                        setFormData(prev => ({
-                            ...prev,
-                            customer_name: match.name || ""
-                        }));
-                        fetchLoanAmount(code);
-                    } else {
-                        // Optionally show a message that customer doesn't exist
-                        // but don't auto-create
-                        console.log("Customer not found in local data");
-                    }
-                }
-
-                refs.supplier_code.current?.focus();
+            if (!formData.packs) {
+                refs.packs.current?.focus();
+                updateState({ errors: { form: 'Please enter packs' } });
                 return;
             }
-
-            // 5. General Navigation Logic
-            let nextFieldName = skipMap[currentFieldName];
-            if (!nextFieldName) {
-                const currentIndex = fieldOrder.indexOf(currentFieldName);
-                let nextIndex = currentIndex + 1;
-                while (nextIndex < fieldOrder.length &&
-                    ["customer_code_select", "item_name", "total"].includes(fieldOrder[nextIndex])) {
-                    nextIndex++;
-                }
-                nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
-            }
-
-            const nextRef = refs[nextFieldName];
-            if (nextRef?.current) {
-                requestAnimationFrame(() => {
-                    setTimeout(() => {
-                        nextRef.current.focus();
-                        if (!nextFieldName.includes("select")) nextRef.current.select();
-                    }, 0);
-                });
-            }
+            await handleSubmit(e);
+            return;
         }
-    };
+
+        // 1. Handle Given Amount
+        if (currentFieldName === "given_amount") {
+            const success = await handleSubmitGivenAmount(e);
+            if (success) {
+                handlePrintAndClear();
+            }
+            return;
+        }
+
+        // 2. Handle Item Packs
+        if (currentFieldName === "packs") return handleSubmit(e);
+
+        // 3. Logic for TELEPHONE input (Reverse Lookup)
+        if (currentFieldName === "telephone_no") {
+            // Hide save button when navigating away
+            updateState({ showSavePhoneButton: false });
+            refs.customer_code_input.current?.focus();
+            return;
+        }
+
+        // 4. Logic for CUSTOMER CODE input - MODIFIED: Removed auto-save
+        if (currentFieldName === "customer_code_input") {
+            const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+
+            if (code) {
+                // LOCAL LOOKUP ONLY - NO AUTO-SAVE
+                const match = customers.find(c => String(c.short_name).toUpperCase() === code);
+
+                if (match) {
+                    // Only update customer_name
+                    setFormData(prev => ({
+                        ...prev,
+                        customer_name: match.name || ""
+                    }));
+                    fetchLoanAmount(code);
+                } else {
+                    // Optionally show a message that customer doesn't exist
+                    // but don't auto-create
+                    console.log("Customer not found in local data");
+                }
+            }
+
+            refs.supplier_code.current?.focus();
+            return;
+        }
+
+        // 5. General Navigation Logic
+        let nextFieldName = skipMap[currentFieldName];
+        if (!nextFieldName) {
+            const currentIndex = fieldOrder.indexOf(currentFieldName);
+            let nextIndex = currentIndex + 1;
+            while (nextIndex < fieldOrder.length &&
+                ["customer_code_select", "item_name", "total"].includes(fieldOrder[nextIndex])) {
+                nextIndex++;
+            }
+            nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
+        }
+
+        const nextRef = refs[nextFieldName];
+        if (nextRef?.current) {
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    nextRef.current.focus();
+                    if (!nextFieldName.includes("select")) nextRef.current.select();
+                }, 0);
+            });
+        }
+    }
+};
 
     const salesTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
     const packCostTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
@@ -1779,12 +1801,12 @@ export default function SalesEntry() {
                     <tr>
                         <td style="font-size:18px; padding-top:18px;">දුන් මුදල:
                         <td style="text-align:right; font-size:20px; padding-top:18px; font-weight:bold;">
-                            ${formatNumber(parseFloat(givenAmount).toFixed(2))}
+                           ${formatNumber((0).toFixed(2))}
                         
                     </tr>
                     <tr>
                         <td style="font-size:22px;">ඉතිරිය:
-                        <td style="text-align:right; font-size:26px;">${formatNumber(remaining.toFixed(2))}
+                        <td style="text-align:right; font-size:26px;">${formatNumber((0).toFixed(2))}
                     </tr>` : ''}
                 </tbody>
             </table>
