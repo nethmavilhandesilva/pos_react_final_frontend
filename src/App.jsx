@@ -331,6 +331,7 @@ const AppRoutes = () => {
                         <BankDashboard />
                     </RequireRole>
                 } />
+                  <Route path="/bank-dashboard" element={<BankDashboard />} />
 
                 <Route path="/banks" element={<Banks />} />
                 <Route path="/payment-collection-report" element={<PaymentCollectionReport />} />
