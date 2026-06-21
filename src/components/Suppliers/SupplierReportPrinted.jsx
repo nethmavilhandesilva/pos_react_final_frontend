@@ -3604,6 +3604,7 @@ export default function SupplierReportPrinted() {
     const [supplierAdvances, setSupplierAdvances] = useState([]);
     const [totalAdvanceAmount, setTotalAdvanceAmount] = useState(0);
     const [showAdvanceHistory, setShowAdvanceHistory] = useState(false);
+    const [bagAmount, setBagAmount] = useState('');
 
     // Store advance in NEW table
     const storeAdvance = async (advanceData) => {
@@ -3708,10 +3709,12 @@ export default function SupplierReportPrinted() {
             });
             // Fetch advances from NEW table
             fetchSupplierAdvances(state.selectedSupplier, state.selectedBillNo);
+            setBagAmount(''); 
         } else {
             setSupplierAdvances([]);
             setTotalAdvanceAmount(0);
             setAdvanceAmount(0);
+            setBagAmount(''); 
         }
     }, [state.selectedSupplier, state.selectedBillNo]);
 
@@ -5316,70 +5319,70 @@ export default function SupplierReportPrinted() {
             alert('Error loading bill details: ' + (error.response?.data?.message || error.message));
         }
     };
-const generateBillContent = useCallback(async (billNo) => {
-    try {
-        const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-        let url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${state.selectedSupplier}`;
-        if (useHistoryParam) {
-            url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-        }
-        const response = await api.get(url);
-        const details = response.data.sales || response.data;
-
-        // Calculate totals from details
-        let totalsupplierSales = 0;
-        let totalPacksSum = 0;
-        const itemSummaryData = {};
-
-        details.forEach(record => {
-            const total = parseFloat(record.SupplierTotal) || 0;
-            const weight = parseFloat(record.weight) || 0;
-            const packs = parseInt(record.packs) || 0;
-            const itemName = record.item_name || '';
-
-            totalsupplierSales += total;
-            totalPacksSum += packs;
-
-            if (!itemSummaryData[itemName]) {
-                itemSummaryData[itemName] = { totalWeight: 0, totalPacks: 0 };
-            }
-            itemSummaryData[itemName].totalWeight += weight;
-            itemSummaryData[itemName].totalPacks += packs;
-        });
-
-        // Get payment details
-        let paymentBreakdown = [];
-        let currentPaidAmount = 0;
+    const generateBillContent = useCallback(async (billNo) => {
         try {
-            let loanUrl = `/supplier-loan/search?code=${state.selectedSupplier}&bill_no=${billNo}`;
+            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
+            let url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${state.selectedSupplier}`;
             if (useHistoryParam) {
-                loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
             }
-            const loanRes = await api.get(loanUrl);
-            if (loanRes.data) {
-                currentPaidAmount = parseFloat(loanRes.data.loan_amount) || 0;
-                paymentBreakdown = loanRes.data.payment_details || [];
-                if (typeof paymentBreakdown === 'string') {
-                    paymentBreakdown = JSON.parse(paymentBreakdown);
+            const response = await api.get(url);
+            const details = response.data.sales || response.data;
+
+            // Calculate totals from details
+            let totalsupplierSales = 0;
+            let totalPacksSum = 0;
+            const itemSummaryData = {};
+
+            details.forEach(record => {
+                const total = parseFloat(record.SupplierTotal) || 0;
+                const weight = parseFloat(record.weight) || 0;
+                const packs = parseInt(record.packs) || 0;
+                const itemName = record.item_name || '';
+
+                totalsupplierSales += total;
+                totalPacksSum += packs;
+
+                if (!itemSummaryData[itemName]) {
+                    itemSummaryData[itemName] = { totalWeight: 0, totalPacks: 0 };
                 }
-            }
-        } catch (loanError) { }
+                itemSummaryData[itemName].totalWeight += weight;
+                itemSummaryData[itemName].totalPacks += packs;
+            });
 
-        // Use your bill structure
-        const date = new Date().toLocaleDateString('si-LK');
-        const mobile = '0775097620/0761042808';
-        const is4Inch = state.billSize === '4inch';
-        const receiptMaxWidth = is4Inch ? '4in' : '350px';
-        const fontSizeBody = '25px';
-        const fontSizeHeader = '23px';
-        const fontSizeTotal = '28px';
+            // Get payment details
+            let paymentBreakdown = [];
+            let currentPaidAmount = 0;
+            try {
+                let loanUrl = `/supplier-loan/search?code=${state.selectedSupplier}&bill_no=${billNo}`;
+                if (useHistoryParam) {
+                    loanUrl += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
+                }
+                const loanRes = await api.get(loanUrl);
+                if (loanRes.data) {
+                    currentPaidAmount = parseFloat(loanRes.data.loan_amount) || 0;
+                    paymentBreakdown = loanRes.data.payment_details || [];
+                    if (typeof paymentBreakdown === 'string') {
+                        paymentBreakdown = JSON.parse(paymentBreakdown);
+                    }
+                }
+            } catch (loanError) { }
 
-        const paidAmountValue = currentPaidAmount;
-        const remainingAfterPayment = totalsupplierSales - paidAmountValue;
-        // ✅ FIX: Get the total advance amount from the supplier_advances table
-        const advanceAmount = totalAdvanceAmount || 0;
+            // Use your bill structure
+            const date = new Date().toLocaleDateString('si-LK');
+            const mobile = '0775097620/0761042808';
+            const is4Inch = state.billSize === '4inch';
+            const receiptMaxWidth = is4Inch ? '4in' : '350px';
+            const fontSizeBody = '25px';
+            const fontSizeHeader = '23px';
+            const fontSizeTotal = '28px';
 
-        const colGroups = `
+            const paidAmountValue = currentPaidAmount;
+            const remainingAfterPayment = totalsupplierSales - paidAmountValue;
+            // ✅ FIX: Get the total advance amount from the supplier_advances table
+            const advanceAmount = totalAdvanceAmount || 0;
+
+            const colGroups = `
         <colgroup>
             <col style="width:32%;"> 
             <col style="width:21%;">
@@ -5387,25 +5390,25 @@ const generateBillContent = useCallback(async (billNo) => {
             <col style="width:26%;">
         </colgroup>`;
 
-        const formatNumber = (value, maxDecimals = 3) => {
-            if (typeof value !== 'number' && typeof value !== 'string') return '0';
-            const number = parseFloat(value);
-            if (isNaN(number)) return '0';
-            if (Number.isInteger(number)) return number.toLocaleString('en-US');
-            const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-            return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-        };
+            const formatNumber = (value, maxDecimals = 3) => {
+                if (typeof value !== 'number' && typeof value !== 'string') return '0';
+                const number = parseFloat(value);
+                if (isNaN(number)) return '0';
+                if (Number.isInteger(number)) return number.toLocaleString('en-US');
+                const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+                return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
+            };
 
-        const detailedItemsHtml = details.map(record => {
-            const weight = parseFloat(record.weight) || 0;
-            const packs = parseInt(record.packs) || 0;
-            const price = parseFloat(record.SupplierPricePerKg) || 0;
-            const total = parseFloat(record.SupplierTotal) || 0;
-            const itemName = record.item_name || '';
-            const customerCode = record.customer_code?.toUpperCase() || '';
+            const detailedItemsHtml = details.map(record => {
+                const weight = parseFloat(record.weight) || 0;
+                const packs = parseInt(record.packs) || 0;
+                const price = parseFloat(record.SupplierPricePerKg) || 0;
+                const total = parseFloat(record.SupplierTotal) || 0;
+                const itemName = record.item_name || '';
+                const customerCode = record.customer_code?.toUpperCase() || '';
 
-            return `
+                return `
             <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
                 <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
                 <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
@@ -5415,21 +5418,21 @@ const generateBillContent = useCallback(async (billNo) => {
                     <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
                 </td>
             </tr>`;
-        }).join("");
+            }).join("");
 
-        const summaryEntries = Object.entries(itemSummaryData);
-        let itemSummaryHtml = '';
-        for (let i = 0; i < summaryEntries.length; i += 2) {
-            const [name1, d1] = summaryEntries[i];
-            const [name2, d2] = summaryEntries[i + 1] || [null, null];
-            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-            itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
-        }
+            const summaryEntries = Object.entries(itemSummaryData);
+            let itemSummaryHtml = '';
+            for (let i = 0; i < summaryEntries.length; i += 2) {
+                const [name1, d1] = summaryEntries[i];
+                const [name2, d2] = summaryEntries[i + 1] || [null, null];
+                const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+                const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+                itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
+            }
 
-        const netPayable = advanceAmount - paidAmountValue;
+            const netPayable = advanceAmount - paidAmountValue;
 
-        return `
+            return `
         <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
             <div style="text-align:center; font-weight:bold;">
                 <div style="font-size:24px;">Manju</div>
@@ -5503,11 +5506,11 @@ const generateBillContent = useCallback(async (billNo) => {
                 <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
             </div>
         </div>`;
-    } catch (error) {
-        console.error('Error generating bill:', error);
-        return '<div>Error generating bill</div>';
-    }
-}, [state.selectedSupplier, state.billSize, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, totalAdvanceAmount]);
+        } catch (error) {
+            console.error('Error generating bill:', error);
+            return '<div>Error generating bill</div>';
+        }
+    }, [state.selectedSupplier, state.billSize, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, totalAdvanceAmount]);
     // Add this function to check if loan exists
     const checkLoanExists = async (supplierCode, billNo) => {
         try {
@@ -5883,7 +5886,8 @@ const generateBillContent = useCallback(async (billNo) => {
                     payment_details: allPaymentDetails,
                     use_history: isViewingHistory,
                     is_credit_settlement: isCreditSettlementPayment,
-                    idempotency_key: idempotencyKey
+                    idempotency_key: idempotencyKey,
+                    bag_amount: bagAmount ? parseFloat(bagAmount) : null 
                 };
 
                 if (isCheque && chequeDetails) {
@@ -5930,7 +5934,8 @@ const generateBillContent = useCallback(async (billNo) => {
                     payment_details: allPaymentDetails,
                     use_history: isViewingHistory,
                     is_credit_settlement: isCreditSettlementPayment,
-                    idempotency_key: idempotencyKey
+                    idempotency_key: idempotencyKey,
+                    bag_amount: bagAmount ? parseFloat(bagAmount) : null
                 };
 
                 if (isCheque && chequeDetails) {
@@ -6036,7 +6041,7 @@ const generateBillContent = useCallback(async (billNo) => {
                     showBankToBankModal: false,
                     showAdjustmentModal: false,
                     isPrinting: false,
-                    currentBillTotal: 0
+                    currentBillTotal: 0,
                 }));
                 setSelectedBillCreditor(null);
             }
@@ -7224,6 +7229,37 @@ const generateBillContent = useCallback(async (billNo) => {
                                                 </tfoot>
                                             </table>
                                         </div>
+                                    </div>
+                                    {/* Bag Amount Input - Add this BEFORE the payment amount input */}
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <label style={{
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            color: '#334155',
+                                            display: 'block',
+                                            marginBottom: '6px'
+                                        }}>
+                                            📦 Bag Amount (Rs.)
+                                            <span style={{ fontSize: '11px', color: '#64748b' }}>(Optional - for this bill)</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={bagAmount}
+                                            onChange={(e) => setBagAmount(e.target.value)}
+                                            placeholder="Enter bag amount"
+                                            style={{
+                                                width: '100%',
+                                                padding: '12px 14px',
+                                                border: '2px solid #e2e8f0',
+                                                borderRadius: '12px',
+                                                fontSize: '14px',
+                                                outline: 'none',
+                                                fontFamily: 'monospace'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#f59e0b'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                            step="0.01"
+                                        />
                                     </div>
 
                                     {/* Payment Input Section */}
