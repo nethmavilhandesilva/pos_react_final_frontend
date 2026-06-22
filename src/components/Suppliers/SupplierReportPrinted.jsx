@@ -6546,7 +6546,22 @@ export default function SupplierReportPrinted() {
                                 }}
                                 onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
-                            >💰 Loan Report</button>
+                            >💰 CD REPORT</button>
+                             <button
+                                onClick={() => { navigate('/bank-dashboard2'); setIsDropdownOpen(false); }}
+                                style={{
+                                    padding: '12px 20px',
+                                    background: '#8b5cf6',
+                                    color: 'white',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
+                            >💰 Bank Statement</button>
 
                             <button
                                 onClick={() => { setShowFarmerModal(true); setIsDropdownOpen(false); }}

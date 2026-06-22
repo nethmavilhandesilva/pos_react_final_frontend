@@ -1643,143 +1643,145 @@ export default function SalesEntry() {
         });
     };
 
-    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
-        const formatNumber = (num) => {
-            if (typeof num !== 'number' && typeof num !== 'string') return '0';
-            const number = parseFloat(num);
-            if (isNaN(number)) return '0';
+const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+    const formatNumber = (num) => {
+        if (typeof num !== 'number' && typeof num !== 'string') return '0';
+        const number = parseFloat(num);
+        if (isNaN(number)) return '0';
 
-            if (Number.isInteger(number)) {
-                return number.toLocaleString('en-US');
-            } else {
-                const parts = number.toFixed(2).split('.');
-                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-                return `${wholePart}.${parts[1]}`;
-            }
-        };
+        if (Number.isInteger(number)) {
+            return number.toLocaleString('en-US');
+        } else {
+            const parts = number.toFixed(2).split('.');
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return `${wholePart}.${parts[1]}`;
+        }
+    };
 
-        const date = new Date().toLocaleDateString();
-        const time = new Date().toLocaleTimeString();
-        let totalAmountSum = 0;
-        const consolidatedSummary = {};
+    const date = new Date().toLocaleDateString();
+    const time = new Date().toLocaleTimeString();
+    let totalAmountSum = 0;
+    const consolidatedSummary = {};
 
-        salesData.forEach(s => {
-            const itemName = s.item_name || 'Unknown';
-            if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
-            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
-            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
-            totalAmountSum += parseFloat(s.total) || 0;
-        });
+    salesData.forEach(s => {
+        const itemName = s.item_name || 'Unknown';
+        if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+        consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+        consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+        totalAmountSum += parseFloat(s.total) || 0;
+    });
 
-        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
-        const is4Inch = billSize === '4inch';
-        const receiptMaxWidth = is4Inch ? '4in' : '350px';
+    const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+    const is4Inch = billSize === '4inch';
+    const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-        const fontSizeBody = '25px';
-        const fontSizeHeader = '23px';
-        const fontSizeTotal = '28px';
+    // REDUCED FONT SIZES
+    const fontSizeBody = '20px';      // was 25px
+    const fontSizeHeader = '18px';    // was 23px
+    const fontSizeTotal = '22px';     // was 28px
 
-        const itemsHtml = salesData.map(s => {
-            const packs = parseInt(s.packs) || 0;
-            const weight = parseFloat(s.weight) || 0;
-            const price = parseFloat(s.price_per_kg) || 0;
-            const value = (weight * price).toFixed(2);
+    const itemsHtml = salesData.map(s => {
+        const packs = parseInt(s.packs) || 0;
+        const weight = parseFloat(s.weight) || 0;
+        const price = parseFloat(s.price_per_kg) || 0;
+        const value = (weight * price).toFixed(2);
 
-            return `
-    <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom;">
-        <td style="text-align:left; padding:10px 0; white-space: nowrap;">
-            ${s.item_name || ""}<br>${formatNumber(packs)}
-        </td>
-        <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">
-            ${formatNumber(weight.toFixed(2))}
-        </td>
-        <td style="text-align:right; padding:10px 2px; position: relative; left: -55px;">${formatNumber(price.toFixed(2))}</td>
-        <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
-            <div style="font-size:25px; white-space:nowrap;">${s.supplier_code || "ASW"}</div>
-            <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
-        </td>
-    </tr>`;
-        }).join("");
+        return `
+  <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom; line-height:1.0;">  <!-- was 1.1 -->
+    <td style="text-align:left; padding:2px 0; white-space: nowrap;">  <!-- was 4px -->
+        ${s.item_name || ""}<br>${formatNumber(packs)}
+    </td>
+    <td style="text-align:right; padding:2px 2px; position: relative; left: -70px;">  <!-- was 4px -->
+        ${formatNumber(weight.toFixed(2))}
+    </td>
+    <td style="text-align:right; padding:2px 2px; position: relative; left: -55px;">  <!-- was 4px -->
+        ${formatNumber(price.toFixed(2))}
+    </td>
+    <td style="padding:2px 0; display:flex; flex-direction:column; align-items:flex-end;">  <!-- was 4px -->
+        <div style="font-size:20px; white-space:nowrap;">${s.supplier_code || "ASW"}</div>  <!-- was 25px -->
+        <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
+    </td>
+</tr>`;
+    }).join("");
 
-        const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-        const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
-        const finalGrandTotal = totalSales + totalPackCost;
-        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
-        const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+    const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+    const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+    const finalGrandTotal = totalSales + totalPackCost;
+    const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+    const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
 
-        const loanRow = globalLoanAmount !== 0 ? `
+    const loanRow = globalLoanAmount !== 0 ? `
     <tr>
-        <td style="font-size:20px; padding-top:8px;">පෙර ණය:</td>
-        <td style="text-align:right; font-size:22px; font-weight:bold; padding-top:8px;">
+        <td style="font-size:18px; padding-top:4px;">පෙර ණය:</td>  <!-- was 20px and 8px -->
+        <td style="text-align:right; font-size:18px; font-weight:bold; padding-top:4px;">  <!-- was 22px -->
             Rs. ${formatNumber(Math.abs(globalLoanAmount).toFixed(2))}
         </td>
     </tr>` : '';
 
-        const summaryEntries = Object.entries(consolidatedSummary);
-        let summaryHtmlContent = '';
-        for (let i = 0; i < summaryEntries.length; i += 2) {
-            const [name1, d1] = summaryEntries[i];
-            const [name2, d2] = summaryEntries[i + 1] || [null, null];
-            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-            summaryHtmlContent += `
+    const summaryEntries = Object.entries(consolidatedSummary);
+    let summaryHtmlContent = '';
+    for (let i = 0; i < summaryEntries.length; i += 2) {
+        const [name1, d1] = summaryEntries[i];
+        const [name2, d2] = summaryEntries[i + 1] || [null, null];
+        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+        summaryHtmlContent += `
         <tr>
-            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>
-            <td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>
+            <td style="padding:3px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>  <!-- was 6px -->
+            <td style="padding:3px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>  <!-- was 6px -->
         </tr>`;
-        }
+    }
 
-        return `
-   <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
+    return `
+   <div style="width:${receiptMaxWidth}; margin:0 auto; padding:6px; font-family: 'Courier New', monospace; color:#000; background:#fff;">  <!-- was 10px -->
         <div style="text-align:center; font-weight:bold;">
-            <div style="font-size:24px;">Manju</div>
-            <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
+            <div style="font-size:20px;">මංජු සහ සහෝදරයෝ</div>  <!-- was 24px -->
+            <div style="font-size:16px; margin-bottom:3px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>  <!-- was 20px and 5px -->
             
-            <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-                <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
-                <span style="border:2.5px solid #000; padding:5px 12px; font-size:38px;">
+            <div style="display:flex; justify-content:center; align-items:center; gap:10px; margin:8px 0;">  <!-- was 15px and 12px -->
+                <span style="border:2px solid #000; padding:3px 10px; font-size:18px;">N66</span>  <!-- was 2.5px, 5px 12px, 22px -->
+                <span style="border:2px solid #000; padding:3px 10px; font-size:30px;">  <!-- was 2.5px, 5px 12px, 38px -->
                     ${customerName.toUpperCase()}
                 </span>
             </div>
             
-            <div style="font-size:16px;">එළවළු,පළතුරු තොග වෙළෙන්දෝ</div>
-            <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px; padding:0 5px;">
+            <div style="font-size:14px;">එළවළු,පළතුරු තොග වෙළෙන්දෝ</div>  <!-- was 16px -->
+            <div style="display:flex; justify-content:space-between; font-size:13px; margin-top:4px; padding:0 5px;">  <!-- was 14px, 6px -->
                 <span>බණ්ඩාරවෙල</span>
                 <span>${time}</span>
             </div>
         </div>
 
-        <div style="font-size:19px; margin-top:10px; padding:0 5px;">
+        <div style="font-size:16px; margin-top:6px; padding:0 5px;">  <!-- was 19px, 10px -->
             <div style="font-weight: bold;">දුර: 0777672838 / 0714371115</div>
-            <div style="display:flex; justify-content:space-between; margin-top:3px;">
+            <div style="display:flex; justify-content:space-between; margin-top:2px;">  <!-- was 3px -->
                 <span>බිල් අංකය:<strong style="color: #000; font-weight: bold;">${billNo}</strong></span>
                 <span>දිනය:<strong style="color: #000; font-weight: bold;">${date}</strong></span>
             </div>
         </div>
 
-        <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
+        <hr style="border:none; border-top:2px solid #000; margin:6px 0;">  <!-- was 2.5px, 10px -->
 
-        <!-- ITEMS TABLE - MODIFIED: Using <tbody> only to prevent header repetition -->
+        <!-- ITEMS TABLE -->
         <div style="page-break-inside: avoid;">
             <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-                <!-- HEADER DEFINED ONCE OUTSIDE THEAD TO PREVENT REPETITION -->
                 <tbody>
-                    <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                        <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px;top: 24px;">මිල</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>
+                    <tr style="border-bottom:2px solid #000; font-weight:bold;">  <!-- was 2.5px -->
+                        <th style="text-align:left; padding-bottom:4px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>  <!-- was 8px -->
+                        <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 18px;"> කිලෝ </th>  <!-- was 8px, 24px -->
+                        <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader}; position: relative; left: -45px;top: 18px;">මිල</th>  <!-- was 8px, 24px -->
+                        <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>  <!-- was 8px -->
                     </tr>
                     ${itemsHtml}
                 </tbody>
             </table>
         </div>
 
-        <!-- TOTALS AND SUMMARY TOGETHER - ONLY ONCE -->
+        <!-- TOTALS AND SUMMARY -->
         <div style="page-break-before: avoid; page-break-after: avoid;">
             <!-- SUMMARY TABLE -->
-            <div style="margin-top:25px; border-top:2.5px solid #000; padding-top:10px;">
-                <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">
+            <div style="margin-top:15px; border-top:2px solid #000; padding-top:6px;">  <!-- was 25px, 2.5px, 10px -->
+                <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:center;">  <!-- was 14px -->
                     <tbody>
                         ${summaryHtmlContent || '<tr><td colspan="2">No items</td></tr>'}
                     </tbody>
@@ -1787,42 +1789,42 @@ export default function SalesEntry() {
             </div>
             
             <!-- TOTALS TABLE -->
-            <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px; border-collapse:collapse;">
+            <table style="width:100%; margin-top:12px; font-weight:bold; font-size:18px; padding:0 5px; border-collapse:collapse;">  <!-- was 20px, 22px -->
                 <tbody>
                     <tr>
-                        <td style="width:50%; font-size:20px;">මලු:
-                        <td style="width:50%; text-align:right; font-weight:bold;">${formatNumber(totalPackCost.toFixed(2))}
+                        <td style="width:50%; font-size:16px;">මලු:</td>  <!-- was 20px -->
+                        <td style="width:50%; text-align:right; font-weight:bold;">${formatNumber(totalPackCost.toFixed(2))}</td>
                     </tr>
                     <tr>
-                        <td style="font-size:20px; padding-top:8px;">එකතුව:
-                        <td style="text-align:right; padding-top:8px;">
-                            <span style="border-bottom:5px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px; display:inline-block;">
+                        <td style="font-size:16px; padding-top:4px;">එකතුව:</td>  <!-- was 20px, 8px -->
+                        <td style="text-align:right; padding-top:4px;">  <!-- was 8px -->
+                            <span style="border-bottom:4px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:3px 8px; display:inline-block;">  <!-- was 5px, 10px -->
                                 ${Number(finalGrandTotal).toFixed(2)}
                             </span>
-                        
+                        </td>
                     </tr>
                     ${loanRow}
                     ${givenAmount > 0 ? `
                     <tr>
-                        <td style="font-size:18px; padding-top:18px;">දුන් මුදල:
-                        <td style="text-align:right; font-size:20px; padding-top:18px; font-weight:bold;">
+                        <td style="font-size:16px; padding-top:10px;">දුන් මුදල:</td>  <!-- was 18px, 18px -->
+                        <td style="text-align:right; font-size:16px; padding-top:10px; font-weight:bold;">  <!-- was 20px, 18px -->
                            ${formatNumber((0).toFixed(2))}
-                        
+                        </td>
                     </tr>
                     <tr>
-                        <td style="font-size:22px;">ඉතිරිය:
-                        <td style="text-align:right; font-size:26px;">${formatNumber((0).toFixed(2))}
+                        <td style="font-size:18px;">ඉතිරිය:</td>  <!-- was 22px -->
+                        <td style="text-align:right; font-size:20px;">${formatNumber((0).toFixed(2))}</td>  <!-- was 26px -->
                     </tr>` : ''}
                 </tbody>
             </table>
         </div>
 
-        <div style="text-align:center; margin-top:25px; font-size:13px; border-top:2.5px solid #000; padding-top:10px;">
-            <p style="margin:4px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
-            <p style="margin:4px 0;">නැවත භාර ගනු නොලැබේ</p>
+        <div style="text-align:center; margin-top:15px; font-size:12px; border-top:2px solid #000; padding-top:6px;">  <!-- was 25px, 13px, 2.5px, 10px -->
+            <p style="margin:2px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>  <!-- was 4px -->
+            <p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p>  <!-- was 4px -->
         </div>
     </div>`;
-    };
+};
     const formatReceiptValue = (value) => {
         if (value === null || value === undefined || value === '') return '0.00';
         const num = parseFloat(value);

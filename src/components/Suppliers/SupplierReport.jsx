@@ -476,143 +476,144 @@ const handleUpdateFarmer = async () => {
         };
     }, [supplierDetails]);
 
-    const getBillContent = useCallback((currentBillNo) => {
-        const date = new Date().toLocaleDateString('si-LK');
-        const mobile = '0775097620/0761042808';
-        const is4Inch = billSize === '4inch';
-        const receiptMaxWidth = is4Inch ? '4in' : '350px';
-        const fontSizeBody = '25px';
-        const fontSizeHeader = '23px';
-        const fontSizeTotal = '28px';
+const getBillContent = useCallback((currentBillNo) => {
+    const date = new Date().toLocaleDateString('si-LK');
+    const mobile = '0775097620/0761042808';
+    const is4Inch = billSize === '4inch';
+    const receiptMaxWidth = is4Inch ? '4in' : '350px';
+    // REDUCED FONT SIZES
+    const fontSizeBody = '20px';      // was 25px
+    const fontSizeHeader = '18px';    // was 23px
+    const fontSizeTotal = '22px';     // was 28px
 
-        const paidAmountValue = parseFloat(payingAmount) || 0;
-        const remainingAfterPayment = totalsupplierSales - paidAmountValue;
+    const paidAmountValue = parseFloat(payingAmount) || 0;
+    const remainingAfterPayment = totalsupplierSales - paidAmountValue;
 
-        const colGroups = `
-        <colgroup>
-            <col style="width:32%;"> 
-            <col style="width:21%;">
-            <col style="width:21%;">
-            <col style="width:26%;">
-        </colgroup>`;
+    const colGroups = `
+    <colgroup>
+        <col style="width:32%;"> 
+        <col style="width:21%;">
+        <col style="width:21%;">
+        <col style="width:26%;">
+    </colgroup>`;
 
-        const formatNumber = (value, maxDecimals = 3) => {
-            if (typeof value !== 'number' && typeof value !== 'string') return '0';
-            const number = parseFloat(value);
-            if (isNaN(number)) return '0';
-            if (Number.isInteger(number)) return number.toLocaleString('en-US');
-            const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-            return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-        };
+    const formatNumber = (value, maxDecimals = 3) => {
+        if (typeof value !== 'number' && typeof value !== 'string') return '0';
+        const number = parseFloat(value);
+        if (isNaN(number)) return '0';
+        if (Number.isInteger(number)) return number.toLocaleString('en-US');
+        const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
+        const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+        return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
+    };
 
-        const detailedItemsHtml = supplierDetails.map(record => {
-            const weight = parseFloat(record.weight) || 0;
-            const packs = parseInt(record.packs) || 0;
-            const price = parseFloat(record.SupplierPricePerKg) || 0;
-            const total = parseFloat(record.SupplierTotal) || 0;
-            const itemName = record.item_name || '';
-            const customerCode = record.customer_code?.toUpperCase() || '';
-
-            return `
-            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
-                <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
-                <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
-                    <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
-                    <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
-                </td>
-             </tr>`;
-        }).join("");
-
-        const summaryEntries = Object.entries(itemSummaryData);
-        let itemSummaryHtml = '';
-        for (let i = 0; i < summaryEntries.length; i += 2) {
-            const [name1, d1] = summaryEntries[i];
-            const [name2, d2] = summaryEntries[i + 1] || [null, null];
-            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-            itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
-        }
-
-        const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
+    const detailedItemsHtml = supplierDetails.map(record => {
+        const weight = parseFloat(record.weight) || 0;
+        const packs = parseInt(record.packs) || 0;
+        const price = parseFloat(record.SupplierPricePerKg) || 0;
+        const total = parseFloat(record.SupplierTotal) || 0;
+        const itemName = record.item_name || '';
+        const customerCode = record.customer_code?.toUpperCase() || '';
 
         return `
-        <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
-            <div style="text-align:center; font-weight:bold;">
-                <div style="font-size:24px;">Manju</div>
-                <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-                    <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
-                    <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${selectedSupplier}</span></div>
-                </div>
-                <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
+        <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom; line-height:1.0;">  <!-- added line-height -->
+            <td style="text-align:left; padding:4px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>  <!-- was 10px -->
+            <td style="text-align:right; padding:4px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>  <!-- was 10px -->
+            <td style="text-align:right; padding:4px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>  <!-- was 10px -->
+            <td style="padding:4px 0; display:flex; flex-direction:column; align-items:flex-end;">  <!-- was 10px -->
+                <div style="font-size:20px; white-space:nowrap;">${customerCode}</div>  <!-- was 25px -->
+                <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
+            </td>
+         </tr>`;
+    }).join("");
+
+    const summaryEntries = Object.entries(itemSummaryData);
+    let itemSummaryHtml = '';
+    for (let i = 0; i < summaryEntries.length; i += 2) {
+        const [name1, d1] = summaryEntries[i];
+        const [name2, d2] = summaryEntries[i + 1] || [null, null];
+        const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+        const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+        itemSummaryHtml += `<tr><td style="padding:3px; width:50%; font-weight:bold; white-space:nowrap; font-size:12px;">${text1}</td><td style="padding:3px; width:50%; font-weight:bold; white-space:nowrap; font-size:12px;">${text2}</td></tr>`;  // was 6px, 14px
+    }
+
+    const netPayable = totalsupplierSales - advanceAmount - paidAmountValue;
+
+    return `
+    <div style="width:${receiptMaxWidth}; margin:0 auto; padding:6px; font-family:'Courier New', monospace; color:#000; background:#fff;">  <!-- was 10px -->
+        <div style="text-align:center; font-weight:bold;">
+            <div style="font-size:20px;">මංජු සහ සහෝදරයෝ</div>  <!-- was 24px -->
+            <div style="display:flex; justify-content:center; align-items:center; gap:10px; margin:6px 0;">  <!-- was 15px, 12px -->
+                <span style="border:2px solid #000; padding:3px 10px; font-size:18px;">N66</span>  <!-- was 2.5px, 5px 12px, 22px -->
+                <div style="font-size:15px;">ගොවියා: <span style="border:2px solid #000; padding:3px 8px; font-size:18px;">${selectedSupplier}</span></div>  <!-- was 18px, 2.5px, 5px 10px, 22px -->
             </div>
-            <div style="font-size:19px; margin-top:10px; padding:0 5px;">
-                <div style="font-weight: bold;">දුර:${mobile}</div>
-                <div style="display:flex; justify-content:space-between; margin-top:3px;">
-                    <span>බිල් අංකය:${currentBillNo}</span>
-                    <span>දිනය:${date}</span>
-                </div>
+            <div style="font-size:14px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>  <!-- was 16px -->
+        </div>
+        <div style="font-size:16px; margin-top:6px; padding:0 5px;">  <!-- was 19px, 10px -->
+            <div style="font-weight: bold;">දුර:${mobile}</div>
+            <div style="display:flex; justify-content:space-between; margin-top:2px;">  <!-- was 3px -->
+                <span>බිල් අංකය:${currentBillNo}</span>
+                <span>දිනය:${date}</span>
             </div>
-            <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
-            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-                ${colGroups}
-                <thead>
-                    <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                        <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;"> කිලෝ </th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
-                    </tr>
-                </thead>
-                <tbody>${detailedItemsHtml}</tbody>
-                <tfoot>
-                    <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                        <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
-                        <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>
-                    </tr>
-                </tfoot>
-            </table>
+        </div>
+        <hr style="border:none; border-top:2px solid #000; margin:6px 0;">  <!-- was 2.5px, 10px -->
+        <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+            ${colGroups}
+            <thead>
+                <tr style="border-bottom:2px solid #000; font-weight:bold;">  <!-- was 2.5px -->
+                    <th style="text-align:left; padding-bottom:4px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>  <!-- was 8px -->
+                    <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 18px;"> කිලෝ </th>  <!-- was 8px, 24px -->
+                    <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 18px;">මිල</th>  <!-- was 8px, 24px -->
+                    <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>  <!-- was 8px -->
+                </tr>
+            </thead>
+            <tbody>${detailedItemsHtml}</tbody>
+            <tfoot>
+                <tr style="border-top:2px solid #000; font-weight:bold;">  <!-- was 2.5px -->
+                    <td style="padding-top:6px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>  <!-- was 12px -->
+                    <td colspan="3" style="padding-top:6px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${(totalsupplierSales.toFixed(2))}</div></td>  <!-- was 12px -->
+                </tr>
+            </tfoot>
+        </table>
 
-            <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-                <tr>
-                    <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
-                    <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${(totalsupplierSales.toFixed(2))}</span></td>
-                </tr>
-                
-                ${paidAmountValue > 0 ? `
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
-                    <td style="text-align:right; padding-top:10px; color:#000;">- ${paidAmountValue.toFixed(2)}</td>
-                </tr>
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
-                    <td style="text-align:right; padding-top:5px; color:#000;">${remainingAfterPayment.toFixed(2)}</td>
-                </tr>
-                <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
-                ` : ''}
+        <table style="width:100%; margin-top:12px; font-weight:bold; font-size:18px; padding:0 5px;">  <!-- was 20px, 22px -->
+            <tr>
+                <td style="font-size:14px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>  <!-- was 15px -->
+                <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:3px 8px;">${(totalsupplierSales.toFixed(2))}</span></td>  <!-- was 5px 10px -->
+            </tr>
+            
+            ${paidAmountValue > 0 ? `
+            <tr style="font-size:16px;">  <!-- was 18px -->
+                <td style="font-size:14px; padding-top:6px;">ගෙවූ මුදල (Paid):</td>  <!-- was 15px, 10px -->
+                <td style="text-align:right; padding-top:6px; color:#000;">- ${paidAmountValue.toFixed(2)}</td>  <!-- was 10px -->
+            </tr>
+            <tr style="font-size:16px;">  <!-- was 18px -->
+                <td style="font-size:14px; padding-top:3px;">ඉතිරි මුදල (Remaining):</td>  <!-- was 15px, 5px -->
+                <td style="text-align:right; padding-top:3px; color:#000;">${remainingAfterPayment.toFixed(2)}</td>  <!-- was 5px -->
+            </tr>
+            <tr><td colspan="2" style="border-top:1px dashed #000; padding: 3px 0;"></td></tr>  <!-- was 5px -->
+            ` : ''}
 
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:5px;">අත්තිකාරම්</td>
-                    <td style="text-align:right; padding-top:5px; color:#000;">- ${advanceAmount.toFixed(2)}</td>
-                </tr>
+            <tr style="font-size:16px;">  <!-- was 18px -->
+                <td style="font-size:14px; padding-top:3px;">අත්තිකාරම්</td>  <!-- was 15px, 5px -->
+                <td style="text-align:right; padding-top:3px; color:#000;">- ${advanceAmount.toFixed(2)}</td>  <!-- was 5px -->
+            </tr>
 
-                <tr style="font-weight:900;">
-                    <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
-                    <td style="text-align:right; padding-top:10px;">
-                        <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">
-                        ${netPayable.toFixed(2)}
-                        </span>
-                    </td>
-                </tr>
-            </table>
+            <tr style="font-weight:900;">
+                <td style="font-size:16px; padding-top:6px;">ශුද්ධ ඉතිරි ශේෂය:</td>  <!-- was 18px, 10px -->
+                <td style="text-align:right; padding-top:6px;">  <!-- was 10px -->
+                    <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:4px double #000; border-top:2px solid #000; padding:3px 8px;">  <!-- was 5px, 10px -->
+                    ${netPayable.toFixed(2)}
+                    </span>
+                </td>
+            </tr>
+        </table>
 
-            <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
-                <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
-            </div>
-        </div>`;
-    }, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
+        <div style="margin-top:15px; border-top:1px dashed #000; padding-top:6px;">  <!-- was 25px, 10px -->
+            <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:center;">${itemSummaryHtml}</table>  <!-- was 14px -->
+        </div>
+    </div>`;
+}, [selectedSupplier, supplierDetails, totalPacksSum, totalsupplierSales, itemSummaryData, billSize, advanceAmount, payingAmount]);
 
     // --- Print function ---
 const handlePrint = useCallback(async () => {

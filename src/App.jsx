@@ -50,6 +50,7 @@ import DebtorsList from './components/Debtors/DebtorsList';
 import ExpenseDashboard from './components/Expenses/ExpenseDashboard';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import Transport from './components/Reports/Transport';
 
 const getBasePath = () => {
     if (window.location.hostname === 'goviraju.lk') {
@@ -196,9 +197,7 @@ const RootRedirect = () => {
 
         if (role === 'level2') {
             return <Navigate to="/printed-bills" replace />;
-        } else if (role === 'level3') {
-            return <Navigate to="/bank-dashboard" replace />;
-        } else if (role === 'level4') {
+        }  else if (role === 'level4') {
             return <Navigate to="/suppliers/printed-report" replace />;
         } else {
             return <Navigate to="/dashboard" replace />;
@@ -268,6 +267,7 @@ const AppRoutes = () => {
             <Route path="/view-bill/:token" element={<PublicBill />} />
             <Route path="/sop2" element={<SupplierReport2 />} />
             <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
+             <Route path="/reports/transport" element={<Transport />} />
 
             {/* Protected Routes - All wrapped with AuthLayout */}
             <Route element={<AuthLayout />}>
@@ -326,12 +326,8 @@ const AppRoutes = () => {
                     </RequireRole>
                 } />
 
-                <Route path="/bank-dashboard" element={
-                    <RequireRole allowedRoles={['level3']}>
-                        <BankDashboard />
-                    </RequireRole>
-                } />
-                  <Route path="/bank-dashboard" element={<BankDashboard />} />
+              
+                <Route path="/bank-dashboard2" element={<BankDashboard />} />
 
                 <Route path="/banks" element={<Banks />} />
                 <Route path="/payment-collection-report" element={<PaymentCollectionReport />} />
