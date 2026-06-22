@@ -2218,7 +2218,7 @@ const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
         { icon: '💰', label: 'Cash Payments', value: totals.cash, color: '#10b981', bg: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' },
         { icon: '💳', label: 'Cheque Payments', value: totals.cheque, color: '#8b5cf6', bg: 'linear-gradient(135deg, #ede9fe, #ddd6fe)' },
         { icon: '🏦', label: 'Bank Transfer Payments', value: totals.bank_transfer, color: '#ec489a', bg: 'linear-gradient(135deg, #fce7f3, #fbcfe8)' },
-        { icon: '💳', label: 'Credit Payments (Payable)', value: totals.credit, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
+        { icon: '💳', label: 'Credit Payments ', value: totals.credit, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
         { icon: '📦', label: 'Bag to Box Conversion', value: totals.bag_to_box, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
         { icon: '📄', label: 'Bill to Bill Transfer', value: totals.bill_to_bill, color: '#3b82f6', bg: 'linear-gradient(135deg, #dbeafe, #bfdbfe)' },
         { icon: '⚠️', label: 'Bad Debt Write-off', value: totals.bad_debt, color: '#ef4444', bg: 'linear-gradient(135deg, #fee2e2, #fecaca)' }
@@ -4282,6 +4282,43 @@ export default function SupplierReportPrinted() {
                         paymentDetails = [];
                     }
 
+                    // In history mode, old-bills summary can be stale right after settlements.
+                    // Pull latest paid amount/payment_details from supplier-loan history record.
+                    let historyLoanAmount = 0;
+                    if (effectiveUseHistory && item.supplier_code && item.supplier_bill_no) {
+                        try {
+                            const historyLoanResponse = await api.get(
+                                `/supplier-loan/search?code=${encodeURIComponent(item.supplier_code)}&bill_no=${encodeURIComponent(item.supplier_bill_no)}&use_history=true`
+                            );
+
+                            if (historyLoanResponse.data) {
+                                historyLoanAmount = parseFloat(historyLoanResponse.data.loan_amount) || 0;
+
+                                let historyPaymentDetails = historyLoanResponse.data.payment_details || [];
+                                if (typeof historyPaymentDetails === 'string') {
+                                    try {
+                                        historyPaymentDetails = JSON.parse(historyPaymentDetails);
+                                    } catch (e) {
+                                        historyPaymentDetails = [];
+                                    }
+                                }
+
+                                if (Array.isArray(historyPaymentDetails) && historyPaymentDetails.length > 0) {
+                                    paymentDetails = historyPaymentDetails;
+                                }
+
+                                console.log(`🧾 History loan sync for ${item.supplier_code}/${item.supplier_bill_no}:`, {
+                                    summaryLoanAmount: item.loan_amount,
+                                    historyLoanAmount,
+                                    paymentCount: Array.isArray(paymentDetails) ? paymentDetails.length : 0
+                                });
+                            }
+                        } catch (historyLoanError) {
+                            // Keep using summary values when history loan lookup is unavailable.
+                            console.log(`⚠️ History loan sync failed for ${item.supplier_code}/${item.supplier_bill_no}:`, historyLoanError?.message || historyLoanError);
+                        }
+                    }
+
                     // Calculate total from ALL payment methods (including Credit)
                     let totalAllPayments = 0;
                     let cashAmount = 0;
@@ -4334,7 +4371,7 @@ export default function SupplierReportPrinted() {
                     const totalAmount = parseFloat(item.total_amount) || 0;
                     // In history mode, some API responses may lag in payment_details while loan_amount is already updated.
                     // Use whichever is greater so bill grouping stays accurate after payment.
-                    const persistedPaidAmount = parseFloat(item.loan_amount) || 0;
+                    const persistedPaidAmount = Math.max(parseFloat(item.loan_amount) || 0, historyLoanAmount);
                     const effectivePaidAmount = Math.max(totalAllPayments, persistedPaidAmount);
                     const isFullySettled = effectivePaidAmount >= totalAmount;
                     const remainingAmount = Math.max(0, totalAmount - effectivePaidAmount);
@@ -6452,11 +6489,11 @@ export default function SupplierReportPrinted() {
                 {/* Dropdown for the 4 buttons */}
                 <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                     <button
-                        ref={dropdownButtonRef}  // Add this line
+                        ref={dropdownButtonRef}
                         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                         style={{
-                            padding: '8px 20px',
-                            background: '#6b7280',
+                            padding: '10px 24px',
+                            background: isDropdownOpen ? '#4b5563' : '#6b7280',
                             color: 'white',
                             border: 'none',
                             borderRadius: '8px',
@@ -6464,10 +6501,25 @@ export default function SupplierReportPrinted() {
                             whiteSpace: 'nowrap',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '8px'
+                            gap: '10px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!isDropdownOpen) e.currentTarget.style.background = '#4b5563';
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!isDropdownOpen) e.currentTarget.style.background = '#6b7280';
                         }}
                     >
-                        📁 Reports & Actions ▼
+                        <span>📁</span> Reports & Actions
+                        <span style={{
+                            fontSize: '12px',
+                            transform: isDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.2s ease'
+                        }}>▼</span>
                     </button>
 
                     {isDropdownOpen && ReactDOM.createPortal(
@@ -6476,108 +6528,121 @@ export default function SupplierReportPrinted() {
                             top: dropdownPosition.y,
                             left: dropdownPosition.x,
                             background: 'white',
-                            borderRadius: '8px',
-                            boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
-                            minWidth: '220px',
-                            zIndex: 999999, // Very high z-index to ensure it's above everything
-                            display: 'flex',
-                            flexDirection: 'column',
+                            borderRadius: '12px',
+                            boxShadow: '0 10px 40px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08)',
+                            minWidth: '240px',
+                            zIndex: 999999,
                             overflow: 'hidden',
-                            animation: 'fadeIn 0.15s ease-out'
+                            animation: 'slideDown 0.2s ease-out',
+                            padding: '6px'
                         }}>
-                            <button
-                                onClick={() => { navigate('/supplier-profit'); setIsDropdownOpen(false); }}
-                                style={{
-                                    padding: '12px 20px',
-                                    background: '#3b82f6',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    whiteSpace: 'nowrap',
-                                    transition: 'background 0.2s'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = '#2563eb'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = '#3b82f6'}
-                            >📊 Supplier Profit</button>
+                            {/* Section Header */}
+                            <div style={{
+                                padding: '10px 16px 6px 16px',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                color: '#9ca3af',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px'
+                            }}>
+                                Reports
+                            </div>
+
+                            {/* Report Items */}
+                            {[
+                                { label: 'Supplier Profit', icon: '📊', color: '#3b82f6', hoverColor: '#2563eb', path: '/supplier-profit' },
+                                { label: 'DOB Report', icon: '📅', color: '#f59e0b', hoverColor: '#d97706', path: '/suppliers/dobreport' },
+                                { label: 'CD Report', icon: '💰', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/debtor-creditor-report' },
+                                { label: 'Bank Statement', icon: '🏦', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/bank-dashboard2' },
+                                { label: 'Transport Report', icon: '🚚', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/reports/transport' },
+                                { label: 'Loan Report', icon: '💳', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/sop2' }
+                            ].map((item, index) => (
+                                <button
+                                    key={index}
+                                    onClick={() => {
+                                        navigate(item.path);
+                                        setIsDropdownOpen(false);
+                                    }}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 16px',
+                                        background: 'transparent',
+                                        color: '#374151',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        textAlign: 'left',
+                                        borderRadius: '8px',
+                                        transition: 'all 0.15s ease',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        fontSize: '14px',
+                                        fontWeight: '500'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = `${item.color}15`;
+                                        e.currentTarget.style.color = item.color;
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'transparent';
+                                        e.currentTarget.style.color = '#374151';
+                                    }}
+                                >
+                                    <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                                    {item.label}
+                                </button>
+                            ))}
+
+                            {/* Divider */}
+                            <div style={{
+                                height: '1px',
+                                margin: '4px 16px',
+                                background: '#e5e7eb'
+                            }} />
+
+                            {/* Action Items */}
+                            <div style={{
+                                padding: '6px 16px 4px 16px',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                color: '#9ca3af',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px'
+                            }}>
+                                Actions
+                            </div>
 
                             <button
-                                onClick={() => { navigate('/suppliers/dobreport'); setIsDropdownOpen(false); }}
+                                onClick={() => {
+                                    setShowFarmerModal(true);
+                                    setIsDropdownOpen(false);
+                                }}
                                 style={{
-                                    padding: '12px 20px',
-                                    background: '#f59e0b',
-                                    color: 'white',
+                                    width: '100%',
+                                    padding: '10px 16px',
+                                    background: 'transparent',
+                                    color: '#dc2626',
                                     border: 'none',
                                     cursor: 'pointer',
                                     textAlign: 'left',
-                                    whiteSpace: 'nowrap',
-                                    transition: 'background 0.2s'
+                                    borderRadius: '8px',
+                                    transition: 'all 0.15s ease',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    fontSize: '14px',
+                                    fontWeight: '500'
                                 }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = '#d97706'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = '#f59e0b'}
-                            >📅 DOB Report</button>
-
-                            <button
-                                onClick={() => { navigate('/sop2'); setIsDropdownOpen(false); }}
-                                style={{
-                                    padding: '12px 20px',
-                                    background: '#8b5cf6',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    whiteSpace: 'nowrap',
-                                    transition: 'background 0.2s'
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#fee2e2';
                                 }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
-                            >💰 Loan Report</button>
-                            <button
-                                onClick={() => { navigate('/debtor-creditor-report'); setIsDropdownOpen(false); }}
-                                style={{
-                                    padding: '12px 20px',
-                                    background: '#8b5cf6',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    whiteSpace: 'nowrap',
-                                    transition: 'background 0.2s'
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
                                 }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
-                            >💰 CD REPORT</button>
-                             <button
-                                onClick={() => { navigate('/bank-dashboard2'); setIsDropdownOpen(false); }}
-                                style={{
-                                    padding: '12px 20px',
-                                    background: '#8b5cf6',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    whiteSpace: 'nowrap',
-                                    transition: 'background 0.2s'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
-                            >💰 Bank Statement</button>
-
-                            <button
-                                onClick={() => { setShowFarmerModal(true); setIsDropdownOpen(false); }}
-                                style={{
-                                    padding: '12px 20px',
-                                    background: '#ef4444',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    whiteSpace: 'nowrap',
-                                    transition: 'background 0.2s'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = '#dc2626'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = '#ef4444'}
-                            >👨‍🌾 Farmer Selector</button>
+                            >
+                                <span style={{ fontSize: '16px' }}>👨‍🌾</span>
+                                Farmer Selector
+                            </button>
                         </div>,
                         document.body
                     )}
