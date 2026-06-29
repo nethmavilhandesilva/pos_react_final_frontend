@@ -5330,9 +5330,9 @@ export default function SupplierReportPrinted() {
             return `
         <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
             <div style="text-align:center; font-weight:bold;">
-                <div style="font-size:24px;">Manju</div>
+                <div style="font-size:24px;">මංජු සහ සහෝදරයෝ</div>
                 <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-                    <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
+                    <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">N66</span>
                     <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${state.selectedSupplier}</span></div>
                 </div>
                 <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
