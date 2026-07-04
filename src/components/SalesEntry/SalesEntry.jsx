@@ -1832,182 +1832,226 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         return num.toFixed(2);
     };
 
-    const handlePrintAndClear = async () => {
-        // Get the currently selected customer code/bill
-        let salesData = [];
-        let customerCode = "";
-        let customerName = "";
+   const handlePrintAndClear = async () => {
+    // Get the currently selected customer code/bill
+    let salesData = [];
+    let customerCode = "";
+    let customerName = "";
+    let billNo = "";
 
-        // Determine which sales to print based on selection
-        if (selectedPrintedCustomer) {
-            if (selectedPrintedCustomer.includes('-')) {
-                const [cCode, bNo] = selectedPrintedCustomer.split('-');
-                customerCode = cCode;
-                salesData = allSales.filter(s =>
-                    s.customer_code === cCode &&
-                    String(s.bill_no) === String(bNo)
-                );
-            } else {
-                customerCode = selectedPrintedCustomer;
-                salesData = allSales.filter(s =>
-                    s.customer_code === selectedPrintedCustomer
-                );
+    // Determine which sales to print based on selection
+    if (selectedPrintedCustomer) {
+        if (selectedPrintedCustomer.includes('-')) {
+            const [cCode, bNo] = selectedPrintedCustomer.split('-');
+            customerCode = cCode;
+            billNo = bNo;
+            // --- PRIORITY: Fetch ONLY by bill_no from backend ---
+            salesData = allSales.filter(s =>
+                String(s.bill_no) === String(billNo)
+            );
+        } else {
+            customerCode = selectedPrintedCustomer;
+            // --- PRIORITY: Fetch by customer_code AND bill_printed === 'Y' ---
+            salesData = allSales.filter(s =>
+                s.customer_code === selectedPrintedCustomer &&
+                s.bill_printed === 'Y'
+            );
+            // Get the bill_no from the first sale
+            if (salesData.length > 0) {
+                billNo = salesData[0].bill_no || "";
             }
         }
-        else if (selectedUnprintedCustomer) {
-            customerCode = selectedUnprintedCustomer;
+    }
+    else if (selectedUnprintedCustomer) {
+        customerCode = selectedUnprintedCustomer;
+        // --- For unprinted, fetch by customer_code and bill_printed !== 'Y' ---
+        salesData = allSales.filter(s =>
+            s.customer_code === selectedUnprintedCustomer &&
+            (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+        );
+        // No bill_no for unprinted yet
+        billNo = "";
+    }
+    else {
+        // --- If no specific selection, use displayed sales ---
+        salesData = displayedSales.filter(s => s.id);
+        // Get bill_no from the first sale if it exists
+        if (salesData.length > 0 && salesData[0].bill_no) {
+            billNo = salesData[0].bill_no;
+            // --- If we have a bill_no, re-fetch ALL records with that bill_no ---
             salesData = allSales.filter(s =>
-                s.customer_code === selectedUnprintedCustomer &&
-                (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+                String(s.bill_no) === String(billNo)
             );
         }
-        else {
-            salesData = displayedSales.filter(s => s.id);
-        }
+    }
 
-        if (!salesData.length) {
-            alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+    if (!salesData.length) {
+        alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+        return;
+    }
+
+    // --- COMMISSION VALIDATION ---
+    for (const s of salesData) {
+        if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+            const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
+            alert(errorMsg);
             return;
         }
+    }
 
-        // --- COMMISSION VALIDATION ---
-        for (const s of salesData) {
-            if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
-                const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
-                alert(errorMsg);
+    // --- ZERO OR ONE PRICE VALIDATION ---
+    const hasZeroOrOnePrice = salesData.some(s => parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1);
+    if (hasZeroOrOnePrice) {
+        alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+        return;
+    }
+
+    try {
+        updateState({ isPrinting: true });
+
+        customerName = salesData[0].customer_code || customerCode;
+        const mobile = salesData[0].mobile || "0777672838 / 071437115";
+
+        let currentLoan = 0;
+        try {
+            const loanRes = await api.post(routes.getLoanAmount, {
+                customer_short_name: customerCode
+            });
+            currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
+        } catch (e) {
+            console.warn("Loan fetch failed");
+        }
+
+        const isReprint = salesData.some(s => s.bill_printed === 'Y');
+        let receiptHtml = "";
+
+        if (isReprint) {
+            // --- For reprint, use the bill_no we already have ---
+            billNo = salesData[0].bill_no || "N/A";
+            console.log("Reprint - Bill No:", billNo);
+            
+            // --- PRIORITY: Fetch ALL records by bill_no from backend ---
+            try {
+                const response = await api.get(`/sales/by-bill/${billNo}`);
+                if (response.data && response.data.length > 0) {
+                    salesData = response.data;
+                    customerCode = salesData[0].customer_code;
+                    customerName = salesData[0].customer_code || customerName;
+                }
+            } catch (e) {
+                console.warn("Could not fetch by bill_no from API, using existing data");
+                // Fall back to filtering by bill_no from allSales
+                salesData = allSales.filter(s => String(s.bill_no) === String(billNo));
+            }
+            
+            receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
+
+            const printWindow = window.open("", "_blank", "width=800,height=600");
+            if (!printWindow) {
+                alert("Please allow pop-ups for printing");
+                updateState({ isPrinting: false });
                 return;
             }
-        }
 
-        // --- ZERO OR ONE PRICE VALIDATION ---
-        const hasZeroOrOnePrice = salesData.some(s => parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1);
-        if (hasZeroOrOnePrice) {
-            alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
-            return;
-        }
+            printWindow.document.write(`<html><head><title>Print Bill - Reprint</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
+            printWindow.document.close();
 
-        try {
-            updateState({ isPrinting: true });
+            updateState({
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false
+            });
 
-            customerName = salesData[0].customer_code || customerCode;
-            const mobile = salesData[0].mobile || "0777672838 / 071437115";
+            handleClearForm(true);
 
-            let currentLoan = 0;
-            try {
-                const loanRes = await api.post(routes.getLoanAmount, {
-                    customer_short_name: customerCode
-                });
-                currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
-            } catch (e) {
-                console.warn("Loan fetch failed");
+            const checkWindowClosed = setInterval(() => {
+                if (printWindow.closed) {
+                    clearInterval(checkWindowClosed);
+                    window.location.reload();
+                }
+            }, 500);
+
+        } else {
+            // For new prints, call the API
+            console.log("New print - Calling markPrinted API with sales_ids:", salesData.map(s => s.id));
+
+            const printResponse = await api.post(routes.markPrinted, {
+                sales_ids: salesData.map(s => s.id),
+                telephone_no: formData.telephone_no,
+                customer_code: customerCode,
+                customer_name: customerName,
+                loan_amount: currentLoan
+            });
+
+            console.log("API Response:", printResponse.data);
+
+            if (printResponse.data.status !== "success") {
+                throw new Error("මුද්‍රණය අසාර්ථකයි");
             }
 
-            const isReprint = salesData.some(s => s.bill_printed === 'Y');
-            let billNo = "";
-            let receiptHtml = "";
+            // Get the bill number from customer_bill_no
+            billNo = printResponse.data.customer_bill_no || "";
+            console.log("New print - Bill No from API:", billNo);
 
-            if (isReprint) {
-                billNo = salesData[0].bill_no || "N/A";
-                console.log("Reprint - Bill No:", billNo);
-                receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
-
-                const printWindow = window.open("", "_blank", "width=800,height=600");
-                if (!printWindow) {
-                    alert("Please allow pop-ups for printing");
-                    updateState({ isPrinting: false });
-                    return;
+            // --- PRIORITY: Fetch ALL records by bill_no from backend ---
+            try {
+                const response = await api.get(`/sales/by-bill/${billNo}`);
+                if (response.data && response.data.length > 0) {
+                    salesData = response.data;
+                    customerCode = salesData[0].customer_code;
+                    customerName = salesData[0].customer_code || customerName;
                 }
-
-                printWindow.document.write(`<html><head><title>Print Bill - Reprint</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
-                printWindow.document.close();
-
-                updateState({
-                    selectedPrintedCustomer: null,
-                    selectedUnprintedCustomer: null,
-                    isPrinting: false
-                });
-
-                handleClearForm(true);
-
-                const checkWindowClosed = setInterval(() => {
-                    if (printWindow.closed) {
-                        clearInterval(checkWindowClosed);
-                        window.location.reload();
-                    }
-                }, 500);
-
-            } else {
-                // For new prints, call the API
-                console.log("New print - Calling markPrinted API with sales_ids:", salesData.map(s => s.id));
-
-                const printResponse = await api.post(routes.markPrinted, {
-                    sales_ids: salesData.map(s => s.id),
-                    telephone_no: formData.telephone_no,
-                    customer_code: customerCode,
-                    customer_name: customerName,
-                    loan_amount: currentLoan
-                });
-
-                console.log("API Response:", printResponse.data);
-
-                if (printResponse.data.status !== "success") {
-                    throw new Error("මුද්‍රණය අසාර්ථකයි");
-                }
-
-                // FIX: Get the bill number from customer_bill_no (not bill_no)
-                billNo = printResponse.data.customer_bill_no || "";
-                console.log("New print - Bill No from API:", billNo);
-
-                // CRITICAL FIX: Create a deep copy of salesData and add bill_no to each object
-                const updatedSalesData = salesData.map(s => ({
+            } catch (e) {
+                console.warn("Could not fetch by bill_no from API, using updated sales data");
+                // Fall back to updating existing salesData with bill_no
+                salesData = salesData.map(s => ({
                     ...s,
                     bill_no: billNo,
                     bill_printed: "Y"
                 }));
-
-                console.log("Updated Sales Data with Bill No:", updatedSalesData);
-
-                // Generate receipt HTML with the updated sales data that now includes bill_no
-                receiptHtml = buildFullReceiptHTML(updatedSalesData, billNo, customerName, mobile, currentLoan, billSize);
-
-                // Update the state with the new bill numbers
-                updateState({
-                    allSales: allSales.map(s =>
-                        salesData.some(sd => sd.id === s.id)
-                            ? { ...s, bill_printed: "Y", bill_no: billNo }
-                            : s
-                    ),
-                    selectedPrintedCustomer: null,
-                    selectedUnprintedCustomer: null,
-                    isPrinting: false
-                });
-
-                handleClearForm(true);
-
-                const printWindow = window.open("", "_blank", "width=800,height=600");
-                if (!printWindow) {
-                    alert("Please allow pop-ups for printing");
-                    window.location.reload();
-                    return;
-                }
-
-                printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
-                printWindow.document.close();
-
-                const checkWindowClosed = setInterval(() => {
-                    if (printWindow.closed) {
-                        clearInterval(checkWindowClosed);
-                        window.location.reload();
-                    }
-                }, 500);
             }
 
-        } catch (error) {
-            console.error("Printing error:", error);
-            alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + error.message);
-            updateState({ isPrinting: false });
+            // Generate receipt HTML with the sales data
+            receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
+
+            // Update the state with the new bill numbers
+            updateState({
+                allSales: allSales.map(s =>
+                    salesData.some(sd => sd.id === s.id)
+                        ? { ...s, bill_printed: "Y", bill_no: billNo }
+                        : s
+                ),
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false
+            });
+
+            handleClearForm(true);
+
+            const printWindow = window.open("", "_blank", "width=800,height=600");
+            if (!printWindow) {
+                alert("Please allow pop-ups for printing");
+                window.location.reload();
+                return;
+            }
+
+            printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
+            printWindow.document.close();
+
+            const checkWindowClosed = setInterval(() => {
+                if (printWindow.closed) {
+                    clearInterval(checkWindowClosed);
+                    window.location.reload();
+                }
+            }, 500);
         }
-    };
+
+    } catch (error) {
+        console.error("Printing error:", error);
+        alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + error.message);
+        updateState({ isPrinting: false });
+    }
+};
     const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
 
 

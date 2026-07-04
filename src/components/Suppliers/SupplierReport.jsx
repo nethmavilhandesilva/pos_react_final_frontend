@@ -633,6 +633,7 @@ const handlePrint = useCallback(async () => {
     }
 
     let finalBillNo = selectedBillNo;
+    let finalSupplierDetails = supplierDetails; // Store fetched data here
 
     if (isUnprintedBill) {
         setIsDetailsLoading(true);
@@ -647,6 +648,21 @@ const handlePrint = useCallback(async () => {
             finalBillNo = response.data.new_bill_no;
             setSelectedBillNo(finalBillNo);
 
+            // --- PRIORITY: Fetch ALL records by supplier_bill_no from backend ---
+            try {
+                const fetchResponse = await api.get(`/suppliers/bill/${finalBillNo}/details`);
+                if (fetchResponse.data && fetchResponse.data.length > 0) {
+                    finalSupplierDetails = fetchResponse.data;
+                    setSupplierDetails(fetchResponse.data); // Update state with fetched data
+                }
+            } catch (e) {
+                console.warn("Could not fetch by supplier_bill_no from API, using existing data");
+                // Fall back to filtering existing details by supplier_bill_no
+                finalSupplierDetails = supplierDetails.filter(r => 
+                    String(r.supplier_bill_no) === String(finalBillNo)
+                );
+            }
+
             if (phoneNo) {
                 console.log(`Finalized Bill ${finalBillNo}. SMS triggered for ${phoneNo}`);
             }
@@ -658,6 +674,21 @@ const handlePrint = useCallback(async () => {
             setIsDetailsLoading(false);
         }
     } else {
+        // --- For reprint, fetch by supplier_bill_no from backend ---
+        try {
+            const fetchResponse = await api.get(`/suppliers/bill/${selectedBillNo}/details`);
+            if (fetchResponse.data && fetchResponse.data.length > 0) {
+                finalSupplierDetails = fetchResponse.data;
+                setSupplierDetails(fetchResponse.data); // Update state with fetched data
+            }
+        } catch (e) {
+            console.warn("Could not fetch by supplier_bill_no from API, using existing data");
+            // Fall back to filtering existing details by supplier_bill_no
+            finalSupplierDetails = supplierDetails.filter(r => 
+                String(r.supplier_bill_no) === String(selectedBillNo)
+            );
+        }
+
         if (phoneNo) {
             setIsDetailsLoading(true);
             try {
@@ -665,7 +696,7 @@ const handlePrint = useCallback(async () => {
                     bill_no: selectedBillNo,
                     telephone_no: phoneNo,
                     supplier_code: selectedSupplier,
-                    transaction_ids: supplierDetails.map(r => r.id),
+                    transaction_ids: finalSupplierDetails.map(r => r.id), // Use fetched data
                     advance_amount: advanceAmount,
                     is_reprint: true
                 });
@@ -687,7 +718,7 @@ const handlePrint = useCallback(async () => {
         }
     }
 
-    // Generate the bill content
+    // Generate the bill content with the fetched data
     const content = getBillContent(finalBillNo);
     
     // Create a hidden iframe
@@ -737,7 +768,6 @@ const handlePrint = useCallback(async () => {
         window.location.reload();
     }, 500);
 }, [supplierDetails, selectedBillNo, isUnprintedBill, phoneNo, advanceAmount, selectedSupplier, getBillContent]);
-
     // --- Keyboard event listener ---
     useEffect(() => {
         const handleKeyDown = (event) => {
