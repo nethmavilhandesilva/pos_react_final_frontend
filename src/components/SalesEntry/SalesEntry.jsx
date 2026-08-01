@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { flushSync } from "react-dom";
 import Select from "react-select";
 import Layout from "../Layout/Layout";
 import '../../App.css';
@@ -14,12 +15,49 @@ const routes = {
     customers: "/customers",
     items: "/items",
     suppliers: "/suppliers",
-    getCustomerGivenAmount: "/sales/customer/given-amount"
+    getCustomerGivenAmount: "/sales/customer/given-amount",
+    getSalesByBillNo: "/sales/by-bill",
+};
+
+// Hard cap on every API request so a hung network call can never leave the page
+// stuck waiting forever during an all-day session.
+const API_TIMEOUT_MS = 15000;
+// POS submit must fail/recover fast — operators press Enter hundreds of times a day.
+const SUBMIT_TIMEOUT_MS = 8000;
+// How long the submit lock may stay held before we treat it as stuck and unlock.
+const SUBMIT_LOCK_MAX_MS = 9000;
+// Print dialog / popup can hang; unlock UI well before an all-day session feels frozen.
+const PRINT_LOCK_MAX_MS = 30000;
+// Cheap sales-list fingerprint — avoids JSON.stringify of the full array every poll.
+const buildSalesSignature = (sales) => {
+    if (!Array.isArray(sales) || sales.length === 0) return '0';
+    let sig = String(sales.length);
+    for (let i = 0; i < sales.length; i++) {
+        const s = sales[i];
+        if (!s) continue;
+        sig += `|${s.id ?? ''}:${s.weight ?? ''}:${s.price_per_kg ?? ''}:${s.packs ?? ''}:${s.bill_printed ?? ''}:${s.given_amount ?? ''}:${s.updated_at ?? s.timestamp ?? ''}`;
+    }
+    return sig;
+};
+
+// Hoisted formatter: creating Intl.NumberFormat per call is expensive inside render loops.
+const decimalFormatter = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+const formatDecimal = (value) => decimalFormatter.format(Number(value || 0));
+
+// Stable function identity whose body always sees the latest render's values.
+// Prevents global listeners / memoized children from being torn down on every render.
+const useStableCallback = (fn) => {
+    const fnRef = useRef(fn);
+    fnRef.current = fn;
+    return useCallback((...args) => fnRef.current(...args), []);
 };
 
 // --- Sub-Components ---
 
-const BreakdownDisplay = ({ sale, formatDecimal }) => {
+const BreakdownDisplay = React.memo(({ sale, formatDecimal }) => {
     if (!sale?.breakdown_history) return null;
     let history = [];
     try {
@@ -54,10 +92,10 @@ const BreakdownDisplay = ({ sale, formatDecimal }) => {
             </div>
         </div>
     );
-};
+});
 
 // --- Admin Modal Component (Popup Window) ---
-const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecimal, billSize = '3inch' }) => {
+const AdminDataTableModal = React.memo(({ isOpen, onClose, title, sales, type, formatDecimal, billSize = '3inch' }) => {
     if (!isOpen || !sales || sales.length === 0) return null;
 
     const isFarmer = type === 'farmer';
@@ -277,8 +315,8 @@ const AdminDataTableModal = ({ isOpen, onClose, title, sales, type, formatDecima
             </div>
         </div>
     );
-};
-const ImagePreviewModal = ({ isOpen, onClose, data }) => {
+});
+const ImagePreviewModal = React.memo(({ isOpen, onClose, data }) => {
     if (!isOpen || !data) return null;
 
     const baseUrl = "https://goviraju.lk/sms_new_backend_50500/application/public/storage/";
@@ -385,70 +423,100 @@ const ImagePreviewModal = ({ isOpen, onClose, data }) => {
             </div>
         </div>
     );
-};
-const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange, selectedPrintedCustomer, selectedUnprintedCustomer, handleCustomerClick, formatDecimal, allSales, lastUpdate, isCashFilterActive, toggleCashFilter }) => {
-    const getPrintedCustomerGroups = () => {
-        const groups = {};
-        allSales.filter(s => s.bill_printed === 'Y' && s.bill_no).forEach(sale => {
-            // --- UPDATED FILTER LOGIC ---
-            if (type === "printed") {
-                if (isCashFilterActive) {
-                    // When ticked (Cash filter active): Show Credit transactions (credit_transaction = 'Y')
-                    if (sale.credit_transaction !== 'Y') return;
-                } else {
-                    // When unticked (Default): Show Cash transactions (credit_transaction = 'N')
-                    if (sale.credit_transaction !== 'N') return;
-                }
+});
+const CustomerList = React.memo(({ type, searchQuery, onSearchChange, selectedPrintedCustomer, selectedUnprintedCustomer, handleCustomerClick, allSales, isCashFilterActive, toggleCashFilter }) => {
+    const filteredPrintedGroups = useMemo(() => {
+        if (type !== "printed") return [];
+
+        const groups = new Map();
+        allSales.forEach((sale) => {
+            if (sale.bill_printed !== 'Y' || !sale.bill_no) return;
+
+            if (isCashFilterActive) {
+                if (sale.credit_transaction !== 'Y') return;
+            } else if (sale.credit_transaction !== 'N') {
+                return;
             }
 
             const groupKey = `${sale.customer_code}-${sale.bill_no}`;
-            if (!groups[groupKey]) groups[groupKey] = {
-                customerCode: sale.customer_code,
-                billNo: sale.bill_no,
-                displayText: sale.customer_code,
-                // Track if any sale in this group has given_amount_applied
-                hasGivenAmountApplied: sale.given_amount_applied && sale.given_amount_applied.trim() !== ''
-            };
-        });
-        return groups;
-    };
-    const getUnprintedCustomers = () => {
-        const customerMap = {};
-        allSales.filter(s => s.bill_printed === 'N').forEach(sale => {
-            const customerCode = sale.customer_code;
-            const saleTimestamp = new Date(sale.timestamp || sale.created_at || sale.date || sale.id);
-            if (!customerMap[customerCode] || saleTimestamp > new Date(customerMap[customerCode].latestTimestamp)) {
-                customerMap[customerCode] = { customerCode, latestTimestamp: sale.timestamp || sale.created_at || sale.date || sale.id, originalItem: customerCode };
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, {
+                    customerCode: sale.customer_code,
+                    billNo: sale.bill_no,
+                    displayText: sale.customer_code,
+                    hasGivenAmountApplied: false,
+                    totalAmount: 0,
+                    billSales: []
+                });
+            }
+
+            const group = groups.get(groupKey);
+            group.billSales.push(sale);
+            group.totalAmount += parseFloat(sale.total) || 0;
+            if (sale.given_amount_applied && sale.given_amount_applied.trim() !== '') {
+                group.hasGivenAmountApplied = true;
             }
         });
-        return customerMap;
-    };
 
-    const printedCustomerGroups = type === "printed" ? getPrintedCustomerGroups() : {};
-    const unprintedCustomerMap = type === "unprinted" ? getUnprintedCustomers() : {};
-
-    const filteredPrintedGroups = useMemo(() => {
-        if (type !== "printed") return [];
-        let groupsArray = Object.values(printedCustomerGroups);
+        let groupsArray = Array.from(groups.values());
         if (searchQuery) {
             const lowerQuery = searchQuery.toLowerCase();
-            groupsArray = groupsArray.filter(g => g.customerCode.toLowerCase().startsWith(lowerQuery) || g.billNo.toString().toLowerCase().startsWith(lowerQuery) || g.displayText.toLowerCase().startsWith(lowerQuery));
+            groupsArray = groupsArray.filter(g =>
+                g.customerCode.toLowerCase().startsWith(lowerQuery) ||
+                String(g.billNo || '').toLowerCase().startsWith(lowerQuery) ||
+                g.displayText.toLowerCase().startsWith(lowerQuery)
+            );
         }
-        return groupsArray.sort((a, b) => (parseInt(b.billNo) || 0) - (parseInt(a.billNo) || 0));
-    }, [printedCustomerGroups, searchQuery, type]);
 
-    const filteredUnprintedCustomers = useMemo(() => {
-        if (type !== "unprinted") return [];
-        let customersArray = Object.values(unprintedCustomerMap);
-        if (searchQuery) customersArray = customersArray.filter(c => c.customerCode.toLowerCase().startsWith(searchQuery.toLowerCase()));
-        return customersArray.sort((a, b) => new Date(b.latestTimestamp) - new Date(a.latestTimestamp));
-    }, [unprintedCustomerMap, searchQuery, type]);
+        return groupsArray.sort((a, b) => (parseInt(b.billNo, 10) || 0) - (parseInt(a.billNo, 10) || 0));
+    }, [allSales, type, isCashFilterActive, searchQuery]);
+
+ const filteredUnprintedCustomers = useMemo(() => {
+    if (type !== "unprinted") return [];
+
+    const customerMap = new Map();
+    allSales.forEach((sale) => {
+        const status = String(sale.bill_printed ?? '').trim().toUpperCase();
+        if (!(status === 'N' || status === '' || status === 'NULL' || status === 'UNDEFINED')) return;
+
+        const customerCode = sale.customer_code;
+        const latestTimestamp = sale.timestamp || sale.created_at || sale.date || sale.id;
+        const existing = customerMap.get(customerCode);
+
+        if (!existing || new Date(latestTimestamp) > new Date(existing.latestTimestamp)) {
+            customerMap.set(customerCode, {
+                customerCode,
+                latestTimestamp,
+                displayText: customerCode,
+                billSales: []
+            });
+        }
+    });
+
+    allSales.forEach((sale) => {
+        const status = String(sale.bill_printed ?? '').trim().toUpperCase();
+        if (!(status === 'N' || status === '' || status === 'NULL' || status === 'UNDEFINED')) return;
+        const existing = customerMap.get(sale.customer_code);
+        if (existing) {
+            existing.billSales.push(sale);
+        }
+    });
+
+    let customersArray = Array.from(customerMap.values());
+    if (searchQuery) {
+        const lower = searchQuery.toLowerCase();
+        customersArray = customersArray.filter(c => c.customerCode.toLowerCase().startsWith(lower));
+    }
+
+    // CHANGE THIS LINE - Sort alphabetically A to Z
+    return customersArray.sort((a, b) => a.customerCode.localeCompare(b.customerCode));
+}, [allSales, type, searchQuery]);
 
     const displayItems = type === "printed" ? filteredPrintedGroups : filteredUnprintedCustomers;
     const isSelected = (item) => type === "printed" ? selectedPrintedCustomer === `${item.customerCode}-${item.billNo}` : selectedUnprintedCustomer === item.customerCode;
 
     return (
-        <div key={`${type}-${lastUpdate || ''}`} className="w-full shadow-xl rounded-xl overflow-y-auto border border-black" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh", overflowY: "auto" }}>
+        <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh", overflowY: "auto" }}>
             <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
                 <div className="flex items-center justify-center gap-2 mb-1">
                     <h2 className="font-bold text-white whitespace-nowrap" style={{ fontSize: '14px' }}>
@@ -496,18 +564,13 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
                             if (type === "printed") {
                                 customerCode = item.customerCode;
                                 displayText = `${item.customerCode}-${item.billNo}`;
-                                billSales = allSales.filter(s => s.customer_code === item.customerCode && s.bill_no === item.billNo);
-                                totalAmount = billSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
-
-                                // ADD THIS BLOCK - Check if this bill should be shown in RED
-                                const hasGivenAmountApplied = billSales.some(sale =>
-                                    sale.given_amount_applied && sale.given_amount_applied.trim() !== ''
-                                );
-                                shouldShowRed = !hasGivenAmountApplied;
+                                billSales = item.billSales;
+                                totalAmount = item.totalAmount;
+                                shouldShowRed = !item.hasGivenAmountApplied;
                             } else {
                                 customerCode = item.customerCode;
                                 displayText = item.customerCode;
-                                billSales = allSales.filter(s => s.customer_code === item.customerCode && (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === ''));
+                                billSales = item.billSales;
                                 totalAmount = billSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
                             }
                             const isItemSelected = isSelected(item);
@@ -548,7 +611,7 @@ const CustomerList = React.memo(({ customers, type, searchQuery, onSearchChange,
     );
 });
 
-const ItemSummary = ({ sales }) => {
+const ItemSummary = React.memo(({ sales }) => {
 
     const formatWeight = (value) => {
         if (!value) return "0";
@@ -633,10 +696,10 @@ const ItemSummary = ({ sales }) => {
             ))}
         </div>
     );
-};
+});
 
 
-const SalesSummaryFooter = ({ sales, formatDecimal }) => {
+const SalesSummaryFooter = React.memo(({ sales, formatDecimal }) => {
     const totals = useMemo(() => {
         return sales.reduce((acc, s) => {
             const weight = parseFloat(s.weight) || 0;
@@ -676,7 +739,7 @@ const SalesSummaryFooter = ({ sales, formatDecimal }) => {
             </div>
         </div>
     );
-};
+});
 
 // --- Main Export Component ---
 const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "", telephone_no: "", };
@@ -684,26 +747,184 @@ const fieldOrder = ["telephone_no", "customer_code_input", "customer_code_select
 const skipMap = { telephone_no: "customer_code_input", customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg: "packs", price_per_kg_grid_item: "packs" };
 
 export default function SalesEntry() {
-    const refs = {
-        telephone_no: useRef(null), customer_code_input: useRef(null), customer_code_select: useRef(null), given_amount: useRef(null),
-        supplier_code: useRef(null), item_code_select: useRef(null), item_name: useRef(null),
-        weight: useRef(null), price_per_kg: useRef(null), packs: useRef(null), total: useRef(null),
-        price_per_kg_grid_item: useRef(null),
-    };
+    const isMountedRef = useRef(true);
+    const isSubmittingRef = useRef(false);
+    const submitStartedAtRef = useRef(0);
+    const lastSubmitSignatureRef = useRef('');
+    const lastSubmitAtRef = useRef(0);
+    const submitGenerationRef = useRef(0);
+    const refreshInFlightRef = useRef(false);
+    const pendingForceRefreshRef = useRef(false);
+    const lastRefreshAtRef = useRef(0);
+    const recentSubmittedSalesRef = useRef(new Map());
+    const deletedSaleIdsRef = useRef(new Set());
+    const refreshAbortRef = useRef(null);
+    const initAbortRef = useRef(null);
+    const loanAbortRef = useRef(null);
+    const submitAbortRef = useRef(null);
+    const printInFlightRef = useRef(false);
+    const printStartedAtRef = useRef(0);
+    const givenAmountInFlightRef = useRef(false);
+    const customerClickGenerationRef = useRef(0);
+    const loanCacheRef = useRef(new Map());
+    const lastUserActivityAtRef = useRef(Date.now());
+    const activeIntervalsRef = useRef(new Set());
+    const activeTimeoutsRef = useRef(new Set());
+    const referenceRefreshStartedAtRef = useRef(0);
+
+    // Atomic submit lock: 1 Enter = 1 submit. Extra Enter presses are ignored.
+    // If a previous request left the lock stuck, auto-recover after SUBMIT_LOCK_MAX_MS.
+    const tryAcquireSubmitLock = useCallback(() => {
+        const now = Date.now();
+        if (isSubmittingRef.current) {
+            if (now - submitStartedAtRef.current < SUBMIT_LOCK_MAX_MS) {
+                return false;
+            }
+            // Stuck lock recovery — abort anything still hanging, then unlock.
+            if (submitAbortRef.current) {
+                try { submitAbortRef.current.abort(); } catch (_) { /* ignore */ }
+                submitAbortRef.current = null;
+            }
+            isSubmittingRef.current = false;
+        }
+        isSubmittingRef.current = true;
+        submitStartedAtRef.current = now;
+        submitGenerationRef.current += 1;
+        return true;
+    }, []);
+
+    const releaseSubmitLock = useCallback(() => {
+        isSubmittingRef.current = false;
+        submitStartedAtRef.current = 0;
+    }, []);
+
+    // Blocks late/stale focus() calls that yank the cursor back to supplier
+    // after the operator has already moved on to the item select (Enter).
+    const suppressSupplierFocusUntilRef = useRef(0);
+
+    // Single stable refs container: keeps identity constant across renders so
+    // effects/listeners depending on it never re-subscribe.
+    const refs = useRef({
+        telephone_no: { current: null }, customer_code_input: { current: null }, customer_code_select: { current: null }, given_amount: { current: null },
+        supplier_code: { current: null }, item_code_select: { current: null }, item_name: { current: null },
+        weight: { current: null }, price_per_kg: { current: null }, packs: { current: null }, total: { current: null },
+        price_per_kg_grid_item: { current: null },
+    }).current;
+
+    const isFocusInItemEntryFields = useCallback(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body) return false;
+
+        if (
+            active === refs.weight.current ||
+            active === refs.price_per_kg_grid_item.current ||
+            active === refs.price_per_kg.current
+        ) {
+            return true;
+        }
+
+        // Item react-select (or its inner input / menu)
+        if (active.closest?.('.react-select-container')) return true;
+
+        const select = refs.item_code_select.current;
+        const itemInput =
+            select?.inputRef ||
+            select?.select?.inputRef ||
+            select?.controlRef?.querySelector?.('input');
+        return !!(itemInput && active === itemInput);
+    }, []);
+
+    const focusSupplierCode = useCallback(() => {
+        if (Date.now() < suppressSupplierFocusUntilRef.current) return;
+        // Never yank focus back if the operator already moved to item/weight/price.
+        if (isFocusInItemEntryFields()) return;
+
+        const el = refs.supplier_code.current;
+        if (!el) return;
+        el.focus();
+        el.select?.();
+    }, [isFocusInItemEntryFields]);
+
+    const focusItemCodeSelect = useCallback(() => {
+        // Block late post-submit supplier.focus() for long enough to cover slow API returns.
+        suppressSupplierFocusUntilRef.current = Date.now() + 2500;
+        const select = refs.item_code_select.current;
+        if (!select) return;
+
+        if (typeof select.focus === 'function') {
+            select.focus();
+        }
+
+        // Keep the menu open so the operator can type the item code immediately.
+        if (typeof select.setState === 'function') {
+            select.setState({ menuIsOpen: true });
+        } else if (typeof select.onMenuOpen === 'function') {
+            select.onMenuOpen();
+        }
+
+        // Focus the real <input> inside react-select (version-safe).
+        const inputEl =
+            select.inputRef ||
+            select.select?.inputRef ||
+            select.controlRef?.querySelector?.('input') ||
+            document.querySelector('.react-select-container input');
+        if (inputEl && typeof inputEl.focus === 'function') {
+            inputEl.focus();
+        }
+    }, []);
 
     const [state, setState] = useState({
         allSales: [], selectedPrintedCustomer: null, selectedUnprintedCustomer: null, editingSaleId: null,
         searchQueries: { printed: "", unprinted: "", farmerPrinted: "", farmerUnprinted: "" }, errors: {}, loanAmount: 0, isManualClear: false,
         isSubmitting: false, formData: initialFormData, packCost: 0, customerSearchInput: "", itemSearchInput: "",
         supplierSearchInput: "", currentBillNo: null, isLoading: false, customers: [], items: [], suppliers: [],
-        forceUpdate: null, windowFocused: null, isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
+        isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
         gridPricePerKg: "", selectedSaleForBreakdown: null, showSavePhoneButton: false,
         currentUser: null,
-        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false, customerProfilePic: null, supplierProfilePic: null, customerNameDisplay: "", supplierNameDisplay: "", isImageModalOpen: false, selectedImageData: { profile: null, nic_front: null, nic_back: null, title: "" },
+        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false, isCashFilterActive: false, customerProfilePic: null, supplierProfilePic: null, customerNameDisplay: "", supplierNameDisplay: "", isImageModalOpen: false, selectedImageData: { profile: null, nic_front: null, nic_back: null, title: "" },
     });
 
-    const setFormData = (updater) => setState(prev => ({ ...prev, formData: typeof updater === 'function' ? updater(prev.formData) : updater }));
-    const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
+    const setFormData = useCallback((updater) => {
+        if (!isMountedRef.current) return;
+        setState(prev => ({
+            ...prev,
+            formData: typeof updater === 'function' ? updater(prev.formData) : updater
+        }));
+    }, []);
+
+    const updateState = useCallback((updates) => {
+        if (!isMountedRef.current) return;
+        setState(prev => {
+            // Skip the re-render entirely when nothing actually changed.
+            // Many effects call updateState on every keystroke with identical values.
+            let changed = false;
+            for (const key in updates) {
+                if (!Object.is(prev[key], updates[key])) { changed = true; break; }
+            }
+            return changed ? { ...prev, ...updates } : prev;
+        });
+    }, []);
+
+    const setManagedTimeout = useCallback((fn, delay) => {
+        const id = window.setTimeout(() => {
+            activeTimeoutsRef.current.delete(id);
+            fn();
+        }, delay);
+        activeTimeoutsRef.current.add(id);
+        return id;
+    }, []);
+
+    const setManagedInterval = useCallback((fn, delay) => {
+        const id = window.setInterval(fn, delay);
+        activeIntervalsRef.current.add(id);
+        return id;
+    }, []);
+
+    const clearManagedInterval = useCallback((id) => {
+        if (!id) return;
+        window.clearInterval(id);
+        activeIntervalsRef.current.delete(id);
+    }, []);
 
     const { allSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId,
         searchQueries, errors, loanAmount, isManualClear, formData, packCost, isLoading, customers,
@@ -729,9 +950,15 @@ export default function SalesEntry() {
     }, [allSales]);
 
     const { newSales, printedSales, unprintedSales } = useMemo(() => ({
-        newSales: allSales.filter(s => s.id && s.bill_printed !== 'Y' && s.bill_printed !== 'N'),
-        printedSales: allSales.filter(s => s.bill_printed === 'Y'),
-        unprintedSales: allSales.filter(s => s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+        newSales: allSales.filter((s) => {
+            const status = String(s.bill_printed ?? '').trim().toUpperCase();
+            return s.id && status !== 'Y' && status !== 'N';
+        }),
+        printedSales: allSales.filter((s) => String(s.bill_printed ?? '').trim().toUpperCase() === 'Y'),
+        unprintedSales: allSales.filter((s) => {
+            const status = String(s.bill_printed ?? '').trim().toUpperCase();
+            return status === 'N' || status === '' || status === 'NULL' || status === 'UNDEFINED';
+        })
     }), [allSales]);
 
     const filterCustomers = (sales, query, searchByBillNo = false) => {
@@ -746,35 +973,58 @@ export default function SalesEntry() {
         return allCustomers.filter(code => code.toLowerCase().includes(lowerQuery));
     };
 
-    const printedCustomers = useMemo(() => filterCustomers(printedSales, searchQueries.printed, true), [printedSales, searchQueries.printed]);
     const unprintedCustomers = useMemo(() => filterCustomers(unprintedSales, searchQueries.unprinted), [unprintedSales, searchQueries.unprinted]);
 
     const displayedSales = useMemo(() => {
+        const normalizeCode = (value) => String(value || '').trim().toUpperCase();
+        const normalizedStatus = (sale) => String(sale?.bill_printed ?? '').trim().toUpperCase();
+        const isPrintedSale = (sale) => normalizedStatus(sale) === 'Y';
+        const isPendingSale = (sale) => !isPrintedSale(sale);
         let sales = [];
 
         if (selectedUnprintedCustomer) {
-            // Filter by customer code for unprinted records
-            sales = [...newSales, ...unprintedSales.filter(s => s.customer_code === selectedUnprintedCustomer)];
+            const selectedCode = normalizeCode(selectedUnprintedCustomer);
+            sales = allSales.filter((s) => normalizeCode(s.customer_code) === selectedCode && isPendingSale(s));
         }
         else if (selectedPrintedCustomer) {
             if (selectedPrintedCustomer.includes('-')) {
-                // Split the key "CODE-BILLNO" and filter by both fields
-                const [cCode, bNo] = selectedPrintedCustomer.split('-');
-                sales = [...newSales, ...printedSales.filter(s =>
-                    s.customer_code === cCode && String(s.bill_no) === String(bNo)
-                )];
+                const separatorIndex = selectedPrintedCustomer.lastIndexOf('-');
+                const cCode = separatorIndex >= 0 ? selectedPrintedCustomer.slice(0, separatorIndex) : selectedPrintedCustomer;
+                const bNo = separatorIndex >= 0 ? selectedPrintedCustomer.slice(separatorIndex + 1) : '';
+                sales = allSales.filter((s) => {
+                    const sameCustomer = normalizeCode(s.customer_code) === normalizeCode(cCode);
+                    const sameBill = String(s.bill_no ?? '').trim() === String(bNo ?? '').trim();
+                    return sameCustomer && (sameBill || isPendingSale(s));
+                });
             } else {
-                // Fallback for single code selection
-                sales = [...newSales, ...printedSales.filter(s => s.customer_code === selectedPrintedCustomer)];
+                const selectedCode = normalizeCode(selectedPrintedCustomer);
+                sales = allSales.filter((s) => normalizeCode(s.customer_code) === selectedCode);
             }
         } else {
-            sales = newSales;
+            const activeCustomerCode = normalizeCode(formData.customer_code);
+            if (activeCustomerCode) {
+                sales = allSales.filter((s) => normalizeCode(s.customer_code) === activeCustomerCode && isPendingSale(s));
+            } else {
+                // Default POS view remains scoped to "new" rows when no active customer is selected.
+                sales = newSales;
+            }
         }
 
-        // CRITICAL FIX: Instead of raw .reverse(), sort consistently by ID or timestamp
-        // This ensures edited rows maintain their static chronological grid position.
-        return sales.slice().sort((a, b) => (b.id || 0) - (a.id || 0));
-    }, [newSales, unprintedSales, printedSales, selectedUnprintedCustomer, selectedPrintedCustomer]);
+        // De-duplicate rows because some responses can contain repeated entries.
+        const dedupedSales = [];
+        const seenKeys = new Set();
+        sales.forEach((sale) => {
+            if (!sale) return;
+            const uniqueKey = sale.id
+                ? `id:${sale.id}`
+                : `tmp:${normalizeCode(sale.customer_code)}:${normalizeCode(sale.item_code)}:${sale.weight}:${sale.price_per_kg}:${sale.packs}`;
+            if (seenKeys.has(uniqueKey)) return;
+            seenKeys.add(uniqueKey);
+            dedupedSales.push(sale);
+        });
+
+        return dedupedSales;
+    }, [allSales, selectedUnprintedCustomer, selectedPrintedCustomer, formData.customer_code]);
 
     const autoCustomerCode = useMemo(() => displayedSales.length > 0 && !isManualClear ? displayedSales[0].customer_code || "" : "", [displayedSales, isManualClear]);
     const currentBillNo = useMemo(() => {
@@ -783,136 +1033,472 @@ export default function SalesEntry() {
         return "";
     }, [selectedPrintedCustomer, printedSales]);
 
-    const formatDecimal = (value) => {
-        return new Intl.NumberFormat('en-US', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }).format(Number(value || 0));
-    };
-    // Add this useEffect to listen for updates from PrintedBills page
     useEffect(() => {
-        console.log("✅ SalesEntry event listener MOUNTED - listening for updates");
+        isMountedRef.current = true;
+        return () => {
+            if (refreshAbortRef.current) refreshAbortRef.current.abort();
+            if (initAbortRef.current) initAbortRef.current.abort();
+            if (loanAbortRef.current) loanAbortRef.current.abort();
+            if (submitAbortRef.current) submitAbortRef.current.abort();
 
-        // Function to refresh sales data
-        const refreshSalesData = async () => {
-            try {
-                console.log("🔄 Refreshing sales data from API...");
-                const response = await api.get(routes.sales);
-                const salesData = response.data.data || response.data.sales || response.data || [];
-                console.log("📊 Fetched sales data:", salesData.length, "records");
+            activeIntervalsRef.current.forEach((id) => window.clearInterval(id));
+            activeIntervalsRef.current.clear();
+            activeTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+            activeTimeoutsRef.current.clear();
 
-                // Force a complete state update
-                updateState({
-                    allSales: salesData,
-                    forceUpdate: Date.now() // This will force CustomerList to re-render
+            isMountedRef.current = false;
+        };
+    }, []);
+    // Add this useEffect after the existing keyboard shortcut useEffect
+    useEffect(() => {
+        const handleF6Clear = (e) => {
+            if (e.key === "F6") {
+                e.preventDefault();
+
+                // Clear all form data
+                setFormData({
+                    ...initialFormData,
+                    telephone_no: "",
+                    customer_code: "",
+                    customer_name: "",
+                    supplier_code: "",
+                    item_code: "",
+                    item_name: "",
+                    weight: "",
+                    price_per_kg: "",
+                    pack_due: "",
+                    total: "",
+                    packs: "",
+                    given_amount: ""
                 });
-                console.log("✅ Sales data updated in state, forceUpdate:", Date.now());
-            } catch (error) {
-                console.error("❌ Failed to refresh sales data:", error);
+
+                // CRITICAL: Clear selected printed and unprinted customers
+                updateState({
+                    editingSaleId: null,
+                    isManualClear: false,
+                    priceManuallyChanged: false,
+                    gridPricePerKg: "",
+                    selectedSaleForBreakdown: null,
+                    isGivenAmountManuallyTouched: false,
+                    // Clear sidebar selections
+                    selectedPrintedCustomer: null,
+                    selectedUnprintedCustomer: null,
+                    currentBillNo: null,
+                    // Clear search queries if needed
+                    searchQueries: {
+                        printed: "",
+                        unprinted: "",
+                        farmerPrinted: "",
+                        farmerUnprinted: ""
+                    },
+                    // Clear loan amount
+                    loanAmount: 0,
+                    // Clear any errors
+                    errors: {},
+                    // Clear customer/supplier profile pics
+                    customerProfilePic: null,
+                    supplierProfilePic: null,
+                    customerNameDisplay: "",
+                    supplierNameDisplay: ""
+                });
+
+                // Clear the loan cache for this customer
+                loanCacheRef.current.clear();
+
+                // Focus on customer_code_input with a small delay to ensure state updates
+                setManagedTimeout(() => {
+                    if (refs.customer_code_input.current) {
+                        refs.customer_code_input.current.focus();
+                        refs.customer_code_input.current.select();
+                    }
+                }, 50);
             }
         };
 
-        // Listen for custom event from PrintedBills
-        const handleSalesUpdate = (event) => {
-            console.log("🎉 RECEIVED update from PrintedBills:", event.detail);
-            console.log("Calling refreshSalesData immediately...");
-            refreshSalesData();
+        window.addEventListener("keydown", handleF6Clear);
+
+        return () => {
+            window.removeEventListener("keydown", handleF6Clear);
+        };
+    }, [setFormData, updateState, setManagedTimeout, refs]);
+
+    // Clear loan cache after long inactivity to avoid stale/accumulated entries in all-day sessions.
+    useEffect(() => {
+        const markActivity = () => {
+            lastUserActivityAtRef.current = Date.now();
         };
 
-        // Listen for storage events (for cross-tab communication)
+        const inactivityInterval = setManagedInterval(() => {
+            const idleMs = Date.now() - lastUserActivityAtRef.current;
+            if (idleMs >= 30 * 60 * 1000 && loanCacheRef.current.size > 0) {
+                loanCacheRef.current.clear();
+            }
+        }, 5 * 60 * 1000);
+
+        window.addEventListener('mousemove', markActivity);
+        window.addEventListener('keydown', markActivity);
+        window.addEventListener('touchstart', markActivity);
+        window.addEventListener('focus', markActivity);
+
+        return () => {
+            window.removeEventListener('mousemove', markActivity);
+            window.removeEventListener('keydown', markActivity);
+            window.removeEventListener('touchstart', markActivity);
+            window.removeEventListener('focus', markActivity);
+            clearManagedInterval(inactivityInterval);
+        };
+    }, [setManagedInterval, clearManagedInterval]);
+    // Add this useEffect after the existing keyboard shortcut useEffect
+    useEffect(() => {
+        const handleF6Clear = (e) => {
+            if (e.key === "F6") {
+                e.preventDefault();
+
+                // Clear all form data
+                setFormData({
+                    ...initialFormData,
+                    // Preserve telephone number if you want, or clear it too
+                    telephone_no: "",
+                    customer_code: "",
+                    customer_name: "",
+                    supplier_code: "",
+                    item_code: "",
+                    item_name: "",
+                    weight: "",
+                    price_per_kg: "",
+                    pack_due: "",
+                    total: "",
+                    packs: "",
+                    given_amount: ""
+                });
+
+                // Reset other state variables
+                updateState({
+                    editingSaleId: null,
+                    isManualClear: false,
+                    priceManuallyChanged: false,
+                    gridPricePerKg: "",
+                    selectedSaleForBreakdown: null,
+                    isGivenAmountManuallyTouched: false,
+                    // Optionally clear sidebar selections
+                    // selectedPrintedCustomer: null,
+                    // selectedUnprintedCustomer: null,
+                    // currentBillNo: null
+                });
+
+                // Focus on customer_code_input with a small delay to ensure state updates
+                setManagedTimeout(() => {
+                    if (refs.customer_code_input.current) {
+                        refs.customer_code_input.current.focus();
+                        refs.customer_code_input.current.select();
+                    }
+                }, 50);
+            }
+        };
+
+        window.addEventListener("keydown", handleF6Clear);
+
+        return () => {
+            window.removeEventListener("keydown", handleF6Clear);
+        };
+    }, [setFormData, updateState, setManagedTimeout, refs]);
+
+    const refreshStartedAtRef = useRef(0);
+    const lastSalesSignatureRef = useRef('');
+
+    const refreshSalesData = useCallback(async (force = false) => {
+        if (!isMountedRef.current) return;
+        if (refreshInFlightRef.current) {
+            if (Date.now() - refreshStartedAtRef.current < API_TIMEOUT_MS + 5000) {
+                if (force) pendingForceRefreshRef.current = true;
+                return;
+            }
+            refreshInFlightRef.current = false;
+        }
+
+        const now = Date.now();
+        if (!force && now - lastRefreshAtRef.current < 3000) return;
+
+        if (refreshAbortRef.current) {
+            refreshAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        refreshAbortRef.current = controller;
+
+        refreshInFlightRef.current = true;
+        refreshStartedAtRef.current = now;
+        try {
+            const response = await api.get(routes.sales, { signal: controller.signal, timeout: API_TIMEOUT_MS });
+            if (!isMountedRef.current) return;
+
+            const salesData = response.data.data || response.data.sales || response.data || [];
+            const nowTs = Date.now();
+            const rawList = Array.isArray(salesData) ? salesData : [];
+
+            // Cap tombstones if refresh has been failing
+            if (deletedSaleIdsRef.current.size > 500) {
+                const trimmed = [...deletedSaleIdsRef.current].slice(-250);
+                deletedSaleIdsRef.current = new Set(trimmed);
+            }
+
+            // FIX: REMOVE the pruning logic that removes IDs from the deleted set
+            // Instead, we'll filter out deleted IDs AND keep them in the set permanently
+            // Only remove them after a certain time has passed (e.g., 30 seconds)
+
+            const serverSales = rawList.filter((sale) => {
+                const saleId = sale?.id;
+                // If this ID is in the deleted set, filter it out
+                if (deletedSaleIdsRef.current.has(saleId)) {
+                    return false;
+                }
+                return true;
+            });
+
+            const baseIds = new Set(serverSales.map((s) => s?.id).filter(Boolean));
+
+            // Keep just-submitted rows for a short window
+            recentSubmittedSalesRef.current.forEach((entry, id) => {
+                if (!entry || !id) return;
+                const ageMs = nowTs - entry.at;
+                if (ageMs > 15000) {
+                    recentSubmittedSalesRef.current.delete(id);
+                    return;
+                }
+                if (!baseIds.has(id) && !deletedSaleIdsRef.current.has(id)) {
+                    serverSales.push(entry.sale);
+                    baseIds.add(id);
+                }
+            });
+
+            lastRefreshAtRef.current = Date.now();
+
+            setState((prev) => {
+                const mergedSalesData = serverSales.slice();
+                const fetchedIds = new Set(baseIds);
+                const optimisticRows = (prev.allSales || []).filter(
+                    (sale) => sale?._optimistic || String(sale?.id || '').startsWith('tmp-')
+                );
+                optimisticRows.forEach((sale) => {
+                    const id = sale?.id;
+                    if (!id || fetchedIds.has(id)) return;
+                    mergedSalesData.push(sale);
+                    fetchedIds.add(id);
+                });
+
+                const signature = buildSalesSignature(mergedSalesData);
+                if (signature === lastSalesSignatureRef.current) return prev;
+                lastSalesSignatureRef.current = signature;
+                return { ...prev, allSales: mergedSalesData };
+            });
+
+            // After successfully refreshing, clean up old deleted IDs (older than 5 minutes)
+            // This prevents the set from growing indefinitely
+            try {
+                const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+                const storedDeletes = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
+                const freshDeletes = storedDeletes.filter(item => {
+                    // If you store with timestamp, use it
+                    if (item.timestamp && item.timestamp > fiveMinutesAgo) return true;
+                    // Otherwise keep IDs that are still in the deleted set
+                    return deletedSaleIdsRef.current.has(item.id);
+                });
+                localStorage.setItem('deletedSaleIds', JSON.stringify(freshDeletes));
+            } catch (e) {
+                // Ignore localStorage errors
+            }
+
+        } catch (error) {
+            if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+                return;
+            }
+            console.error("Failed to refresh sales data:", error);
+        } finally {
+            if (refreshAbortRef.current === controller) {
+                refreshAbortRef.current = null;
+            }
+            refreshInFlightRef.current = false;
+            if (pendingForceRefreshRef.current && isMountedRef.current) {
+                pendingForceRefreshRef.current = false;
+                setManagedTimeout(() => refreshSalesData(true), 0);
+            }
+        }
+    }, [setManagedTimeout]);
+    // Listen for updates from PrintedBills page and cross-tab storage updates.
+    useEffect(() => {
+        const handleSalesUpdate = () => {
+            refreshSalesData(true);
+        };
+
         const handleStorageChange = (event) => {
             if (event.key === 'salesDataUpdated') {
-                console.log("📦 Detected sales data update from localStorage");
+                refreshSalesData(true);
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
                 refreshSalesData();
             }
         };
 
-        // Also add a manual test function to verify event system works
-        window.testSalesRefresh = () => {
-            console.log("Manual test refresh triggered");
-            refreshSalesData();
-        };
-
         window.addEventListener('salesDataUpdated', handleSalesUpdate);
         window.addEventListener('storage', handleStorageChange);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
-            console.log("❌ SalesEntry event listener UNMOUNTED");
             window.removeEventListener('salesDataUpdated', handleSalesUpdate);
             window.removeEventListener('storage', handleStorageChange);
-            delete window.testSalesRefresh;
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, []);
-    // Add this AFTER your other useEffects - Simple polling solution
+    }, [refreshSalesData]);
+
+    // Keep periodic refresh lightweight to avoid excessive re-renders on large datasets.
     useEffect(() => {
-        // Refresh every 5 seconds
-        const interval = setInterval(async () => {
-            try {
-                const response = await api.get(routes.sales);
-                const salesData = response.data.data || response.data.sales || response.data || [];
-                updateState({
-                    allSales: salesData,
-                    forceUpdate: Date.now()
-                });
-            } catch (error) {
-                console.error("Refresh failed:", error);
+        const interval = setManagedInterval(() => {
+            if (document.visibilityState === 'visible') {
+                refreshSalesData();
             }
-        }, 5000); // 5 seconds
+        }, 30000);
 
-        return () => clearInterval(interval);
-    }, []);
+        return () => clearManagedInterval(interval);
+    }, [refreshSalesData, setManagedInterval, clearManagedInterval]);
+
+    // Reference data (customers/items/suppliers) also goes stale over an all-day session;
+    // refresh it quietly every 10 minutes without touching the sales list or the form.
+    const referenceRefreshInFlightRef = useRef(false);
+    useEffect(() => {
+        const interval = setManagedInterval(async () => {
+            if (document.visibilityState !== 'visible') return;
+            if (referenceRefreshInFlightRef.current) {
+                // Stuck-lock recovery if a prior refresh never cleared the flag.
+                if (Date.now() - referenceRefreshStartedAtRef.current < API_TIMEOUT_MS + 5000) return;
+                referenceRefreshInFlightRef.current = false;
+            }
+            referenceRefreshInFlightRef.current = true;
+            referenceRefreshStartedAtRef.current = Date.now();
+            const controller = new AbortController();
+            try {
+                const reqConfig = { signal: controller.signal, timeout: API_TIMEOUT_MS };
+                const [resCustomers, resItems, resSuppliers] = await Promise.all([
+                    api.get(routes.customers, reqConfig),
+                    api.get(routes.items, reqConfig),
+                    api.get(routes.suppliers, reqConfig)
+                ]);
+                if (!isMountedRef.current) return;
+                updateState({
+                    customers: resCustomers.data.data || resCustomers.data.customers || resCustomers.data || [],
+                    items: resItems.data.data || resItems.data.items || resItems.data || [],
+                    suppliers: resSuppliers.data.data || resSuppliers.data.suppliers || resSuppliers.data || [],
+                });
+            } catch {
+                // A failed background refresh is harmless; existing data stays usable.
+            } finally {
+                referenceRefreshInFlightRef.current = false;
+            }
+        }, 10 * 60 * 1000);
+
+        return () => clearManagedInterval(interval);
+    }, [updateState, setManagedInterval, clearManagedInterval]);
 
 
-    const fetchLoanAmount = async (customerCode) => {
+    const fetchLoanAmount = useCallback(async (customerCode) => {
         if (!customerCode) return updateState({ loanAmount: 0 });
-        try {
-            const response = await api.post(routes.getLoanAmount, { customer_short_name: customerCode });
-            updateState({ loanAmount: parseFloat(response.data.total_loan_amount) || 0 });
-        } catch { updateState({ loanAmount: 0 }); }
-    };
 
-    const fetchInitialData = async () => {
+        const normalized = String(customerCode).trim().toUpperCase();
+        if (loanCacheRef.current.has(normalized)) {
+            updateState({ loanAmount: loanCacheRef.current.get(normalized) });
+            return;
+        }
+
+        if (loanAbortRef.current) {
+            loanAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        loanAbortRef.current = controller;
+
         try {
-            const userData = JSON.parse(localStorage.getItem('user'));
+            const response = await api.post(routes.getLoanAmount, { customer_short_name: customerCode }, { signal: controller.signal, timeout: API_TIMEOUT_MS });
+            const value = parseFloat(response.data.total_loan_amount) || 0;
+            // Prevent unbounded cache growth during long-running sessions.
+            if (!loanCacheRef.current.has(normalized) && loanCacheRef.current.size >= 200) {
+                const oldestKey = loanCacheRef.current.keys().next().value;
+                if (oldestKey !== undefined) {
+                    loanCacheRef.current.delete(oldestKey);
+                }
+            }
+            loanCacheRef.current.set(normalized, value);
+            updateState({ loanAmount: value });
+        } catch (error) {
+            if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+                return;
+            }
+            updateState({ loanAmount: 0 });
+        } finally {
+            if (loanAbortRef.current === controller) {
+                loanAbortRef.current = null;
+            }
+        }
+    }, [updateState]);
+
+    const fetchInitialData = useCallback(async (attempt = 0) => {
+        if (initAbortRef.current) {
+            initAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        initAbortRef.current = controller;
+
+        try {
+            let userData = null;
+            try { userData = JSON.parse(localStorage.getItem('user')); } catch { /* corrupt storage should not block the page */ }
+            const reqConfig = { signal: controller.signal, timeout: API_TIMEOUT_MS };
             const [resSales, resCustomers, resItems, resSuppliers] = await Promise.all([
-                api.get(routes.sales), api.get(routes.customers), api.get(routes.items), api.get(routes.suppliers)
+                api.get(routes.sales, reqConfig),
+                api.get(routes.customers, reqConfig),
+                api.get(routes.items, reqConfig),
+                api.get(routes.suppliers, reqConfig)
             ]);
+
+            if (!isMountedRef.current) return;
+
             const salesData = resSales.data.data || resSales.data.sales || resSales.data || [];
             const customersData = resCustomers.data.data || resCustomers.data.customers || resCustomers.data || [];
             const itemsData = resItems.data.data || resItems.data.items || resItems.data || [];
             const suppliersData = resSuppliers.data.data || resSuppliers.data.suppliers || resSuppliers.data || [];
             updateState({
-                allSales: salesData,
+                allSales: Array.isArray(salesData)
+                    ? salesData.filter((sale) => !deletedSaleIdsRef.current.has(sale?.id))
+                    : [],
                 customers: customersData,
                 items: itemsData,
                 suppliers: suppliersData,
                 isLoading: false,
                 currentUser: userData
             });
-        } catch {
-            updateState({ errors: { form: 'Failed to load data. Check console.' } });
+        } catch (error) {
+            if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+                return;
+            }
+            updateState({ errors: { form: 'Failed to load data. Retrying…' } });
+            // Auto-retry with backoff so a brief network blip at page open doesn't leave
+            // the operator with an empty screen for the rest of the day.
+            if (attempt < 5 && isMountedRef.current) {
+                setManagedTimeout(() => fetchInitialData(attempt + 1), Math.min(30000, 2000 * (attempt + 1)));
+            }
+        } finally {
+            if (initAbortRef.current === controller) {
+                initAbortRef.current = null;
+            }
         }
-    };
+    }, [updateState, setManagedTimeout]);
 
     useEffect(() => {
-        if (displayedSales.length > 0) {
-            const totals = displayedSales.reduce((acc, s) => {
-                const weight = parseFloat(s.weight) || 0;
-                const price = parseFloat(s.price_per_kg) || 0;
-                const packs = parseFloat(s.packs) || 0;
-                const pCost = parseFloat(s.CustomerPackCost) || 0;
-                const pLabour = parseFloat(s.CustomerPackLabour) || 0;
-                acc.billTotal += (weight * price);
-                acc.totalBagPrice += (packs * pCost);
-                acc.totalLabour += (packs * pLabour);
-                return acc;
-            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
-            const calculatedFinal = totals.billTotal + totals.totalBagPrice;
-            //  setFormData(prev => prev.given_amount === null || prev.given_amount === "" ? { ...prev, given_amount: calculatedFinal.toFixed(2) } : prev);
-        } else {
-            setFormData(prev => ({ ...prev, given_amount: "" }));
+        // Only clear given_amount when the customer selection is gone — not when
+        // displayedSales briefly goes empty during a refresh/filter flicker.
+        const hasCustomer = !!(formData.customer_code || autoCustomerCode || selectedUnprintedCustomer || selectedPrintedCustomer);
+        if (!hasCustomer) {
+            setFormData(prev => (prev.given_amount === "" ? prev : { ...prev, given_amount: "" }));
         }
-    }, [displayedSales]);
+    }, [formData.customer_code, autoCustomerCode, selectedUnprintedCustomer, selectedPrintedCustomer, setFormData]);
     useEffect(() => {
         // Determine the code to search for: manually entered, phone-matched, or sidebar-selected
         const code = formData.customer_code || autoCustomerCode;
@@ -995,24 +1581,46 @@ export default function SalesEntry() {
     useEffect(() => {
         const w = parseFloat(formData.weight) || 0;
         const p = parseFloat(formData.price_per_kg) || 0;
-        const packs = parseInt(formData.packs) || 0;
-        const packDue = parseFloat(formData.pack_due) || 0;
-        const total = (w * p);
-        setFormData(prev => ({ ...prev, total: Number(total.toFixed(2)) }));
+        const total = Number((w * p).toFixed(2));
+        // Bail when the value is already correct so this effect doesn't trigger an extra
+        // render for every keystroke in unrelated fields.
+        setFormData(prev => (prev.total === total ? prev : { ...prev, total }));
         if (!state.priceManuallyChanged) updateState({ gridPricePerKg: formData.price_per_kg });
     }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
 
     useEffect(() => {
-        const handleWindowFocus = () => updateState(prev => ({ ...prev, windowFocused: Date.now() }));
-        window.addEventListener('focus', handleWindowFocus);
-        return () => window.removeEventListener('focus', handleWindowFocus);
-    }, []);
+        fetchInitialData();
+        refs.customer_code_input.current?.focus();
+    }, [fetchInitialData]);
 
-    useEffect(() => { fetchInitialData(); refs.customer_code_input.current?.focus(); }, []);
+    const buildSubmissionFormData = useCallback((formOverrides = {}) => {
+        const resolvedPricePerKg = refs.price_per_kg_grid_item.current?.value
+            ?? refs.price_per_kg.current?.value
+            ?? formData.price_per_kg;
+        const nextFormData = {
+            ...formData,
+            customer_code: refs.customer_code_input.current?.value ?? formData.customer_code,
+            supplier_code: refs.supplier_code.current?.value ?? formData.supplier_code,
+            weight: refs.weight.current?.value ?? formData.weight,
+            price_per_kg: resolvedPricePerKg,
+            packs: refs.packs.current?.value ?? formData.packs,
+            ...formOverrides,
+        };
+
+        const computedTotal = (parseFloat(nextFormData.weight) || 0) * (parseFloat(nextFormData.price_per_kg) || 0);
+        return {
+            ...nextFormData,
+            total: Number(computedTotal.toFixed(2)),
+        };
+    }, [formData]);
 
     const handleKeyDown = async (e, currentFieldName) => {
         if (e.key === "Enter") {
             e.preventDefault();
+            e.stopPropagation();
+
+            // Ignore key auto-repeat so one physical Enter press triggers one submit flow.
+            if (e.repeat) return;
 
             // NEW: Handle ONLY the specific price_per_kg field (not the grid item)
             if (currentFieldName === "price_per_kg") {
@@ -1032,7 +1640,7 @@ export default function SalesEntry() {
                     updateState({ errors: { form: 'Please enter packs' } });
                     return;
                 }
-                await handleSubmit(e);
+                await handleSubmit(e, {}, { bypassSignatureThrottle: true });
                 return;
             }
 
@@ -1045,8 +1653,32 @@ export default function SalesEntry() {
                 return;
             }
 
-            // 2. Handle Item Packs
-            if (currentFieldName === "packs") return handleSubmit(e);
+            // 2. Packs Enter → submit exactly once. Extra Enter presses are ignored while locked.
+            if (currentFieldName === "packs") {
+                const submitFormData = buildSubmissionFormData();
+
+                if (!submitFormData.item_code) {
+                    refs.item_code_select.current?.focus();
+                    updateState({ errors: { form: 'Please select an item first' } });
+                    return;
+                }
+                if (!submitFormData.weight) {
+                    refs.weight.current?.focus();
+                    updateState({ errors: { form: 'Please enter weight' } });
+                    return;
+                }
+
+                if (!submitFormData.packs || submitFormData.packs.toString().trim() === '') {
+                    updateState({ errors: { form: 'Please enter packs' } });
+                    refs.packs.current?.focus();
+                    return;
+                }
+
+                // Do NOT early-return on isSubmittingRef here — that was the all-day stuck bug.
+                // handleSubmit owns the lock + stuck-lock recovery.
+                await handleSubmit(e, submitFormData, { bypassSignatureThrottle: true });
+                return;
+            }
 
             // 3. Logic for TELEPHONE input (Reverse Lookup)
             if (currentFieldName === "telephone_no") {
@@ -1082,6 +1714,20 @@ export default function SalesEntry() {
                 return;
             }
 
+            // supplier_code → item select. Defer focus until after this Enter keydown
+            // fully settles; sync focus during keydown lets some browsers bounce focus
+            // back to supplier (and late post-submit focusSupplierCode can too).
+            if (currentFieldName === "supplier_code") {
+                suppressSupplierFocusUntilRef.current = Date.now() + 2500;
+                refs.supplier_code.current?.blur();
+                requestAnimationFrame(() => {
+                    setManagedTimeout(() => {
+                        focusItemCodeSelect();
+                    }, 0);
+                });
+                return;
+            }
+
             // 5. General Navigation Logic
             let nextFieldName = skipMap[currentFieldName];
             if (!nextFieldName) {
@@ -1096,8 +1742,12 @@ export default function SalesEntry() {
 
             const nextRef = refs[nextFieldName];
             if (nextRef?.current) {
+                if (nextFieldName === "item_code_select") {
+                    focusItemCodeSelect();
+                    return;
+                }
                 requestAnimationFrame(() => {
-                    setTimeout(() => {
+                    setManagedTimeout(() => {
                         nextRef.current.focus();
                         if (!nextFieldName.includes("select")) nextRef.current.select();
                     }, 0);
@@ -1106,9 +1756,19 @@ export default function SalesEntry() {
         }
     };
 
-    const salesTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
-    const packCostTotal = displayedSales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
-    const totalSalesValue = salesTotal + packCostTotal;
+    const { salesTotal, packCostTotal, totalSalesValue } = useMemo(() => {
+        const totals = displayedSales.reduce((acc, s) => {
+            acc.sales += ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0));
+            acc.pack += ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0));
+            return acc;
+        }, { sales: 0, pack: 0 });
+
+        return {
+            salesTotal: totals.sales,
+            packCostTotal: totals.pack,
+            totalSalesValue: totals.sales + totals.pack,
+        };
+    }, [displayedSales]);
 
     const handleInputChange = (field, value) => {
         if (field === 'price_per_kg') {
@@ -1127,7 +1787,7 @@ export default function SalesEntry() {
 
         if (field === 'customer_code') {
             const trimmedValue = value.trim();
-            updateState({ isManualClear: value === '' });
+            updateState({ isManualClear: value === '', selectedPrintedCustomer: null });
             const matchingCustomer = unprintedCustomers.find(code => code.toLowerCase() === trimmedValue.toLowerCase());
 
             if (matchingCustomer) updateState({ selectedUnprintedCustomer: matchingCustomer, selectedPrintedCustomer: null });
@@ -1158,11 +1818,44 @@ export default function SalesEntry() {
             const { item } = selectedOption;
             const fetchedPackDue = parseFloat(item?.pack_due) || 0;
             const fetchedPackCost = parseFloat(item?.pack_cost) || 0;
-            setFormData(prev => ({ ...prev, item_code: item.no, item_name: item.type, pack_due: fetchedPackDue, weight: editingSaleId ? prev.weight : "", price_per_kg: editingSaleId ? prev.price_per_kg : "", packs: editingSaleId ? prev.packs : "", leading_sales_id: editingSaleId ? prev.leading_sales_id : "", total: editingSaleId ? prev.total : "" }));
-            updateState({ packCost: fetchedPackCost, itemSearchInput: "", gridPricePerKg: editingSaleId ? formData.price_per_kg : "" });
-            setTimeout(() => refs.weight.current?.focus(), 100);
+
+            setFormData(prev => ({
+                ...prev,
+                item_code: item.no,
+                item_name: item.type,
+                pack_due: fetchedPackDue,
+                // Keep existing values, don't reset them
+                weight: prev.weight || "",
+                price_per_kg: prev.price_per_kg || "",
+                packs: prev.packs || "",
+                leading_sales_id: prev.leading_sales_id || "",
+                total: prev.total || ""
+            }));
+
+            updateState({
+                packCost: fetchedPackCost,
+                itemSearchInput: "",
+                gridPricePerKg: formData.price_per_kg || ""
+            });
+
+            // Focus on weight field
+            setManagedTimeout(() => refs.weight.current?.focus(), 100);
         } else {
-            setFormData(prev => ({ ...prev, item_code: "", item_name: "", pack_due: "", price_per_kg: "", weight: "", packs: "", leading_sales_id: "", total: "" }));
+            // Only clear everything if explicitly deselecting
+            setFormData(prev => ({
+                ...prev,
+                item_code: "",
+                item_name: "",
+                pack_due: "",
+                // Keep the values when deselecting? Or clear them?
+                // If you want to keep them, use prev.weight, etc.
+                // If you want to clear them, use ""
+                weight: "",  // Change to prev.weight if you want to keep
+                price_per_kg: "",  // Change to prev.price_per_kg if you want to keep
+                packs: "",  // Change to prev.packs if you want to keep
+                leading_sales_id: "",
+                total: ""
+            }));
             updateState({ packCost: 0, itemSearchInput: "", gridPricePerKg: "" });
         }
     };
@@ -1175,7 +1868,7 @@ export default function SalesEntry() {
         setFormData(prev => ({ ...prev, customer_code: short || "", customer_name: customer?.name || "", given_amount: existingGivenAmount }));
         fetchLoanAmount(short);
         updateState({ isManualClear: false });
-        setTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100);
+        setManagedTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100);
     };
     //function to display customer image
     const handleImageClick = (entityType) => {
@@ -1242,7 +1935,7 @@ export default function SalesEntry() {
                 selectedSaleForBreakdown: null
             });
 
-            setTimeout(() => {
+            setManagedTimeout(() => {
                 refs.supplier_code?.current?.focus();
                 refs.supplier_code?.current?.select();
             }, 0);
@@ -1283,7 +1976,7 @@ export default function SalesEntry() {
         });
 
         // CHANGE THIS PART - Focus on price field instead of weight
-        setTimeout(() => {
+        setManagedTimeout(() => {
             refs.price_per_kg_grid_item.current?.focus();
             refs.price_per_kg_grid_item.current?.select();
         }, 0);
@@ -1293,31 +1986,126 @@ export default function SalesEntry() {
 
     const handleClearForm = (clearBillNo = false) => {
         setFormData(initialFormData);
-        updateState({ editingSaleId: null, loanAmount: 0, isManualClear: false, packCost: 0, customerSearchInput: "", itemSearchInput: "", supplierSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "", isGivenAmountManuallyTouched: false, selectedSaleForBreakdown: null, ...(clearBillNo && { currentBillNo: null }) });
+        updateState({
+            editingSaleId: null,
+            loanAmount: 0,
+            isManualClear: false,
+            packCost: 0,
+            customerSearchInput: "",
+            itemSearchInput: "",
+            supplierSearchInput: "",
+            priceManuallyChanged: false,
+            gridPricePerKg: "",
+            isGivenAmountManuallyTouched: false,
+            selectedSaleForBreakdown: null,
+            ...(clearBillNo && { currentBillNo: null })
+        });
+        // REMOVED: setTimeout(() => { refs.supplier_code?.current?.focus(); }, 0);
     };
 
     const handleDeleteRecord = async (saleId) => {
-        if (!saleId || !window.confirm("Are you sure you want to delete this sales record?")) return;
+        if (!saleId) {
+            updateState({ errors: { form: "Invalid sale ID" } });
+            return;
+        }
+
+        if (!window.confirm("Are you sure you want to delete this sales record?")) {
+            return;
+        }
+
+        const removedSale = allSales.find((sale) => sale.id === saleId) || null;
+
+        if (!removedSale) {
+            updateState({ errors: { form: "Record not found" } });
+            return;
+        }
+
+        // Add to deleted IDs set with timestamp
+        deletedSaleIdsRef.current.add(saleId);
+
+        // Store with timestamp for cleanup
         try {
-            await api.delete(`${routes.sales}/${saleId}`);
-            updateState({ allSales: allSales.filter(s => s.id !== saleId) });
-            if (editingSaleId === saleId) handleClearForm();
-        } catch (error) { updateState({ errors: { form: error.response?.data?.message || error.message } }); }
+            const deletedIds = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
+            // Add with timestamp
+            deletedIds.push({
+                id: saleId,
+                timestamp: Date.now()
+            });
+            // Keep only last 100 entries to prevent unbounded growth
+            if (deletedIds.length > 100) {
+                deletedIds.splice(0, deletedIds.length - 100);
+            }
+            localStorage.setItem('deletedSaleIds', JSON.stringify(deletedIds));
+        } catch (e) {
+            // Ignore localStorage errors
+        }
+
+        // Immediately remove from state (optimistic update)
+        flushSync(() => {
+            setState((prev) => ({
+                ...prev,
+                allSales: prev.allSales.filter((sale) => sale.id !== saleId),
+            }));
+        });
+
+        // Clear form if editing the deleted record
+        if (editingSaleId === saleId) {
+            handleClearForm();
+        }
+
+        try {
+            // Call API to delete
+            await api.delete(`${routes.sales}/${saleId}`, { timeout: API_TIMEOUT_MS });
+
+            // Force refresh but with a delay to let backend process
+            setTimeout(() => {
+                refreshSalesData(true);
+            }, 1000);
+
+        } catch (error) {
+            // If delete fails, remove from deleted set and restore the record
+            deletedSaleIdsRef.current.delete(saleId);
+
+            // Also remove from localStorage
+            try {
+                const deletedIds = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
+                const updated = deletedIds.filter(item => item.id !== saleId);
+                localStorage.setItem('deletedSaleIds', JSON.stringify(updated));
+            } catch (e) {
+                // Ignore localStorage errors
+            }
+
+            if (removedSale) {
+                setState((prev) => ({
+                    ...prev,
+                    allSales: [...prev.allSales, removedSale],
+                }));
+            }
+
+            updateState({
+                errors: {
+                    form: error.response?.data?.message || error.message || "Failed to delete record"
+                }
+            });
+        }
     };
 
     const handleSubmitGivenAmount = async (e) => {
         if (e) e.preventDefault();
+        // Prevent parallel Enter presses from firing duplicate given-amount + print flows.
+        if (givenAmountInFlightRef.current) return null;
+        givenAmountInFlightRef.current = true;
         updateState({ errors: {} });
 
-        const customerCode = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
-        if (!customerCode) return null;
-
-        const salesToUpdate = displayedSales.filter(s => s.id);
-        if (salesToUpdate.length === 0) return null;
-
         try {
+            const customerCode = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+            if (!customerCode) return null;
+
+            const salesToUpdate = displayedSales.filter(s => s.id);
+            if (salesToUpdate.length === 0) return null;
+
             // 1. Get the entered amount
-            const currentInputAmount = parseFloat(formData.given_amount.toString().replace(/,/g, "")) || 0;
+            const currentInputAmount = parseFloat(String(formData.given_amount ?? "").replace(/,/g, "")) || 0;
 
             // 2. DETECT CREDIT STATUS based on your calculated logic
             // We calculate it here to know if we should block the process before the API call
@@ -1337,57 +2125,67 @@ export default function SalesEntry() {
             const isCredit = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
             const creditTransactionStatus = isCredit ? 'Y' : 'N';
 
-            // 3. VALIDATION: Check column status 'Y'
-            /*
-            if (creditTransactionStatus === 'Y') {
-                const customerRecord = customers.find(c =>
-                    String(c.short_name).toUpperCase() === customerCode
-                );
-
-                // Check if record exists and has photos
-                const hasRequiredDocs = customerRecord &&
-                    customerRecord.profile_pic &&
-                    customerRecord.nic_front &&
-                    customerRecord.nic_back;
-
-                if (!hasRequiredDocs) {
-                    alert("ණය ගනුදෙනුවක් සිදු කිරීමට පෙර කරුණාකර මෙම පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.");
-
-                    // Perform your clearing function
-                    handleMarkAllProcessed();
-                    return null; // STOP
-                }
-            }
-                */
-
             // 4. PROCEED: Update database with the determined status
             const updatePromises = salesToUpdate.map(sale =>
                 api.put(`${routes.sales}/${sale.id}/given-amount`, {
                     given_amount: currentInputAmount,
                     credit_transaction: creditTransactionStatus
-                })
+                }, { timeout: API_TIMEOUT_MS })
             );
 
             const results = await Promise.all(updatePromises);
+            if (!isMountedRef.current) return null;
             updateState({ isGivenAmountManuallyTouched: false });
 
             const updatedSalesFromApi = results.map(response => response.data.sale);
             const updatedSalesMap = {};
             updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
 
-            updateState({
-                allSales: allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s)
-            });
+            // Functional update: `allSales` captured at render time may be stale after the
+            // await above (a background refresh could have replaced it).
+            setState(prev => ({
+                ...prev,
+                allSales: prev.allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s)
+            }));
 
             return updatedSalesFromApi;
         } catch (error) {
-            updateState({ errors: { form: error.response?.data?.message || error.message } });
+            if (isMountedRef.current) {
+                updateState({ errors: { form: error.response?.data?.message || error.message } });
+            }
             return null;
+        } finally {
+            givenAmountInFlightRef.current = false;
         }
     };
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (state.isSubmitting) return;
+    const handleSubmit = async (e, formOverrides = {}, options = {}) => {
+        const { bypassSignatureThrottle = false } = options;
+        if (e?.preventDefault) e.preventDefault();
+        const now = Date.now();
+
+        // Acquire lock FIRST — before any await — so 100 Enter presses = 1 submit.
+        if (!tryAcquireSubmitLock()) {
+            return;
+        }
+        const myGeneration = submitGenerationRef.current;
+
+        const effectiveFormData = buildSubmissionFormData(formOverrides);
+        const submitSignature = [
+            editingSaleId || 'new',
+            String(effectiveFormData.customer_code || '').trim().toUpperCase(),
+            String(effectiveFormData.supplier_code || '').trim().toUpperCase(),
+            String(effectiveFormData.item_code || '').trim().toUpperCase(),
+            String(effectiveFormData.weight || '').trim(),
+            String(effectiveFormData.price_per_kg || '').trim(),
+            String(effectiveFormData.packs || '').trim(),
+        ].join('|');
+
+        // Prevent accidental double submit from rapid Enter on the same payload
+        // (packs path uses bypassSignatureThrottle; other paths still get this guard).
+        if (!bypassSignatureThrottle && submitSignature === lastSubmitSignatureRef.current && now - lastSubmitAtRef.current < 1200) {
+            releaseSubmitLock();
+            return;
+        }
 
         // --- 1. VALIDATION LOGIC ---
         const requiredFields = [
@@ -1399,7 +2197,7 @@ export default function SalesEntry() {
         ];
 
         for (const field of requiredFields) {
-            const value = formData[field.key];
+            const value = effectiveFormData[field.key];
             if (value === null || value === undefined || value.toString().trim() === "") {
                 updateState({ errors: { form: `කරුණාකර ${field.label} ඇතුළත් කරන්න` } });
                 const targetRef = refs[field.ref];
@@ -1407,22 +2205,46 @@ export default function SalesEntry() {
                     targetRef.current.focus();
                     if (!field.ref.includes("select")) targetRef.current.select();
                 }
+                releaseSubmitLock();
                 return;
             }
         }
 
         // --- 2. PRE-FLIGHT PREPARATION ---
+        lastSubmitSignatureRef.current = submitSignature;
+        lastSubmitAtRef.current = now;
         updateState({ errors: {}, isSubmitting: true });
 
-        // Capture these now so they are available for the reset after the async gap
-        const customerCode = (formData.customer_code || autoCustomerCode).toUpperCase();
-        const currentSupplierCode = formData.supplier_code;
-        const currentCustomerName = formData.customer_name;
-        const currentTelephone = formData.telephone_no;
+        const customerCode = (effectiveFormData.customer_code || autoCustomerCode).toUpperCase();
+        const currentSupplierCode = effectiveFormData.supplier_code;
+        const currentCustomerName = effectiveFormData.customer_name;
+        const currentTelephone = effectiveFormData.telephone_no;
         const shouldUpdateRelatedPrice = state.priceManuallyChanged;
+        const normalizedWeight = parseFloat(effectiveFormData.weight) || 0;
+        const normalizedPricePerKg = parseFloat(effectiveFormData.price_per_kg) || 0;
+        const normalizedPacks = parseFloat(effectiveFormData.packs) || 0;
+        const computedTotal = Number((normalizedWeight * normalizedPricePerKg).toFixed(2));
+        const editingIdAtStart = editingSaleId;
+        const previousEditedSale = editingIdAtStart !== null
+            ? (allSales.find((sale) => sale.id === editingIdAtStart) || null)
+            : null;
+        const tempId = editingIdAtStart ? null : `tmp-${Date.now()}-${myGeneration}`;
+        let submitTimeoutId = null;
+        let submitController = null;
 
         try {
-            const isEditing = editingSaleId !== null;
+            const isEditing = editingIdAtStart !== null;
+
+            if (submitAbortRef.current) {
+                try { submitAbortRef.current.abort(); } catch (_) { /* ignore */ }
+            }
+            submitController = new AbortController();
+            submitAbortRef.current = submitController;
+            submitTimeoutId = window.setTimeout(() => {
+                if (submitAbortRef.current === submitController) {
+                    submitController.abort();
+                }
+            }, SUBMIT_TIMEOUT_MS);
 
             // --- 3. BILLING LOGIC ---
             let billPrintedStatus = undefined, billNoToUse = null;
@@ -1437,6 +2259,10 @@ export default function SalesEntry() {
                         : printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no;
                 } else if (selectedUnprintedCustomer) {
                     billPrintedStatus = 'N';
+                    billNoToUse = null;
+                } else {
+                    billPrintedStatus = 'N';
+                    billNoToUse = null;
                 }
             }
 
@@ -1444,64 +2270,238 @@ export default function SalesEntry() {
                 supplier_code: currentSupplierCode.toUpperCase(),
                 customer_code: customerCode,
                 customer_name: currentCustomerName,
-                item_code: formData.item_code,
-                item_name: formData.item_name,
-                weight: parseFloat(formData.weight) || 0,
-                price_per_kg: parseFloat(formData.price_per_kg) || 0,
-                pack_due: parseFloat(formData.pack_due) || 0,
-                total: parseFloat(formData.total) || 0,
-                packs: parseFloat(formData.packs) || 0,
-                given_amount: formData.given_amount ? parseFloat(formData.given_amount) : null,
+                item_code: effectiveFormData.item_code,
+                item_name: effectiveFormData.item_name,
+                weight: normalizedWeight,
+                price_per_kg: normalizedPricePerKg,
+                pack_due: parseFloat(effectiveFormData.pack_due) || 0,
+                total: computedTotal,
+                packs: normalizedPacks,
+                given_amount: effectiveFormData.given_amount ? parseFloat(effectiveFormData.given_amount) : null,
                 ...(billPrintedStatus && { bill_printed: billPrintedStatus }),
                 ...(billNoToUse && { bill_no: billNoToUse }),
                 update_related_price: shouldUpdateRelatedPrice,
             };
 
-            const url = isEditing ? `${routes.sales}/${editingSaleId}` : routes.sales;
+            const url = isEditing ? `${routes.sales}/${editingIdAtStart}` : routes.sales;
             const method = isEditing ? "put" : "post";
 
-            // --- 4. API EXECUTION ---
-            const response = await api[method](url, payload);
+            // --- Optimistic UI: clear form + show row immediately so Enter feels instant ---
+            if (isEditing && previousEditedSale) {
+                const optimisticSale = {
+                    ...previousEditedSale,
+                    ...payload,
+                    id: editingIdAtStart,
+                };
+                setState((prev) => ({
+                    ...prev,
+                    allSales: prev.allSales.map((sale) =>
+                        sale.id === editingIdAtStart ? optimisticSale : sale
+                    ),
+                    formData: {
+                        ...initialFormData,
+                        customer_code: customerCode,
+                        customer_name: currentCustomerName || prev.formData.customer_name,
+                        telephone_no: currentTelephone || prev.formData.telephone_no,
+                        supplier_code: currentSupplierCode || "",
+                    },
+                    editingSaleId: null,
+                    isManualClear: false,
+                    isSubmitting: true,
+                    priceManuallyChanged: false,
+                    gridPricePerKg: "",
+                    selectedSaleForBreakdown: null,
+                }));
+            } else if (!isEditing && tempId) {
+                const optimisticSale = {
+                    ...payload,
+                    id: tempId,
+                    bill_printed: billPrintedStatus || 'N',
+                    CustomerPackCost: packCost || 0,
+                    _optimistic: true,
+                };
+                // Register immediately so a silent refresh mid-submit cannot drop the row.
+                recentSubmittedSalesRef.current.set(tempId, { sale: optimisticSale, at: Date.now() });
+                setState((prev) => {
+                    let keepUnprinted = prev.selectedUnprintedCustomer;
+                    let keepPrinted = prev.selectedPrintedCustomer;
+                    if (!keepUnprinted && !keepPrinted && customerCode) {
+                        keepUnprinted = customerCode;
+                    }
+                    return {
+                        ...prev,
+                        allSales: [...prev.allSales, optimisticSale],
+                        formData: {
+                            ...initialFormData,
+                            customer_code: customerCode,
+                            customer_name: currentCustomerName || prev.formData.customer_name,
+                            telephone_no: currentTelephone || prev.formData.telephone_no,
+                            supplier_code: currentSupplierCode || "",
+                        },
+                        editingSaleId: null,
+                        isManualClear: false,
+                        isSubmitting: true,
+                        priceManuallyChanged: false,
+                        gridPricePerKg: "",
+                        selectedUnprintedCustomer: keepUnprinted,
+                        selectedPrintedCustomer: keepPrinted,
+                        selectedSaleForBreakdown: null,
+                    };
+                });
+            }
+
+            // Packs Enter completed a valid submit: cancel the earlier supplier-navigation
+            // suppression and focus/select the supplier immediately, without waiting for the API.
+            suppressSupplierFocusUntilRef.current = 0;
+            focusSupplierCode();
+            requestAnimationFrame(() => {
+                focusSupplierCode();
+            });
+
+            // --- 4. API EXECUTION (with hard timeout — never hangs all day) ---
+            const response = await api[method](url, payload, {
+                signal: submitController.signal,
+                timeout: SUBMIT_TIMEOUT_MS,
+            });
+
+            // If a newer submit started (should not happen with the lock), ignore this result.
+            if (myGeneration !== submitGenerationRef.current) {
+                return;
+            }
 
             // --- 5. DATA SYNC ---
-            let updatedSales = response.data.sales || [response.data.sale || response.data.data || response.data];
-            const updatedIds = updatedSales.map(s => s.id);
-            const newAllSales = allSales.filter(s => !updatedIds.includes(s.id)).concat(updatedSales);
-
-            // --- 6. OPTIMIZED UI RESET ---
-            // We update everything in one cycle to prevent multiple re-renders
-            setFormData({
-                ...initialFormData,
-                customer_code: customerCode,
-                customer_name: currentCustomerName,
-                telephone_no: currentTelephone,
-                supplier_code: currentSupplierCode,
+            const updatedSales = response.data.sales || [response.data.sale || response.data.data || response.data];
+            const trackAt = Date.now();
+            if (tempId) {
+                recentSubmittedSalesRef.current.delete(tempId);
+            }
+            updatedSales.forEach((sale) => {
+                if (sale?.id) {
+                    recentSubmittedSalesRef.current.set(sale.id, { sale, at: trackAt });
+                    // Cap map growth across a full day of entries.
+                    if (recentSubmittedSalesRef.current.size > 100) {
+                        const oldest = recentSubmittedSalesRef.current.keys().next().value;
+                        recentSubmittedSalesRef.current.delete(oldest);
+                    }
+                }
             });
 
-            updateState({
-                allSales: newAllSales,
-                editingSaleId: null,
-                isManualClear: false,
-                isSubmitting: false,
-                priceManuallyChanged: false,
-                gridPricePerKg: "",
-            });
+            if (isMountedRef.current) {
+                setState(prev => {
+                    const updatedSalesById = new Map(updatedSales.filter((sale) => sale?.id).map((sale) => [sale.id, sale]));
+                    let uniqueMergedSales = prev.allSales
+                        .filter((sale) => sale?.id !== tempId)
+                        .map((sale) => updatedSalesById.get(sale.id) || sale);
 
-            // Immediate focus (no timeout) for faster data entry workflow
-            if (refs.supplier_code.current) {
-                refs.supplier_code.current.focus();
-                refs.supplier_code.current.select();
+                    const existingIds = new Set(uniqueMergedSales.map((sale) => sale?.id).filter(Boolean));
+                    updatedSales.forEach((sale) => {
+                        if (!sale?.id || existingIds.has(sale.id)) return;
+                        uniqueMergedSales.push(sale);
+                        existingIds.add(sale.id);
+                    });
+
+                    const currentCustomerCode = prev.formData.customer_code || customerCode;
+                    let keepUnprinted = prev.selectedUnprintedCustomer;
+                    let keepPrinted = prev.selectedPrintedCustomer;
+
+                    if (prev.selectedUnprintedCustomer) {
+                        keepUnprinted = prev.selectedUnprintedCustomer;
+                    } else if (prev.selectedPrintedCustomer) {
+                        keepPrinted = prev.selectedPrintedCustomer;
+                    } else if (currentCustomerCode) {
+                        const hasUnprinted = uniqueMergedSales.some(s =>
+                            normalizeCode(s.customer_code) === normalizeCode(currentCustomerCode) &&
+                            s.bill_printed !== 'Y'
+                        );
+                        if (hasUnprinted) {
+                            keepUnprinted = currentCustomerCode;
+                        }
+                    }
+
+                    // CRITICAL: never rewrite formData here — the operator may already be
+                    // typing the next line after the optimistic clear above.
+                    return {
+                        ...prev,
+                        allSales: uniqueMergedSales,
+                        editingSaleId: null,
+                        isManualClear: false,
+                        isSubmitting: false,
+                        selectedUnprintedCustomer: keepUnprinted,
+                        selectedPrintedCustomer: keepPrinted,
+                        searchQueries: prev.searchQueries,
+                    };
+                });
+            }
+
+            // Re-focus only if a re-render stole focus to body — never if the operator
+            // already moved on to item/weight after the optimistic supplier focus above.
+            if (!isFocusInItemEntryFields()) {
+                const active = document.activeElement;
+                if (!active || active === document.body || active === refs.packs.current) {
+                    focusSupplierCode();
+                }
             }
 
         } catch (error) {
-            updateState({
-                errors: { form: error.response?.data?.message || error.message || "An error occurred" },
-                isSubmitting: false
-            });
+            // Stale abort from a recovered stuck lock must not clobber a newer submit.
+            if (myGeneration !== submitGenerationRef.current) {
+                return;
+            }
+
+            // Roll back optimistic create / edit
+            if (tempId) {
+                recentSubmittedSalesRef.current.delete(tempId);
+                if (isMountedRef.current) {
+                    setState((prev) => ({
+                        ...prev,
+                        allSales: prev.allSales.filter((sale) => sale.id !== tempId),
+                        isSubmitting: false,
+                    }));
+                }
+            } else if (editingIdAtStart !== null && previousEditedSale) {
+                if (isMountedRef.current) {
+                    setState((prev) => ({
+                        ...prev,
+                        allSales: prev.allSales.map((sale) =>
+                            sale.id === editingIdAtStart ? previousEditedSale : sale
+                        ),
+                        isSubmitting: false,
+                    }));
+                }
+            }
+
+            const isAbort = error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError';
+            if (isMountedRef.current) {
+                updateState({
+                    errors: {
+                        form: isAbort
+                            ? "Request timed out. Please press Enter again."
+                            : (error.response?.data?.message || error.message || "An error occurred")
+                    },
+                    isSubmitting: false
+                });
+            }
+        } finally {
+            if (submitTimeoutId) {
+                window.clearTimeout(submitTimeoutId);
+            }
+            if (submitAbortRef.current === submitController) {
+                submitAbortRef.current = null;
+            }
+            // Always unlock — even if a newer generation took over, only the owner of
+            // this generation should release if still matching; otherwise force unlock
+            // when we are still the active generation.
+            if (myGeneration === submitGenerationRef.current) {
+                releaseSubmitLock();
+                if (isMountedRef.current) {
+                    updateState({ isSubmitting: false });
+                }
+            }
         }
     };
-    const handleCustomerClick = async (type, customerCode, billNo = null, salesRecords = []) => {
-        if (state.isPrinting) return;
+    const handleCustomerClick = useStableCallback(async (type, customerCode, billNo = null, salesRecords = []) => {
+        // Do not block sidebar selection while a print dialog is open — that made the
+        // page feel frozen for up to PRINT_LOCK_MAX_MS after F1.
 
         // --- ADMIN MODAL LOGIC ---
         if (currentUser?.role === 'Admin') {
@@ -1551,86 +2551,164 @@ export default function SalesEntry() {
             }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
 
             const calculatedFinal = totals.billTotal + totals.totalBagPrice;
+            const clickGeneration = ++customerClickGenerationRef.current;
+
+            // Apply form immediately so a slow given-amount API cannot leave the UI blank.
+            setFormData({
+                ...initialFormData,
+                customer_code: customerCode,
+                customer_name: customer?.name || "",
+                telephone_no: customer?.telephone_no || "",
+                given_amount: isPrinted ? "" : calculatedFinal.toFixed(2),
+            });
+            fetchLoanAmount(customerCode);
+            setManagedTimeout(() => focusSupplierCode(), 50);
 
             try {
-                let fetchedGivenAmount = "";
+                let fetchedGivenAmount = calculatedFinal.toFixed(2);
 
                 // If it's a printed bill, try to fetch the amount already stored
                 if (isPrinted) {
                     try {
-                        // If we have a specific bill number, use it to get the exact given_amount for that bill
                         let response;
                         if (billNo) {
-                            // Option 1: If you implemented the route with billNo parameter
-                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}/${billNo}`);
+                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}/${billNo}`, { timeout: API_TIMEOUT_MS });
                             fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
                         } else {
-                            // Option 2: If using the grouped response
-                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`);
+                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`, { timeout: API_TIMEOUT_MS });
 
-                            // Check if response has by_bill_no structure
                             if (response.data?.by_bill_no && billNo) {
                                 fetchedGivenAmount = response.data.by_bill_no[billNo] ?? calculatedFinal.toFixed(2);
-                            }
-                            // Check if response has all_entries structure
-                            else if (response.data?.all_entries) {
+                            } else if (response.data?.all_entries) {
                                 const matchingEntry = response.data.all_entries.find(entry => entry.bill_no === billNo);
                                 fetchedGivenAmount = matchingEntry?.given_amount ?? calculatedFinal.toFixed(2);
-                            }
-                            // Fallback to latest_given_amount
-                            else {
+                            } else {
                                 fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
                             }
                         }
                     } catch (error) {
                         console.error('Error fetching given amount:', error);
-                        // Try to find given_amount from salesRecords as fallback
                         const matchingRecord = salesRecords.find(record => record.bill_no === billNo);
                         fetchedGivenAmount = matchingRecord?.given_amount || calculatedFinal.toFixed(2);
                     }
                 }
 
-                setFormData({
-                    ...initialFormData,
-                    customer_code: customerCode,
-                    customer_name: customer?.name || "",
-                    telephone_no: customer?.telephone_no || "",
-                    given_amount: fetchedGivenAmount // This fills the field immediately
-                });
+                // Ignore late responses if the operator already clicked another customer
+                // or started typing a different sale.
+                if (
+                    clickGeneration !== customerClickGenerationRef.current ||
+                    !isMountedRef.current
+                ) {
+                    return;
+                }
 
-                fetchLoanAmount(customerCode);
-                setTimeout(() => refs.supplier_code.current?.focus(), 50);
+                setFormData(prev => {
+                    const stillSameCustomer =
+                        String(prev.customer_code || '').toUpperCase() === String(customerCode).toUpperCase();
+                    if (!stillSameCustomer) return prev;
+                    return {
+                        ...prev,
+                        customer_name: customer?.name || prev.customer_name,
+                        telephone_no: customer?.telephone_no || prev.telephone_no,
+                        given_amount: fetchedGivenAmount,
+                    };
+                });
 
             } catch (error) {
                 console.error('Error in customer selection:', error);
-                setFormData({
-                    ...initialFormData,
-                    customer_code: customerCode,
-                    customer_name: customer?.name || "",
-                    telephone_no: customer?.telephone_no || "",
-                    given_amount: calculatedFinal.toFixed(2)
+                if (clickGeneration !== customerClickGenerationRef.current || !isMountedRef.current) {
+                    return;
+                }
+                setFormData(prev => {
+                    const stillSameCustomer =
+                        String(prev.customer_code || '').toUpperCase() === String(customerCode).toUpperCase();
+                    if (!stillSameCustomer) return prev;
+                    return {
+                        ...prev,
+                        given_amount: calculatedFinal.toFixed(2),
+                    };
                 });
-                fetchLoanAmount(customerCode);
             }
         } else {
             handleClearForm();
         }
 
         updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
-    };
-    const handleMarkAllProcessed = async () => {
-        const salesToProcess = [...newSales, ...unprintedSales];
-        if (salesToProcess.length === 0) return;
-        try {
-            const response = await api.post(routes.markAllProcessed, { sales_ids: salesToProcess.map(s => s.id) });
-            if (response.data.success) {
-                updateState({ allSales: allSales.map(s => salesToProcess.some(ps => ps.id === s.id) ? { ...s, bill_printed: "N" } : s) });
-                handleClearForm();
-                updateState({ selectedUnprintedCustomer: null, selectedPrintedCustomer: null });
-                [50, 100, 150, 200, 250].forEach(timeout => setTimeout(() => refs.customer_code_input.current?.focus(), timeout));
-            }
-        } catch (err) { console.error("Failed to mark sales as processed:", err.message); }
-    };
+    });
+    // Helper function for normalizing codes
+    const normalizeCode = useCallback((value) => {
+        return String(value || '').trim().toUpperCase();
+    }, []);
+const handleMarkAllProcessed = useStableCallback(async () => {
+    // Get sales to process - but do it synchronously without heavy filtering
+    const salesToProcess = [...newSales, ...unprintedSales];
+
+    if (salesToProcess.length === 0) {
+        // If no sales to process, just focus the customer code input
+        refs.customer_code_input.current?.focus();
+        refs.customer_code_input.current?.select();
+        return;
+    }
+
+    // ✅ IMMEDIATELY focus the customer code field FIRST
+    // This happens before any other operations
+    refs.customer_code_input.current?.focus();
+    refs.customer_code_input.current?.select();
+
+    // Then clear the form and update state
+    handleClearForm();
+    updateState({
+        selectedUnprintedCustomer: null,
+        selectedPrintedCustomer: null,
+        isSubmitting: true // Show loading state
+    });
+
+    try {
+        // Prepare the payload with all sale IDs
+        const saleIds = salesToProcess.map(s => s.id);
+
+        // Make the API call with a shorter timeout for faster response
+        const response = await api.post(routes.markAllProcessed,
+            { sales_ids: saleIds },
+            { timeout: 5000 }
+        );
+
+        if (response.data.success) {
+            // Update the state optimistically - mark all as processed
+            const processedIds = new Set(saleIds);
+            setState(prev => ({
+                ...prev,
+                allSales: prev.allSales.map(s =>
+                    processedIds.has(s.id) ? { ...s, bill_printed: "N" } : s
+                ),
+                isSubmitting: false
+            }));
+
+            // Focus back to customer code input again after state updates
+            setManagedTimeout(() => {
+                refs.customer_code_input.current?.focus();
+                refs.customer_code_input.current?.select();
+            }, 50);
+        } else {
+            await refreshSalesData(true);
+            updateState({ isSubmitting: false });
+            // Refocus after refresh
+            setManagedTimeout(() => {
+                refs.customer_code_input.current?.focus();
+                refs.customer_code_input.current?.select();
+            }, 100);
+        }
+    } catch (err) {
+        console.error("Failed to mark sales as processed:", err);
+        await refreshSalesData(true);
+        updateState({ isSubmitting: false });
+        // Refocus after error
+        setManagedTimeout(() => {
+            refs.customer_code_input.current?.focus();
+            refs.customer_code_input.current?.select();
+        }, 100);
+    }
+});
     const printSingleContent = async (html, customerName) => {
         return new Promise((resolve) => {
             const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -1638,12 +2716,21 @@ export default function SalesEntry() {
             printWindow.document.open();
             printWindow.document.write(`<!DOCTYPE html><html><head><title>Print Bill - ${customerName}</title><style>body { margin: 0; padding: 20px; }@media print { body { padding: 0; } }</style></head><body>${html}<script>window.onload = function() { setTimeout(function() { window.print(); setTimeout(function() { window.close(); }, 1000); }, 500); }; window.onafterprint = function() { setTimeout(function() { window.close(); }, 500); };</script></body></html>`);
             printWindow.document.close();
-            const checkPrintWindow = setInterval(() => { if (printWindow.closed) { clearInterval(checkPrintWindow); resolve(); } }, 500);
-            setTimeout(() => { clearInterval(checkPrintWindow); if (!printWindow.closed) printWindow.close(); resolve(); }, 10000);
+            const checkPrintWindow = setManagedInterval(() => {
+                if (printWindow.closed) {
+                    clearManagedInterval(checkPrintWindow);
+                    resolve();
+                }
+            }, 500);
+            setManagedTimeout(() => {
+                clearManagedInterval(checkPrintWindow);
+                if (!printWindow.closed) printWindow.close();
+                resolve();
+            }, 10000);
         });
     };
 
-const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+  const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
     const formatNumber = (num) => {
         if (typeof num !== 'number' && typeof num !== 'string') return '0';
         const number = parseFloat(num);
@@ -1673,12 +2760,16 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
 
     const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
     const is4Inch = billSize === '4inch';
-    const receiptMaxWidth = is4Inch ? '4in' : '350px';
 
-    // REDUCED FONT SIZES
-    const fontSizeBody = '20px';      // was 25px
-    const fontSizeHeader = '18px';    // was 23px
-    const fontSizeTotal = '22px';     // was 28px
+    // CLEAN FONT SETTINGS - 80mm paper
+    const receiptMaxWidth = '80mm';
+    const contentWidth = '72mm';
+
+    const fontSizeBody = '16px';
+    const fontSizeHeader = '16px';
+    const fontSizeTotal = '20px';
+    const fontSizeSmall = '13px';
+    const fontSizeXSmall = '11px';
 
     const itemsHtml = salesData.map(s => {
         const packs = parseInt(s.packs) || 0;
@@ -1687,19 +2778,24 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         const value = (weight * price).toFixed(2);
 
         return `
-  <tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: bottom; line-height:1.0;">  <!-- was 1.1 -->
-    <td style="text-align:left; padding:2px 0; white-space: nowrap;">  <!-- was 4px -->
-        ${s.item_name || ""}<br>${formatNumber(packs)}
-    </td>
-    <td style="text-align:right; padding:2px 2px; position: relative; left: -70px;">  <!-- was 4px -->
+<tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: middle; line-height:1.4; page-break-inside: avoid;">
+    <td style="text-align:left; padding:3px 2px; white-space: nowrap;">
+    <span style="font-size:${fontSizeBody};">
+        ${s.item_name || ""}
+    </span><br>
+    <span style="font-size:${fontSizeXSmall}; font-weight:bold;">
+        ${formatNumber(packs)} 
+    </span>
+</td>
+    <td style="text-align:right; padding:3px 2px; white-space: nowrap; min-width: 25px; font-size:${fontSizeBody};">
         ${formatNumber(weight.toFixed(2))}
     </td>
-    <td style="text-align:right; padding:2px 2px; position: relative; left: -55px;">  <!-- was 4px -->
+    <td style="text-align:right; padding:3px 2px; white-space: nowrap; min-width: 25px; font-size:${fontSizeBody};">
         ${formatNumber(price.toFixed(2))}
     </td>
-    <td style="padding:2px 0; display:flex; flex-direction:column; align-items:flex-end;">  <!-- was 4px -->
-        <div style="font-size:20px; white-space:nowrap;">${s.supplier_code || "ASW"}</div>  <!-- was 25px -->
-        <div style="font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
+    <td style="text-align:right; padding:3px 2px; white-space: nowrap; min-width: 30px;">
+        <div style="font-size:${fontSizeXSmall}; font-weight:bold; white-space:nowrap; color:#555;">${s.supplier_code || "ASW"}</div>
+        <div style="font-size:${fontSizeBody}; font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
     </td>
 </tr>`;
     }).join("");
@@ -1711,12 +2807,12 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
     const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
 
     const loanRow = globalLoanAmount !== 0 ? `
-    <tr>
-        <td style="font-size:18px; padding-top:4px;">පෙර ණය:</td>  <!-- was 20px and 8px -->
-        <td style="text-align:right; font-size:18px; font-weight:bold; padding-top:4px;">  <!-- was 22px -->
-            Rs. ${formatNumber(Math.abs(globalLoanAmount).toFixed(2))}
-        </td>
-    </tr>` : '';
+<tr>
+    <td style="font-size:${fontSizeSmall}; padding-top:4px; white-space: nowrap; font-weight:bold;">පෙර ණය:</td>
+    <td style="text-align:right; font-size:${fontSizeSmall}; font-weight:bold; padding-top:4px; white-space: nowrap;">
+        Rs. ${formatNumber(Math.abs(globalLoanAmount).toFixed(2))}
+    </td>
+</tr>` : '';
 
     const summaryEntries = Object.entries(consolidatedSummary);
     let summaryHtmlContent = '';
@@ -1725,105 +2821,378 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         const [name2, d2] = summaryEntries[i + 1] || [null, null];
         const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
         const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+        const combinedText = d2 ? `${text1}  ${text2}` : text1;
         summaryHtmlContent += `
-        <tr>
-            <td style="padding:3px; width:50%; font-weight:bold; white-space:nowrap;">${text1}</td>  <!-- was 6px -->
-            <td style="padding:3px; width:50%; font-weight:bold; white-space:nowrap;">${text2}</td>  <!-- was 6px -->
-        </tr>`;
+<tr>
+    <td style="padding:3px 2px; width:100%; font-weight:bold; white-space:nowrap; text-align:center; font-size:${fontSizeXSmall};" colspan="2">${combinedText}</td>
+</tr>`;
     }
 
     return `
-   <div style="width:${receiptMaxWidth}; margin:0 auto; padding:6px; font-family: 'Courier New', monospace; color:#000; background:#fff;">  <!-- was 10px -->
-        <div style="text-align:center; font-weight:bold;">
-            <div style="font-size:20px;">මංජු සහ සහෝදරයෝ</div>  <!-- was 24px -->
-            <div style="font-size:16px; margin-bottom:3px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>  <!-- was 20px and 5px -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Print Receipt</title>
+    <style>
+        /* CRITICAL: Reset all margins for thermal printer */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* XP-80 Thermal Printer Settings */
+        @page {
+            size: ${receiptMaxWidth} auto;
+            margin: 0;
+            padding: 0;
+        }
+        
+        @media print {
+            html, body {
+                margin: 0;
+                padding: 0;
+                width: ${receiptMaxWidth};
+                background: white;
+                font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            }
             
-            <div style="display:flex; justify-content:center; align-items:center; gap:10px; margin:8px 0;">  <!-- was 15px and 12px -->
-                <span style="border:2px solid #000; padding:3px 10px; font-size:18px;">N66</span>  <!-- was 2.5px, 5px 12px, 22px -->
-                <span style="border:2px solid #000; padding:3px 10px; font-size:30px;">  <!-- was 2.5px, 5px 12px, 38px -->
-                    ${customerName.toUpperCase()}
-                </span>
+            .receipt-content {
+                width: ${contentWidth};
+                margin: 0 auto;
+                padding: 3px 4px;
+                background: #fff;
+                font-size: ${fontSizeBody};
+                box-sizing: border-box;
+                overflow: hidden;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+            }
+            
+            .receipt-content * {
+                max-width: 100%;
+                box-sizing: border-box;
+                font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            }
+            
+            .no-break {
+                page-break-inside: avoid;
+                page-break-after: avoid;
+            }
+            
+            .total-section {
+                page-break-inside: avoid;
+                page-break-after: avoid;
+            }
+            
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                page-break-inside: auto;
+            }
+            
+            /* ===== CRITICAL FIX: Prevent table header from repeating on each page ===== */
+            /* This forces the browser to treat the header as a normal row group */
+            thead {
+                display: table-row-group !important;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+            }
+            
+            /* Override the default repeating header behavior */
+            table {
+                page-break-inside: auto;
+            }
+            
+            /* Make tbody work normally */
+            tbody {
+                display: table-row-group;
+                page-break-inside: auto;
+            }
+            
+            /* Remove the conflicting header-row-fix class */
+            /* .header-row-fix {
+                display: table-row;
+            } */
+            /* ===== END CRITICAL FIX ===== */
+            
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+            
+            td, th {
+                padding: 2px 3px;
+                font-size: ${fontSizeBody};
+            }
+            
+            .divider {
+                border: none;
+                border-top: 2px solid #000;
+                margin: 4px 0;
+                width: 100%;
+            }
+            
+            .footer-section {
+                margin-top: 8px;
+                padding-top: 6px;
+                border-top: 2px solid #000;
+                width: 100%;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+            }
+            
+            .cut-marker {
+                text-align: center;
+                font-size: 10px;
+                color: #999;
+                margin-top: 10px;
+                padding-top: 6px;
+                border-top: 1px dotted #ccc;
+                letter-spacing: 2px;
+                page-break-after: avoid;
+            }
+            
+            .net-payable {
+                color: #000;
+                font-size: ${fontSizeTotal};
+                font-weight: 900;
+                border-bottom: 3px double #000;
+                border-top: 2px solid #000;
+                padding: 3px 8px;
+                display: inline-block;
+                white-space: nowrap;
+                letter-spacing: 0.5px;
+            }
+            
+            .no-extra-space {
+                height: 0;
+                margin: 0;
+                padding: 0;
+            }
+            
+            .space-before-footer {
+                height: 8px;
+                margin: 0;
+                padding: 0;
+            }
+            
+            .header-title {
+                font-size: 22px;
+                font-weight: 900;
+                white-space: nowrap;
+                letter-spacing: 1px;
+            }
+            
+            .header-subtitle {
+                font-size: ${fontSizeXSmall};
+                font-weight: bold;
+                font-style: italic;
+                white-space: nowrap;
+                color: #333;
+            }
+            
+            .header-code {
+                border: 2px solid #000;
+                padding: 2px 8px;
+                font-size: 24px;
+                font-weight: 900;
+                white-space: nowrap;
+            }
+            
+            .header-name {
+                border: 2px solid #000;
+                padding: 2px 8px;
+                font-size: 22px;
+                font-weight: 900;
+                white-space: nowrap;
+                max-width: 60%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .bill-info {
+                font-size: ${fontSizeSmall};
+                font-weight: bold;
+                padding: 2px 2px;
+                width: 100%;
+            }
+            
+            .bill-info span {
+                font-weight: normal;
+            }
+            
+            .table-header th {
+                font-size: ${fontSizeHeader};
+                font-weight: 900;
+                text-align: left;
+                padding: 2px 2px;
+                border-bottom: 2px solid #000;
+            }
+            
+            .table-header th:not(:first-child) {
+                text-align: right;
+            }
+            
+            .summary-text {
+                font-size: ${fontSizeXSmall};
+                font-weight: bold;
+            }
+            
+            .total-label {
+                font-size: ${fontSizeTotal};
+                font-weight: 900;
+                padding: 2px 2px;
+                white-space: nowrap;
+            }
+            
+            .total-amount {
+                text-align: right;
+                padding: 2px 2px;
+            }
+            
+            .footer-text {
+                margin: 2px 0;
+                font-weight: bold;
+                white-space: nowrap;
+                text-align: center;
+                font-size: ${fontSizeSmall};
+            }
+            
+            .footer-text-small {
+                margin: 2px 0;
+                white-space: nowrap;
+                text-align: center;
+                font-size: ${fontSizeXSmall};
+            }
+        }
+        
+        /* Print-specific fixes */
+        @media print and (min-width: 0px) {
+            table {
+                page-break-inside: auto;
+            }
+            
+            tr {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="receipt-content">
+    <!-- HEADER -->
+    <div class="no-break">
+        <div style="text-align:center; font-weight:bold; padding:2px 0; width:100%;">
+            <div class="header-title">මංජු සහ සහෝදරයෝ</div>
+            <div class="header-subtitle">colombage lanka (Pvt) Ltd</div>
+            
+            <div style="display:flex; justify-content:space-between; align-items:center; margin:4px 0; width:100%;">
+                <span class="header-code">N66</span>
+                <span class="header-name">${(salesData[0]?.customer_code || 'CUSTOMER').toUpperCase()}</span>
             </div>
             
-            <div style="font-size:14px;">එළවළු,පළතුරු තොග වෙළෙන්දෝ</div>  <!-- was 16px -->
-            <div style="display:flex; justify-content:space-between; font-size:13px; margin-top:4px; padding:0 5px;">  <!-- was 14px, 6px -->
-                <span>බණ්ඩාරවෙල</span>
-                <span>${time}</span>
+            <div style="font-size:${fontSizeXSmall}; white-space:nowrap; font-weight:bold; color:#444;">එළවළු, පළතුරු තොග වෙළෙන්දෝ</div>
+            <div style="display:flex; justify-content:space-between; font-size:${fontSizeSmall}; padding:2px 2px; width:100%; font-weight:bold;">
+                <span style="white-space:nowrap;">බණ්ඩාරවෙල</span>
+                <span style="white-space:nowrap;">${time}</span>
             </div>
         </div>
 
-        <div style="font-size:16px; margin-top:6px; padding:0 5px;">  <!-- was 19px, 10px -->
-            <div style="font-weight: bold;">දුර: 0777672838 / 0714371115</div>
-            <div style="display:flex; justify-content:space-between; margin-top:2px;">  <!-- was 3px -->
-                <span>බිල් අංකය:<strong style="color: #000; font-weight: bold;">${billNo}</strong></span>
-                <span>දිනය:<strong style="color: #000; font-weight: bold;">${date}</strong></span>
+        <!-- CONTACT & BILL INFO -->
+        <div class="bill-info">
+            <div style="font-weight:bold; white-space:nowrap;">දුර: 0777672838 / 0714371115</div>
+            <div style="display:flex; justify-content:space-between; width:100%;">
+                <span style="white-space:nowrap;">බිල් අං: <strong>${billNo}</strong></span>
+                <span style="white-space:nowrap;">දිනය: <strong>${date}</strong></span>
             </div>
         </div>
 
-        <hr style="border:none; border-top:2px solid #000; margin:6px 0;">  <!-- was 2.5px, 10px -->
+        <hr class="divider">
 
         <!-- ITEMS TABLE -->
-        <div style="page-break-inside: avoid;">
-            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+        <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+            <colgroup>
+                <col style="width: 32%;">
+                <col style="width: 20%;">
+                <col style="width: 20%;">
+                <col style="width: 28%;">
+            </colgroup>
+            <thead class="table-header" style="page-break-after: avoid; display: table-header-group;">
+                <tr style="border-bottom:2px solid #000; font-weight:bold; page-break-after: avoid;">
+                    <th style="text-align:left; padding:2px 2px;">වර්ගය<br>මලු</th>
+                    <th style="text-align:right; padding:2px 2px;">කිලෝ</th>
+                    <th style="text-align:right; padding:2px 2px;">මිල</th>
+                    <th style="text-align:right; padding:2px 2px;">අයිතිය<br>අගය</th>
+                </tr>
+            </thead>
+            <tbody style="page-break-inside: auto;">
+                ${itemsHtml}
+            </tbody>
+        </table>
+
+        <!-- SUMMARY -->
+        <div style="margin-top:4px; border-top:2px solid #000; padding-top:3px; width:100%;">
+            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeXSmall}; text-align:center;">
                 <tbody>
-                    <tr style="border-bottom:2px solid #000; font-weight:bold;">  <!-- was 2.5px -->
-                        <th style="text-align:left; padding-bottom:4px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>  <!-- was 8px -->
-                        <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 18px;"> කිලෝ </th>  <!-- was 8px, 24px -->
-                        <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader}; position: relative; left: -45px;top: 18px;">මිල</th>  <!-- was 8px, 24px -->
-                        <th style="text-align:right; padding-bottom:4px; font-size:${fontSizeHeader};">අයිතිය<br>අගය</th>  <!-- was 8px -->
-                    </tr>
-                    ${itemsHtml}
+                    ${summaryHtmlContent || '<tr><td colspan="2" style="padding:2px; font-weight:bold;">No items</td></tr>'}
                 </tbody>
             </table>
         </div>
+    </div>
+    
+    <!-- TOTALS -->
+    <div class="total-section">
+        <table style="width:100%; margin-top:4px; font-weight:bold; border-collapse:collapse;">
+            <colgroup>
+                <col style="width: 50%;">
+                <col style="width: 50%;">
+            </colgroup>
+            <tbody>
+                <tr>
+                    <td style="font-size:${fontSizeSmall}; padding:2px 2px; white-space:nowrap;">මලු:</td>
+                    <td style="text-align:right; font-size:${fontSizeSmall}; padding:2px 2px; white-space:nowrap;">
+                        ${formatNumber(totalPackCost.toFixed(2))}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="total-label">එකතුව:</td>
+                    <td class="total-amount">
+                        <span class="net-payable">Rs. ${Number(finalGrandTotal || 0).toFixed(2)}</span>
+                    </td>
+                </tr>
+                ${loanRow}
+                ${givenAmount > 0 ? `
+                <tr>
+                    <td style="font-size:${fontSizeSmall}; padding:2px 2px; white-space:nowrap;">දුන් මුදල:</td>
+                    <td style="text-align:right; font-size:${fontSizeSmall}; padding:2px 2px; font-weight:bold; white-space:nowrap;">
+                        ${formatNumber((0).toFixed(2))}
+                    </td>
+                </tr>
+                <tr>
+                    <td style="font-size:${fontSizeSmall}; white-space:nowrap;">ඉතිරිය:</td>
+                    <td style="text-align:right; font-size:${fontSizeSmall}; white-space:nowrap;">${formatNumber((0).toFixed(2))}</td>
+                </tr>` : ''}
+            </tbody>
+        </table>
 
-        <!-- TOTALS AND SUMMARY -->
-        <div style="page-break-before: avoid; page-break-after: avoid;">
-            <!-- SUMMARY TABLE -->
-            <div style="margin-top:15px; border-top:2px solid #000; padding-top:6px;">  <!-- was 25px, 2.5px, 10px -->
-                <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:center;">  <!-- was 14px -->
-                    <tbody>
-                        ${summaryHtmlContent || '<tr><td colspan="2">No items</td></tr>'}
-                    </tbody>
-                </table>
-            </div>
-            
-            <!-- TOTALS TABLE -->
-            <table style="width:100%; margin-top:12px; font-weight:bold; font-size:18px; padding:0 5px; border-collapse:collapse;">  <!-- was 20px, 22px -->
-                <tbody>
-                    <tr>
-                        <td style="width:50%; font-size:16px;">මලු:</td>  <!-- was 20px -->
-                        <td style="width:50%; text-align:right; font-weight:bold;">${formatNumber(totalPackCost.toFixed(2))}</td>
-                    </tr>
-                    <tr>
-                        <td style="font-size:16px; padding-top:4px;">එකතුව:</td>  <!-- was 20px, 8px -->
-                        <td style="text-align:right; padding-top:4px;">  <!-- was 8px -->
-                            <span style="border-bottom:4px double #000; border-top:2px solid #000; font-size:${fontSizeTotal}; padding:3px 8px; display:inline-block;">  <!-- was 5px, 10px -->
-                                ${Number(finalGrandTotal).toFixed(2)}
-                            </span>
-                        </td>
-                    </tr>
-                    ${loanRow}
-                    ${givenAmount > 0 ? `
-                    <tr>
-                        <td style="font-size:16px; padding-top:10px;">දුන් මුදල:</td>  <!-- was 18px, 18px -->
-                        <td style="text-align:right; font-size:16px; padding-top:10px; font-weight:bold;">  <!-- was 20px, 18px -->
-                           ${formatNumber((0).toFixed(2))}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="font-size:18px;">ඉතිරිය:</td>  <!-- was 22px -->
-                        <td style="text-align:right; font-size:20px;">${formatNumber((0).toFixed(2))}</td>  <!-- was 26px -->
-                    </tr>` : ''}
-                </tbody>
-            </table>
+        <!-- FOOTER WITH SPACE BEFORE CUT -->
+        <div class="space-before-footer"></div>
+        
+        <div class="footer-section">
+            <p class="footer-text">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+            <p class="footer-text-small">නැවත භාර ගනු නොලැබේ</p>
         </div>
-
-        <div style="text-align:center; margin-top:15px; font-size:12px; border-top:2px solid #000; padding-top:6px;">  <!-- was 25px, 13px, 2.5px, 10px -->
-            <p style="margin:2px 0; font-weight:bold;">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>  <!-- was 4px -->
-            <p style="margin:2px 0;">නැවත භාර ගනු නොලැබේ</p>  <!-- was 4px -->
-        </div>
-    </div>`;
+        
+        <!-- CUT MARKER with extra space -->
+        <div class="cut-marker">- - - - - - - - - - - - - - - - - - - - - -</div>
+        <div style="height: 6px; margin: 0; padding: 0;"></div>
+    </div>
+</div>
+</body>
+</html>`;
 };
     const formatReceiptValue = (value) => {
         if (value === null || value === undefined || value === '') return '0.00';
@@ -1832,272 +3201,416 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
         return num.toFixed(2);
     };
 
-   const handlePrintAndClear = async () => {
-    // Get the currently selected customer code/bill
-    let salesData = [];
-    let customerCode = "";
-    let customerName = "";
-    let billNo = "";
-
-    // Determine which sales to print based on selection
-    if (selectedPrintedCustomer) {
-        if (selectedPrintedCustomer.includes('-')) {
-            const [cCode, bNo] = selectedPrintedCustomer.split('-');
-            customerCode = cCode;
-            billNo = bNo;
-            // --- PRIORITY: Fetch ONLY by bill_no from backend ---
-            salesData = allSales.filter(s =>
-                String(s.bill_no) === String(billNo)
-            );
-        } else {
-            customerCode = selectedPrintedCustomer;
-            // --- PRIORITY: Fetch by customer_code AND bill_printed === 'Y' ---
-            salesData = allSales.filter(s =>
-                s.customer_code === selectedPrintedCustomer &&
-                s.bill_printed === 'Y'
-            );
-            // Get the bill_no from the first sale
-            if (salesData.length > 0) {
-                billNo = salesData[0].bill_no || "";
+    const handlePrintAndClear = useStableCallback(async (preOpenedPrintWindow = null, prefetch = null) => {
+        // Ref-based guard is synchronous: repeated F1 presses cannot open duplicate dialogs
+        // before React has rendered the isPrinting state update.
+        if (printInFlightRef.current) {
+            // Stuck print lock recovery — a hung popup must not block F1 all day.
+            if (Date.now() - printStartedAtRef.current < PRINT_LOCK_MAX_MS) {
+                if (preOpenedPrintWindow && !preOpenedPrintWindow.closed) preOpenedPrintWindow.close();
+                return;
             }
+            printInFlightRef.current = false;
+            updateState({ isPrinting: false });
         }
-    }
-    else if (selectedUnprintedCustomer) {
-        customerCode = selectedUnprintedCustomer;
-        // --- For unprinted, fetch by customer_code and bill_printed !== 'Y' ---
-        salesData = allSales.filter(s =>
-            s.customer_code === selectedUnprintedCustomer &&
-            (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
-        );
-        // No bill_no for unprinted yet
-        billNo = "";
-    }
-    else {
-        // --- If no specific selection, use displayed sales ---
-        salesData = displayedSales.filter(s => s.id);
-        // Get bill_no from the first sale if it exists
-        if (salesData.length > 0 && salesData[0].bill_no) {
-            billNo = salesData[0].bill_no;
-            // --- If we have a bill_no, re-fetch ALL records with that bill_no ---
-            salesData = allSales.filter(s =>
-                String(s.bill_no) === String(billNo)
-            );
-        }
-    }
-
-    if (!salesData.length) {
-        alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
-        return;
-    }
-
-    // --- COMMISSION VALIDATION ---
-    for (const s of salesData) {
-        if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
-            const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
-            alert(errorMsg);
-            return;
-        }
-    }
-
-    // --- ZERO OR ONE PRICE VALIDATION ---
-    const hasZeroOrOnePrice = salesData.some(s => parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1);
-    if (hasZeroOrOnePrice) {
-        alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
-        return;
-    }
-
-    try {
+        printInFlightRef.current = true;
+        printStartedAtRef.current = Date.now();
         updateState({ isPrinting: true });
 
-        customerName = salesData[0].customer_code || customerCode;
-        const mobile = salesData[0].mobile || "0777672838 / 071437115";
-
-        let currentLoan = 0;
-        try {
-            const loanRes = await api.post(routes.getLoanAmount, {
-                customer_short_name: customerCode
-            });
-            currentLoan = parseFloat(loanRes.data.total_loan_amount) || 0;
-        } catch (e) {
-            console.warn("Loan fetch failed");
-        }
-
-        const isReprint = salesData.some(s => s.bill_printed === 'Y');
-        let receiptHtml = "";
-
-        if (isReprint) {
-            // --- For reprint, use the bill_no we already have ---
-            billNo = salesData[0].bill_no || "N/A";
-            console.log("Reprint - Bill No:", billNo);
-            
-            // --- PRIORITY: Fetch ALL records by bill_no from backend ---
-            try {
-                const response = await api.get(`/sales/by-bill/${billNo}`);
-                if (response.data && response.data.length > 0) {
-                    salesData = response.data;
-                    customerCode = salesData[0].customer_code;
-                    customerName = salesData[0].customer_code || customerName;
-                }
-            } catch (e) {
-                console.warn("Could not fetch by bill_no from API, using existing data");
-                // Fall back to filtering by bill_no from allSales
-                salesData = allSales.filter(s => String(s.bill_no) === String(billNo));
-            }
-            
-            receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
-
-            const printWindow = window.open("", "_blank", "width=800,height=600");
-            if (!printWindow) {
-                alert("Please allow pop-ups for printing");
-                updateState({ isPrinting: false });
-                return;
-            }
-
-            printWindow.document.write(`<html><head><title>Print Bill - Reprint</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
-            printWindow.document.close();
-
-            updateState({
-                selectedPrintedCustomer: null,
-                selectedUnprintedCustomer: null,
-                isPrinting: false
-            });
-
-            handleClearForm(true);
-
-            const checkWindowClosed = setInterval(() => {
-                if (printWindow.closed) {
-                    clearInterval(checkWindowClosed);
-                    window.location.reload();
-                }
-            }, 500);
-
-        } else {
-            // For new prints, call the API
-            console.log("New print - Calling markPrinted API with sales_ids:", salesData.map(s => s.id));
-
-            const printResponse = await api.post(routes.markPrinted, {
-                sales_ids: salesData.map(s => s.id),
-                telephone_no: formData.telephone_no,
-                customer_code: customerCode,
-                customer_name: customerName,
-                loan_amount: currentLoan
-            });
-
-            console.log("API Response:", printResponse.data);
-
-            if (printResponse.data.status !== "success") {
-                throw new Error("මුද්‍රණය අසාර්ථකයි");
-            }
-
-            // Get the bill number from customer_bill_no
-            billNo = printResponse.data.customer_bill_no || "";
-            console.log("New print - Bill No from API:", billNo);
-
-            // --- PRIORITY: Fetch ALL records by bill_no from backend ---
-            try {
-                const response = await api.get(`/sales/by-bill/${billNo}`);
-                if (response.data && response.data.length > 0) {
-                    salesData = response.data;
-                    customerCode = salesData[0].customer_code;
-                    customerName = salesData[0].customer_code || customerName;
-                }
-            } catch (e) {
-                console.warn("Could not fetch by bill_no from API, using updated sales data");
-                // Fall back to updating existing salesData with bill_no
-                salesData = salesData.map(s => ({
-                    ...s,
-                    bill_no: billNo,
-                    bill_printed: "Y"
-                }));
-            }
-
-            // Generate receipt HTML with the sales data
-            receiptHtml = buildFullReceiptHTML(salesData, billNo, customerName, mobile, currentLoan, billSize);
-
-            // Update the state with the new bill numbers
-            updateState({
-                allSales: allSales.map(s =>
-                    salesData.some(sd => sd.id === s.id)
-                        ? { ...s, bill_printed: "Y", bill_no: billNo }
-                        : s
-                ),
-                selectedPrintedCustomer: null,
-                selectedUnprintedCustomer: null,
-                isPrinting: false
-            });
-
-            handleClearForm(true);
-
-            const printWindow = window.open("", "_blank", "width=800,height=600");
-            if (!printWindow) {
-                alert("Please allow pop-ups for printing");
-                window.location.reload();
-                return;
-            }
-
-            printWindow.document.write(`<html><head><title>Print Bill</title></head><body>${receiptHtml}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},100);};</script></body></html>`);
-            printWindow.document.close();
-
-            const checkWindowClosed = setInterval(() => {
-                if (printWindow.closed) {
-                    clearInterval(checkWindowClosed);
-                    window.location.reload();
-                }
-            }, 500);
-        }
-
-    } catch (error) {
-        console.error("Printing error:", error);
-        alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + error.message);
-        updateState({ isPrinting: false });
-    }
-};
-    const handleBillSizeChange = (e) => updateState({ billSize: e.target.value });
-
-
-    useEffect(() => {
-        const handleShortcut = (e) => {
-            if (e.key === "F10") {
-                e.preventDefault();
-                // This reloads the entire page from the server
-                window.location.reload();
-            }
-
-            if (e.key === "F1") {
-                e.preventDefault();
-
-                // Directly call handlePrintAndClear when F1 is pressed
-                // Check if there are sales to print (either selected customer or displayed sales)
-                let hasSalesToPrint = false;
-
-                if (selectedPrintedCustomer || selectedUnprintedCustomer) {
-                    hasSalesToPrint = true;
-                } else if (displayedSales.length > 0) {
-                    hasSalesToPrint = true;
-                }
-
-                if (hasSalesToPrint) {
-                    handlePrintAndClear();
-                } else {
-                    alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
-                }
-                return;
-            }
-
-            if (selectedPrintedCustomer && e.key === "F5") {
-                e.preventDefault();
-                return;
-            }
-
-            if (e.key === "F5") {
-                e.preventDefault();
-                if (typeof handleMarkAllProcessed === "function") handleMarkAllProcessed();
+        const finishPrintFlow = (closePreparedWindow = false) => {
+            printInFlightRef.current = false;
+            printStartedAtRef.current = 0;
+            updateState({ isPrinting: false });
+            if (closePreparedWindow && preOpenedPrintWindow && !preOpenedPrintWindow.closed) {
+                preOpenedPrintWindow.close();
             }
         };
 
+        let customerCode = "";
+        let customerName = "";
+        let billNo = prefetch?.billNo || "";
+
+        // --- STEP 1: Determine which customer/sales to print ---
+        // Prefer rows already resolved on F1 so we can print without a second by-bill round trip.
+        let salesToProcess = Array.isArray(prefetch?.salesToProcess) ? prefetch.salesToProcess : [];
+
+        if (salesToProcess.length === 0) {
+            if (selectedPrintedCustomer) {
+                if (selectedPrintedCustomer.includes('-')) {
+                    const [cCode, bNo] = selectedPrintedCustomer.split('-');
+                    customerCode = cCode;
+                    billNo = bNo;
+                    salesToProcess = allSales.filter(s =>
+                        String(s.customer_code || '').toUpperCase() === String(cCode).toUpperCase() &&
+                        String(s.bill_no || '') === String(bNo)
+                    );
+                } else {
+                    salesToProcess = allSales.filter(s =>
+                        s.customer_code === selectedPrintedCustomer &&
+                        s.bill_printed === 'Y'
+                    );
+                    if (salesToProcess.length > 0) {
+                        billNo = salesToProcess[0].bill_no || "";
+                    }
+                }
+            } else if (selectedUnprintedCustomer) {
+                salesToProcess = allSales.filter(s =>
+                    s.customer_code === selectedUnprintedCustomer &&
+                    (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+                );
+                const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+                if (saleWithBillNo) {
+                    billNo = saleWithBillNo.bill_no;
+                }
+            } else {
+                salesToProcess = displayedSales.filter(s => s.id);
+                const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+                if (saleWithBillNo) {
+                    billNo = saleWithBillNo.bill_no;
+                }
+            }
+        } else if (!billNo) {
+            const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+            if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+            if (selectedPrintedCustomer && selectedPrintedCustomer.includes('-')) {
+                billNo = selectedPrintedCustomer.split('-')[1] || billNo;
+            }
+        }
+
+        // --- STEP 2: Group sales by customer to ensure ALL are marked ---
+        const salesByCustomer = new Map();
+        salesToProcess.forEach(sale => {
+            const custCode = sale.customer_code;
+            if (!salesByCustomer.has(custCode)) {
+                salesByCustomer.set(custCode, []);
+            }
+            salesByCustomer.get(custCode).push(sale);
+        });
+
+        // --- STEP 3: If no bill_no, generate one ---
+        if (!billNo && salesToProcess.length > 0) {
+            try {
+                customerCode = salesToProcess[0].customer_code;
+                customerName = salesToProcess[0].customer_name || customerCode;
+
+                // Collect ALL sale IDs from ALL customers
+                const allSaleIds = [];
+                for (const [custCode, sales] of salesByCustomer) {
+                    sales.forEach(s => allSaleIds.push(s.id));
+                }
+
+                const printResponse = prefetch?.markPrintedPromise
+                    ? await prefetch.markPrintedPromise
+                    : await api.post(routes.markPrinted, {
+                        sales_ids: allSaleIds,  // ALL sales, not just first group
+                        telephone_no: formData.telephone_no,
+                        customer_code: customerCode,
+                        customer_name: customerName,
+                        loan_amount: 0
+                    }, { timeout: API_TIMEOUT_MS });
+
+                if (printResponse.data.status !== "success") {
+                    throw new Error("මුද්‍රණය අසාර්ථකයි");
+                }
+
+                billNo = printResponse.data.customer_bill_no || "";
+
+                if (!billNo) {
+                    alert("බිල්පත් අංකය උත්පාදනය කිරීමට නොහැකි විය");
+                    finishPrintFlow(true);
+                    return;
+                }
+            } catch (error) {
+                console.error("Error generating bill:", error);
+                alert("බිල්පත සෑදීමේදී දෝෂයක් ඇති විය: " + error.message);
+                finishPrintFlow(true);
+                return;
+            }
+        }
+
+        // --- STEP 4: VALIDATE we have a bill_no ---
+        if (!billNo) {
+            alert("මුද්‍රණය කිරීමට බිල්පත් අංකයක් නොමැත! කරුණාකර පළමුව බිල්පතක් සාදන්න.");
+            finishPrintFlow(true);
+            return;
+        }
+
+        // --- STEP 5: Use already-loaded rows; avoid a redundant by-bill network round trip ---
+        // allSales is kept fresh by the page refresh loop. Printing from it makes F1 near-instant
+        // instead of waiting on getSalesByBillNo after the dialog already opened.
+        let salesData = salesToProcess;
+
+        if (!salesData || salesData.length === 0) {
+            // Rare fallback only when local rows are missing (e.g. deep-linked bill).
+            try {
+                const response = await api.get(`${routes.getSalesByBillNo}/${billNo}`, {
+                    timeout: API_TIMEOUT_MS
+                });
+                salesData = response.data;
+            } catch (error) {
+                console.error("Error fetching sales data by bill_no:", error);
+                alert("දත්ත ලබා ගැනීමට නොහැකි විය. කරුණාකර නැවත උත්සාහ කරන්න.");
+                finishPrintFlow(true);
+                return;
+            }
+        }
+
+        if (!salesData || salesData.length === 0) {
+            alert(`බිල්පත් අංකය ${billNo} සඳහා දත්ත සොයාගත නොහැක`);
+            finishPrintFlow(true);
+            return;
+        }
+
+        customerCode = salesData[0].customer_code;
+        customerName = salesData[0].customer_name || customerCode;
+
+        // --- STEP 6: EARLY VALIDATION - Check for zero/one price ---
+        const hasZeroOrOnePrice = salesData.some(s => parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1);
+        if (hasZeroOrOnePrice) {
+            alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+            finishPrintFlow(true);
+            return;
+        }
+
+        // --- STEP 7: COMMISSION VALIDATION ---
+        for (const s of salesData) {
+            if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+                const errorMsg = `කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`;
+                alert(errorMsg);
+                finishPrintFlow(true);
+                return;
+            }
+        }
+
+        // --- STEP 8: Prepare for printing ---
+        try {
+            const mobile = salesData[0].mobile || "0777672838 / 071437115";
+
+            // --- STEP 9: Loan data (already cached on customer select) ---
+            const normalizedCustomerCode = String(customerCode || '').trim().toUpperCase();
+            const currentLoan = loanCacheRef.current.has(normalizedCustomerCode)
+                ? loanCacheRef.current.get(normalizedCustomerCode)
+                : (parseFloat(loanAmount) || 0);
+
+            // --- STEP 10: CHECK IF REPRINT ---
+            const isReprint = salesData.some(s => s.bill_printed === 'Y');
+
+            // --- STEP 11: GENERATE RECEIPT HTML ---
+            const receiptHtml = buildFullReceiptHTML(
+                salesData,
+                billNo,
+                customerName,
+                mobile,
+                currentLoan,
+                billSize
+            );
+
+            // --- STEP 12: OPEN / FILL PRINT WINDOW ---
+            const printWindow = preOpenedPrintWindow || window.open("", "_blank", "width=800,height=600");
+            if (!printWindow) {
+                alert("Please allow pop-ups for printing");
+                finishPrintFlow();
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(`
+        <html>
+            <head>
+                <title>Print Bill - ${isReprint ? 'Reprint' : 'New Bill'}</title>
+                <style>
+                    body { margin: 0; padding: 20px; }
+                    @media print { body { padding: 0; } }
+                </style>
+            </head>
+            <body>
+                ${receiptHtml}
+                <script>
+                    window.onload = function() {
+                        window.print();
+                        setTimeout(function() {
+                            window.close();
+                        }, 100);
+                    };
+                <\/script>
+            </body>
+        </html>
+    `);
+            printWindow.document.close();
+
+            // --- STEP 13: CLEANUP ---
+            updateState({
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                isPrinting: false
+            });
+
+            handleClearForm(true);
+            setManagedTimeout(() => refreshSalesData(true), 1500);
+
+            // Monitor print window
+            let printSafetyTimeoutId = null;
+            const checkWindowClosed = setManagedInterval(() => {
+                if (printWindow.closed) {
+                    clearManagedInterval(checkWindowClosed);
+                    if (printSafetyTimeoutId) {
+                        window.clearTimeout(printSafetyTimeoutId);
+                        activeTimeoutsRef.current.delete(printSafetyTimeoutId);
+                    }
+                    finishPrintFlow();
+                    if (refs.customer_code_input.current) {
+                        refs.customer_code_input.current.focus();
+                        refs.customer_code_input.current.select();
+                    }
+                }
+            }, 500);
+
+            printSafetyTimeoutId = setManagedTimeout(() => {
+                clearManagedInterval(checkWindowClosed);
+                finishPrintFlow();
+            }, PRINT_LOCK_MAX_MS);
+
+        } catch (error) {
+            console.error("Printing error:", error);
+            alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + error.message);
+            finishPrintFlow(true);
+        }
+    });
+    const handleBillSizeChange = useStableCallback((e) => updateState({ billSize: e.target.value }));
+
+
+    // Subscribe once for the lifetime of the page; the stable callback always sees fresh
+    // Subscribe once for the lifetime of the page; the stable callback always sees fresh
+    // state, so this listener no longer detaches/re-attaches on every keystroke's render.
+    const handleShortcut = useStableCallback((e) => {
+        if (e.key === "F10") {
+            e.preventDefault();
+            // This reloads the entire page from the server
+            window.location.reload();
+        }
+
+        if (e.key === "F1") {
+            e.preventDefault();
+            if (e.repeat) return;
+            if (printInFlightRef.current) {
+                if (Date.now() - printStartedAtRef.current < PRINT_LOCK_MAX_MS) return;
+                printInFlightRef.current = false;
+                updateState({ isPrinting: false });
+            }
+
+            // --- GATHER SALES DATA FOR VALIDATION ---
+            let salesDataToValidate = [];
+            let billNo = "";
+
+            if (selectedPrintedCustomer) {
+                if (selectedPrintedCustomer.includes('-')) {
+                    const [cCode, bNo] = selectedPrintedCustomer.split('-');
+                    billNo = bNo || "";
+                    salesDataToValidate = allSales.filter(s =>
+                        String(s.customer_code || '').toUpperCase() === String(cCode).toUpperCase() &&
+                        String(s.bill_no || '') === String(bNo)
+                    );
+                } else {
+                    salesDataToValidate = allSales.filter(s =>
+                        s.customer_code === selectedPrintedCustomer &&
+                        s.bill_printed === 'Y'
+                    );
+                    billNo = salesDataToValidate[0]?.bill_no || "";
+                }
+            } else if (selectedUnprintedCustomer) {
+                salesDataToValidate = allSales.filter(s =>
+                    s.customer_code === selectedUnprintedCustomer &&
+                    (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+                );
+                billNo = salesDataToValidate.find(s => s.bill_no)?.bill_no || "";
+            } else {
+                salesDataToValidate = displayedSales.filter(s => s.id);
+                billNo = salesDataToValidate.find(s => s.bill_no)?.bill_no || "";
+            }
+
+            if (salesDataToValidate.length === 0) {
+                alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+                return;
+            }
+
+            // --- VALIDATION 1: Check for zero or one price ---
+            const hasZeroOrOnePrice = salesDataToValidate.some(s =>
+                parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1
+            );
+
+            if (hasZeroOrOnePrice) {
+                alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+                return;
+            }
+
+            // --- VALIDATION 2: Check for missing commission ---
+            for (const s of salesDataToValidate) {
+                if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+                    alert(`කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`);
+                    return;
+                }
+            }
+
+            // Fire markPrinted immediately (before window.open) so the network round trip
+            // overlaps with opening the print dialog — bill is ready as soon as possible.
+            let markPrintedPromise = null;
+            if (!billNo) {
+                const customerCode = salesDataToValidate[0].customer_code;
+                const customerName = salesDataToValidate[0].customer_name || customerCode;
+                markPrintedPromise = api.post(routes.markPrinted, {
+                    sales_ids: salesDataToValidate.map(s => s.id),
+                    telephone_no: formData.telephone_no,
+                    customer_code: customerCode,
+                    customer_name: customerName,
+                    loan_amount: 0
+                }, { timeout: API_TIMEOUT_MS });
+            }
+
+            // Open synchronously inside the keyboard event so browsers don't treat it as a popup.
+            const printWindow = window.open("", "_blank", "width=800,height=600");
+            if (!printWindow) {
+                if (markPrintedPromise) void markPrintedPromise.catch(() => { });
+                alert("Please allow pop-ups for printing");
+                return;
+            }
+            printWindow.document.open();
+            printWindow.document.write(`
+                <!doctype html>
+                <html>
+                    <head><title>Preparing bill…</title></head>
+                    <body style="font-family:Arial,sans-serif;text-align:center;padding:40px">
+                        <strong>Preparing bill…</strong>
+                    </body>
+                </html>
+            `);
+            printWindow.document.close();
+
+            handlePrintAndClear(printWindow, {
+                salesToProcess: salesDataToValidate,
+                billNo,
+                markPrintedPromise
+            });
+            return;
+        }
+
+        if (selectedPrintedCustomer && e.key === "F5") {
+            e.preventDefault();
+            return;
+        }
+
+        // In the handleShortcut function, update the F5 handler:
+        if (e.key === "F5") {
+            e.preventDefault();
+            // Call the function directly without any delays
+            handleMarkAllProcessed();
+            return;
+        }
+    });
+
+    useEffect(() => {
         window.addEventListener("keydown", handleShortcut);
         return () => window.removeEventListener("keydown", handleShortcut);
-    }, [displayedSales, newSales, selectedPrintedCustomer, selectedUnprintedCustomer, handlePrintAndClear, handleMarkAllProcessed, handleSubmitGivenAmount]);
+    }, [handleShortcut]);
 
     //new function to save phone no 
     const savePhoneNumber = async () => {
@@ -2113,7 +3626,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
             const response = await api.post('/customers/check-or-create', {
                 short_name: customerCode,
                 telephone_no: phoneNumber
-            });
+            }, { timeout: API_TIMEOUT_MS });
 
             if (response.data.customer) {
                 // Update the customer name if returned
@@ -2125,7 +3638,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                 updateState({ showSavePhoneButton: false });
 
                 // Focus on given_amount field after saving
-                setTimeout(() => {
+                setManagedTimeout(() => {
                     if (refs.given_amount.current) {
                         refs.given_amount.current.focus();
                         refs.given_amount.current.select();
@@ -2139,6 +3652,38 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
     };
 
     const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
+
+    // Stable props for the memoized sidebar lists; inline arrows here would defeat
+    // React.memo and re-render both full lists on every keystroke in the form.
+    const handlePrintedSearchChange = useStableCallback((value) => updateState({ searchQueries: { ...searchQueries, printed: value } }));
+    const handleUnprintedSearchChange = useStableCallback((value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } }));
+    const toggleCashFilter = useStableCallback(() => updateState({ isCashFilterActive: !state.isCashFilterActive }));
+
+    // Option lists for the two react-selects. These were rebuilt (filter + sort + map over
+    // the whole catalog) inside JSX on every render, i.e. on every keystroke of any field.
+    const customerSelectOptions = useMemo(() => (
+        customers
+            .filter(c => !customerSearchInput || String(c.short_name).charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase())
+            .map(c => ({ value: c.short_name, label: `${c.short_name}` }))
+    ), [customers, customerSearchInput]);
+
+    const itemSelectOptions = useMemo(() => {
+        const input = (state.itemSearchInput || "").toUpperCase();
+        return items
+            .filter(item => !input || String(item.no).toUpperCase().startsWith(input))
+            .sort((a, b) => {
+                const isANumeric = !isNaN(a.no);
+                const isBNumeric = !isNaN(b.no);
+                if (isANumeric && !isBNumeric) return 1;
+                if (!isANumeric && isBNumeric) return -1;
+                return String(a.no).toUpperCase().localeCompare(String(b.no).toUpperCase());
+            })
+            .map(item => ({
+                value: item.no,
+                label: `${item.no} - ${item.type}`,
+                item,
+            }));
+    }, [items, state.itemSearchInput]);
 
     return (
         <Layout style={{ backgroundColor: '#99ff99' }} billSize={billSize} handleBillSizeChange={handleBillSizeChange}>
@@ -2160,7 +3705,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                     <div className="left-sidebar" style={{ backgroundColor: '#1ec139ff', borderRadius: '0.75rem', maxHeight: '80.5vh', overflowY: 'auto' }}>
 
                         {hasData ? (
-                            <CustomerList customers={printedCustomers} type="printed" searchQuery={searchQueries.printed} onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, printed: value } })} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} formatDecimal={formatDecimal} allSales={allSales} lastUpdate={state.forceUpdate || state.windowFocused} isCashFilterActive={state.isCashFilterActive} toggleCashFilter={() => updateState({ isCashFilterActive: !state.isCashFilterActive })} />
+                            <CustomerList type="printed" searchQuery={searchQueries.printed} onSearchChange={handlePrintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={allSales} isCashFilterActive={state.isCashFilterActive} toggleCashFilter={toggleCashFilter} />
                         ) : (
                             <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
                                 <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
@@ -2278,7 +3823,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                         ) : (
                             <div className="pos-sales-view flex flex-col h-full">
                                 <div className="flex-shrink-0">
-                                    <form onSubmit={handleSubmit} className="space-y-4">
+                                    <form onSubmit={(e) => { e.preventDefault(); }} className="space-y-4">
                                         <div className="w-full flex justify-between items-center">
                                             {/* --- TEXT SECTION (Moved Up Independently) --- */}
                                             <div style={{ position: 'relative', top: '-20px', display: 'flex', alignItems: 'center', zIndex: 20 }}>
@@ -2371,7 +3916,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                                                 </div>
                                             </div>
                                             <div style={{ flex: '0 0 150px', minWidth: '120px', marginLeft: '-100px' }}>
-                                                <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customers.filter(c => !customerSearchInput || c.short_name.charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase()).map(c => ({ value: c.short_name, label: `${c.short_name}` }))} onInputChange={(v, { action }) => action === "input-change" && updateState({ customerSearchInput: v.toUpperCase() })} inputValue={customerSearchInput} placeholder="පාරිභෝගිකයා තෝරන්න" isClearable isSearchable styles={{ control: b => ({ ...b, minHeight: "36px", height: "36px", fontSize: "25px", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 6px", height: "36px" }), placeholder: b => ({ ...b, fontSize: "12px", color: "#a0aec0" }), input: b => ({ ...b, fontSize: "12px", color: "black", fontWeight: "bold" }), singleValue: b => ({ ...b, color: "black", fontSize: "12px", fontWeight: "bold" }), option: (b, s) => ({ ...b, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: s.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }) }} />
+                                                <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customerSelectOptions} onInputChange={(v, { action }) => action === "input-change" && updateState({ customerSearchInput: v.toUpperCase() })} inputValue={customerSearchInput} placeholder="පාරිභෝගිකයා තෝරන්න" isClearable isSearchable styles={{ control: b => ({ ...b, minHeight: "36px", height: "36px", fontSize: "25px", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 6px", height: "36px" }), placeholder: b => ({ ...b, fontSize: "12px", color: "#a0aec0" }), input: b => ({ ...b, fontSize: "12px", color: "black", fontWeight: "bold" }), singleValue: b => ({ ...b, color: "black", fontSize: "12px", fontWeight: "bold" }), option: (b, s) => ({ ...b, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: s.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }) }} />
                                             </div>
                                             <div style={{ flex: '0 0 60px', minWidth: '120px' }}>
                                                 <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text" value={formData.price_per_kg} onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && handleInputChange('price_per_kg', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "price_per_kg")} placeholder="එකවර මිල" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
@@ -2393,149 +3938,182 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                                             </div>
                                             <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
                                                 {(() => {
-
-                                                    const currentFilteredOptions = [...items]
-                                                        .filter(item => {
-                                                            if (!state.itemSearchInput) return true;
-                                                            const input = state.itemSearchInput.toUpperCase();
-                                                            return String(item.no).toUpperCase().startsWith(input);
-                                                        })
-                                                        .sort((a, b) => {
-                                                            const isANumeric = !isNaN(a.no);
-                                                            const isBNumeric = !isNaN(b.no);
-                                                            if (isANumeric && !isBNumeric) return 1;
-                                                            if (!isANumeric && isBNumeric) return -1;
-                                                            return String(a.no).toUpperCase().localeCompare(String(b.no).toUpperCase());
-                                                        })
-                                                        .map(item => ({
-                                                            value: item.no,
-                                                            label: `${item.no} - ${item.type}`,
-                                                            item,
-                                                        }));
+                                                    const currentFilteredOptions = itemSelectOptions;
 
                                                     return (
-                                                        <Select
-                                                            ref={refs.item_code_select}
-                                                            openMenuOnFocus
-                                                            isSearchable
-                                                            tabSelectsValue={false}   // important for POS
-                                                            closeMenuOnSelect
-                                                            blurInputOnSelect={false}
-                                                            inputValue={state.itemSearchInput}
-                                                            options={currentFilteredOptions}
-                                                            placeholder="භාණ්ඩය"
+                                                        <div
+                                                            onKeyDown={(e) => {
+                                                                // This wrapper captures Enter before React Select
+                                                                if (e.key === "Enter" && state.itemSearchInput !== "+") {
+                                                                    const select = refs.item_code_select.current;
+                                                                    if (select && select.state.menuIsOpen) {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
 
-                                                            value={
-                                                                formData.item_code
-                                                                    ? {
-                                                                        value: formData.item_code,
-                                                                        label: `${formData.item_code} - ${formData.item_name}`,
+                                                                        // Get the highlighted index from the select's state
+                                                                        let idx = select.state.highlightedIndex;
+
+                                                                        // If highlightedIndex is -1 or undefined, try to get it from the focused option
+                                                                        if (idx === undefined || idx === -1) {
+                                                                            const focusedOption = select.state.focusedOption || select.state.highlightedOption;
+                                                                            if (focusedOption && typeof focusedOption === 'object') {
+                                                                                idx = currentFilteredOptions.findIndex(
+                                                                                    opt => opt.value === focusedOption.value
+                                                                                );
+                                                                            }
+                                                                        }
+
+                                                                        // If we still don't have a valid index and there's only one option, use it
+                                                                        if ((idx === undefined || idx === -1) && currentFilteredOptions.length === 1) {
+                                                                            idx = 0;
+                                                                        }
+
+                                                                        // If we have a valid index, select that option
+                                                                        if (idx !== undefined && idx !== -1 && idx < currentFilteredOptions.length) {
+                                                                            const optionToSelect = currentFilteredOptions[idx];
+                                                                            if (optionToSelect) {
+                                                                                // Manually trigger the selection
+                                                                                handleItemSelect(optionToSelect);
+                                                                                updateState({ itemSearchInput: "" });
+
+                                                                                // Force close the menu
+                                                                                select.setState({
+                                                                                    menuIsOpen: false,
+                                                                                    inputValue: ""
+                                                                                });
+
+                                                                                // Focus on weight field
+                                                                                setManagedTimeout(() => {
+                                                                                    refs.weight.current?.focus();
+                                                                                    refs.weight.current?.select();
+                                                                                }, 50);
+                                                                            }
+                                                                        }
                                                                     }
-                                                                    : null
-                                                            }
-
-                                                            onInputChange={(value, meta) => {
-                                                                if (meta.action === "input-change") {
-                                                                    updateState({ itemSearchInput: value.toUpperCase() });
                                                                 }
                                                             }}
+                                                        >
+                                                            <Select
+                                                                ref={refs.item_code_select}
+                                                                openMenuOnFocus
+                                                                isSearchable
+                                                                tabSelectsValue={false}   // important for POS
+                                                                closeMenuOnSelect
+                                                                blurInputOnSelect={false}
+                                                                inputValue={state.itemSearchInput}
+                                                                options={currentFilteredOptions}
+                                                                placeholder="භාණ්ඩය"
 
-                                                            onChange={(selectedOption) => {
-                                                                if (!selectedOption) return;
+                                                                value={
+                                                                    formData.item_code
+                                                                        ? {
+                                                                            value: formData.item_code,
+                                                                            label: `${formData.item_code} - ${formData.item_name}`,
+                                                                        }
+                                                                        : null
+                                                                }
 
-                                                                handleItemSelect(selectedOption);
-                                                                updateState({ itemSearchInput: "" });
+                                                                onInputChange={(value, meta) => {
+                                                                    if (meta.action === "input-change") {
+                                                                        updateState({ itemSearchInput: value.toUpperCase() });
+                                                                    }
+                                                                }}
 
-                                                                setTimeout(() => {
-                                                                    refs.weight.current?.focus();
-                                                                    refs.weight.current?.select();
-                                                                }, 50);
-                                                            }}
+                                                                onChange={(selectedOption) => {
+                                                                    if (!selectedOption) return;
 
-                                                            onKeyDown={(e) => {
+                                                                    handleItemSelect(selectedOption);
+                                                                    updateState({ itemSearchInput: "" });
 
-                                                                // 🔥 "+" shortcut for last sale
-                                                                if (e.key === "Enter" && state.itemSearchInput === "+") {
-                                                                    e.preventDefault();
-                                                                    const lastSale = displayedSales[0];
+                                                                    setManagedTimeout(() => {
+                                                                        refs.weight.current?.focus();
+                                                                        refs.weight.current?.select();
+                                                                    }, 50);
+                                                                }}
 
-                                                                    if (lastSale) {
-                                                                        setFormData(prev => ({
-                                                                            ...prev,
-                                                                            item_code: lastSale.item_code,
-                                                                            item_name: lastSale.item_name,
-                                                                            pack_due: lastSale.pack_due,
-                                                                            price_per_kg: lastSale.price_per_kg
-                                                                        }));
+                                                                onKeyDown={(e) => {
+                                                                    // 🔥 "+" shortcut for last sale from displayedSales (sorted by date)
+                                                                    if (e.key === "Enter" && state.itemSearchInput === "+") {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
 
-                                                                        updateState({
-                                                                            itemSearchInput: "",
-                                                                            gridPricePerKg: lastSale.price_per_kg || ""
+                                                                        // Get the latest sale by sorting the displayedSales by timestamp/date
+                                                                        const sortedSales = [...displayedSales].sort((a, b) => {
+                                                                            const dateA = new Date(a.timestamp || a.created_at || a.date || 0);
+                                                                            const dateB = new Date(b.timestamp || b.created_at || b.date || 0);
+                                                                            return dateB - dateA;
                                                                         });
 
-                                                                        setTimeout(() => {
-                                                                            refs.weight.current?.focus();
-                                                                            refs.weight.current?.select();
-                                                                        }, 50);
+                                                                        const lastSale = sortedSales[0];
+
+                                                                        if (lastSale) {
+                                                                            setFormData(prev => ({
+                                                                                ...prev,
+                                                                                item_code: lastSale.item_code,
+                                                                                item_name: lastSale.item_name,
+                                                                                pack_due: lastSale.pack_due || 0,
+                                                                                price_per_kg: lastSale.price_per_kg || ''
+                                                                            }));
+
+                                                                            updateState({
+                                                                                itemSearchInput: "",
+                                                                                gridPricePerKg: lastSale.price_per_kg || ""
+                                                                            });
+
+                                                                            setManagedTimeout(() => {
+                                                                                refs.weight.current?.focus();
+                                                                                refs.weight.current?.select();
+                                                                            }, 50);
+                                                                        } else {
+                                                                            console.log("No sales available");
+                                                                        }
+                                                                        return;
                                                                     }
-                                                                    return;
-                                                                }
 
-                                                                // 🔥 POS ENTER behavior
-                                                                if (e.key === "Enter") {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation();
+                                                                    // IMPORTANT: Let the wrapper div handle Enter for selection
+                                                                    // For regular Enter, the wrapper div will handle it
+                                                                    // Allow other keys to work normally (arrow keys, etc.)
+                                                                    // Don't prevent default for other keys
+                                                                }}
 
-                                                                    if (currentFilteredOptions.length > 0) {
-                                                                        const firstOption = currentFilteredOptions[0];
-                                                                        handleItemSelect(firstOption);
-                                                                        updateState({ itemSearchInput: "" });
+                                                                className="react-select-container font-bold text-sm w-full"
 
-                                                                        setTimeout(() => {
-                                                                            refs.weight.current?.focus();
-                                                                            refs.weight.current?.select();
-                                                                        }, 50);
-                                                                    }
-                                                                }
-                                                            }}
-
-                                                            className="react-select-container font-bold text-sm w-full"
-
-                                                            styles={{
-                                                                control: base => ({
-                                                                    ...base,
-                                                                    height: "44px",
-                                                                    minHeight: "44px",
-                                                                    fontSize: "1.25rem",
-                                                                    backgroundColor: "white",
-                                                                    borderColor: "#4a5568",
-                                                                    borderRadius: "0.5rem",
-                                                                }),
-                                                                valueContainer: base => ({
-                                                                    ...base,
-                                                                    padding: "0 1rem",
-                                                                    height: "44px"
-                                                                }),
-                                                                input: base => ({
-                                                                    ...base,
-                                                                    color: "black",
-                                                                    fontSize: "1.25rem"
-                                                                }),
-                                                                singleValue: base => ({
-                                                                    ...base,
-                                                                    color: "black",
-                                                                    fontWeight: "bold",
-                                                                    fontSize: "1.25rem",
-                                                                }),
-                                                                option: (base, state) => ({
-                                                                    ...base,
-                                                                    fontWeight: "bold",
-                                                                    color: "black",
-                                                                    backgroundColor: state.isFocused ? "#e5e7eb" : "white",
-                                                                    fontSize: "1rem",
-                                                                }),
-                                                            }}
-                                                        />
+                                                                styles={{
+                                                                    control: base => ({
+                                                                        ...base,
+                                                                        height: "44px",
+                                                                        minHeight: "44px",
+                                                                        fontSize: "1.25rem",
+                                                                        backgroundColor: "white",
+                                                                        borderColor: "#4a5568",
+                                                                        borderRadius: "0.5rem",
+                                                                    }),
+                                                                    valueContainer: base => ({
+                                                                        ...base,
+                                                                        padding: "0 1rem",
+                                                                        height: "44px"
+                                                                    }),
+                                                                    input: base => ({
+                                                                        ...base,
+                                                                        color: "black",
+                                                                        fontSize: "1.25rem"
+                                                                    }),
+                                                                    singleValue: base => ({
+                                                                        ...base,
+                                                                        color: "black",
+                                                                        fontWeight: "bold",
+                                                                        fontSize: "1.25rem",
+                                                                    }),
+                                                                    option: (base, state) => ({
+                                                                        ...base,
+                                                                        fontWeight: "bold",
+                                                                        color: "black",
+                                                                        backgroundColor: state.isFocused ? "#e5e7eb" : "white",
+                                                                        fontSize: "1rem",
+                                                                    }),
+                                                                }}
+                                                            />
+                                                        </div>
                                                     );
                                                 })()}
                                             </div>
@@ -2549,7 +4127,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                                                 </div>
                                             ))}
                                         </div>
-                                        <button type="submit" style={{ display: "none" }}></button>
+                                        <button type="button" tabIndex={-1} style={{ display: "none" }} aria-hidden="true"></button>
                                     </form>
                                     {errors.form && <div className="mt-6 p-3 bg-red-100 text-red-700 rounded-xl">{errors.form}</div>}
                                 </div>
@@ -2564,22 +4142,36 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {displayedSales.map((s, idx) => (
-                                                    <tr key={idx} tabIndex={0} className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={() => handleEditClick(s)} onKeyDown={(e) => handleTableRowKeyDown(e, s)}>
-                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.supplier_code}</td>
-                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.item_code}</td>
-                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.item_name}</td>
-                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{formatDecimal(s.weight)}</td>
-                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{formatDecimal(s.price_per_kg)}</td>
-                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) + (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0))}</td>
-                                                        <td className="border" style={{ padding: '6px 8px', fontSize: '12px' }}>{s.packs}</td>
-                                                        <td className="border text-center" style={{ padding: '6px 8px' }}>
-                                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }} className="text-black font-bold rounded-full bg-white hover:bg-gray-200" style={{ padding: '2px 6px', fontSize: '11px' }}>
-                                                                🗑️
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
+                                                {displayedSales.map((s, idx) => {
+                                                    const isZeroPrice = parseFloat(s.price_per_kg) === 1;
+                                                    const cellStyle = {
+                                                        padding: '6px 8px',
+                                                        fontSize: '12px',
+                                                        color: isZeroPrice ? '#FF0000' : 'white',
+                                                        // Remove backgroundColor or set it to transparent
+                                                        backgroundColor: 'transparent'
+                                                    };
+                                                    return (
+                                                        <tr key={s.id || `${s.customer_code || 'sale'}-${s.item_code || 'item'}-${idx}`}
+                                                            tabIndex={0}
+                                                            className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                            onClick={() => handleEditClick(s)}
+                                                            onKeyDown={(e) => handleTableRowKeyDown(e, s)}>
+                                                            <td className="border" style={cellStyle}>{s.supplier_code}</td>
+                                                            <td className="border" style={cellStyle}>{s.item_code}</td>
+                                                            <td className="border" style={{ padding: '6px 8px', fontSize: '16px', fontFamily: 'inherit', fontWeight: 'normal', color: isZeroPrice ? '#FF0000' : '#FFFFFF', textTransform: 'none', backgroundColor: 'transparent' }}>{s.item_name}</td>
+                                                            <td className="border" style={cellStyle}>{formatDecimal(s.weight)}</td>
+                                                            <td className="border" style={cellStyle}>{formatDecimal(s.price_per_kg)}</td>
+                                                            <td className="border" style={cellStyle}>{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) + (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0))}</td>
+                                                            <td className="border" style={cellStyle}>{s.packs}</td>
+                                                            <td className="border text-center" style={{ padding: '6px 8px', backgroundColor: 'transparent' }}>
+                                                                <button onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }} className="text-black font-bold rounded-full bg-white hover:bg-gray-200" style={{ padding: '2px 6px', fontSize: '11px' }}>
+                                                                    🗑️
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     )}
@@ -2610,7 +4202,7 @@ const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoa
                     </div>
 
                     <div className="right-sidebar" style={{ backgroundColor: '#1ec139ff', borderRadius: '0.75rem', maxHeight: '80.5vh', overflowY: 'auto', gridColumnStart: 3, gridColumnEnd: 4 }}>
-                        {hasData ? (<CustomerList customers={unprintedCustomers} type="unprinted" searchQuery={searchQueries.unprinted} onSearchChange={(value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } })} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} formatDecimal={formatDecimal} allSales={allSales} lastUpdate={state.forceUpdate || state.windowFocused} />) : (
+                        {hasData ? (<CustomerList type="unprinted" searchQuery={searchQueries.unprinted} onSearchChange={handleUnprintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={allSales} />) : (
                             <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
                                 <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl"><h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>මුද්‍රණය නොකළ</h2></div><div className="py-4"><p className="text-gray-700">මුද්‍රණය නොකළ විකුණුම් කිසිවක් සොයාගත නොහැක</p></div>
                             </div>

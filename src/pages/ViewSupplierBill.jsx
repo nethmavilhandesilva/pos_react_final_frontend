@@ -9,7 +9,7 @@ const ViewSupplierBill = () => {
     const [loading, setLoading] = useState(true);
 
     // Configuration
-    const mobile = '0777672838/071437115';
+    const mobile = ' 0777672838 / 071437115';
     const is4Inch = billSize === '4mm';
     const receiptMaxWidth = is4Inch ? '4in' : '350px';
     const fontSizeBody = '25px';
@@ -182,7 +182,7 @@ const ViewSupplierBill = () => {
                     __html: `
                     <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
                         <div style="text-align:center; font-weight:bold;">
-                            <div style="font-size:24px;">xxxx</div>
+                            <div style="font-size:24px;">N66</div>
                             <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
                                 <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>
                                 <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${bill.supplier_code}</span></div>

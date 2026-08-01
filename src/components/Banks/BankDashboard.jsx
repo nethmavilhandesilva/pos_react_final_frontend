@@ -31,7 +31,10 @@ import {
   Truck,
   History,
   Plus,
-  Minus
+  Minus,
+  Eye,
+  FileSpreadsheet,
+  Home
 } from 'lucide-react';
 
 const BankStatement = () => {
@@ -466,6 +469,7 @@ const BankStatement = () => {
   };
 
   const printStatement = () => {
+    // Same print function as before
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -548,6 +552,8 @@ const BankStatement = () => {
                 <td class="text-right"><strong>Rs${(statementData.opening_balance || 0).toLocaleString()}</strong></td>
               </tr>
               ${statementData.transactions.map(t => {
+                const displayDebit = t.debit > 0 ? t.debit : (t.loan_type === 'ingoing' ? Math.abs(t.amount) : 0);
+                const displayCredit = t.credit > 0 ? t.credit : (t.loan_type === 'outgoing' ? Math.abs(t.amount) : 0);
                 let badgeClass = '';
                 if (t.transaction_type === 'supplier_payment') badgeClass = 'badge-supplier';
                 else if (t.transaction_type === 'customer_sale') badgeClass = 'badge-customer';
@@ -558,9 +564,6 @@ const BankStatement = () => {
                 if (t.payment_method === 'Bank Transfer') paymentBadge = 'badge-transfer';
                 else if (t.payment_method === 'Cheque') paymentBadge = 'badge-cheque';
                 else paymentBadge = 'badge-cash';
-                
-                const displayDebit = t.debit > 0 ? t.debit : (t.loan_type === 'ingoing' ? Math.abs(t.amount) : 0);
-                const displayCredit = t.credit > 0 ? t.credit : (t.loan_type === 'outgoing' ? Math.abs(t.amount) : 0);
                 
                 return `
                 <tr>
@@ -573,7 +576,7 @@ const BankStatement = () => {
                   <td class="text-right debit">${displayDebit > 0 ? `Rs${displayDebit.toLocaleString()}` : '-'}</td>
                   <td class="text-right credit">${displayCredit > 0 ? `Rs${displayCredit.toLocaleString()}` : '-'}</td>
                   <td class="text-right">Rs${(t.balance || 0).toLocaleString()}</td>
-                </table>`;
+                </tr>`;
               }).join('')}
               <tr style="background:#E0E7FF">
                 <td colspan="8"><strong>Closing Balance</strong></td>
@@ -675,44 +678,40 @@ const BankStatement = () => {
   const currentTransactions = statementData.transactions.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(statementData.transactions.length / itemsPerPage);
 
-  // Styles
+  // Updated Styles with better alignment
   const styles = {
     container: {
-      width: '100vw',
+      width: '100%',
       minHeight: '100vh',
       backgroundColor: '#F3F4F6',
       fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-      margin: 0,
-      padding: 0,
-      overflowX: 'hidden',
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0
+      padding: '0',
+      margin: '0'
     },
     header: {
       backgroundColor: '#1F2937',
       color: 'white',
-      padding: '20px 30px',
+      padding: '24px 32px',
       boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
       width: '100%'
     },
     headerContent: {
       width: '100%',
+      maxWidth: '1440px',
+      margin: '0 auto',
       display: 'flex',
       justifyContent: 'space-between',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       flexWrap: 'wrap',
-      gap: '15px'
+      gap: '16px'
     },
     titleSection: {
-      flex: 1
+      flex: '1 1 auto'
     },
     title: {
       fontSize: '28px',
       fontWeight: 'bold',
-      margin: '0 0 5px 0'
+      margin: '0 0 4px 0'
     },
     subtitle: {
       fontSize: '14px',
@@ -725,94 +724,31 @@ const BankStatement = () => {
       alignItems: 'center',
       flexWrap: 'wrap'
     },
-    reportBtn: {
-      padding: '10px 20px',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: '600',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      transition: 'all 0.3s',
-      backgroundColor: '#F59E0B',
-      color: 'white'
-    },
-    actionBtn: {
-      padding: '10px 20px',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: '600',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      transition: 'all 0.3s'
-    },
-    autoRefreshBtn: {
-      padding: '10px 20px',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: '600',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      transition: 'all 0.3s',
-      backgroundColor: '#EC489A',
-      color: 'white'
-    },
-    chequeReportBtn: {
-      padding: '10px 20px',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: '600',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      transition: 'all 0.3s',
-      backgroundColor: '#8B5CF6',
-      color: 'white'
-    },
-    incomeExpenseBtn: {
-      padding: '10px 20px',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: '600',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      transition: 'all 0.3s',
-      backgroundColor: '#10B981',
-      color: 'white'
-    },
     refreshStatus: {
       fontSize: '12px',
       color: '#9CA3AF',
-      marginLeft: '10px',
-      marginTop: '8px'
+      marginTop: '8px',
+      width: '100%',
+      maxWidth: '1440px',
+      marginLeft: 'auto',
+      marginRight: 'auto'
     },
     mainContent: {
       width: '100%',
-      padding: '20px 30px'
+      maxWidth: '1440px',
+      margin: '0 auto',
+      padding: '24px 32px'
     },
     filtersCard: {
       backgroundColor: 'white',
       borderRadius: '12px',
-      marginBottom: '20px',
+      marginBottom: '24px',
       boxShadow: '0 1px 3px 0 rgba(0,0,0,0.1)',
       overflow: 'hidden',
       width: '100%'
     },
     filtersHeader: {
-      padding: '15px 20px',
+      padding: '16px 24px',
       backgroundColor: '#F9FAFB',
       borderBottom: '1px solid #E5E7EB',
       display: 'flex',
@@ -829,19 +765,19 @@ const BankStatement = () => {
       gap: '8px'
     },
     filtersBody: {
-      padding: '20px',
+      padding: '24px',
       display: showFilters ? 'block' : 'none'
     },
     filterGrid: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-      gap: '15px',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+      gap: '20px',
       marginBottom: '20px'
     },
     filterGroup: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '8px'
+      gap: '6px'
     },
     label: {
       fontSize: '13px',
@@ -855,18 +791,20 @@ const BankStatement = () => {
       borderRadius: '8px',
       fontSize: '14px',
       backgroundColor: 'white',
-      cursor: 'pointer'
+      cursor: 'pointer',
+      transition: 'border-color 0.2s'
     },
     input: {
       width: '100%',
       padding: '10px 12px',
       border: '1px solid #D1D5DB',
       borderRadius: '8px',
-      fontSize: '14px'
+      fontSize: '14px',
+      transition: 'border-color 0.2s'
     },
     dateInputGroup: {
       display: 'flex',
-      gap: '10px',
+      gap: '8px',
       alignItems: 'center'
     },
     clearDateBtn: {
@@ -881,20 +819,23 @@ const BankStatement = () => {
       display: 'flex',
       alignItems: 'center',
       gap: '4px',
-      transition: 'all 0.2s',
-      whiteSpace: 'nowrap'
+      transition: 'background-color 0.2s',
+      whiteSpace: 'nowrap',
+      height: '40px'
     },
     searchBox: {
       display: 'flex',
-      gap: '10px',
-      marginBottom: '20px'
+      gap: '12px',
+      marginBottom: '20px',
+      alignItems: 'center'
     },
     searchInput: {
       flex: 1,
-      padding: '10px 15px',
+      padding: '10px 16px',
       border: '1px solid #D1D5DB',
       borderRadius: '8px',
-      fontSize: '14px'
+      fontSize: '14px',
+      transition: 'border-color 0.2s'
     },
     filterButtons: {
       display: 'flex',
@@ -902,14 +843,14 @@ const BankStatement = () => {
       flexWrap: 'wrap'
     },
     filterBtn: {
-      padding: '8px 16px',
+      padding: '8px 18px',
       border: '1px solid #D1D5DB',
       borderRadius: '8px',
       backgroundColor: 'white',
       cursor: 'pointer',
       fontSize: '13px',
       fontWeight: '500',
-      transition: 'all 0.3s'
+      transition: 'all 0.2s'
     },
     activeFilterBtn: {
       backgroundColor: '#4F46E5',
@@ -918,24 +859,23 @@ const BankStatement = () => {
     },
     summaryCards: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
       gap: '20px',
-      marginBottom: '20px',
+      marginBottom: '24px',
       width: '100%'
     },
     summaryCard: {
       backgroundColor: 'white',
-      padding: '20px',
+      padding: '20px 24px',
       borderRadius: '12px',
       boxShadow: '0 1px 3px 0 rgba(0,0,0,0.1)',
-      transition: 'transform 0.3s, box-shadow 0.3s',
-      cursor: 'pointer'
+      transition: 'transform 0.2s, box-shadow 0.2s'
     },
     summaryHeader: {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: '15px'
+      marginBottom: '8px'
     },
     summaryLabel: {
       fontSize: '13px',
@@ -945,9 +885,8 @@ const BankStatement = () => {
       letterSpacing: '0.5px'
     },
     summaryValue: {
-      fontSize: '28px',
-      fontWeight: 'bold',
-      marginBottom: '5px'
+      fontSize: '24px',
+      fontWeight: 'bold'
     },
     statementTable: {
       backgroundColor: 'white',
@@ -957,13 +896,13 @@ const BankStatement = () => {
       width: '100%'
     },
     tableHeader: {
-      padding: '15px 20px',
+      padding: '16px 24px',
       borderBottom: '1px solid #E5E7EB',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
       flexWrap: 'wrap',
-      gap: '15px',
+      gap: '12px',
       backgroundColor: '#F9FAFB'
     },
     table: {
@@ -972,22 +911,41 @@ const BankStatement = () => {
       minWidth: '1200px'
     },
     th: {
-      padding: '12px 15px',
+      padding: '12px 16px',
       textAlign: 'left',
       fontSize: '12px',
       fontWeight: '600',
       color: '#6B7280',
       borderBottom: '2px solid #E5E7EB',
-      backgroundColor: '#F9FAFB'
+      backgroundColor: '#F9FAFB',
+      whiteSpace: 'nowrap'
+    },
+    thRight: {
+      padding: '12px 16px',
+      textAlign: 'right',
+      fontSize: '12px',
+      fontWeight: '600',
+      color: '#6B7280',
+      borderBottom: '2px solid #E5E7EB',
+      backgroundColor: '#F9FAFB',
+      whiteSpace: 'nowrap'
     },
     td: {
-      padding: '12px 15px',
+      padding: '10px 16px',
       fontSize: '13px',
-      borderBottom: '1px solid #F3F4F6'
+      borderBottom: '1px solid #F3F4F6',
+      verticalAlign: 'middle'
+    },
+    tdRight: {
+      padding: '10px 16px',
+      fontSize: '13px',
+      borderBottom: '1px solid #F3F4F6',
+      textAlign: 'right',
+      verticalAlign: 'middle'
     },
     clickableRow: {
       cursor: 'pointer',
-      transition: 'background-color 0.3s'
+      transition: 'background-color 0.15s'
     },
     debitAmount: {
       color: '#DC2626',
@@ -998,24 +956,25 @@ const BankStatement = () => {
       fontWeight: '600'
     },
     pagination: {
-      padding: '15px 20px',
+      padding: '16px 24px',
       borderTop: '1px solid #E5E7EB',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
       flexWrap: 'wrap',
-      gap: '10px'
+      gap: '12px'
     },
     paginationButton: {
-      padding: '8px 12px',
+      padding: '8px 16px',
       border: '1px solid #D1D5DB',
       borderRadius: '6px',
       backgroundColor: 'white',
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
-      gap: '5px',
-      fontSize: '13px'
+      gap: '6px',
+      fontSize: '13px',
+      transition: 'all 0.2s'
     },
     pageInfo: {
       fontSize: '14px',
@@ -1031,25 +990,30 @@ const BankStatement = () => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 1000
+      zIndex: 1000,
+      padding: '20px'
     },
     modalContent: {
       backgroundColor: 'white',
       borderRadius: '12px',
-      maxWidth: '500px',
-      width: '90%',
-      maxHeight: '80vh',
-      overflow: 'auto'
+      maxWidth: '560px',
+      width: '100%',
+      maxHeight: '90vh',
+      overflow: 'auto',
+      boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
     },
     modalHeader: {
-      padding: '20px',
+      padding: '20px 24px',
       borderBottom: '1px solid #E5E7EB',
       display: 'flex',
       justifyContent: 'space-between',
-      alignItems: 'center'
+      alignItems: 'center',
+      backgroundColor: '#F9FAFB',
+      borderTopLeftRadius: '12px',
+      borderTopRightRadius: '12px'
     },
     modalBody: {
-      padding: '20px'
+      padding: '24px'
     },
     detailRow: {
       display: 'flex',
@@ -1059,7 +1023,7 @@ const BankStatement = () => {
     },
     loadingSpinner: {
       textAlign: 'center',
-      padding: '60px',
+      padding: '60px 20px',
       fontSize: '16px',
       color: '#6B7280'
     },
@@ -1068,10 +1032,51 @@ const BankStatement = () => {
       padding: '20px',
       fontSize: '12px',
       color: '#9CA3AF',
-      width: '100%'
+      width: '100%',
+      maxWidth: '1440px',
+      margin: '0 auto'
+    },
+    btn: {
+      padding: '10px 20px',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: '600',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '8px',
+      transition: 'all 0.2s',
+      textDecoration: 'none',
+      whiteSpace: 'nowrap'
+    },
+    btnPrimary: {
+      backgroundColor: '#4F46E5',
+      color: 'white'
+    },
+    btnSuccess: {
+      backgroundColor: '#10B981',
+      color: 'white'
+    },
+    btnWarning: {
+      backgroundColor: '#F59E0B',
+      color: 'white'
+    },
+    btnPurple: {
+      backgroundColor: '#8B5CF6',
+      color: 'white'
+    },
+    btnGray: {
+      backgroundColor: '#6B7280',
+      color: 'white'
+    },
+    btnDanger: {
+      backgroundColor: '#EF4444',
+      color: 'white'
     }
   };
 
+  // Global styles
   const globalStyles = `
     @keyframes spin {
       from { transform: rotate(0deg); }
@@ -1082,15 +1087,16 @@ const BankStatement = () => {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #D1D5DB;
-      borderRadius: 8px;
+      border-radius: 8px;
       font-size: 14px;
       font-family: inherit;
+      transition: border-color 0.2s;
     }
     
     .custom-datepicker:focus {
       outline: none;
       border-color: #4F46E5;
-      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
     }
     
     .react-datepicker-wrapper {
@@ -1111,6 +1117,26 @@ const BankStatement = () => {
       margin: 0;
       padding: 0;
     }
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: #F3F4F6;
+      border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background: #D1D5DB;
+      border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+      background: #9CA3AF;
+    }
   `;
 
   return (
@@ -1121,70 +1147,69 @@ const BankStatement = () => {
         <div style={styles.header}>
           <div style={styles.headerContent}>
             <div style={styles.titleSection}>
-              <h1 style={styles.title}>Bank Statement with Income & Expenses</h1>
+              <h1 style={styles.title}>🏦 Bank Statement</h1>
               <p style={styles.subtitle}>Complete transaction history including bank transactions, income & expenses</p>
             </div>
             <div style={styles.actionButtons}>
               <button
                 onClick={handleAllTransactionsReport}
-                style={styles.reportBtn}
+                style={{...styles.btn, ...styles.btnWarning}}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#D97706'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#F59E0B'}
               >
-                <FileText size={16} />
-                All Transactions Report
+                <FileSpreadsheet size={16} />
+                All Transactions
               </button>
               
-              {/* Cheque Payments Report Button */}
               <button
                 onClick={fetchChequeReport}
                 disabled={chequeReportLoading}
-                style={{...styles.chequeReportBtn, opacity: chequeReportLoading ? 0.6 : 1}}
+                style={{...styles.btn, ...styles.btnPurple, opacity: chequeReportLoading ? 0.6 : 1}}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#7C3AED'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#8B5CF6'}
               >
                 <CreditCard size={16} />
-                Cheque Payments
+                Cheques
               </button>
               
               <button
                 onClick={toggleIncomeExpense}
-                style={{...styles.incomeExpenseBtn, backgroundColor: showIncomeExpense ? '#10B981' : '#6B7280'}}
-                title={showIncomeExpense ? 'Showing Income & Expenses' : 'Hide Income & Expenses'}
+                style={{...styles.btn, backgroundColor: showIncomeExpense ? '#10B981' : '#6B7280', color: 'white'}}
               >
                 {showIncomeExpense ? <Plus size={16} /> : <Minus size={16} />}
-                {showIncomeExpense ? 'Hide Income/Expense' : 'Show Income/Expense'}
+                {showIncomeExpense ? 'Hide I/E' : 'Show I/E'}
               </button>
               
               <button
                 onClick={toggleAutoRefresh}
-                style={{...styles.autoRefreshBtn, backgroundColor: autoRefresh ? '#10B981' : '#6B7280'}}
-                title={autoRefresh ? 'Auto-refresh is ON - Updates every 3 seconds' : 'Auto-refresh is OFF - Click to enable'}
+                style={{...styles.btn, backgroundColor: autoRefresh ? '#10B981' : '#6B7280', color: 'white'}}
               >
                 <RefreshCcw size={16} />
-                {autoRefresh ? 'Live Updates ON' : 'Live Updates OFF'}
+                {autoRefresh ? 'Live ON' : 'Live OFF'}
               </button>
               
               <button
                 onClick={exportToCSV}
-                style={{...styles.actionBtn, backgroundColor: '#10B981', color: 'white'}}
+                style={{...styles.btn, ...styles.btnSuccess}}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10B981'}
               >
                 <Download size={16} /> Export
               </button>
+              
               <button
                 onClick={printStatement}
-                style={{...styles.actionBtn, backgroundColor: '#6B7280', color: 'white'}}
+                style={{...styles.btn, ...styles.btnGray}}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#4B5563'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#6B7280'}
               >
                 <Printer size={16} /> Print
               </button>
+              
               <button
                 onClick={handleManualRefresh}
                 disabled={loading}
-                style={{...styles.actionBtn, backgroundColor: '#4F46E5', color: 'white', opacity: loading ? 0.6 : 1}}
+                style={{...styles.btn, ...styles.btnPrimary, opacity: loading ? 0.6 : 1}}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#4338CA'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#4F46E5'}
               >
@@ -1195,11 +1220,12 @@ const BankStatement = () => {
           </div>
           {autoRefresh && (
             <div style={styles.refreshStatus}>
-              🔄 Live updates every 3 seconds (silent refresh) • Last updated: {formatLastRefreshTime()}
+              🔄 Live updates every 3 seconds • Last updated: {formatLastRefreshTime()}
             </div>
           )}
         </div>
 
+        {/* Main Content */}
         <div style={styles.mainContent}>
           {/* Filters Card */}
           <div style={styles.filtersCard}>
@@ -1207,6 +1233,9 @@ const BankStatement = () => {
               <div style={styles.filtersTitle}>
                 <Filter size={18} />
                 Filters & Options
+                <span style={{ fontSize: '12px', fontWeight: '400', color: '#6B7280', marginLeft: '8px' }}>
+                  {showFilters ? '(Click to collapse)' : '(Click to expand)'}
+                </span>
               </div>
               {showFilters ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </div>
@@ -1225,16 +1254,20 @@ const BankStatement = () => {
                     <option value="all">🏦 All Bank Accounts</option>
                     {banks.map(bank => (
                       <option key={bank.id} value={bank.id}>
-                        {bank.bank_name} - {bank.account_no} ({bank.branch})
+                        {bank.bank_name} - {bank.account_no}
                       </option>
                     ))}
                   </select>
                   <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>
-                    Currently viewing: <strong>{getSelectedBankName()}</strong>
+                    Viewing: <strong>{getSelectedBankName()}</strong>
                   </div>
                 </div>
+                
                 <div style={styles.filterGroup}>
-                  <label style={styles.label}>Start Date</label>
+                  <label style={styles.label}>
+                    <Calendar size={14} style={{ display: 'inline', marginRight: '4px' }} />
+                    Start Date
+                  </label>
                   <DatePicker
                     selected={dateRange.start}
                     onChange={(date) => setDateRange({ ...dateRange, start: date })}
@@ -1244,8 +1277,12 @@ const BankStatement = () => {
                     isClearable={true}
                   />
                 </div>
+                
                 <div style={styles.filterGroup}>
-                  <label style={styles.label}>End Date</label>
+                  <label style={styles.label}>
+                    <Calendar size={14} style={{ display: 'inline', marginRight: '4px' }} />
+                    End Date
+                  </label>
                   <div style={styles.dateInputGroup}>
                     <DatePicker
                       selected={dateRange.end}
@@ -1269,10 +1306,10 @@ const BankStatement = () => {
               </div>
               
               <div style={styles.searchBox}>
-                <Search size={18} style={{ alignSelf: 'center', color: '#9CA3AF' }} />
+                <Search size={18} style={{ color: '#9CA3AF', flexShrink: 0 }} />
                 <input
                   type="text"
-                  placeholder="Search by description, bill number, cheque number, transfer reference, bank name, supplier code, or transaction type..."
+                  placeholder="Search by description, bill number, cheque number, transfer reference, bank name, or user ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   style={styles.searchInput}
@@ -1287,7 +1324,7 @@ const BankStatement = () => {
                     ...(filterType === 'all' ? styles.activeFilterBtn : {})
                   }}
                 >
-                  All Transactions
+                  All
                 </button>
                 <button
                   onClick={() => setFilterType('debit')}
@@ -1296,7 +1333,7 @@ const BankStatement = () => {
                     ...(filterType === 'debit' ? styles.activeFilterBtn : {})
                   }}
                 >
-                  Debit Only (Dr) - Money In (Income + Customer Payments)
+                  ⬆️ Debit (Money IN)
                 </button>
                 <button
                   onClick={() => setFilterType('credit')}
@@ -1305,7 +1342,7 @@ const BankStatement = () => {
                     ...(filterType === 'credit' ? styles.activeFilterBtn : {})
                   }}
                 >
-                  Credit Only (Cr) - Money Out (Expenses + Supplier Payments)
+                  ⬇️ Credit (Money OUT)
                 </button>
               </div>
             </div>
@@ -1315,8 +1352,8 @@ const BankStatement = () => {
           <div style={styles.summaryCards}>
             <div 
               style={styles.summaryCard}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.1)'; }}
             >
               <div style={styles.summaryHeader}>
                 <span style={styles.summaryLabel}>Opening Balance</span>
@@ -1326,42 +1363,45 @@ const BankStatement = () => {
                 Rs{(statementData.opening_balance || 0).toLocaleString()}
               </div>
             </div>
+            
             <div 
               style={styles.summaryCard}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.1)'; }}
             >
               <div style={styles.summaryHeader}>
-                <span style={styles.summaryLabel}>Total Debit (Dr)</span>
+                <span style={styles.summaryLabel}>Total Debit</span>
                 <TrendingDown size={20} color="#DC2626" />
               </div>
               <div style={{...styles.summaryValue, color: '#DC2626'}}>
                 Rs{(statementData.summary?.total_debit || 0).toLocaleString()}
               </div>
-              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '5px' }}>
-                Money Received (Customer Payments + Income)
+              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>
+                Money Received
               </div>
             </div>
+            
             <div 
               style={styles.summaryCard}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.1)'; }}
             >
               <div style={styles.summaryHeader}>
-                <span style={styles.summaryLabel}>Total Credit (Cr)</span>
+                <span style={styles.summaryLabel}>Total Credit</span>
                 <TrendingUp size={20} color="#10B981" />
               </div>
               <div style={{...styles.summaryValue, color: '#10B981'}}>
                 Rs{(statementData.summary?.total_credit || 0).toLocaleString()}
               </div>
-              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '5px' }}>
-                Money Paid Out (Supplier Payments + Expenses)
+              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px' }}>
+                Money Paid Out
               </div>
             </div>
+            
             <div 
               style={styles.summaryCard}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.1)'; }}
             >
               <div style={styles.summaryHeader}>
                 <span style={styles.summaryLabel}>Closing Balance</span>
@@ -1378,21 +1418,21 @@ const BankStatement = () => {
             <div style={styles.tableHeader}>
               <div>
                 <strong style={{ fontSize: '16px' }}>
-                  {selectedBank === 'all' ? 'ALL BANK ACCOUNTS' : `${statementData.bank?.bank_name} - ${statementData.bank?.account_no}`}
+                  {selectedBank === 'all' ? '📊 ALL BANK ACCOUNTS' : `${statementData.bank?.bank_name} - ${statementData.bank?.account_no}`}
                 </strong>
-                <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '5px' }}>
-                  <Calendar size={12} style={{ display: 'inline', marginRight: '5px' }} />
+                <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px' }}>
+                  <Calendar size={12} style={{ display: 'inline', marginRight: '4px' }} />
                   Period: {statementData.start_date || 'All time'} to {statementData.end_date || 'All time'}
                 </div>
               </div>
               <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                Total Transactions: {statementData.transactions.length}
+                <strong>{statementData.transactions.length}</strong> transactions
               </div>
             </div>
             
             {loading ? (
               <div style={styles.loadingSpinner}>
-                <RefreshCw size={32} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 20px' }} />
+                <RefreshCw size={32} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', display: 'block' }} />
                 <p>Loading statement data...</p>
               </div>
             ) : (
@@ -1403,28 +1443,29 @@ const BankStatement = () => {
                       <tr>
                         <th style={styles.th}>Date</th>
                         <th style={styles.th}>Description</th>
-                        <th style={styles.th}>Bank Account</th>
+                        <th style={styles.th}>Bank</th>
                         <th style={styles.th}>Payment Method</th>
                         <th style={styles.th}>Transaction Type</th>
-                        <th style={styles.th}>Reference No</th>
-                        <th style={{...styles.th, textAlign: 'right'}}>Debit (Dr)</th>
-                        <th style={{...styles.th, textAlign: 'right'}}>Credit (Cr)</th>
-                        <th style={{...styles.th, textAlign: 'right'}}>Balance (Rs)</th>
+                        <th style={styles.th}>Reference</th>
+                        <th style={styles.thRight}>Debit (Dr)</th>
+                        <th style={styles.thRight}>Credit (Cr)</th>
+                        <th style={styles.thRight}>Balance</th>
                       </tr>
                     </thead>
                     <tbody>
+                      {/* Opening Balance Row */}
                       <tr style={{ backgroundColor: '#FEF3C7' }}>
                         <td style={styles.td} colSpan="8">
-                          <strong>Opening Balance</strong>
+                          <strong>📂 Opening Balance</strong>
                         </td>
-                        <td style={{...styles.td, textAlign: 'right'}}>
+                        <td style={{...styles.tdRight}}>
                           <strong>Rs{(statementData.opening_balance || 0).toLocaleString()}</strong>
                         </td>
                       </tr>
                       
                       {currentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan="9" style={{...styles.td, textAlign: 'center', padding: '40px' }}>
+                          <td colSpan="9" style={{...styles.td, textAlign: 'center', padding: '40px', color: '#6B7280' }}>
                             No transactions found for the selected period
                           </td>
                         </tr>
@@ -1434,29 +1475,37 @@ const BankStatement = () => {
                           const transactionTypeBadge = getTransactionTypeBadge(transaction);
                           const displayDebit = transaction.debit > 0 ? transaction.debit : (transaction.loan_type === 'ingoing' ? Math.abs(transaction.amount) : 0);
                           const displayCredit = transaction.credit > 0 ? transaction.credit : (transaction.loan_type === 'outgoing' ? Math.abs(transaction.amount) : 0);
+                          
                           return (
                             <tr 
                               key={index} 
-                              style={{...styles.clickableRow, backgroundColor: index % 2 === 0 ? 'white' : '#F9FAFB'}}
+                              style={{
+                                ...styles.clickableRow,
+                                backgroundColor: index % 2 === 0 ? 'white' : '#F9FAFB'
+                              }}
                               onClick={() => viewTransactionDetails(transaction)}
-                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
-                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? 'white' : '#F9FAFB'}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#F3F4F6';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = index % 2 === 0 ? 'white' : '#F9FAFB';
+                              }}
                             >
                               <td style={styles.td}>{transaction.date || '-'}</td>
                               <td style={styles.td}>
-                                {transaction.description}
+                                <div style={{ fontWeight: '500' }}>{transaction.description || '-'}</div>
                                 {transaction.transfer_notes && (
-                                  <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '3px' }}>
-                                    Notes: {transaction.transfer_notes}
+                                  <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '2px' }}>
+                                    📝 {transaction.transfer_notes}
                                   </div>
                                 )}
                                 {transaction.source_table && (
-                                  <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '3px' }}>
+                                  <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '2px' }}>
                                     Source: {transaction.source_table}
                                   </div>
                                 )}
                                 {transaction.user_id && (
-                                  <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '3px' }}>
+                                  <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '2px' }}>
                                     User: {transaction.user_id}
                                   </div>
                                 )}
@@ -1479,17 +1528,17 @@ const BankStatement = () => {
                               <td style={styles.td}>
                                 {transaction.cheq_no || transaction.transfer_reference_no || '-'}
                               </td>
-                              <td style={{...styles.td, textAlign: 'right'}}>
+                              <td style={{...styles.tdRight}}>
                                 {displayDebit > 0 ? (
                                   <span style={styles.debitAmount}>Rs{displayDebit.toLocaleString()}</span>
                                 ) : '-'}
                               </td>
-                              <td style={{...styles.td, textAlign: 'right'}}>
+                              <td style={{...styles.tdRight}}>
                                 {displayCredit > 0 ? (
                                   <span style={styles.creditAmount}>Rs{displayCredit.toLocaleString()}</span>
                                 ) : '-'}
                               </td>
-                              <td style={{...styles.td, textAlign: 'right'}}>
+                              <td style={{...styles.tdRight}}>
                                 <span style={{ fontWeight: '600' }}>Rs{(transaction.balance || 0).toLocaleString()}</span>
                               </td>
                             </tr>
@@ -1497,11 +1546,12 @@ const BankStatement = () => {
                         })
                       )}
                       
+                      {/* Closing Balance Row */}
                       <tr style={{ backgroundColor: '#E0E7FF' }}>
                         <td style={styles.td} colSpan="8">
-                          <strong>Closing Balance</strong>
+                          <strong>📊 Closing Balance</strong>
                         </td>
-                        <td style={{...styles.td, textAlign: 'right'}}>
+                        <td style={{...styles.tdRight}}>
                           <strong>Rs{(statementData.closing_balance || 0).toLocaleString()}</strong>
                         </td>
                       </tr>
@@ -1515,17 +1565,25 @@ const BankStatement = () => {
                     <button
                       onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                       disabled={currentPage === 1}
-                      style={{...styles.paginationButton, opacity: currentPage === 1 ? 0.5 : 1}}
+                      style={{
+                        ...styles.paginationButton,
+                        opacity: currentPage === 1 ? 0.5 : 1,
+                        cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                      }}
                     >
                       <ChevronLeft size={16} /> Previous
                     </button>
                     <div style={styles.pageInfo}>
-                      Page {currentPage} of {totalPages}
+                      Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
                     </div>
                     <button
                       onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                       disabled={currentPage === totalPages}
-                      style={{...styles.paginationButton, opacity: currentPage === totalPages ? 0.5 : 1}}
+                      style={{
+                        ...styles.paginationButton,
+                        opacity: currentPage === totalPages ? 0.5 : 1,
+                        cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                      }}
                     >
                       Next <ChevronRight size={16} />
                     </button>
@@ -1535,10 +1593,14 @@ const BankStatement = () => {
             )}
           </div>
 
+          {/* Footer */}
           <div style={styles.footer}>
-            <p>Generated on: {new Date().toLocaleString()}</p>
-            <p>This is a computer generated statement</p>
-            <p><strong>Note:</strong> Debit (Dr) = Money Received (Customer Payments + Income), Credit (Cr) = Money Paid Out (Supplier Payments + Expenses)</p>
+            <p style={{ margin: '4px 0' }}>
+              Generated on: {new Date().toLocaleString()}
+            </p>
+            <p style={{ margin: '4px 0', fontSize: '11px', color: '#9CA3AF' }}>
+              💡 Debit (Dr) = Money Received (Customer Payments + Income) | Credit (Cr) = Money Paid Out (Supplier Payments + Expenses)
+            </p>
           </div>
         </div>
 
@@ -1547,26 +1609,41 @@ const BankStatement = () => {
           <div style={styles.modal} onClick={() => setShowModal(false)}>
             <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
               <div style={styles.modalHeader}>
-                <h3 style={{ margin: 0 }}>Transaction Details</h3>
-                <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <h3 style={{ margin: 0, fontSize: '18px' }}>
+                  <Eye size={18} style={{ display: 'inline', marginRight: '8px' }} />
+                  Transaction Details
+                </h3>
+                <button 
+                  onClick={() => setShowModal(false)} 
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    cursor: 'pointer',
+                    padding: '4px',
+                    borderRadius: '6px',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#F3F4F6'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
                   <X size={20} />
                 </button>
               </div>
               <div style={styles.modalBody}>
                 <div style={styles.detailRow}>
-                  <strong>Date:</strong>
+                  <strong>📅 Date</strong>
                   <span>{selectedTransaction.date || '-'}</span>
                 </div>
                 <div style={styles.detailRow}>
-                  <strong>Description:</strong>
+                  <strong>📝 Description</strong>
                   <span>{selectedTransaction.description || '-'}</span>
                 </div>
                 <div style={styles.detailRow}>
-                  <strong>Bank Account:</strong>
+                  <strong>🏦 Bank Account</strong>
                   <span><strong>{selectedTransaction.bank_name || 'N/A'}</strong></span>
                 </div>
                 <div style={styles.detailRow}>
-                  <strong>Transaction Type:</strong>
+                  <strong>📊 Transaction Type</strong>
                   <span>
                     {selectedTransaction.transaction_type === 'supplier_payment' ? '🏭 Supplier Payment' : 
                      selectedTransaction.transaction_type === 'income' ? '💰 Income' :
@@ -1574,7 +1651,7 @@ const BankStatement = () => {
                   </span>
                 </div>
                 <div style={styles.detailRow}>
-                  <strong>Source:</strong>
+                  <strong>📂 Source</strong>
                   <span>
                     {selectedTransaction.source_table === 'supplier_loan' ? 'Current Supplier Loan' :
                      selectedTransaction.source_table === 'supplier_loan_history' ? 'Archived Supplier Loan' :
@@ -1584,7 +1661,7 @@ const BankStatement = () => {
                   </span>
                 </div>
                 <div style={styles.detailRow}>
-                  <strong>Payment Method:</strong>
+                  <strong>💳 Payment Method</strong>
                   <span>
                     {selectedTransaction.payment_method === 'Bank Transfer' ? '🏦 Bank Transfer' : 
                      (selectedTransaction.payment_method === 'Cheque' ? '💳 Cheque' : '💰 Cash')}
@@ -1592,63 +1669,65 @@ const BankStatement = () => {
                 </div>
                 {selectedTransaction.cheq_no && (
                   <div style={styles.detailRow}>
-                    <strong>Cheque Number:</strong>
-                    <span>{selectedTransaction.cheq_no}</span>
+                    <strong>Cheque Number</strong>
+                    <span style={{ fontWeight: '600', color: '#8B5CF6' }}>{selectedTransaction.cheq_no}</span>
                   </div>
                 )}
                 {selectedTransaction.transfer_reference_no && (
                   <>
                     <div style={styles.detailRow}>
-                      <strong>Transfer Reference:</strong>
-                      <span>{selectedTransaction.transfer_reference_no}</span>
+                      <strong>Transfer Reference</strong>
+                      <span style={{ fontWeight: '600', color: '#EC489A' }}>{selectedTransaction.transfer_reference_no}</span>
                     </div>
                     {selectedTransaction.transfer_date && (
                       <div style={styles.detailRow}>
-                        <strong>Transfer Date:</strong>
+                        <strong>Transfer Date</strong>
                         <span>{selectedTransaction.transfer_date}</span>
                       </div>
                     )}
                     {selectedTransaction.transfer_notes && (
                       <div style={styles.detailRow}>
-                        <strong>Notes:</strong>
-                        <span>{selectedTransaction.transfer_notes}</span>
+                        <strong>Notes</strong>
+                        <span style={{ color: '#6B7280' }}>{selectedTransaction.transfer_notes}</span>
                       </div>
                     )}
                   </>
                 )}
-                <div style={styles.detailRow}>
-                  <strong>Debit (Dr):</strong>
-                  <span style={{ color: '#DC2626', fontWeight: 'bold' }}>
+                <div style={{...styles.detailRow, borderTop: '2px solid #E5E7EB', paddingTop: '12px', marginTop: '4px'}}>
+                  <strong style={{ fontSize: '15px' }}>💳 Debit (Dr)</strong>
+                  <span style={{ color: '#DC2626', fontWeight: 'bold', fontSize: '16px' }}>
                     {selectedTransaction.debit > 0 ? `Rs${selectedTransaction.debit.toLocaleString()}` : 
                      (selectedTransaction.loan_type === 'ingoing' ? `Rs${Math.abs(selectedTransaction.amount).toLocaleString()}` : '-')}
                   </span>
                 </div>
                 <div style={styles.detailRow}>
-                  <strong>Credit (Cr):</strong>
-                  <span style={{ color: '#10B981', fontWeight: 'bold' }}>
+                  <strong style={{ fontSize: '15px' }}>💳 Credit (Cr)</strong>
+                  <span style={{ color: '#10B981', fontWeight: 'bold', fontSize: '16px' }}>
                     {selectedTransaction.credit > 0 ? `Rs${selectedTransaction.credit.toLocaleString()}` : 
                      (selectedTransaction.loan_type === 'outgoing' ? `Rs${Math.abs(selectedTransaction.amount).toLocaleString()}` : '-')}
                   </span>
                 </div>
-                <div style={styles.detailRow}>
-                  <strong>Balance:</strong>
-                  <span style={{ fontWeight: 'bold' }}>Rs{(selectedTransaction.balance || 0).toLocaleString()}</span>
+                <div style={{...styles.detailRow, background: '#F3F4F6', borderRadius: '8px', padding: '12px', marginTop: '4px'}}>
+                  <strong style={{ fontSize: '15px' }}>💰 Balance</strong>
+                  <span style={{ fontWeight: 'bold', fontSize: '16px', color: '#4F46E5' }}>
+                    Rs{(selectedTransaction.balance || 0).toLocaleString()}
+                  </span>
                 </div>
                 {selectedTransaction.bill_no && (
                   <div style={styles.detailRow}>
-                    <strong>Bill Number:</strong>
+                    <strong>📄 Bill Number</strong>
                     <span>#{selectedTransaction.bill_no}</span>
                   </div>
                 )}
                 {selectedTransaction.customer_name && (
                   <div style={styles.detailRow}>
-                    <strong>{selectedTransaction.transaction_type === 'supplier_payment' ? 'Supplier Code:' : 'Customer:'}</strong>
+                    <strong>{selectedTransaction.transaction_type === 'supplier_payment' ? '🏭 Supplier Code' : '👤 Customer'}</strong>
                     <span>{selectedTransaction.customer_name}</span>
                   </div>
                 )}
                 {selectedTransaction.user_id && (
                   <div style={styles.detailRow}>
-                    <strong>User ID:</strong>
+                    <strong>👤 User ID</strong>
                     <span>{selectedTransaction.user_id}</span>
                   </div>
                 )}
@@ -1660,42 +1739,93 @@ const BankStatement = () => {
         {/* Cheque Report Modal */}
         {showChequeReportModal && (
           <div style={styles.modal} onClick={() => setShowChequeReportModal(false)}>
-            <div style={{...styles.modalContent, maxWidth: '900px', width: '90%'}} onClick={(e) => e.stopPropagation()}>
+            <div style={{...styles.modalContent, maxWidth: '900px'}} onClick={(e) => e.stopPropagation()}>
               <div style={styles.modalHeader}>
-                <h3 style={{ margin: 0 }}>
-                  💳 Cheque Payments Report
+                <h3 style={{ margin: 0, fontSize: '18px' }}>
+                  <CreditCard size={18} style={{ display: 'inline', marginRight: '8px' }} />
+                  Cheque Payments Report
                   {selectedBank !== 'all' && statementData.bank && (
-                    <span style={{ fontSize: '12px', color: '#6B7280', marginLeft: '10px' }}>
+                    <span style={{ fontSize: '12px', color: '#6B7280', marginLeft: '10px', fontWeight: '400' }}>
                       ({statementData.bank.bank_name})
                     </span>
                   )}
                 </h3>
-                <button onClick={() => setShowChequeReportModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <button 
+                  onClick={() => setShowChequeReportModal(false)} 
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    cursor: 'pointer',
+                    padding: '4px',
+                    borderRadius: '6px',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#F3F4F6'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
                   <X size={20} />
                 </button>
               </div>
               <div style={styles.modalBody}>
                 {chequeReportLoading ? (
                   <div style={{ textAlign: 'center', padding: '40px' }}>
-                    <RefreshCw size={32} style={{ animation: 'spin 1s linear infinite' }} />
-                    <p>Loading cheque payments...</p>
+                    <RefreshCw size={32} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', display: 'block' }} />
+                    <p style={{ color: '#6B7280' }}>Loading cheque payments...</p>
                   </div>
                 ) : chequeReportData.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
-                    No cheque payments found for the selected period
+                    <CreditCard size={48} style={{ margin: '0 auto 16px', display: 'block', opacity: 0.3 }} />
+                    <p>No cheque payments found for the selected period</p>
                   </div>
                 ) : (
                   <>
+                    {/* Summary */}
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                      gap: '12px',
+                      marginBottom: '20px',
+                      padding: '16px',
+                      background: '#F9FAFB',
+                      borderRadius: '8px'
+                    }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '11px', color: '#6B7280' }}>Total Cheques</div>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#4F46E5' }}>
+                          {chequeReportSummary.total_count || 0}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '11px', color: '#6B7280' }}>Total Amount</div>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#DC2626' }}>
+                          Rs{(chequeReportSummary.total_amount || 0).toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '11px', color: '#6B7280' }}>Cleared</div>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#10B981' }}>
+                          {chequeReportSummary.cleared_count || 0}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '11px', color: '#6B7280' }}>Pending</div>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#F59E0B' }}>
+                          {chequeReportSummary.pending_count || 0}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Table */}
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ background: '#F9FAFB', borderBottom: '2px solid #E5E7EB' }}>
-                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Date</th>
-                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Cheque No</th>
-                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Customer/Supplier</th>
-                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Bill No</th>
-                            <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Amount (Rs)</th>
-                            <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Status</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Date</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Cheque No</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Customer/Supplier</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Bill No</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Amount</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#4B5563' }}>Status</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1705,10 +1835,10 @@ const BankStatement = () => {
                               style={{ 
                                 borderBottom: '1px solid #F3F4F6',
                                 backgroundColor: index % 2 === 0 ? 'white' : '#F9FAFB',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                transition: 'background 0.15s'
                               }}
                               onClick={() => {
-                                // Find the transaction in statement data and show details
                                 const transaction = statementData.transactions.find(t => t.cheq_no === cheque.cheq_no);
                                 if (transaction) {
                                   setSelectedTransaction(transaction);
@@ -1716,6 +1846,8 @@ const BankStatement = () => {
                                   setShowChequeReportModal(false);
                                 }
                               }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? 'white' : '#F9FAFB'}
                             >
                               <td style={{ padding: '10px 12px', fontSize: '13px' }}>{cheque.date || '-'}</td>
                               <td style={{ padding: '10px 12px', fontSize: '13px', fontWeight: '600', color: '#8B5CF6' }}>{cheque.cheq_no || '-'}</td>
@@ -1727,14 +1859,14 @@ const BankStatement = () => {
                               <td style={{ padding: '10px 12px', fontSize: '13px', textAlign: 'center' }}>
                                 <span style={{
                                   display: 'inline-block',
-                                  padding: '2px 8px',
+                                  padding: '2px 12px',
                                   borderRadius: '12px',
                                   fontSize: '11px',
                                   fontWeight: '600',
                                   backgroundColor: cheque.status === 'cleared' ? '#D1FAE5' : '#FEF3C7',
                                   color: cheque.status === 'cleared' ? '#065F46' : '#92400E'
                                 }}>
-                                  {cheque.status === 'cleared' ? '✓ Cleared' : '⏳ Pending'}
+                                  {cheque.status === 'cleared' ? '✅ Cleared' : '⏳ Pending'}
                                 </span>
                               </td>
                             </tr>
@@ -1742,20 +1874,14 @@ const BankStatement = () => {
                         </tbody>
                       </table>
                     </div>
-                    <div style={{ marginTop: '16px', padding: '12px', background: '#F3F4F6', borderRadius: '8px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '13px', fontWeight: '600' }}>Total Cheque Amount:</span>
-                        <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#DC2626' }}>
-                          Rs{chequeReportSummary.total_amount?.toLocaleString() || 0}
-                        </span>
-                      </div>
-                      <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#6B7280' }}>
-                        <div>Total Transactions: {chequeReportSummary.total_count || 0}</div>
-                        <div>Cleared: {chequeReportSummary.cleared_count || 0} | Pending: {chequeReportSummary.pending_count || 0}</div>
-                      </div>
-                      <div style={{ marginTop: '8px', fontSize: '11px', color: '#6B7280' }}>
-                        <strong>Note:</strong> Debit (Dr) entries represent money received via cheque. These amounts are added to your bank balance.
-                      </div>
+                    
+                    <div style={{ marginTop: '16px', fontSize: '11px', color: '#6B7280' }}>
+                      <p style={{ margin: '4px 0' }}>
+                        💡 Click on any row to view full transaction details
+                      </p>
+                      <p style={{ margin: '4px 0' }}>
+                        💳 Debit (Dr) entries represent money received via cheque (added to bank balance)
+                      </p>
                     </div>
                   </>
                 )}

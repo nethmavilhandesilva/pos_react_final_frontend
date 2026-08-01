@@ -2808,9 +2808,6 @@ export default function PrintedBills() {
     const badDebtAmountRef = useRef(null);
     const givenAmountInputRef = useRef(null);
 
-    const [showOutstandingDebtModal, setShowOutstandingDebtModal] = useState(false);
-const [outstandingDebtBills, setOutstandingDebtBills] = useState([]);
-
     const getTotalReceived = (bill) => {
         if (!bill) return 0;
 
@@ -2862,18 +2859,6 @@ const [outstandingDebtBills, setOutstandingDebtBills] = useState([]);
             return {};
         }
     });
-   
-const fetchDebtorForBill = async (billNo) => {
-    try {
-        const response = await api.get(`/debtors/${billNo}`);
-        if (response.data.success && response.data.data) {
-            return response.data.data;
-        }
-    } catch (e) {
-        console.log('No debtor record found for bill:', billNo);
-    }
-    return null;
-};
     // Save bill customer types to localStorage
     useEffect(() => {
         localStorage.setItem('billCustomerTypes', JSON.stringify(billCustomerTypes));
@@ -3349,223 +3334,6 @@ const fetchDebtorForBill = async (billNo) => {
             </div>
         );
     };
-// ==================== OUTSTANDING DEBT MODAL ====================
-const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecimal }) => {
-    const [loadingDebtorData, setLoadingDebtorData] = useState(false);
-    const [billsWithDebtorData, setBillsWithDebtorData] = useState([]);
-
-    useEffect(() => {
-        if (isOpen && bills.length > 0) {
-            fetchDebtorDataForBills();
-        } else if (isOpen) {
-            setBillsWithDebtorData([]);
-        }
-    }, [isOpen, bills]);
-
-    const fetchDebtorDataForBills = async () => {
-        setLoadingDebtorData(true);
-        try {
-            const enrichedBills = await Promise.all(
-                bills.map(async (bill) => {
-                    try {
-                        const response = await api.get(`/debtors/${bill.billNo}`);
-                        if (response.data.success && response.data.data) {
-                            return {
-                                ...bill,
-                                debtorData: response.data.data
-                            };
-                        }
-                    } catch (e) {
-                        // No debtor record found
-                    }
-                    return bill;
-                })
-            );
-            setBillsWithDebtorData(enrichedBills);
-        } catch (error) {
-            console.error('Error fetching debtor data:', error);
-            setBillsWithDebtorData(bills);
-        } finally {
-            setLoadingDebtorData(false);
-        }
-    };
-
-    if (!isOpen) return null;
-
-    const totalOutstanding = billsWithDebtorData.reduce((sum, bill) => {
-        let remaining = 0;
-        
-        if (bill.debtorData?.remaining_amount !== undefined && bill.debtorData?.remaining_amount !== null) {
-            remaining = parseFloat(bill.debtorData.remaining_amount) || 0;
-        } else if (bill.remainingCredit !== undefined && bill.remainingCredit !== null) {
-            remaining = parseFloat(bill.remainingCredit) || 0;
-        }
-        
-        return sum + remaining;
-    }, 0);
-
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            backdropFilter: 'blur(5px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 20015,
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                width: '600px',
-                maxWidth: '90%',
-                maxHeight: '80vh',
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 24px 48px rgba(0,0,0,0.3)'
-            }} onClick={e => e.stopPropagation()}>
-                <div style={{
-                    padding: '20px 24px',
-                    background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
-                    borderRadius: '20px 20px 0 0',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                }}>
-                    <div>
-                        <h3 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '700' }}>
-                            ⚠️ Outstanding Debt Bills
-                        </h3>
-                        <div style={{ fontSize: '13px', color: '#fca5a5', marginTop: '4px' }}>
-                            {billsWithDebtorData.length} bill(s) with outstanding debt
-                        </div>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        style={{
-                            background: 'rgba(255,255,255,0.2)',
-                            border: 'none',
-                            color: 'white',
-                            fontSize: '24px',
-                            cursor: 'pointer',
-                            width: '36px',
-                            height: '36px',
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}
-                    >
-                        ×
-                    </button>
-                </div>
-
-                <div style={{ padding: '20px 24px', borderBottom: '2px solid #fef3c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: '600', color: '#475569' }}>Total Outstanding Debt</span>
-                    <span style={{ fontSize: '22px', fontWeight: '800', color: '#dc2626' }}>
-                        Rs. {formatDecimal(totalOutstanding || 0)}
-                    </span>
-                </div>
-
-                <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
-                    {loadingDebtorData ? (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                            ⏳ Loading debtor data...
-                        </div>
-                    ) : billsWithDebtorData.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                            ✅ No outstanding debt bills found
-                        </div>
-                    ) : (
-                        billsWithDebtorData.map((bill, index) => {
-                            let outstandingAmount = 0;
-                            if (bill.debtorData?.remaining_amount !== undefined && bill.debtorData?.remaining_amount !== null) {
-                                outstandingAmount = parseFloat(bill.debtorData.remaining_amount) || 0;
-                            } else if (bill.remainingCredit !== undefined && bill.remainingCredit !== null) {
-                                outstandingAmount = parseFloat(bill.remainingCredit) || 0;
-                            }
-                            
-                            const isFullyPaid = outstandingAmount === 0;
-                            
-                            return (
-                                <div
-                                    key={bill.billNo || index}
-                                    onClick={() => {
-                                        if (onBillClick) {
-                                            onBillClick(bill);
-                                            onClose();
-                                        }
-                                    }}
-                                    style={{
-                                        padding: '16px 18px',
-                                        marginBottom: '10px',
-                                        background: isFullyPaid ? '#f0fdf4' : '#fef2f2',
-                                        borderRadius: '12px',
-                                        border: isFullyPaid ? '1px solid #bbf7d0' : '1px solid #fecaca',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.transform = 'translateX(4px)';
-                                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.05)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.transform = 'translateX(0)';
-                                        e.currentTarget.style.boxShadow = 'none';
-                                    }}
-                                >
-                                    <div>
-                                        <div style={{ fontWeight: '700', fontSize: '16px', color: '#0f172a' }}>
-                                            #{bill.billNo || 'N/A'}
-                                        </div>
-                                        <div style={{ fontSize: '13px', color: '#64748b' }}>
-                                            Customer: {bill.customerCode || 'N/A'}
-                                        </div>
-                                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                                            Status: {bill.givenAmountApplied === 'Y' ? '✅ Completed' : '⏳ Pending'}
-                                        </div>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontSize: '18px', fontWeight: '700', color: isFullyPaid ? '#059669' : '#dc2626' }}>
-                                            Rs. {formatDecimal(outstandingAmount || 0)}
-                                        </div>
-                                        <div style={{ fontSize: '11px', color: isFullyPaid ? '#059669' : '#b91c1c' }}>
-                                            {isFullyPaid ? '✅ Fully Settled' : '⚠️ Outstanding'}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })
-                    )}
-                </div>
-
-                <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                    <button
-                        onClick={onClose}
-                        style={{
-                            padding: '10px 24px',
-                            background: '#f1f5f9',
-                            color: '#475569',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontWeight: '600'
-                        }}
-                    >
-                        Close
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
     // Supplier Loan Details Modal
     const SupplierLoanDetailsModal = ({ isOpen, onClose, stats, adjustedLoanData }) => {
         if (!isOpen) return null;
@@ -4612,39 +4380,6 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
         const q = state.appliedSearchQuery.toLowerCase();
         return currentAppliedBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
     }, [currentAppliedBills, state.appliedSearchQuery]);
-     // Filter bills with outstanding debt from both pending and completed sections
-
-const getOutstandingDebtBills = useCallback(() => {
-
-    const allBills = [...filterPendingBills, ...filterAppliedBills];
-
-    
-
-    // Filter bills that have remaining credit/debt
-
-    const debtBills = allBills.filter(bill => {
-
-        // Check if bill has remaining credit/debt
-
-        const hasRemainingCredit = bill.remainingCredit > 0;
-
-        const hasCreditAmount = bill.creditAmount > 0;
-
-        
-
-        // Also check selectedBillDebtor if available
-
-        // We need to fetch debtor data for each bill to get accurate remaining amount
-
-        return hasRemainingCredit || hasCreditAmount;
-
-    });
-
-    
-
-    return debtBills;
-
-}, [filterPendingBills, filterAppliedBills]);
     // Add this function in your PrintedBills component
     const fetchAdjustedSupplierLoan = useCallback(async (totalFunds) => {
         try {
@@ -4876,252 +4611,186 @@ const getOutstandingDebtBills = useCallback(() => {
     }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
 
     // Process Credit Payment function
- // Process Credit Payment function
-const processCreditPayment = async (paymentAmount) => {
-    if (!state.selectedBill || state.isPrinting) return;
+    const processCreditPayment = async (paymentAmount) => {
+        if (!state.selectedBill || state.isPrinting) return;
 
-    console.log('=== PROCESS CREDIT PAYMENT ===');
-    console.log('Payment Amount:', paymentAmount);
-    console.log('Bill No:', state.selectedBill.billNo);
-    console.log('Customer Code:', state.selectedBill.customerCode);
-    console.log('Current Given Amount:', state.selectedBill.givenAmount);
-    console.log('Total Bill Amount:', state.selectedBill.totalAmount);
+        console.log('=== PROCESS CREDIT PAYMENT ===');
+        console.log('Payment Amount:', paymentAmount);
+        console.log('Bill No:', state.selectedBill.billNo);
+        console.log('Customer Code:', state.selectedBill.customerCode);
+        console.log('Current Given Amount:', state.selectedBill.givenAmount);
+        console.log('Total Bill Amount:', state.selectedBill.totalAmount);
 
-    setState(prev => ({ ...prev, isPrinting: true }));
+        setState(prev => ({ ...prev, isPrinting: true }));
 
-    try {
-        const currentGiven = state.selectedBill.givenAmount || 0;
-        const totalGivenAmount = currentGiven + paymentAmount;
-        
-        // Handle 0 payment case - force move to completed section
-        let isFullySettled;
-        let givenAmountApplied;
-        // ALWAYS set credit_transaction to 'Y' for credit payments
-        const creditTransaction = 'Y'; // <-- THIS IS THE KEY CHANGE
-        
-        if (paymentAmount === 0) {
-            // Force move to completed section when payment is 0
-            isFullySettled = true;
-            givenAmountApplied = 'Y';
-            console.log('🔄 Zero payment detected - forcing bill to completed section');
-        } else {
-            // Normal logic for positive payments
-            isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
-            givenAmountApplied = isFullySettled ? 'Y' : 'N';
-        }
+        try {
+            const currentGiven = state.selectedBill.givenAmount || 0;
+            const totalGivenAmount = currentGiven + paymentAmount;
+            const isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
+            const creditTransaction = isFullySettled ? 'N' : 'Y';
+            const givenAmountApplied = isFullySettled ? 'Y' : 'N';
 
-        console.log('Calculated Values:', {
-            currentGiven,
-            totalGivenAmount,
-            paymentAmount,
-            isFullySettled,
-            creditTransaction, // Should always be 'Y'
-            givenAmountApplied
-        });
+            console.log('Calculated Values:', {
+                currentGiven,
+                totalGivenAmount,
+                isFullySettled,
+                creditTransaction,
+                givenAmountApplied
+            });
 
-        // For 0 payment, the FULL bill amount becomes debt (since no money was given)
-        let creditAmount = parseFloat(paymentAmount);
-        if (paymentAmount === 0) {
-            // If no payment, the full bill amount becomes credit/debt
-            const remainingBillAmount = state.selectedBill.totalAmount - currentGiven;
-            creditAmount = remainingBillAmount;
-            console.log('💰 Zero payment: Full bill amount will be recorded as debt:', creditAmount);
-        }
-
-        // Only create debtor record if creditAmount > 0
-        let debtorResponse = null;
-        if (creditAmount > 0) {
             const debtorData = {
                 bill_no: state.selectedBill.billNo,
                 customer_code: state.selectedBill.customerCode,
-                credit_amount: parseFloat(creditAmount)
+                credit_amount: parseFloat(paymentAmount)
             };
 
             console.log('Sending to debtor API:', debtorData);
 
-            debtorResponse = await api.post('/debtors/create', debtorData);
+            const debtorResponse = await api.post('/debtors/create', debtorData);
 
             console.log('Debtor API Response:', debtorResponse.data);
 
             if (!debtorResponse.data.success) {
                 throw new Error(debtorResponse.data.message || 'Failed to create credit record');
             }
-        }
 
-        let remainingDebtAmount = parseFloat(creditAmount);
-        let debtorStatus = 'pending';
+            let remainingDebtAmount = parseFloat(paymentAmount);
+            let debtorStatus = 'pending';
 
-        if (debtorResponse && debtorResponse.data.data?.remaining_amount !== undefined) {
-            remainingDebtAmount = parseFloat(debtorResponse.data.data.remaining_amount);
-            debtorStatus = debtorResponse.data.data.status || 'pending';
-        } else if (debtorResponse && debtorResponse.data.data?.credit_amount !== undefined) {
-            remainingDebtAmount = parseFloat(debtorResponse.data.data.credit_amount);
-        }
-
-        console.log('Remaining Debt Amount:', remainingDebtAmount);
-        console.log('Debtor Status:', debtorStatus);
-
-        const paymentHistoryEntry = {
-            id: Math.random().toString(36).substr(2, 9),
-            date: new Date().toISOString().slice(0, 19).replace('T', ' '),
-            amount: parseFloat(paymentAmount),
-            method: 'Credit',
-            running_balance: parseFloat(totalGivenAmount),
-            is_fully_paid: isFullySettled,
-            reference: 'Credit Payment',
-            details: {
-                debtor_id: debtorResponse?.data?.data?.id || null,
-                credit_amount: parseFloat(creditAmount),
-                remaining_debt: remainingDebtAmount,
-                debtor_status: debtorStatus,
-                settlement_status: creditAmount > 0 ? 'PENDING' : 'NONE',
-                message: paymentAmount === 0 
-                    ? `Full bill amount of Rs. ${formatDecimal(creditAmount)} has been recorded as DEBT since no payment was made.`
-                    : `This credit of Rs. ${formatDecimal(paymentAmount)} will ONLY be settled when the bill is fully completed and an additional payment is made in the Completed Bills section.`
+            if (debtorResponse.data.data?.remaining_amount !== undefined) {
+                remainingDebtAmount = parseFloat(debtorResponse.data.data.remaining_amount);
+                debtorStatus = debtorResponse.data.data.status || 'pending';
+            } else if (debtorResponse.data.data?.credit_amount !== undefined) {
+                remainingDebtAmount = parseFloat(debtorResponse.data.data.credit_amount);
             }
-        };
 
-        let existingHistory = [];
-        try {
-            const currentHistory = state.selectedBill.payment_history;
-            if (currentHistory) {
-                existingHistory = typeof currentHistory === 'string'
-                    ? JSON.parse(currentHistory)
-                    : currentHistory;
-            }
-        } catch (e) {
-            console.error('Error parsing existing history:', e);
-            existingHistory = [];
-        }
+            console.log('Remaining Debt Amount:', remainingDebtAmount);
+            console.log('Debtor Status:', debtorStatus);
 
-        existingHistory.push(paymentHistoryEntry);
-
-        const payload = {
-            bill_no: state.selectedBill.billNo,
-            given_amount: parseFloat(totalGivenAmount),
-            given_amount_applied: givenAmountApplied,
-            credit_transaction: creditTransaction, // <-- ALWAYS 'Y' for credit payments
-            payment_amount: parseFloat(paymentAmount),
-            payment_method: 'Credit',
-            payment_history: JSON.stringify(existingHistory),
-            is_walking_customer: state.customerType === 'walking',
-            credit_pending_settlement: true
-        };
-
-        console.log('Sending to sales update API:', payload);
-
-        const response = await api.put(routes.updateGivenAmountApplied, payload);
-
-        console.log('Sales update response:', response.data);
-
-        if (response.data.success) {
-            // Refresh sales data to update the UI
-            await fetchSalesData();
-
-            // Also refresh the selected bill's debtor data
-            if (state.selectedBill?.billNo) {
-                try {
-                    const debtorCheck = await api.get(`/debtors/${state.selectedBill.billNo}`);
-                    if (debtorCheck.data.success && debtorCheck.data.data) {
-                        setSelectedBillDebtor(debtorCheck.data.data);
-                    }
-                } catch (e) {
-                    console.log('No debtor record found after refresh');
+            const paymentHistoryEntry = {
+                id: Math.random().toString(36).substr(2, 9),
+                date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+                amount: parseFloat(paymentAmount),
+                method: 'Credit',
+                running_balance: parseFloat(totalGivenAmount),
+                is_fully_paid: isFullySettled,
+                reference: 'Credit Payment',
+                details: {
+                    debtor_id: debtorResponse.data.data?.id,
+                    credit_amount: parseFloat(paymentAmount),
+                    remaining_debt: remainingDebtAmount,
+                    debtor_status: debtorStatus,
+                    settlement_status: 'PENDING',
+                    message: `This credit of Rs. ${formatDecimal(paymentAmount)} will ONLY be settled when the bill is fully completed and an additional payment is made in the Completed Bills section.`
                 }
+            };
+
+            let existingHistory = [];
+            try {
+                const currentHistory = state.selectedBill.payment_history;
+                if (currentHistory) {
+                    existingHistory = typeof currentHistory === 'string'
+                        ? JSON.parse(currentHistory)
+                        : currentHistory;
+                }
+            } catch (e) {
+                console.error('Error parsing existing history:', e);
+                existingHistory = [];
             }
 
-            const customer = state.customers.find(c =>
-                String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
-            );
+            existingHistory.push(paymentHistoryEntry);
 
-            let statusMessage = '';
+            const payload = {
+                bill_no: state.selectedBill.billNo,
+                given_amount: parseFloat(totalGivenAmount),
+                given_amount_applied: givenAmountApplied,
+                credit_transaction: creditTransaction,
+                payment_amount: parseFloat(paymentAmount),
+                payment_method: 'Credit',
+                payment_history: JSON.stringify(existingHistory),
+                is_walking_customer: state.customerType === 'walking',
+                credit_pending_settlement: true
+            };
 
-            if (paymentAmount === 0) {
-                // Special message for 0 payment
-                statusMessage = `✅ Bill Moved to Completed Section with DEBT!\n\n` +
-                    `Bill Number: ${state.selectedBill.billNo}\n` +
-                    `Customer: ${state.selectedBill.customerCode}\n` +
-                    `Total Bill Amount: Rs. ${formatDecimal(state.selectedBill.totalAmount)}\n` +
-                    `Already Paid: Rs. ${formatDecimal(currentGiven)}\n` +
-                    `Payment Made: Rs. 0.00\n\n` +
-                    `💰 DEBT AMOUNT: Rs. ${formatDecimal(creditAmount)}\n` +
-                    `⏳ STATUS: PENDING SETTLEMENT\n\n` +
-                    `📌 The bill has been moved to the "Completed Payments" section.\n` +
-                    `💳 Full bill amount has been recorded as DEBT since no payment was made.\n` +
-                    `💰 To settle this debt of Rs. ${formatDecimal(creditAmount)}, make a payment in the "Completed Payments" section.`;
-            } else if (isFullySettled) {
-                statusMessage = `✓ Bill Fully Paid!\n\n` +
-                    `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
-                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n\n` +
-                    `💰 CREDIT AMOUNT: Rs. ${formatDecimal(creditAmount)}\n` +
-                    `⏳ STATUS: PENDING SETTLEMENT\n\n` +
-                    `📌 The bill has been moved to the "Completed Payments" section.\n` +
-                    `💰 To settle this credit of Rs. ${formatDecimal(creditAmount)}, make a payment in the "Completed Payments" section.\n` +
-                    `✅ Any payment made in the Completed Bills section will automatically go towards settling this credit.`;
+            console.log('Sending to sales update API:', payload);
+
+            const response = await api.put(routes.updateGivenAmountApplied, payload);
+
+            console.log('Sales update response:', response.data);
+
+            if (response.data.success) {
+                await fetchSalesData();
+
+                const customer = state.customers.find(c =>
+                    String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
+                );
+
+                let statusMessage = '';
+
+                if (isFullySettled) {
+                    statusMessage = `✓ Bill Fully Paid!\n\n` +
+                        `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
+                        `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n\n` +
+                        `💰 CREDIT AMOUNT: Rs. ${formatDecimal(paymentAmount)}\n` +
+                        `⏳ STATUS: PENDING SETTLEMENT\n\n` +
+                        `📌 The bill has been moved to the "Completed Payments" section.\n` +
+                        `💰 To settle this credit of Rs. ${formatDecimal(paymentAmount)}, make a payment in the "Completed Payments" section.\n` +
+                        `✅ Any payment made in the Completed Bills section will automatically go towards settling this credit.`;
+                } else {
+                    statusMessage = `✓ Credit Added Successfully!\n\n` +
+                        `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
+                        `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
+                        `Remaining on Bill: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}\n` +
+                        `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
+                        `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : (debtorStatus === 'partial' ? 'PARTIAL PAYMENT' : 'PENDING')}\n\n` +
+                        `⚠️ IMPORTANT: This amount has been recorded as DEBT.\n` +
+                        `💰 This credit will ONLY be settled when:\n` +
+                        `   1. The bill becomes fully paid and moves to "Completed Payments"\n` +
+                        `   2. You make an additional payment in the "Completed Payments" section\n` +
+                        `📝 The credit will remain as debt until then.`;
+                }
+
+                alert(statusMessage);
+
+                // ✅ SAVE THE CUSTOMER TYPE FOR THIS BILL BEFORE CLEARING
+                if (state.customerType === 'walking' && state.selectedBill?.billNo) {
+                    saveBillCustomerType(state.selectedBill.billNo, 'walking');
+                } else if (state.customerType === 'debtor' && state.selectedBill?.billNo) {
+                    saveBillCustomerType(state.selectedBill.billNo, 'debtor');
+                }
+
+                setState(prev => ({
+                    ...prev,
+                    selectedBill: null,
+                    givenAmountInput: "",
+                    showChequeModal: false,
+                    showBankToBankModal: false,
+                    showAdjustmentModal: false,
+                    pendingBankToBankAmount: 0,
+                    customerType: null
+                }));
             } else {
-                statusMessage = `✓ Credit Added Successfully!\n\n` +
-                    `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
-                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
-                    `Remaining on Bill: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}\n` +
-                    `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
-                    `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : (debtorStatus === 'partial' ? 'PARTIAL PAYMENT' : 'PENDING')}\n\n` +
-                    `⚠️ IMPORTANT: This amount has been recorded as DEBT.\n` +
-                    `💰 This credit will ONLY be settled when:\n` +
-                    `   1. The bill becomes fully paid and moves to "Completed Payments"\n` +
-                    `   2. You make an additional payment in the "Completed Payments" section\n` +
-                    `📝 The credit will remain as debt until then.`;
+                throw new Error(response.data.message || 'Failed to update sales record');
+            }
+        } catch (error) {
+            console.error("Error processing credit payment:", error);
+            let errorMessage = "Failed to process credit payment. ";
+
+            if (error.response) {
+                console.error("Error response:", error.response.data);
+                errorMessage += error.response.data?.message || error.message;
+            } else if (error.request) {
+                console.error("Error request:", error.request);
+                errorMessage += "No response from server. Please check your connection.";
+            } else {
+                errorMessage += error.message;
             }
 
-            alert(statusMessage);
-
-            // ✅ SAVE THE CUSTOMER TYPE FOR THIS BILL BEFORE CLEARING
-            if (state.customerType === 'walking' && state.selectedBill?.billNo) {
-                saveBillCustomerType(state.selectedBill.billNo, 'walking');
-            } else if (state.customerType === 'debtor' && state.selectedBill?.billNo) {
-                saveBillCustomerType(state.selectedBill.billNo, 'debtor');
-            }
-
-            // Clear the selected bill and reset state
-            setState(prev => ({
-                ...prev,
-                selectedBill: null,
-                givenAmountInput: "",
-                showChequeModal: false,
-                showBankToBankModal: false,
-                showAdjustmentModal: false,
-                pendingBankToBankAmount: 0,
-                customerType: null
-            }));
-
-            // Force a refresh of the outstanding debt modal data
-            // This will ensure the debt appears in the Outstanding Debt Modal
-            setTimeout(() => {
-                const debtBills = getOutstandingDebtBills();
-                setOutstandingDebtBills(debtBills);
-            }, 500);
-
-        } else {
-            throw new Error(response.data.message || 'Failed to update sales record');
+            alert(errorMessage);
+        } finally {
+            setState(prev => ({ ...prev, isPrinting: false }));
         }
-    } catch (error) {
-        console.error("Error processing credit payment:", error);
-        let errorMessage = "Failed to process credit payment. ";
-
-        if (error.response) {
-            console.error("Error response:", error.response.data);
-            errorMessage += error.response.data?.message || error.message;
-        } else if (error.request) {
-            console.error("Error request:", error.request);
-            errorMessage += "No response from server. Please check your connection.";
-        } else {
-            errorMessage += error.message;
-        }
-
-        alert(errorMessage);
-    } finally {
-        setState(prev => ({ ...prev, isPrinting: false }));
-    }
-};
+    };
     // Auto-fetch archived sales when both start date and end date are selected
     useEffect(() => {
         if (viewOldBills && startDate && endDate) {
@@ -5398,67 +5067,51 @@ const processCreditPayment = async (paymentAmount) => {
 
     // Add the modal just before the closing </div> of your main component (around line 2150, before the closing </div> of the app)
 
-  const handleCreditPayment = async () => {
-    // Get the amount from input field
-    let paymentAmount = parseFloat(state.givenAmountInput);
+    const handleCreditPayment = async () => {
+        // Get the amount from input field
+        let paymentAmount = parseFloat(state.givenAmountInput);
 
-    console.log('=== CREDIT PAYMENT DEBUG ===');
-    console.log('Input field raw value:', state.givenAmountInput);
-    console.log('Parsed payment amount:', paymentAmount);
-    console.log('Selected bill:', state.selectedBill?.billNo);
-    console.log('Customer code:', state.selectedBill?.customerCode);
-    console.log('Total bill amount:', state.selectedBill?.totalAmount);
-    console.log('Already given:', state.selectedBill?.givenAmount);
+        console.log('=== CREDIT PAYMENT DEBUG ===');
+        console.log('Input field raw value:', state.givenAmountInput);
+        console.log('Parsed payment amount:', paymentAmount);
+        console.log('Selected bill:', state.selectedBill?.billNo);
+        console.log('Customer code:', state.selectedBill?.customerCode);
+        console.log('Total bill amount:', state.selectedBill?.totalAmount);
+        console.log('Already given:', state.selectedBill?.givenAmount);
 
-    // Validate amount - allow 0
-    if (isNaN(paymentAmount) || paymentAmount < 0) {
-        alert("Please enter a valid amount (0 or greater)");
-        return;
-    }
+        // Validate amount
+        if (isNaN(paymentAmount) || paymentAmount <= 0) {
+            alert("Please enter a valid amount greater than 0");
+            return;
+        }
 
-    if (!state.selectedBill) {
-        alert("Please select a bill first");
-        return;
-    }
+        if (!state.selectedBill) {
+            alert("Please select a bill first");
+            return;
+        }
 
-    // Only check maxAllowed for positive amounts
-    if (paymentAmount > 0) {
         const maxAllowed = getRemainingBillAmount(state.selectedBill);
+
         if (paymentAmount > maxAllowed) {
             alert(`Amount exceeds maximum allowed!\n\nMaximum: Rs. ${formatDecimal(maxAllowed)}\nEntered: Rs. ${formatDecimal(paymentAmount)}`);
             return;
         }
-    }
 
-    // If amount is 0, show a special confirmation
-    if (paymentAmount === 0) {
-        const confirmMove = window.confirm(
-            `⚠️ MOVE TO COMPLETED SECTION WITH DEBT ⚠️\n\n` +
-            `Bill Number: ${state.selectedBill.billNo}\n` +
-            `Customer: ${state.selectedBill.customerCode}\n` +
-            `Total Bill Amount: Rs. ${formatDecimal(state.selectedBill.totalAmount)}\n` +
-            `Already Paid: Rs. ${formatDecimal(state.selectedBill.givenAmount || 0)}\n\n` +
-            `You are about to move this bill to the Completed Payments section with NO payment.\n` +
-            `The FULL remaining amount of Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))} will be recorded as DEBT.\n\n` +
-            `Are you sure you want to proceed?`
-        );
-        if (!confirmMove) return;
-    } else {
-        // Show confirmation dialog for positive amounts
+        // Show confirmation dialog with the exact amount
         const confirmCredit = window.confirm(
             `⚠️ CREDIT PAYMENT CONFIRMATION ⚠️\n\n` +
             `Bill Number: ${state.selectedBill.billNo}\n` +
             `Customer: ${state.selectedBill.customerCode}\n` +
             `Amount: Rs. ${paymentAmount.toFixed(2)}\n` +
-            `Maximum Allowed: Rs. ${formatDecimal(getRemainingBillAmount(state.selectedBill))}\n\n` +
+            `Maximum Allowed: Rs. ${formatDecimal(maxAllowed)}\n\n` +
             `This amount will be recorded as DEBT in the debtors table.\n` +
             `Are you sure you want to proceed?`
         );
-        if (!confirmCredit) return;
-    }
 
-    await processCreditPayment(paymentAmount);
-};
+        if (!confirmCredit) return;
+
+        await processCreditPayment(paymentAmount);
+    };
 
     if (state.isLoading) return <LoadingSkeleton />;
 
@@ -5466,378 +5119,299 @@ const processCreditPayment = async (paymentAmount) => {
         <div style={styles.app}>
             <div style={styles.container}>
                 {/* Old Bills Bar with Total Funds */}
-               {/* Updated Bar with UniqueCode Dropdown - All in One Line */}
-<div style={{ 
-    ...styles.oldBillsBar, 
-    justifyContent: 'space-between', 
-    alignItems: 'center',
-    padding: '8px 16px',
-    flexWrap: 'nowrap',
-    gap: '6px',
-    overflowX: 'auto'
-}}>
-    {/* Left side - Action Buttons */}
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-        {/* View Outstanding Debt Button */}
-        <button
-            onClick={async () => {
-                modalOpenRef.current = true;
-                const debtBills = getOutstandingDebtBills();
-                setOutstandingDebtBills(debtBills);
-                setShowOutstandingDebtModal(true);
-            }}
-            style={{
-                padding: '6px 12px',
-                background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontWeight: '700',
-                fontSize: '11px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
-            }}
-            onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(220,38,38,0.3)';
-            }}
-            onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
-            }}
-        >
-            <span style={{ fontSize: '12px' }}>⚠️</span>
-            Debt 
-        </button>
+                {/* Updated Bar with UniqueCode Dropdown */}
+                <div style={{ ...styles.oldBillsBar, justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={() => {
+                                modalOpenRef.current = true;
+                                setShowSupplierSettlementModal(true);
+                            }}
+                            style={{
+                                padding: '10px 24px',
+                                background: 'linear-gradient(135deg, #0f766e, #115e59)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                fontWeight: '700',
+                                fontSize: '14px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'all 0.2s',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.12)'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.18)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.12)';
+                            }}
+                        >
+                            <span>✅</span>
+                            Settle All Bills
+                        </button>
 
-        {/* Settle All Bills Button */}
-        <button
-            onClick={() => {
-                modalOpenRef.current = true;
-                setShowSupplierSettlementModal(true);
-            }}
-            style={{
-                padding: '6px 12px',
-                background: 'linear-gradient(135deg, #0f766e, #115e59)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontWeight: '700',
-                fontSize: '11px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
-            }}
-            onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.18)';
-            }}
-            onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
-            }}
-        >
-            <span style={{ fontSize: '12px' }}>✅</span>
-            Settle All
-        </button>
+                        <button
+                            onClick={async () => {
+                                if (viewOldBills) {
+                                    resetToCurrentSales();
+                                    setState(prev => ({ ...prev, customerType: null }));
+                                } else {
+                                    setViewOldBills(true);
+                                }
+                            }}
+                            style={{
+                                padding: '10px 24px',
+                                background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'all 0.2s',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
+                            }}
+                        >
+                            <span>{viewOldBills ? '📅' : '📜'}</span>
+                            {viewOldBills ? 'View Current Bills' : 'View Old Bills'}
+                        </button>
 
-        {/* View Old/Current Bills Button */}
-        <button
-            onClick={async () => {
-                if (viewOldBills) {
-                    resetToCurrentSales();
-                    setState(prev => ({ ...prev, customerType: null }));
-                } else {
-                    setViewOldBills(true);
-                }
-            }}
-            style={{
-                padding: '6px 12px',
-                background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontWeight: '600',
-                fontSize: '11px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-            }}
-            onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
-            }}
-            onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-            }}
-        >
-            <span style={{ fontSize: '12px' }}>{viewOldBills ? '📅' : '📜'}</span>
-            {viewOldBills ? 'Current' : 'Old Bills'}
-        </button>
-    </div>
+                        {/* UniqueCode Dropdown */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>
+                                👤 Cashier:
+                            </label>
+                            <select
+                                value={selectedUniqueCode}
+                                onChange={(e) => handleUniqueCodeChange(e.target.value)}
+                                disabled={isLoadingUniqueCodes || isChangingFilter}
+                                style={{
+                                    padding: '8px 16px',
+                                    border: '2px solid #e2e8f0',
+                                    borderRadius: '10px',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    background: 'white',
+                                    cursor: (isLoadingUniqueCodes || isChangingFilter) ? 'not-allowed' : 'pointer',
+                                    minWidth: '150px'
+                                }}
+                            >
+                                <option value="all">🧑‍💼 All Cashiers</option>
+                                {uniqueCodes.map(code => (
+                                    <option key={code} value={code}>
+                                        🧑‍💼 {code}
+                                    </option>
+                                ))}
+                            </select>
+                            {isLoadingUniqueCodes && (
+                                <span style={{ fontSize: '12px', color: '#64748b' }}>⏳ Loading...</span>
+                            )}
+                        </div>
 
-    {/* Center - Cashier Dropdown */}
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-        <label style={{ fontSize: '10px', fontWeight: '600', color: '#475569', whiteSpace: 'nowrap' }}>
-            👤 Cashier:
-        </label>
-        <select
-            value={selectedUniqueCode}
-            onChange={(e) => handleUniqueCodeChange(e.target.value)}
-            disabled={isLoadingUniqueCodes || isChangingFilter}
-            style={{
-                padding: '4px 8px',
-                border: '1.5px solid #e2e8f0',
-                borderRadius: '6px',
-                fontSize: '11px',
-                fontWeight: '500',
-                background: 'white',
-                cursor: (isLoadingUniqueCodes || isChangingFilter) ? 'not-allowed' : 'pointer',
-                minWidth: '100px',
-                height: '28px'
-            }}
-        >
-            <option value="all">🧑‍💼 All</option>
-            {uniqueCodes.map(code => (
-                <option key={code} value={code}>
-                    🧑‍💼 {code}
-                </option>
-            ))}
-        </select>
-        {isLoadingUniqueCodes && (
-            <span style={{ fontSize: '10px', color: '#64748b' }}>⏳</span>
-        )}
-    </div>
+                        {viewOldBills && (
+                            <div style={styles.datePickerContainer}>
+                                <div>
+                                    <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
+                                    <input
+                                        type="date"
+                                        value={startDate}
+                                        onChange={(e) => {
+                                            setStartDate(e.target.value);
+                                            if (endDate && e.target.value) {
+                                                setTimeout(() => {
+                                                    fetchArchivedSales();
+                                                }, 100);
+                                            }
+                                        }}
+                                        style={styles.dateInput}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
+                                    <input
+                                        type="date"
+                                        value={endDate}
+                                        onChange={(e) => {
+                                            setEndDate(e.target.value);
+                                            if (startDate && e.target.value) {
+                                                setTimeout(() => {
+                                                    fetchArchivedSales();
+                                                }, 100);
+                                            }
+                                        }}
+                                        style={styles.dateInput}
+                                    />
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        if (startDate && endDate) {
+                                            setArchivedData(prev => ({ ...prev, isLoading: true }));
+                                            await refreshBeforeLoadingOldBills();
+                                            await fetchArchivedSales();
+                                        } else {
+                                            alert('Please select both start and end dates');
+                                        }
+                                    }}
+                                    style={{
+                                        padding: '8px 20px',
+                                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        marginTop: '18px'
+                                    }}
+                                >
+                                    Apply Filter
+                                </button>
+                                <button
+                                    onClick={resetToCurrentSales}
+                                    style={{
+                                        padding: '8px 20px',
+                                        background: '#f1f5f9',
+                                        color: '#475569',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        marginTop: '18px'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
 
-    {/* Right side - Date Picker (only when viewing old bills) */}
-    {viewOldBills && (
-        <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '4px', 
-            flexShrink: 0,
-            background: '#f8fafc',
-            padding: '4px 8px',
-            borderRadius: '8px'
-        }}>
-            <div>
-                <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                        setStartDate(e.target.value);
-                        if (endDate && e.target.value) {
-                            setTimeout(() => {
-                                fetchArchivedSales();
-                            }, 100);
-                        }
-                    }}
-                    style={{
-                        padding: '4px 6px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        width: '110px',
-                        height: '26px'
-                    }}
-                />
-            </div>
-            <span style={{ fontSize: '10px', color: '#64748b' }}>→</span>
-            <div>
-                <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                        setEndDate(e.target.value);
-                        if (startDate && e.target.value) {
-                            setTimeout(() => {
-                                fetchArchivedSales();
-                            }, 100);
-                        }
-                    }}
-                    style={{
-                        padding: '4px 6px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        width: '110px',
-                        height: '26px'
-                    }}
-                />
-            </div>
-            <button
-                onClick={async () => {
-                    if (startDate && endDate) {
-                        setArchivedData(prev => ({ ...prev, isLoading: true }));
-                        await refreshBeforeLoadingOldBills();
-                        await fetchArchivedSales();
-                    } else {
-                        alert('Please select both start and end dates');
-                    }
-                }}
-                style={{
-                    padding: '4px 10px',
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontWeight: '600',
-                    fontSize: '10px',
-                    height: '26px',
-                    whiteSpace: 'nowrap'
-                }}
-            >
-                Apply
-            </button>
-            <button
-                onClick={resetToCurrentSales}
-                style={{
-                    padding: '4px 10px',
-                    background: '#f1f5f9',
-                    color: '#475569',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontWeight: '600',
-                    fontSize: '10px',
-                    height: '26px',
-                    whiteSpace: 'nowrap'
-                }}
-            >
-                Cancel
-            </button>
-        </div>
-    )}
+                        {dataSource === 'sales_history' && (
+                            <div style={styles.viewTypeIndicator}>
+                                <span>📚</span>Viewing Archived Bills
+                                <button
+                                    onClick={() => {
+                                        resetToCurrentSales();
+                                        setState(prev => ({ ...prev, customerType: null }));
+                                    }}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#92400e',
+                                        cursor: 'pointer',
+                                        marginLeft: '4px'
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
-    {/* Archived Indicator */}
-    {dataSource === 'sales_history' && (
-        <div style={{
-            ...styles.viewTypeIndicator,
-            padding: '4px 10px',
-            fontSize: '10px',
-            flexShrink: 0,
-            height: '26px'
-        }}>
-            <span>📚</span>Archived
-            <button
-                onClick={() => {
-                    resetToCurrentSales();
-                    setState(prev => ({ ...prev, customerType: null }));
-                }}
-                style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#92400e',
-                    cursor: 'pointer',
-                    marginLeft: '2px',
-                    fontSize: '12px'
-                }}
-            >
-                ✕
-            </button>
-        </div>
-    )}
+                    {/* TOTAL FUNDS CARD */}
+                    <div style={{
+                        background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                        borderRadius: '16px',
+                        padding: '12px 24px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                        minWidth: '280px',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{
+                            background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                            borderRadius: '12px',
+                            padding: '6px 10px',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                            minWidth: '260px',
+                            maxWidth: '320px'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '10px',
+                                height: '28px'
+                            }}>
+                                {/* CASH */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                    <span style={{
+                                        fontSize: '9px',
+                                        fontWeight: 700,
+                                        color: '#94a3b8',
+                                        letterSpacing: '0.5px'
+                                    }}>
+                                        💰 CASH
+                                    </span>
+                                    <span style={{
+                                        fontSize: '13px',
+                                        fontWeight: 800,
+                                        fontFamily: 'monospace',
+                                        color: remainingBalances.cash_remaining >= 0 ? '#10b981' : '#ef4444',
+                                        lineHeight: '1'
+                                    }}>
+                                        Rs {formatDecimal(remainingBalances.cash_remaining)}
+                                    </span>
+                                </div>
 
-    {/* TOTAL FUNDS CARD - Right side */}
-    <div style={{
-        background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-        borderRadius: '8px',
-        padding: '4px 12px',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
-        minWidth: '160px',
-        textAlign: 'center',
-        flexShrink: 0,
-        height: '28px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-    }}>
-        <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            width: '100%'
-        }}>
-            {/* CASH */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                <span style={{
-                    fontSize: '8px',
-                    fontWeight: 700,
-                    color: '#94a3b8',
-                    letterSpacing: '0.3px'
-                }}>
-                    💰CASH
-                </span>
-                <span style={{
-                    fontSize: '11px',
-                    fontWeight: 800,
-                    fontFamily: 'monospace',
-                    color: remainingBalances.cash_remaining >= 0 ? '#10b981' : '#ef4444',
-                    lineHeight: '1'
-                }}>
-                    Rs{formatDecimal(remainingBalances.cash_remaining)}
-                </span>
-            </div>
+                                {/* BANK (CLICKABLE) */}
+                                <div
+                                    onClick={() => setShowBankBreakdownModal(true)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        flex: 1,
+                                        cursor: 'pointer',
+                                        padding: '2px 6px',
+                                        borderRadius: '6px'
+                                    }}
+                                    onMouseEnter={(e) =>
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+                                    }
+                                    onMouseLeave={(e) =>
+                                        e.currentTarget.style.background = 'transparent'
+                                    }
+                                >
+                                    <span style={{
+                                        fontSize: '9px',
+                                        fontWeight: 700,
+                                        color: '#94a3b8',
+                                        letterSpacing: '0.5px'
+                                    }}>
+                                        🏦 BANK
+                                    </span>
+                                    <span style={{
+                                        fontSize: '13px',
+                                        fontWeight: 800,
+                                        fontFamily: 'monospace',
+                                        color: remainingBalances.total_bank_remaining >= 0 ? '#60a5fa' : '#ef4444',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        lineHeight: '1'
+                                    }}>
+                                        Rs {formatDecimal(remainingBalances.total_bank_remaining)}
+                                        <span style={{ fontSize: '9px', color: '#64748b' }}>▼</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-            {/* BANK (CLICKABLE) */}
-            <div
-                onClick={() => setShowBankBreakdownModal(true)}
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '3px',
-                    cursor: 'pointer',
-                    padding: '1px 4px',
-                    borderRadius: '4px'
-                }}
-                onMouseEnter={(e) =>
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
-                }
-                onMouseLeave={(e) =>
-                    e.currentTarget.style.background = 'transparent'
-                }
-            >
-                <span style={{
-                    fontSize: '8px',
-                    fontWeight: 700,
-                    color: '#94a3b8',
-                    letterSpacing: '0.3px'
-                }}>
-                    🏦BANK
-                </span>
-                <span style={{
-                    fontSize: '11px',
-                    fontWeight: 800,
-                    fontFamily: 'monospace',
-                    color: remainingBalances.total_bank_remaining >= 0 ? '#60a5fa' : '#ef4444',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                    lineHeight: '1'
-                }}>
-                    Rs{formatDecimal(remainingBalances.total_bank_remaining)}
-                    <span style={{ fontSize: '7px', color: '#64748b' }}>▼</span>
-                </span>
-            </div>
-        </div>
-    </div>
-</div>
                 <div style={styles.threeColumns}>
                     {/* LEFT: Completed Payments */}
                     <div style={styles.panel}>
@@ -6084,51 +5658,37 @@ const processCreditPayment = async (paymentAmount) => {
                                                 Remaining: Rs. {formatDecimal(getDisplayRemaining(state.selectedBill, state.selectedBill.givenAmountApplied === 'Y'))}
                                             </div>
                                         </div>
-                                       <input
-    ref={givenAmountInputRef}
-    type="number"
-    value={state.givenAmountInput}
-    onChange={(e) => {
-        let val = e.target.value;
-        if (val === "") return setState(prev => ({ ...prev, givenAmountInput: "" }));
-        let num = parseFloat(val);
-        if (state.selectedBill) {
-            const maxAmount = getRemainingBillAmount(state.selectedBill);
-            if (num > maxAmount) {
-                alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
-                return;
-            }
-        }
-        setState(prev => ({ ...prev, givenAmountInput: val }));
-    }}
-    onKeyDown={(e) => {
-        // Check if F2 key is pressed (key code 113)
-        if (e.key === 'F2' || e.keyCode === 113) {
-            e.preventDefault(); // Prevent default browser behavior (like renaming in some apps)
-            const amt = parseFloat(state.givenAmountInput);
-            // Validate the amount
-            if (isNaN(amt) || amt <= 0) {
-                alert("Please enter a valid amount greater than 0");
-                return;
-            }
-            // Process cash payment
-            processPayment(amt);
-        }
-    }}
-    placeholder="0.00"
-    disabled={state.isPrinting}
-    style={{
-        width: '100%',
-        padding: '16px',
-        border: '2px solid #fbbf24',
-        borderRadius: '14px',
-        fontSize: '20px',
-        fontWeight: '700',
-        textAlign: 'center',
-        background: 'white',
-        fontFamily: 'monospace'
-    }}
-/>
+                                        <input
+                                            ref={givenAmountInputRef}
+                                            type="number"
+                                            value={state.givenAmountInput}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (val === "") return setState(prev => ({ ...prev, givenAmountInput: "" }));
+                                                let num = parseFloat(val);
+                                                if (state.selectedBill) {
+                                                    const maxAmount = getRemainingBillAmount(state.selectedBill);
+                                                    if (num > maxAmount) {
+                                                        alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
+                                                        return;
+                                                    }
+                                                }
+                                                setState(prev => ({ ...prev, givenAmountInput: val }));
+                                            }}
+                                            placeholder="0.00"
+                                            disabled={state.isPrinting}
+                                            style={{
+                                                width: '100%',
+                                                padding: '16px',
+                                                border: '2px solid #fbbf24',
+                                                borderRadius: '14px',
+                                                fontSize: '20px',
+                                                fontWeight: '700',
+                                                textAlign: 'center',
+                                                background: 'white',
+                                                fontFamily: 'monospace'
+                                            }}
+                                        />
 
 
                                         <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
@@ -6605,25 +6165,6 @@ const processCreditPayment = async (paymentAmount) => {
                 onClose={() => setShowBankBreakdownModal(false)}
                 bankBreakdown={remainingBalances.bank_breakdown}
             />
-            <OutstandingDebtModal
-    isOpen={showOutstandingDebtModal}
-    onClose={() => {
-        modalOpenRef.current = false;
-        setShowOutstandingDebtModal(false);
-    }}
-    bills={outstandingDebtBills}
-    onBillClick={(bill) => {
-        // This will select the bill and show it in the center panel
-        handleBillClick(bill);
-        // If the bill is in pending section, use checkAndHandleDebtor
-        if (bill.givenAmountApplied !== 'Y') {
-            checkAndHandleDebtor(bill);
-        } else {
-            handleBillClick(bill);
-        }
-    }}
-    formatDecimal={formatDecimal}
-/>
         </div>
     );
 } 

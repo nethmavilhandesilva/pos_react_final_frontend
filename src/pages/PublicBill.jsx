@@ -122,7 +122,7 @@ const PublicBill = () => {
         return `
         <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family: 'Courier New', monospace; color:#000; background:#fff;">
             <div style="text-align:center; font-weight:bold;">
-                <div style="font-size:24px;">xxxx</div>
+                <div style="font-size:24px;">N66</div>
                 <div style="font-size:20px; margin-bottom:5px;font-weight:bold;">colombage lanka (Pvt) Ltd</div>
                 <div style="display:flex; justify-content:center; gap:15px; margin:12px 0;">
                     <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">xx</span>

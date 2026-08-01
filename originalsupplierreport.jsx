@@ -20,77 +20,7 @@ const routes = {
     getSupplierDetailedReport: "/supplier-detailed-report",
     getOldBillsSummary: "/suppliers/old-bills-summary",
     getBanksList: "/banks-list",
-    getSupplierAdvances: "/suppliers/advance-amounts",
 };
-
-// ==================== SHARED HELPERS (perf + leak prevention) ====================
-const BANKS_CACHE_TTL_MS = 5 * 60 * 1000;
-const banksCacheStore = { data: null, fetchedAt: 0, promise: null };
-
-const isAbortError = (error) => {
-    const name = error?.name || '';
-    const code = error?.code || '';
-    return name === 'AbortError' || name === 'CanceledError' || code === 'ERR_CANCELED';
-};
-
-const safeError = (message, error) => {
-    // Never log response bodies / financial payloads to the console
-    if (typeof console !== 'undefined' && console.error) {
-        const detail = error?.message || (typeof error === 'string' ? error : 'Request failed');
-        console.error(message, detail);
-    }
-};
-
-const parsePaymentDetails = (raw) => {
-    if (!raw) return [];
-    let payments = raw;
-    if (typeof payments === 'string') {
-        try {
-            payments = JSON.parse(payments);
-        } catch {
-            return [];
-        }
-    }
-    return Array.isArray(payments) ? payments : [];
-};
-
-const isValidBillNumber = (bn) =>
-    !!bn && bn !== 'Pending' && bn !== 'N/A' && bn !== 'null' && bn !== 'undefined';
-
-const mapWithConcurrency = async (items, limit, worker) => {
-    const results = new Array(items.length);
-    let nextIndex = 0;
-    const runners = Array.from({ length: Math.min(limit, items.length) || 0 }, async () => {
-        while (nextIndex < items.length) {
-            const current = nextIndex++;
-            results[current] = await worker(items[current], current);
-        }
-    });
-    await Promise.all(runners);
-    return results;
-};
-
-const fetchBanksCached = async (signal) => {
-    const now = Date.now();
-    if (banksCacheStore.data && (now - banksCacheStore.fetchedAt) < BANKS_CACHE_TTL_MS) {
-        return banksCacheStore.data;
-    }
-    if (banksCacheStore.promise) {
-        return banksCacheStore.promise;
-    }
-    banksCacheStore.promise = api.get(routes.getBanks, signal ? { signal } : undefined)
-        .then((response) => {
-            const data = response.data?.success ? (response.data.data || []) : [];
-            banksCacheStore.data = data;
-            banksCacheStore.fetchedAt = Date.now();
-            return data;
-        })
-        .finally(() => {
-            banksCacheStore.promise = null;
-        });
-    return banksCacheStore.promise;
-};
-
 
 // ==================== BANK ACCOUNT SELECTOR COMPONENT ====================
 const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false, id = "bank-select", onEnterPress = null }) => {
@@ -100,32 +30,24 @@ const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false, id
     const selectRef = useRef(null);
 
     useEffect(() => {
-        let cancelled = false;
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-
-        const loadBanks = async () => {
-            setLoading(true);
-            try {
-                const data = await fetchBanksCached(controller?.signal);
-                if (!cancelled) {
-                    setBanks(data);
-                    setError(data.length ? '' : 'Failed to load bank accounts');
-                }
-            } catch (error) {
-                if (!cancelled && !isAbortError(error)) {
-                    setError('Unable to load bank accounts');
-                }
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        };
-
-        loadBanks();
-        return () => {
-            cancelled = true;
-            controller?.abort();
-        };
+        fetchBanks();
     }, []);
+
+    const fetchBanks = async () => {
+        setLoading(true);
+        try {
+            const response = await api.get(routes.getBanks);
+            if (response.data.success) {
+                setBanks(response.data.data);
+            } else {
+                setError('Failed to load bank accounts');
+            }
+        } catch (error) {
+            setError('Unable to load bank accounts');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleKeyPress = (e) => {
         if (e.key === 'Enter') {
@@ -346,25 +268,26 @@ const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
 
     // Fetch banks when modal opens
     useEffect(() => {
-        if (!isOpen) return undefined;
-        let cancelled = false;
-        fetchBanks();
-        const id = setTimeout(() => {
-            if (!cancelled && dateRef.current) dateRef.current.focus();
-        }, 100);
-        return () => {
-            cancelled = true;
-            clearTimeout(id);
-        };
+        if (isOpen) {
+            fetchBanks();
+            // Auto-focus date field when modal opens
+            setTimeout(() => {
+                if (dateRef.current) {
+                    dateRef.current.focus();
+                }
+            }, 100);
+        }
     }, [isOpen]);
 
     const fetchBanks = async () => {
         setLoading(true);
         try {
-            const data = await fetchBanksCached();
-            setBanks(data);
+            const response = await api.get(routes.getBanks);
+            if (response.data.success) {
+                setBanks(response.data.data);
+            }
         } catch (error) {
-            if (!isAbortError(error)) safeError('Error fetching banks:', error);
+            console.error('Error fetching banks:', error);
         } finally {
             setLoading(false);
         }
@@ -563,22 +486,28 @@ const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) =
     const confirmButtonRef = useRef(null);
 
     useEffect(() => {
-        if (!isOpen) return undefined;
-        fetchBanks();
-        const id = setTimeout(() => {
-            bankSelectRef.current?.focus();
-        }, 100);
-        return () => clearTimeout(id);
+        if (isOpen) {
+            fetchBanks();
+            // Auto-focus the bank select dropdown when modal opens
+            setTimeout(() => {
+                if (bankSelectRef.current) {
+                    bankSelectRef.current.focus();
+                }
+            }, 100);
+        }
     }, [isOpen]);
 
     const fetchBanks = async () => {
         setLoading(true);
         try {
-            const data = await fetchBanksCached();
-            setBanks(data);
-            setError(data.length ? '' : 'Failed to load bank accounts');
+            const response = await api.get(routes.getBanks);
+            if (response.data.success) {
+                setBanks(response.data.data);
+            } else {
+                setError('Failed to load bank accounts');
+            }
         } catch (error) {
-            if (!isAbortError(error)) setError('Unable to load bank accounts');
+            setError('Unable to load bank accounts');
         } finally {
             setLoading(false);
         }
@@ -1407,29 +1336,20 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
     // Auto-focus name field when supplier form opens
     useEffect(() => {
         if (showSupplierForm && nameRef.current) {
-            const id = setTimeout(() => {
-                nameRef.current?.focus();
+            setTimeout(() => {
+                nameRef.current.focus();
             }, 100);
-            return () => clearTimeout(id);
         }
     }, [showSupplierForm]);
 
     // Auto-focus main input when modal opens
     useEffect(() => {
         if (isOpen && !showSupplierForm && mainInputRef.current) {
-            const id = setTimeout(() => {
-                mainInputRef.current?.focus();
+            setTimeout(() => {
+                mainInputRef.current.focus();
             }, 100);
-            return () => clearTimeout(id);
         }
     }, [isOpen, showSupplierForm]);
-
-    // Clear NIC/image previews on close to free memory
-    useEffect(() => {
-        if (!isOpen) {
-            setPreviewImages({ profile_pic: null, nic_front: null, nic_back: null });
-        }
-    }, [isOpen]);
 
     // IMPORTANT: Keep formData.code in sync with supplierCode
     useEffect(() => {
@@ -1467,12 +1387,12 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
                 setMatchingSuppliers(response.data.data);
                 setShowSuggestions(response.data.data.length > 0);
             }
-        } catch (error) { safeError('Error fetching suppliers:', error); }
+        } catch (error) { console.error('Error fetching suppliers:', error); }
         finally { setIsLoadingSuppliers(false); }
     };
 
     const handleSupplierCodeChange = (e) => {
-         // Debug log
+        console.log('Supplier code changed:', e.target.value); // Debug log
         const newCode = e.target.value.toUpperCase();
         setSupplierCode(newCode);
         setFormData(prev => ({ ...prev, code: newCode }));
@@ -1537,7 +1457,7 @@ const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSuppli
             onConfirm(response.data.supplier);
             onClose();
         } catch (error) {
-            safeError('Error:', error);
+            console.error('Error:', error);
             alert('Error creating supplier: ' + (error.response?.data?.message || error.message));
         } finally {
             setLoading(false);
@@ -2372,9 +2292,10 @@ const BankAllocationModal = ({ isOpen, onClose }) => {
 
                 setAllocatedRecords(records);
                 setGrandTotals(totals);
+                console.log('Allocated breakdown fetched:', { records, totals });
             }
         } catch (error) {
-            safeError('Error fetching allocated breakdown:', error);
+            console.error('Error fetching allocated breakdown:', error);
         } finally {
             setIsLoading(false);
         }
@@ -2692,14 +2613,8 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
     const filterPollingIntervalRef = useRef(null);
     const cashierBalanceIntervalRef = useRef(null);
 
-    const incomeModalMountedRef = useRef(true);
-    useEffect(() => {
-        incomeModalMountedRef.current = true;
-        return () => { incomeModalMountedRef.current = false; };
-    }, []);
-
     const fetchCashierBalance = async () => {
-        if (!incomeModalMountedRef.current) return;
+        console.log('🟢 FETCHING CASHIER BALANCE...');
         setIsLoadingCashierBalance(true);
         try {
             let url = '/cashier-balance/detailed-balance';
@@ -2719,10 +2634,12 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                 url += `?${params.toString()}`;
             }
 
+            console.log('📡 Fetching from URL:', url);
             const response = await api.get(url);
-            if (!incomeModalMountedRef.current) return;
+            console.log('📦 Cashier Balance Response:', response.data);
 
             if (response.data.success) {
+                // The data is now at the root of response.data.data
                 const data = response.data.data;
                 setCashierBalance({
                     cash_balance: data.cash_balance || 0,
@@ -2732,22 +2649,27 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                     cashier_names: data.cashier_names || [],
                     session_count: data.session_count || 0
                 });
+                console.log('✅ Cashier balance set:', data);
+            } else {
+                console.error('❌ API returned success=false:', response.data.message);
             }
         } catch (error) {
-            if (!isAbortError(error)) safeError('Error fetching cashier balance:', error);
+            console.error('❌ Error fetching cashier balance:', error);
+            console.error('Error details:', error.response?.data);
         } finally {
-            if (incomeModalMountedRef.current) setIsLoadingCashierBalance(false);
+            setIsLoadingCashierBalance(false);
         }
     };
 
     // Fetch filter options (including cashier names)
     const fetchFilterOptions = async () => {
-        if (!incomeModalMountedRef.current) return;
         setIsLoadingOptions(true);
         try {
+            // Fetch income filter options
             const incomeResponse = await api.get('/income-filter-options');
+
+            // Fetch cashier names from cashier balance
             const cashierResponse = await api.get('/cashier-balance/detailed-balance');
-            if (!incomeModalMountedRef.current) return;
 
             const cashierNames = cashierResponse.data.success ? cashierResponse.data.data.cashier_names : [];
 
@@ -2757,9 +2679,9 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                 cashier_names: cashierNames
             });
         } catch (error) {
-            if (!isAbortError(error)) safeError('Error fetching filter options:', error);
+            console.error('Error fetching filter options:', error);
         } finally {
-            if (incomeModalMountedRef.current) setIsLoadingOptions(false);
+            setIsLoadingOptions(false);
         }
     };
 
@@ -2777,10 +2699,11 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
 
         if (isOpen && isSubscribed) {
             pollingInterval = setInterval(() => {
-                if (isSubscribed && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+                if (isSubscribed) {
+                    console.log('🔄 Auto-refreshing cashier balance...');
                     fetchCashierBalance();
                 }
-            }, 60000);
+            }, 30000);
 
             cashierBalanceIntervalRef.current = pollingInterval;
         }
@@ -2806,10 +2729,11 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
             fetchFilterOptions();
 
             pollingInterval = setInterval(() => {
-                if (isSubscribed && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+                if (isSubscribed) {
+                    console.log('🔄 Auto-refreshing income filter options...');
                     fetchFilterOptions();
                 }
-            }, 60000);
+            }, 30000);
 
             filterPollingIntervalRef.current = pollingInterval;
         }
@@ -2882,6 +2806,7 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
     };
     // In IncomeSourcesModal
     const handleAllocationComplete = (allocationData) => {
+        console.log('Allocation completed:', allocationData);
 
         // Safely extract allocated amount
         let allocatedAmount = 0;
@@ -3628,9 +3553,9 @@ export default function SupplierReportPrinted() {
     const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
     const [calculatedAdjustmentAmount, setCalculatedAdjustmentAmount] = useState(0);
     const [selectedAdjustmentType, setSelectedAdjustmentType] = useState('bag_to_box');
+    // Add this with your other state declarations
+    const [advanceAmountsByBill, setAdvanceAmountsByBill] = useState({});
 
-    const [supplierAdvancesMap, setSupplierAdvancesMap] = useState({});
-    const [isLoadingAdvances, setIsLoadingAdvances] = useState(false);
 
     const [state, setState] = useState({
         pendingSuppliers: [], completedSuppliers: [], selectedSupplier: null, selectedBillNo: null, supplierDetails: [],
@@ -3658,11 +3583,12 @@ export default function SupplierReportPrinted() {
     const [fundsAllocated, setFundsAllocated] = useState(() => {
         try {
             const saved = localStorage.getItem('fundsAllocated');
+            console.log('Initializing fundsAllocated from localStorage:', saved);
             if (saved !== null && !isNaN(parseFloat(saved))) {
                 return parseFloat(saved);
             }
         } catch (error) {
-            safeError('Error reading fundsAllocated:', error);
+            console.error('Error reading fundsAllocated:', error);
         }
         return 0;
     });
@@ -3703,43 +3629,55 @@ export default function SupplierReportPrinted() {
                 setTotalAdvanceAmount(response.data.data.summary.total_advance);
             }
         } catch (error) {
-            safeError('Error fetching advances:', error);
+            console.error('Error fetching advances:', error);
         }
     };
-    // Fetch supplier advances by bill numbers from the backend
-    const fetchSupplierAdvancesByBillNumbers = useCallback(async (billNumbers, { silent = false } = {}) => {
-        if (!billNumbers || billNumbers.length === 0) {
+    // Update this function to properly fetch from backend
+    // Update this function to properly fetch from backend
+    const fetchAdvanceAmountsForBills = async (bills) => {
+        const advanceMap = {};
+        const uniqueBillNos = [];
+
+        // Collect unique bill numbers from the bills
+        bills.forEach(bill => {
+            if (bill.supplier_bill_no) {
+                const billNo = bill.supplier_bill_no;
+                if (!advanceMap[billNo]) {
+                    advanceMap[billNo] = { bill_no: billNo };
+                    uniqueBillNos.push(billNo);
+                }
+            }
+        });
+
+        // If no bills with numbers, return empty map
+        if (uniqueBillNos.length === 0) {
             return {};
         }
 
-        const validBillNumbers = billNumbers.filter(isValidBillNumber);
-
-        if (validBillNumbers.length === 0) {
-            return {};
-        }
-
-        if (!silent && isMountedRef.current) setIsLoadingAdvances(true);
         try {
-            const response = await api.post(routes.getSupplierAdvances, {
-                bill_numbers: validBillNumbers
+            // Call the backend endpoint to get advance amounts by bill numbers
+            const response = await api.post('/suppliers/advance-amounts', {
+                bill_numbers: uniqueBillNos
             });
 
-            if (!isMountedRef.current) return {};
+            if (response.data && response.data.success) {
+                const data = response.data.data;
 
-            if (response.data.success) {
-                const advanceMap = response.data.data || {};
-                setSupplierAdvancesMap(advanceMap);
-                return advanceMap;
+                // Map advance amounts to our bills
+                uniqueBillNos.forEach(billNo => {
+                    advanceMap[billNo].advance_amount = data[billNo] || 0;
+                });
             }
-            safeError('Failed to fetch advances:', response.data.message);
-            return {};
         } catch (error) {
-            if (!isAbortError(error)) safeError('Error fetching supplier advances:', error);
-            return {};
-        } finally {
-            if (!silent && isMountedRef.current) setIsLoadingAdvances(false);
+            console.error('Error fetching advance amounts:', error);
+            // Set all to 0 on error
+            uniqueBillNos.forEach(billNo => {
+                advanceMap[billNo].advance_amount = 0;
+            });
         }
-    }, []);
+
+        return advanceMap;
+    };
     // Updated handleAdvanceSubmit for NEW table
     const handleAdvanceSubmit = async (e) => {
         e.preventDefault();
@@ -3797,7 +3735,7 @@ export default function SupplierReportPrinted() {
                 throw new Error(response.message || 'Failed to record advance');
             }
         } catch (error) {
-            safeError('Advance submission error:', error);
+            console.error('Advance submission error:', error);
             setAdvanceStatus({
                 type: 'error',
                 text: `❌ Failed to record advance: ${error.response?.data?.message || error.message}`
@@ -3872,12 +3810,14 @@ export default function SupplierReportPrinted() {
 
                 // If the customer code was changed, you might want to show additional info
                 if (finalCustomerCode && finalCustomerCode !== editingRecord.customer_code) {
+                    console.log('Customer code updated from', editingRecord.customer_code, 'to', finalCustomerCode);
                 }
                 if (finalSupplierCode && finalSupplierCode !== editingRecord.supplier_code) {
+                    console.log('Supplier code updated from', editingRecord.supplier_code, 'to', finalSupplierCode);
                 }
             }
         } catch (error) {
-            safeError("Update failed:", error);
+            console.error("Update failed:", error);
             const errorMessage = error.response?.data?.message || error.message || "Failed to update records. Please try again.";
             alert(`Update failed: ${errorMessage}`);
         }
@@ -3895,13 +3835,15 @@ export default function SupplierReportPrinted() {
             isFirstRender.current = false;
             // On first render, just ensure localStorage has the correct value
             localStorage.setItem('fundsAllocated', fundsAllocated.toString());
+            console.log('First render - saved fundsAllocated:', fundsAllocated);
             return;
         }
 
         try {
+            console.log('Saving fundsAllocated to localStorage:', fundsAllocated);
             localStorage.setItem('fundsAllocated', fundsAllocated.toString());
         } catch (error) {
-            safeError('Error saving fundsAllocated:', error);
+            console.error('Error saving fundsAllocated:', error);
         }
     }, [fundsAllocated]);
     useEffect(() => {
@@ -3928,10 +3870,6 @@ export default function SupplierReportPrinted() {
     const processingPaymentRef = useRef(false);
     const lastPaymentDataRef = useRef(null);
     const modalOpenRef = useRef(false);
-    const isPrintingRef = useRef(false);
-    const isProcessingPaymentRef = useRef(false);
-    const isRefreshingRef = useRef(false);
-    const fetchSupplierDataRef = useRef(null);
 
     // Add these with your other state declarations
     const [paymentLock, setPaymentLock] = useState(false);
@@ -3957,18 +3895,6 @@ export default function SupplierReportPrinted() {
             timeoutIdsRef.current = [];
         };
     }, []);
-
-    useEffect(() => {
-        isPrintingRef.current = !!state.isPrinting;
-    }, [state.isPrinting]);
-
-    useEffect(() => {
-        isProcessingPaymentRef.current = !!isProcessingPayment;
-    }, [isProcessingPayment]);
-
-    useEffect(() => {
-        isRefreshingRef.current = !!isRefreshing;
-    }, [isRefreshing]);
 
     // Initialize window flags for duplicate detection
     useEffect(() => {
@@ -4033,9 +3959,10 @@ export default function SupplierReportPrinted() {
             if (response.data.success) {
                 if (!isMountedRef.current) return;
                 setAllocatedBreakdown(response.data.data);
+                console.log('Allocated breakdown fetched:', response.data.data);
             }
         } catch (error) {
-            safeError('Error fetching allocated breakdown:', error);
+            console.error('Error fetching allocated breakdown:', error);
         } finally {
             if (isMountedRef.current) {
                 setIsLoadingAllocated(false);
@@ -4050,11 +3977,13 @@ export default function SupplierReportPrinted() {
     const [supplierPaymentsTotal, setSupplierPaymentsTotal] = useState(0);
     // Add this function with your other fetch functions
     const fetchNetAvailableAmount = async () => {
+        console.log('🔵 FETCH NET AVAILABLE - STARTED');
 
         setIsLoadingNetAvailable(true);
         try {
             const response = await api.get('/cashier-balance/net-available');
 
+            console.log('🔵 API Response:', response.data);
 
             if (response.data.success) {
                 // Use the grand totals from the response
@@ -4063,20 +3992,26 @@ export default function SupplierReportPrinted() {
                 const totalAllocated = grandTotals.total_allocated || 0;
                 const supplierPaymentsTotal = response.data.data.supplier_payments_total || 0;
 
+                console.log('💰 Grand Totals:', {
+                    net_available: netAmount,
+                    total_allocated: totalAllocated,
+                    supplier_payments: supplierPaymentsTotal,
+                    total_records: grandTotals.total_records
+                });
 
                 if (!isMountedRef.current) return;
                 setNetAvailableAmount(netAmount);
                 setTotalAllocatedAmount(totalAllocated);
                 setSupplierPaymentsTotal(supplierPaymentsTotal);
             } else {
-                safeError('❌ API returned success=false:', response.data.message);
+                console.error('❌ API returned success=false:', response.data.message);
                 if (!isMountedRef.current) return;
                 setNetAvailableAmount(0);
                 setTotalAllocatedAmount(0);
                 setSupplierPaymentsTotal(0);
             }
         } catch (error) {
-            safeError('❌ Error fetching net available amount:', error);
+            console.error('❌ Error fetching net available amount:', error);
             if (!isMountedRef.current) return;
             setNetAvailableAmount(0);
             setTotalAllocatedAmount(0);
@@ -4085,6 +4020,7 @@ export default function SupplierReportPrinted() {
             if (isMountedRef.current) {
                 setIsLoadingNetAvailable(false);
             }
+            console.log('🔵 FETCH NET AVAILABLE - COMPLETED');
         }
     };
     const [showDirectFundAllocationModal, setShowDirectFundAllocationModal] = useState(false);
@@ -4097,17 +4033,18 @@ export default function SupplierReportPrinted() {
             });
 
             if (response.data.success) {
+                console.log('✅ Allocated funds deducted successfully:', response.data);
                 // Refresh the allocated breakdown after deduction
                 await fetchAllocatedBreakdown();
                 // Refresh net available amount as well
                 await fetchNetAvailableAmount();
                 return true;
             } else {
-                safeError('Failed to deduct allocated funds:', response.data.message);
+                console.error('Failed to deduct allocated funds:', response.data.message);
                 return false;
             }
         } catch (error) {
-            safeError('Error deducting allocated funds:', error);
+            console.error('Error deducting allocated funds:', error);
             return false;
         }
     };
@@ -4115,12 +4052,12 @@ export default function SupplierReportPrinted() {
     useEffect(() => {
         fetchAllocatedBreakdown();
 
-        // Refresh allocated breakdown every 60 seconds when tab is visible
+        // Refresh allocated breakdown every 30 seconds
         const allocatedInterval = setInterval(() => {
-            if (!modalOpenRef.current && document.visibilityState === 'visible') {
+            if (!modalOpenRef.current) {
                 fetchAllocatedBreakdown();
             }
-        }, 60000);
+        }, 30000);
 
         return () => clearInterval(allocatedInterval);
     }, []);
@@ -4129,59 +4066,50 @@ export default function SupplierReportPrinted() {
         // Initial fetch
         fetchNetAvailableAmount();
 
-        // Refresh net available amount every 60 seconds when tab is visible
+        // Refresh net available amount every 30 seconds
         const netAvailableInterval = setInterval(() => {
-            if (!modalOpenRef.current && document.visibilityState === 'visible') {
+            if (!modalOpenRef.current) {
                 fetchNetAvailableAmount();
             }
-        }, 60000);
+        }, 30000);
 
         return () => clearInterval(netAvailableInterval);
     }, []);
-    // Auto-refresh every 60s; uses refs so the interval is not recreated (avoids stuck/overlapping polls)
+    // Auto-refresh polling every 10 seconds - FIXED MEMORY LEAK
     useEffect(() => {
-        if (!isPolling) {
-            if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current);
-                pollingIntervalRef.current = null;
-            }
-            return;
+        let isSubscribed = true;
+        let pollingInterval = null;
+
+        // Start polling when component mounts
+        if (isPolling && isSubscribed) {
+            pollingInterval = setInterval(async () => {
+                // Don't refresh if component unmounted
+                if (!isSubscribed) return;
+
+                // Don't refresh if there's a payment being processed or printing
+                if (!state.isPrinting && !isProcessingPayment && !isRefreshing) {
+                    console.log('🔄 Auto-refreshing supplier data...');
+                    await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
+                }
+            }, 30000);
+
+            pollingIntervalRef.current = pollingInterval;
         }
 
-        let isSubscribed = true;
-
-        const tick = async () => {
-            if (!isSubscribed || !isMountedRef.current) return;
-            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-            if (isPrintingRef.current || isProcessingPaymentRef.current || isRefreshingRef.current) return;
-            if (modalOpenRef.current) return;
-            if (supplierDataRequestInFlightRef.current) return;
-            const fetchFn = fetchSupplierDataRef.current;
-            if (!fetchFn) return;
-            await fetchFn(viewHistoryRef.current, historyStartDateRef.current, historyEndDateRef.current, true);
-        };
-
-        const pollingInterval = setInterval(tick, 60000);
-        pollingIntervalRef.current = pollingInterval;
-
-        const onVisibility = () => {
-            if (document.visibilityState === 'visible') tick();
-        };
-        document.addEventListener('visibilitychange', onVisibility);
-
+        // Cleanup on unmount
         return () => {
             isSubscribed = false;
-            document.removeEventListener('visibilitychange', onVisibility);
-            if (pollingInterval) clearInterval(pollingInterval);
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
             if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current);
                 pollingIntervalRef.current = null;
             }
         };
-    }, [isPolling]);
+    }, [isPolling, state.isPrinting, isProcessingPayment, isRefreshing, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, state.selectedSupplier, state.selectedBillNo]);
     // Add this function to fetch income sources with filters
     const fetchIncomeSources = async (startDate = null, endDate = null, uniqueCode = null, bankName = null, cashierName = null) => {
-        if (!isMountedRef.current) return;
         setIsLoadingIncome(true);
         try {
             let url = '/income-sources';
@@ -4199,7 +4127,6 @@ export default function SupplierReportPrinted() {
 
             const response = await api.get(url);
 
-            if (!isMountedRef.current) return;
             if (response.data.success) {
                 const data = response.data.data;
                 setIncomeTotals({
@@ -4217,12 +4144,10 @@ export default function SupplierReportPrinted() {
                 alert('Failed to load income data');
             }
         } catch (error) {
-            if (!isAbortError(error)) safeError('Error fetching income sources:', error);
-            if (isMountedRef.current) {
-                alert('Failed to load income data: ' + (error.response?.data?.message || error.message));
-            }
+            console.error('Error fetching income sources:', error);
+            alert('Failed to load income data: ' + (error.response?.data?.message || error.message));
         } finally {
-            if (isMountedRef.current) setIsLoadingIncome(false);
+            setIsLoadingIncome(false);
         }
     };
     // Store mode selections per bill (persists in localStorage)
@@ -4325,6 +4250,7 @@ export default function SupplierReportPrinted() {
     };
     const fetchSupplierData = async (useHistory = false, startDate = null, endDate = null, isSilent = false) => {
         if (supplierDataRequestInFlightRef.current) {
+            console.log('⏭️ Skipping fetchSupplierData: previous request still in progress');
             return null;
         }
         supplierDataRequestInFlightRef.current = true;
@@ -4333,6 +4259,7 @@ export default function SupplierReportPrinted() {
             setState(prev => ({ ...prev, isLoading: true }));
         }
         try {
+            // Use the passed parameters or fall back to state values
             const effectiveUseHistory = useHistory !== undefined ? useHistory : isViewingHistory;
             const effectiveStartDate = startDate || historyDateRange.startDate;
             const effectiveEndDate = endDate || historyDateRange.endDate;
@@ -4351,162 +4278,272 @@ export default function SupplierReportPrinted() {
                 }
             }
 
+            console.log('🔄 fetchSupplierData called with:', {
+                useHistory,
+                effectiveUseHistory,
+                startDate,
+                endDate,
+                effectiveStartDate,
+                effectiveEndDate,
+                isSilent,
+                currentHistoryState: {
+                    isViewingHistory,
+                    startDate: historyDateRange.startDate,
+                    endDate: historyDateRange.endDate
+                }
+            });
+
+            console.log('Fetching supplier data with params:', params.toString());
             const response = await api.get(`${url}?${params.toString()}`);
-            if (!isMountedRef.current) return null;
 
-            if (!response.data) {
-                return null;
-            }
+            if (response.data) {
+                let pending = response.data.unprinted || [];
+                let completed = response.data.printed || [];
+                // ✅ Fetch advance amounts by matching bill number from JSON data
+                const allBills = [...pending, ...completed];
+                const advanceMap = await fetchAdvanceAmountsForBills(allBills);
+                console.log('📊 Advance amounts fetched by bill number:', advanceMap);
 
-            const pending = response.data.unprinted || [];
-            const completed = response.data.printed || [];
-            const allItems = [...pending, ...completed];
+                const processBill = async (item) => {
+                    console.log(`\n🔍 [START] Processing bill for supplier: ${item.supplier_code}, Bill No: ${item.supplier_bill_no}`);
+                    console.log(`📦 Raw item data:`, {
+                        total_amount: item.total_amount,
+                        payment_details_type: typeof item.payment_details,
+                        payment_details_raw: item.payment_details,
+                        is_printed: item.is_printed,
+                        from_array: item.from_array || 'unknown'
+                    });
 
-            // One batched advances request instead of N+1 per bill
-            const billNumbers = [...new Set(
-                allItems
-                    .map((item) => item.supplier_bill_no)
-                    .filter(isValidBillNumber)
-            )];
-            let advanceMap = {};
-            try {
-                advanceMap = await fetchSupplierAdvancesByBillNumbers(billNumbers, { silent: isSilent });
-            } catch (advanceBatchError) {
-                safeError('Error batch-fetching advances:', advanceBatchError);
-                advanceMap = {};
-            }
-            if (!isMountedRef.current) return null;
-
-            // History loan enrichment with limited concurrency (skip when list already has payment data)
-            const historyLoanMap = {};
-            if (effectiveUseHistory) {
-                const needsHistorySync = allItems.filter((item) => {
-                    if (!item.supplier_code || !isValidBillNumber(item.supplier_bill_no)) return false;
-                    const existingPayments = parsePaymentDetails(item.payment_details);
-                    const hasLoan = parseFloat(item.loan_amount) > 0;
-                    return existingPayments.length === 0 || !hasLoan;
-                });
-
-                await mapWithConcurrency(needsHistorySync, 5, async (item) => {
-                    const key = `${item.supplier_code}::${item.supplier_bill_no}`;
-                    try {
-                        const historyLoanResponse = await api.get(
-                            `/supplier-loan/search?code=${encodeURIComponent(item.supplier_code)}&bill_no=${encodeURIComponent(item.supplier_bill_no)}&use_history=true`
-                        );
-                        if (historyLoanResponse.data) {
-                            historyLoanMap[key] = {
-                                loan_amount: parseFloat(historyLoanResponse.data.loan_amount) || 0,
-                                payment_details: parsePaymentDetails(historyLoanResponse.data.payment_details)
-                            };
+                    let paymentDetails = item.payment_details;
+                    if (typeof paymentDetails === 'string') {
+                        console.log(`📝 Payment details is string, parsing JSON...`);
+                        try {
+                            paymentDetails = JSON.parse(paymentDetails);
+                            console.log(`✅ Successfully parsed payment details:`, paymentDetails);
+                        } catch (e) {
+                            console.log(`❌ Failed to parse payment details:`, e.message);
+                            paymentDetails = [];
                         }
-                    } catch {
-                        // Ignore per-bill history sync failures
+                    } else {
+                        console.log(`📝 Payment details is already an object/array:`, paymentDetails);
                     }
-                });
-            }
-            if (!isMountedRef.current) return null;
 
-            const processBill = (item) => {
-                let paymentDetails = parsePaymentDetails(item.payment_details);
-                let historyLoanAmount = 0;
-
-                if (effectiveUseHistory && item.supplier_code && item.supplier_bill_no) {
-                    const key = `${item.supplier_code}::${item.supplier_bill_no}`;
-                    const historyLoan = historyLoanMap[key];
-                    if (historyLoan) {
-                        historyLoanAmount = historyLoan.loan_amount || 0;
-                        if (historyLoan.payment_details?.length > 0) {
-                            paymentDetails = historyLoan.payment_details;
-                        }
+                    // Ensure paymentDetails is an array
+                    if (!Array.isArray(paymentDetails)) {
+                        console.log(`⚠️ Payment details is not an array, converting to array`);
+                        paymentDetails = [];
                     }
-                }
 
-                let totalAllPayments = 0;
-                for (let i = 0; i < paymentDetails.length; i++) {
-                    totalAllPayments += parseFloat(paymentDetails[i].amount) || 0;
-                }
-
-                const totalAmount = parseFloat(item.total_amount) || 0;
-                const persistedPaidAmount = Math.max(parseFloat(item.loan_amount) || 0, historyLoanAmount);
-                const effectivePaidAmount = Math.max(totalAllPayments, persistedPaidAmount);
-
-                let advanceAmountForBill = 0;
-                if (isValidBillNumber(item.supplier_bill_no)) {
-                    for (let i = 0; i < paymentDetails.length; i++) {
-                        const payment = paymentDetails[i];
-                        if (payment.details && payment.details.advance_applied) {
-                            advanceAmountForBill = Math.max(
-                                advanceAmountForBill,
-                                parseFloat(payment.details.advance_applied) || 0
+                    // In history mode, old-bills summary can be stale right after settlements.
+                    // Pull latest paid amount/payment_details from supplier-loan history record.
+                    let historyLoanAmount = 0;
+                    if (effectiveUseHistory && item.supplier_code && item.supplier_bill_no) {
+                        try {
+                            const historyLoanResponse = await api.get(
+                                `/supplier-loan/search?code=${encodeURIComponent(item.supplier_code)}&bill_no=${encodeURIComponent(item.supplier_bill_no)}&use_history=true`
                             );
+
+                            if (historyLoanResponse.data) {
+                                historyLoanAmount = parseFloat(historyLoanResponse.data.loan_amount) || 0;
+
+                                let historyPaymentDetails = historyLoanResponse.data.payment_details || [];
+                                if (typeof historyPaymentDetails === 'string') {
+                                    try {
+                                        historyPaymentDetails = JSON.parse(historyPaymentDetails);
+                                    } catch (e) {
+                                        historyPaymentDetails = [];
+                                    }
+                                }
+
+                                if (Array.isArray(historyPaymentDetails) && historyPaymentDetails.length > 0) {
+                                    paymentDetails = historyPaymentDetails;
+                                }
+
+                                console.log(`🧾 History loan sync for ${item.supplier_code}/${item.supplier_bill_no}:`, {
+                                    summaryLoanAmount: item.loan_amount,
+                                    historyLoanAmount,
+                                    paymentCount: Array.isArray(paymentDetails) ? paymentDetails.length : 0
+                                });
+                            }
+                        } catch (historyLoanError) {
+                            console.log(`⚠️ History loan sync failed for ${item.supplier_code}/${item.supplier_bill_no}:`, historyLoanError?.message || historyLoanError);
                         }
                     }
-                    if (advanceAmountForBill === 0) {
-                        advanceAmountForBill = parseFloat(advanceMap[item.supplier_bill_no]) || 0;
+
+                    // Calculate total from ALL payment methods (including Credit)
+                    let totalAllPayments = 0;
+                    let cashAmount = 0;
+                    let chequeAmount = 0;
+                    let bankTransferAmount = 0;
+                    let creditAmount = 0;
+                    let bagToBoxAmount = 0;
+                    let billToBillAmount = 0;
+                    let badDebtAmount = 0;
+
+                    console.log(`📊 Processing ${paymentDetails.length} payment(s)...`);
+
+                    if (paymentDetails.length > 0) {
+                        paymentDetails.forEach((payment, index) => {
+                            const amount = parseFloat(payment.amount) || 0;
+                            totalAllPayments += amount;
+
+                            console.log(`  Payment #${index + 1}: Method=${payment.method}, Amount=${amount}`);
+
+                            switch (payment.method) {
+                                case 'Cash':
+                                    cashAmount += amount;
+                                    break;
+                                case 'Cheque':
+                                    chequeAmount += amount;
+                                    break;
+                                case 'Bank Transfer':
+                                    bankTransferAmount += amount;
+                                    break;
+                                case 'Credit':
+                                    creditAmount += amount;
+                                    break;
+                                case 'bag_to_box':
+                                    bagToBoxAmount += amount;
+                                    break;
+                                case 'bill_to_bill':
+                                    billToBillAmount += amount;
+                                    break;
+                                case 'bad_debt':
+                                    badDebtAmount += amount;
+                                    break;
+                                default:
+                                    console.log(`  ⚠️ Unknown payment method: ${payment.method}`);
+                            }
+                        });
+                    } else {
+                        console.log(`  No payments found`);
                     }
+
+                    const totalAmount = parseFloat(item.total_amount) || 0;
+                    const persistedPaidAmount = Math.max(parseFloat(item.loan_amount) || 0, historyLoanAmount);
+                    const effectivePaidAmount = Math.max(totalAllPayments, persistedPaidAmount);
+
+                    // ==================== GET ADVANCE AMOUNT ====================
+                    // Get advance amount by matching bill number from JSON data
+                    const billNo = item.supplier_bill_no;
+                    const advanceAmount = advanceMap[billNo]?.advance_amount || 0;
+                    console.log(`💰 Advance amount for bill ${billNo}: Rs. ${advanceAmount}`);
+                    // ===========================================================
+
+                    // Calculate remaining WITHOUT moving to fully settled based on advance
+                    // Just deduct advance for display purposes
+                    const totalDeducted = effectivePaidAmount + advanceAmount;
+                    const displayRemaining = Math.max(0, totalAmount - totalDeducted);
+
+                    // ⚠️ IMPORTANT: DO NOT change is_fully_settled based on advance
+                    // Keep the original settlement status from the database
+                    const isFullySettled = effectivePaidAmount >= totalAmount;
+
+                    console.log(`💰 Financial Summary with Advance (Display Only):`);
+                    console.log(`  - Total Bill Amount: Rs. ${totalAmount}`);
+                    console.log(`  - Cash Payments: Rs. ${cashAmount}`);
+                    console.log(`  - Cheque Payments: Rs. ${chequeAmount}`);
+                    console.log(`  - Bank Transfer Payments: Rs. ${bankTransferAmount}`);
+                    console.log(`  - Credit Payments: Rs. ${creditAmount}`);
+                    console.log(`  - Bag to Box Adjustments: Rs. ${bagToBoxAmount}`);
+                    console.log(`  - Bill to Bill Adjustments: Rs. ${billToBillAmount}`);
+                    console.log(`  - Bad Debt Write-offs: Rs. ${badDebtAmount}`);
+                    console.log(`  - TOTAL ALL PAYMENTS: Rs. ${totalAllPayments}`);
+                    console.log(`  - EFFECTIVE PAID AMOUNT: Rs. ${effectivePaidAmount}`);
+                    console.log(`  - ADVANCE AMOUNT (display): Rs. ${advanceAmount}`);
+                    console.log(`  - DISPLAY REMAINING: Rs. ${displayRemaining}`);
+                    console.log(`  - ORIGINAL SETTLEMENT STATUS: ${isFullySettled ? 'Fully Settled' : 'Not Settled'}`);
+                    console.log(`  - ⚠️ Bill NOT moved to Fully Settled due to advance`);
+
+                    const totalCreditTaken = parseFloat(item.credit_amount) || 0;
+                    const creditPaidAmount = parseFloat(item.credit_paid_amount ?? item.paid_amount) || 0;
+                    const creditRemainingAmount = parseFloat(item.credit_remaining_amount ?? item.remaining_amount) || 0;
+                    const creditorStatus = item.creditor_status || item.status || '';
+                    const creditorNo = item.creditor_no || item.Creditor_no || null;
+
+                    const result = {
+                        ...item,
+                        loan_amount: effectivePaidAmount,
+                        credit_amount: totalCreditTaken,
+                        credit_paid_amount: creditPaidAmount,
+                        credit_remaining_amount: creditRemainingAmount,
+                        creditor_status: creditorStatus,
+                        creditor_no: creditorNo,
+                        net_remaining: displayRemaining, // Show remaining after advance deduction
+                        payment_details: paymentDetails,
+                        is_fully_settled: isFullySettled, // ✅ Keep original status
+                        is_history: effectiveUseHistory,
+                        advance_amount: advanceAmount, // ✅ Store advance amount for display
+                    };
+
+                    console.log(`✅ FINAL RESULT (Status UNCHANGED):`, {
+                        loan_amount: result.loan_amount,
+                        advance_amount: result.advance_amount,
+                        net_remaining: result.net_remaining,
+                        is_fully_settled: result.is_fully_settled,
+                        original_status: isFullySettled ? 'Fully Settled' : 'Not Settled'
+                    });
+                    console.log(`🔚 [END] Processing bill for ${item.supplier_code}\n`);
+
+                    return result;
+                };
+
+                // Process all bills - using Promise.all for async operations
+                const processedPending = await Promise.all(pending.map(processBill));
+                const processedCompleted = await Promise.all(completed.map(processBill));
+
+                // Separate into Not Settled and Fully Settled
+                const notSettled = processedPending.filter(item => !item.is_fully_settled);
+                const fullySettled = [
+                    ...processedCompleted.filter(item => item.is_fully_settled),
+                    ...processedPending.filter(item => item.is_fully_settled)
+                ];
+
+                console.log('📋 Final Distribution:', {
+                    originalPendingCount: pending.length,
+                    notSettledCount: notSettled.length,
+                    movedToFullySettledCount: processedPending.filter(item => item.is_fully_settled).length,
+                    fullySettledTotal: fullySettled.length,
+                    isHistoryMode: effectiveUseHistory
+                });
+
+                // Log which bills moved to Fully Settled due to credit
+                const movedByCredit = processedPending.filter(item => item.is_fully_settled && item.credit_amount > 0 && item.loan_amount === 0);
+                if (movedByCredit.length > 0) {
+                    console.log('🎉 Bills moved to Fully Settled by Credit alone:', movedByCredit.map(item => ({
+                        code: item.supplier_code,
+                        billNo: item.supplier_bill_no,
+                        creditAmount: item.credit_amount,
+                        totalAmount: item.total_amount
+                    })));
                 }
 
-                const totalPaidIncludingAdvance = effectivePaidAmount + advanceAmountForBill;
-                const isFullySettled = totalPaidIncludingAdvance >= totalAmount;
-                const remainingAmount = Math.max(0, totalAmount - totalPaidIncludingAdvance);
-
-                return {
-                    ...item,
-                    loan_amount: effectivePaidAmount,
-                    credit_amount: parseFloat(item.credit_amount) || 0,
-                    credit_paid_amount: parseFloat(item.credit_paid_amount ?? item.paid_amount) || 0,
-                    credit_remaining_amount: parseFloat(item.credit_remaining_amount ?? item.remaining_amount) || 0,
-                    creditor_status: item.creditor_status || item.status || '',
-                    creditor_no: item.creditor_no || item.Creditor_no || null,
-                    net_remaining: remainingAmount,
-                    payment_details: paymentDetails,
-                    is_fully_settled: isFullySettled,
-                    is_history: effectiveUseHistory,
-                    advance_amount: advanceAmountForBill,
-                    total_paid_including_advance: totalPaidIncludingAdvance
-                };
-            };
-
-            const processedPending = pending.map(processBill);
-            const processedCompleted = completed.map(processBill);
-
-            const notSettled = processedPending.filter((item) => !item.is_fully_settled);
-            const fullySettled = [
-                ...processedCompleted.filter((item) => item.is_fully_settled),
-                ...processedPending.filter((item) => item.is_fully_settled)
-            ];
-
-            if (isMountedRef.current) {
-                setState((prev) => ({
-                    ...prev,
-                    pendingSuppliers: notSettled,
-                    completedSuppliers: fullySettled,
-                    isLoading: false
-                }));
+                if (isMountedRef.current) {
+                    setState(prev => ({
+                        ...prev,
+                        pendingSuppliers: notSettled,
+                        completedSuppliers: fullySettled,
+                        isLoading: false
+                    }));
+                }
+                return { pending: notSettled, completed: fullySettled, totalLoansFound: response.data.total_loans_found || 0 };
             }
-            return {
-                pending: notSettled,
-                completed: fullySettled,
-                totalLoansFound: response.data.total_loans_found || 0
-            };
         } catch (error) {
-            safeError("Error fetching supplier data:", error);
+            console.error("Error fetching supplier data:", error);
             if (!isSilent && isMountedRef.current) {
-                setState((prev) => ({ ...prev, isLoading: false }));
+                setState(prev => ({ ...prev, isLoading: false }));
             }
             return null;
         } finally {
             supplierDataRequestInFlightRef.current = false;
         }
     };
-
-    // Keep polling callback current without recreating the interval
-    fetchSupplierDataRef.current = fetchSupplierData;
-
+    // Handler for viewing old bills
     // Handler for viewing old bills
     const handleViewOldBills = async (startDate, endDate) => {
         setIsLoadingHistory(true);
         try {
+            console.log('Viewing old bills from:', startDate, 'to:', endDate);
 
             const formattedStart = new Date(startDate).toISOString().split('T')[0];
             const formattedEnd = new Date(endDate).toISOString().split('T')[0];
@@ -4526,7 +4563,7 @@ export default function SupplierReportPrinted() {
                 await fetchSupplierData(false, null, null, false);
             }
         } catch (error) {
-            safeError('Error loading old bills:', error);
+            console.error('Error loading old bills:', error);
             alert('Failed to load old bills. Please try again.');
             setIsViewingHistory(false);
             setHistoryDateRange({ startDate: '', endDate: '' });
@@ -4593,7 +4630,7 @@ export default function SupplierReportPrinted() {
             await fetchSupplierData(false, null, null, false);
             alert('✅ Switched back to current bills');
         } catch (error) {
-            safeError('Error resetting to current bills:', error);
+            console.error('Error resetting to current bills:', error);
             alert('Failed to load current bills.');
         }
     };
@@ -4646,6 +4683,12 @@ export default function SupplierReportPrinted() {
                 const remainingBalance = response.data.data.remaining_balance ||
                     (totalBillAmount - calculatedTotalPaid);
 
+                console.log('Payment History Data:', {
+                    totalBillAmount,
+                    calculatedTotalPaid,
+                    remainingBalance,
+                    payments: uniquePayments
+                });
 
                 setState(prev => ({
                     ...prev,
@@ -4657,7 +4700,7 @@ export default function SupplierReportPrinted() {
                 }));
             }
         } catch (error) {
-            safeError('Failed to fetch payment history:', error);
+            console.error('Failed to fetch payment history:', error);
             alert('Failed to fetch payment history');
         }
     };
@@ -4690,49 +4733,6 @@ export default function SupplierReportPrinted() {
         historyStartDateRef.current = historyDateRange.startDate;
         historyEndDateRef.current = historyDateRange.endDate;
     }, [historyDateRange]);
-
-    // Pause background polls while any blocking UI is open
-    useEffect(() => {
-        modalOpenRef.current = !!(
-            showIncomeSourcesModal ||
-            showAdjustmentModal ||
-            showCreditorModal ||
-            showOldBillsModal ||
-            showDetailedReport ||
-            showFundsAllocated ||
-            showDirectFundAllocationModal ||
-            showAllocatedBankModal ||
-            showAdjustmentSummary ||
-            showFarmerModal ||
-            showCreditorForm ||
-            showAdvanceHistory ||
-            editingRecord ||
-            state.showChequeModal ||
-            state.showBankToBankModal ||
-            state.showPaymentHistoryModal ||
-            state.showDeleteModal ||
-            state.showPrintModal
-        );
-    }, [
-        showIncomeSourcesModal,
-        showAdjustmentModal,
-        showCreditorModal,
-        showOldBillsModal,
-        showDetailedReport,
-        showFundsAllocated,
-        showDirectFundAllocationModal,
-        showAllocatedBankModal,
-        showAdjustmentSummary,
-        showFarmerModal,
-        showCreditorForm,
-        showAdvanceHistory,
-        editingRecord,
-        state.showChequeModal,
-        state.showBankToBankModal,
-        state.showPaymentHistoryModal,
-        state.showDeleteModal,
-        state.showPrintModal
-    ]);
 
     // Main useEffect for initial load and silent refresh
     useEffect(() => {
@@ -4964,7 +4964,7 @@ export default function SupplierReportPrinted() {
                         currentPaid = totalPaidFromPayments;
                     }
                 } catch (loanError) {
-                    safeError('Error fetching loan details during refresh:', loanError);
+                    console.error('Error fetching loan details during refresh:', loanError);
                 }
             }
 
@@ -5010,28 +5010,18 @@ export default function SupplierReportPrinted() {
                 paymentAmount: defaultPaymentAmount
             }));
 
+            console.log('✅ Supplier details refreshed after creditor creation');
 
         } catch (error) {
-            safeError('Error refreshing supplier details after creditor:', error);
+            console.error('Error refreshing supplier details after creditor:', error);
         }
     };
 
     const handleSupplierClick = async (supplierCode, billNo = null) => {
         if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
-            setState(prev => ({
-                ...prev,
-                selectedSupplier: null,
-                selectedBillNo: null,
-                supplierDetails: [],
-                paymentAmount: "",
-                currentPaidAmount: 0,
-                paymentBreakdown: [],
-                currentBillTotal: 0
-            }));
+            setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
             setSelectedBillCreditor(null);
             setIsMiddlePanelLocked(true);
-            // Reset advance amount when deselecting
-            setAdvanceAmount(0);
             return;
         }
 
@@ -5043,7 +5033,9 @@ export default function SupplierReportPrinted() {
             try {
                 creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
                 hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
+                console.log('🔍 Pre-check creditor status:', { supplierCode, billNo, hasCreditor, creditorInfo });
             } catch (error) {
+                console.log('Error checking creditor status:', error);
             }
         }
 
@@ -5053,14 +5045,17 @@ export default function SupplierReportPrinted() {
 
         // ⭐ DECISION LOGIC:
         if (hasCreditor) {
+            console.log('✅ Bill HAS CREDITOR - Panel UNLOCKED');
             setIsMiddlePanelLocked(false);
             if (!state.selectedMode || state.selectedMode === 'walking_seller') {
                 setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
             }
         } else if (savedMode) {
+            console.log(`✅ Bill has previously selected mode: ${savedMode} - Panel UNLOCKED`);
             setIsMiddlePanelLocked(false);
             setState(prev => ({ ...prev, selectedMode: savedMode }));
         } else {
+            console.log('❌ New bill - Panel LOCKED');
             setIsMiddlePanelLocked(true);
             setState(prev => ({ ...prev, selectedMode: null }));
         }
@@ -5077,6 +5072,7 @@ export default function SupplierReportPrinted() {
                     url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
                 }
                 response = await api.get(url);
+                console.log('📡 API Response for bill details:', response.data);
             } else {
                 url = `${routes.getUnprintedDetails}/${supplierCode}`;
                 if (useHistoryParam) {
@@ -5091,22 +5087,28 @@ export default function SupplierReportPrinted() {
             // For history mode, the response has a 'sales' property
             if (response.data && response.data.sales) {
                 salesData = response.data.sales;
+                console.log('📋 Using sales data from response.data.sales (history mode)', salesData);
+                console.log('📋 Number of sales records:', salesData.length);
                 if (salesData.length > 0) {
+                    console.log('📋 First sales record sample:', salesData[0]);
                 }
             }
             // For normal mode, response is directly an array
             else if (Array.isArray(response.data)) {
                 salesData = response.data;
+                console.log('📋 Using sales data as array (normal mode)', salesData);
             }
             // Check if response has data property
             else if (response.data && response.data.data) {
                 salesData = Array.isArray(response.data.data) ? response.data.data : [];
+                console.log('📋 Using sales data from response.data.data', salesData);
             }
             // Fallback: try to get from response directly
             else if (response.data) {
                 if (typeof response.data === 'object' && !Array.isArray(response.data)) {
                     // If it's an object with numeric keys, convert to array
                     salesData = Object.values(response.data).filter(item => item && typeof item === 'object' && item.SupplierTotal !== undefined);
+                    console.log('📋 Converted object to array', salesData);
                 } else {
                     salesData = [];
                 }
@@ -5117,21 +5119,26 @@ export default function SupplierReportPrinted() {
                 salesData = [];
             }
 
+            console.log('📊 Final salesData length:', salesData.length);
 
             // If still no sales data, try to get it from the pending/completed suppliers list
             if (salesData.length === 0 && billNo) {
+                console.log('⚠️ No sales data from API, checking from state...');
                 const billFromList = [...state.pendingSuppliers, ...state.completedSuppliers].find(
                     item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
                 );
                 if (billFromList && billFromList.sales_data) {
                     salesData = billFromList.sales_data;
+                    console.log('📋 Found sales_data in state list:', salesData.length);
                 }
             }
 
             let calculatedTotal = 0;
             if (salesData.length > 0) {
                 calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+                console.log('💰 Calculated total from salesData:', calculatedTotal);
             } else {
+                console.warn('⚠️ No sales data available for this bill!');
             }
 
             const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
@@ -5144,6 +5151,7 @@ export default function SupplierReportPrinted() {
 
             if (billFromState && billFromState.total_amount) {
                 actualBillTotal = parseFloat(billFromState.total_amount);
+                console.log('📋 Using total_amount from state:', actualBillTotal);
             } else if (calculatedTotal > 0) {
                 actualBillTotal = calculatedTotal;
             }
@@ -5160,6 +5168,7 @@ export default function SupplierReportPrinted() {
                         loanUrl += `&use_history=true`;
                     }
                     const loanRes = await api.get(loanUrl);
+                    console.log('📡 Loan search response:', loanRes.data);
                     if (loanRes.data) {
                         const paymentDetails = loanRes.data.payment_details || [];
                         if (typeof paymentDetails === 'string') {
@@ -5184,9 +5193,10 @@ export default function SupplierReportPrinted() {
                             });
                         }
                         currentPaid = totalPaidFromPayments;
+                        console.log('💰 Current paid amount from loan:', currentPaid);
                     }
                 } catch (loanError) {
-                    safeError('Error fetching loan details:', loanError);
+                    console.error('Error fetching loan details:', loanError);
                 }
             }
 
@@ -5233,37 +5243,15 @@ export default function SupplierReportPrinted() {
                 setIsMiddlePanelLocked(false);
             }
 
-            // ========== FETCH ADVANCE AMOUNT FOR THIS BILL ==========
-            // After getting the bill details, fetch the advance amount for this bill
-            let advanceAmountForBill = 0;
-            if (billNo && billNo !== 'Pending' && billNo !== 'N/A' && billNo !== 'null' && billNo !== 'undefined') {
-                try {
-                    const advanceMap = await fetchSupplierAdvancesByBillNumbers([billNo]);
-                    advanceAmountForBill = advanceMap[billNo] || 0;
+            const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
 
-                    // Also update the totalAdvanceAmount state used elsewhere
-                    setTotalAdvanceAmount(advanceAmountForBill);
-                } catch (advanceError) {
-                    safeError('Error fetching advance amount:', advanceError);
-                    advanceAmountForBill = 0;
-                    setTotalAdvanceAmount(0);
-                }
-            } else {
-                setTotalAdvanceAmount(0);
-            }
-            setAdvanceAmount(advanceAmountForBill);
-            // ========== END OF ADVANCE FETCH ==========
-
-            // Calculate default payment amount considering advance
-            let defaultPaymentAmount = "";
-            if (isUpdatingCompletedBill && creditorRemainingAmount > 0) {
-                defaultPaymentAmount = creditorRemainingAmount.toString();
-            } else if (!isUpdatingCompletedBill && totalRemainingAmount > 0) {
-                // Subtract advance from remaining amount
-                const netRemainingAfterAdvance = Math.max(0, totalRemainingAmount - advanceAmountForBill);
-                defaultPaymentAmount = netRemainingAfterAdvance > 0 ? netRemainingAfterAdvance.toString() : "";
-            }
-
+            console.log('📊 Final state update:', {
+                supplierDetailsCount: salesData.length,
+                totalPayable: total,
+                currentPaid: currentPaid,
+                remainingAmount: totalRemainingAmount,
+                isHistory: isViewingHistory
+            });
 
             setState(prev => ({
                 ...prev,
@@ -5277,11 +5265,12 @@ export default function SupplierReportPrinted() {
             }));
 
             if (salesData.length === 0) {
+                console.warn('⚠️ No sales data found for this bill! This might be an issue with the API response.');
                 alert('Warning: No item details found for this bill. The table may be empty.');
             }
 
         } catch (error) {
-            safeError('Error fetching supplier details:', error);
+            console.error('Error fetching supplier details:', error);
             setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
             setSelectedBillCreditor(null);
             setIsMiddlePanelLocked(true);
@@ -5476,7 +5465,7 @@ export default function SupplierReportPrinted() {
             </div>
         </div>`;
         } catch (error) {
-            safeError('Error generating bill:', error);
+            console.error('Error generating bill:', error);
             return '<div>Error generating bill</div>';
         }
     }, [state.selectedSupplier, state.billSize, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, totalAdvanceAmount]);
@@ -5493,7 +5482,7 @@ export default function SupplierReportPrinted() {
             if (error.response && error.response.status === 404) {
                 return false;
             }
-            safeError('Error checking loan existence:', error);
+            console.error('Error checking loan existence:', error);
             return false;
         }
     };
@@ -5504,11 +5493,13 @@ export default function SupplierReportPrinted() {
             if (isViewingHistory) {
                 loanUrl += `&use_history=true`;
             }
+            console.log('🔍 Checking for existing loan:', loanUrl);
             const response = await api.get(loanUrl);
 
             const loanId = response.data?.id || response.data?.ID || response.data?.loan_id;
 
             if (loanId) {
+                console.log('✅ Found existing loan with ID:', loanId);
                 let paymentDetails = response.data?.payment_details || [];
                 if (typeof paymentDetails === 'string') {
                     try {
@@ -5525,21 +5516,28 @@ export default function SupplierReportPrinted() {
                 };
             }
 
+            console.log('❌ No existing loan found');
             return { exists: false, id: null, paymentDetails: [], currentPaid: 0 };
         } catch (error) {
             if (error.response && error.response.status === 404) {
+                console.log('❌ No loan record found (404)');
                 return { exists: false, id: null, paymentDetails: [], currentPaid: 0 };
             }
-            safeError('Error checking loan existence:', error);
+            console.error('Error checking loan existence:', error);
             return { exists: false, id: null, paymentDetails: [], currentPaid: 0 };
         }
     };
     const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
         // ========== IMPROVED RACE CONDITION FIXES ==========
         const callId = Math.random().toString(36).substr(2, 9);
+        console.log(`🟣 [${callId}] PROCESS PAYMENT CALLED at:`, new Date().toISOString());
+        console.log(`🟣 [${callId}] Payment amount:`, paymentAmount);
+        console.log(`🟣 [${callId}] Selected supplier:`, state.selectedSupplier);
+        console.log(`🟣 [${callId}] Selected billNo:`, state.selectedBillNo);
 
         // IMPROVED: Use React state lock instead of just window flag
         if (paymentLockRef.current || paymentLock) {
+            console.log(`🔴 [${callId}] Payment already in progress (paymentLock = true), ignoring duplicate`);
             alert('Payment is already being processed. Please wait...');
             return;
         }
@@ -5554,6 +5552,8 @@ export default function SupplierReportPrinted() {
             item.supplier_bill_no === state.selectedBillNo
         );
 
+        console.log(`🟣 [${callId}] Is bill in Not Settled list:`, isBillInNotSettled);
+        console.log(`🟣 [${callId}] isUpdatingCompletedBill:`, state.isUpdatingCompletedBill);
 
         // Determine if this should be treated as a credit settlement payment
         const isCreditSettlementPayment = !isBillInNotSettled &&
@@ -5561,13 +5561,16 @@ export default function SupplierReportPrinted() {
             selectedBillCreditor &&
             selectedBillCreditor.remaining_amount > 0;
 
+        console.log(`🟣 [${callId}] Is Credit Settlement Payment:`, isCreditSettlementPayment);
 
         // Check for duplicate within the last 5 seconds using enhanced tracking
         const now = Date.now();
 
         // Enhanced duplicate detection with idempotency key
         if (window.lastPaymentTime && (now - window.lastPaymentTime) < 5000) {
+            console.log(`🔴 [${callId}] DUPLICATE DETECTED! Last payment was ${now - window.lastPaymentTime}ms ago`);
             if (window.lastPaymentAmount === paymentAmount && window.lastIdempotencyKey === idempotencyKey) {
+                console.log(`🔴 [${callId}] SAME AMOUNT AND IDEMPOTENCY KEY - BLOCKING DUPLICATE`);
                 alert('Duplicate payment detected. Please wait a moment.');
                 return;
             }
@@ -5577,12 +5580,15 @@ export default function SupplierReportPrinted() {
         window.lastPaymentTime = now;
         window.lastPaymentAmount = paymentAmount;
         window.lastIdempotencyKey = idempotencyKey;
+        console.log(`🟢 [${callId}] Stored payment attempt with idempotency key`);
 
         // Create a unique key for this payment attempt
         const paymentKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${idempotencyKey}`;
+        console.log(`🟢 [${callId}] Payment key:`, paymentKey);
 
         // Check if we're already processing a payment using ref lock
         if (processingPaymentRef.current) {
+            console.log(`🔴 [${callId}] Payment already in progress (processingPaymentRef = true), ignoring duplicate call`);
             alert('Payment is already being processed. Please wait...');
             return;
         }
@@ -5595,14 +5601,17 @@ export default function SupplierReportPrinted() {
             const sameIdempotencyKey = lastPaymentDataRef.current.idempotencyKey === idempotencyKey;
             const sameAmount = Math.abs(lastPaymentDataRef.current.amount - paymentAmount) < 0.01;
 
+            console.log(`🟡 [${callId}] Last payment check - Time diff: ${timeDiff}ms, Same idempotency key: ${sameIdempotencyKey}`);
 
             if (timeDiff < 3000 && sameSupplier && sameBill && (sameAmount || sameIdempotencyKey)) {
+                console.log(`🔴 [${callId}] DUPLICATE PAYMENT DETECTED within 3 seconds, ignoring`);
                 alert('Duplicate payment detected. Please wait a moment before trying again.');
                 return;
             }
         }
 
         if (!state.selectedSupplier || state.isPrinting) {
+            console.log(`🔴 [${callId}] Invalid state - no supplier or is printing`);
             return;
         }
 
@@ -5619,16 +5628,21 @@ export default function SupplierReportPrinted() {
             idempotencyKey: idempotencyKey,
             callId: callId
         };
+        console.log(`🟢 [${callId}] Processing flags set`);
 
         // Disable the button immediately
         setIsProcessingPayment(true);
         setState(prev => ({ ...prev, isPrinting: true }));
+        console.log(`🟢 [${callId}] UI disabled, isPrinting set to true`);
 
         try {
             const totalPayable = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
+            console.log(`🟢 [${callId}] Total payable:`, totalPayable);
 
             // Check if loan exists with idempotency check
+            console.log(`🟢 [${callId}] Checking for existing loan...`);
             const loanCheck = await findExistingLoanId(state.selectedSupplier, state.selectedBillNo);
+            console.log(`🟢 [${callId}] Loan check result - exists: ${loanCheck.exists}, id: ${loanCheck.id}, currentPaid: ${loanCheck.currentPaid}, paymentDetails length: ${loanCheck.paymentDetails.length}`);
 
             let currentPaid = loanCheck.currentPaid;
             let existingPaymentDetails = loanCheck.paymentDetails;
@@ -5638,6 +5652,7 @@ export default function SupplierReportPrinted() {
             if (typeof existingPaymentDetails === 'string') {
                 try {
                     existingPaymentDetails = JSON.parse(existingPaymentDetails);
+                    console.log(`🟢 [${callId}] Parsed payment details from string, length: ${existingPaymentDetails.length}`);
                 } catch (e) {
                     existingPaymentDetails = [];
                 }
@@ -5647,18 +5662,26 @@ export default function SupplierReportPrinted() {
             }
 
             // CRITICAL: Check for duplicate using idempotency key in database
+            console.log(`🟢 [${callId}] Checking for existing duplicate in ${existingPaymentDetails.length} existing payments`);
             const duplicateInDb = existingPaymentDetails.some(p => {
                 const hasSameIdempotencyKey = p.idempotency_key === idempotencyKey;
                 const timeDiff = Math.abs(new Date(p.date).getTime() - Date.now());
                 const isRecentDuplicate = p.amount === paymentAmount && timeDiff < 10000;
 
                 if (hasSameIdempotencyKey || isRecentDuplicate) {
+                    console.log(`🔴 [${callId}] Found duplicate in DB:`, {
+                        amount: p.amount,
+                        method: p.method,
+                        idempotencyKey: p.idempotency_key,
+                        timeDiff
+                    });
                     return true;
                 }
                 return false;
             });
 
             if (duplicateInDb) {
+                console.log(`🔴 [${callId}] DUPLICATE FOUND IN DATABASE - ABORTING`);
                 alert('This payment was already recorded. Please refresh the page.');
                 // Clear all locks
                 processingPaymentRef.current = false;
@@ -5669,12 +5692,20 @@ export default function SupplierReportPrinted() {
                 return;
             }
 
+            console.log(`🟢 [${callId}] No duplicate found, proceeding with payment`);
 
             // ⭐ CRITICAL FIX: Calculate total paid AFTER this payment
             const newTotalPaid = currentPaid + paymentAmount;
             const isFullySettled = newTotalPaid >= totalPayable;
             const newRemaining = Math.max(0, totalPayable - newTotalPaid);
 
+            console.log(`🟢 [${callId}] Payment calculation:`, {
+                currentPaid,
+                paymentAmount,
+                newTotalPaid,
+                totalPayable,
+                isFullySettled
+            });
 
             let paymentMethod = 'Cash';
             if (isAdjustment && adjustmentDetails) {
@@ -5697,6 +5728,7 @@ export default function SupplierReportPrinted() {
             // Create a truly unique ID using multiple sources including idempotency key
             const uniqueId = `${idempotencyKey}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const timestamp = Date.now();
+            console.log(`🟢 [${callId}] Created payment record with ID: ${uniqueId}`);
 
             const paymentRecord = {
                 id: uniqueId,
@@ -5759,12 +5791,14 @@ export default function SupplierReportPrinted() {
 
             // Append new payment
             const allPaymentDetails = [...existingPaymentDetails, paymentRecord];
+            console.log(`🟢 [${callId}] Appending payment, total payment details count: ${allPaymentDetails.length}`);
 
             // ========== CRITICAL FIX: Only update creditor if bill is NOT in Not Settled list ==========
             let creditorUpdateSuccess = false;
             let updatedCreditorData = null;
 
             if (!isBillInNotSettled && isCreditSettlementPayment && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
+                console.log(`🟢 [${callId}] CREDIT SETTLEMENT FOR FULLY SETTLED BILL DETECTED!`);
 
                 try {
                     const updateResponse = await api.put('/creditors/update-payment', {
@@ -5774,6 +5808,7 @@ export default function SupplierReportPrinted() {
                         idempotency_key: idempotencyKey
                     });
 
+                    console.log(`🟢 [${callId}] Creditor update response:`, updateResponse.data);
 
                     if (updateResponse.data.success) {
                         creditorUpdateSuccess = true;
@@ -5782,7 +5817,7 @@ export default function SupplierReportPrinted() {
                         throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
                     }
                 } catch (creditorError) {
-                    safeError('Failed to update creditor payment:', creditorError);
+                    console.error(`❌ [${callId}] Failed to update creditor payment:`, creditorError);
                     alert('Failed to update creditor payment: ' + (creditorError.response?.data?.message || creditorError.message));
                     // Clear locks on error
                     processingPaymentRef.current = false;
@@ -5797,6 +5832,7 @@ export default function SupplierReportPrinted() {
             let response;
 
             if (existingLoanId) {
+                console.log(`🟢 [${callId}] UPDATING existing loan record:`, existingLoanId);
 
                 const payload = {
                     code: state.selectedSupplier,
@@ -5841,8 +5877,10 @@ export default function SupplierReportPrinted() {
                     }
                 }
 
+                console.log(`🟢 [${callId}] Sending UPDATE request to /supplier-loan/${existingLoanId}`);
                 response = await api.put(`/supplier-loan/${existingLoanId}`, payload);
             } else {
+                console.log(`🟢 [${callId}] CREATING new loan record`);
 
                 const payload = {
                     code: state.selectedSupplier,
@@ -5887,18 +5925,26 @@ export default function SupplierReportPrinted() {
                     }
                 }
 
+                console.log(`🟢 [${callId}] Sending CREATE request to /supplier-loan`);
                 response = await api.post('/supplier-loan', payload);
             }
 
             if (response.data.success) {
+                console.log(`✅ [${callId}] Payment successful!`, response.data);
 
                 // ========== DEDUCT FROM ALLOCATED FUNDS (for all payment methods except Credit) ==========
                 if (paymentMethod !== 'Credit') {
                     await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
+                    console.log(`💰 [${callId}] Deducted Rs. ${paymentAmount} from allocated funds for ${paymentMethod} payment`);
                 }
 
                 // ✅ CRITICAL FIX: Refresh data with the correct history parameters
                 // Use the current history state to ensure we refresh the right data
+                console.log(`🟢 [${callId}] Refreshing data with history params:`, {
+                    isViewingHistory,
+                    startDate: historyDateRange.startDate,
+                    endDate: historyDateRange.endDate
+                });
 
                 await fetchSupplierData(
                     isViewingHistory,
@@ -5912,6 +5958,11 @@ export default function SupplierReportPrinted() {
                 const updatedTotalPaid = updatedLoanCheck.currentPaid;
                 const isNowFullySettled = updatedTotalPaid >= totalPayable;
 
+                console.log(`🟢 [${callId}] Updated settlement check:`, {
+                    updatedTotalPaid,
+                    totalPayable,
+                    isNowFullySettled
+                });
 
                 // ✅ Immediately move bill in local state if now fully settled, so the panel
                 // updates instantly regardless of whether the API refresh captured the new payment.
@@ -5990,12 +6041,13 @@ export default function SupplierReportPrinted() {
                 setSelectedBillCreditor(null);
             }
         } catch (error) {
-            safeError('Failed to record payment:', error);
+            console.error(`❌ [${callId}] Failed to record payment:`, error);
             alert('Failed to record payment: ' + (error.response?.data?.message || error.message));
             setState(prev => ({ ...prev, isPrinting: false }));
         } finally {
             // Clear all locks after 5 seconds
             runSafeTimeout(() => {
+                console.log(`🟢 [${callId}] Resetting all processing flags`);
                 processingPaymentRef.current = false;
                 paymentLockRef.current = false;
                 setPaymentLock(false);
@@ -6020,6 +6072,13 @@ export default function SupplierReportPrinted() {
             return;
         }
 
+        console.log('🟣 PROCESS CREDIT SETTLEMENT PAYMENT CALLED', {
+            paymentAmount,
+            selectedBillNo: state.selectedBillNo,
+            selectedSupplier: state.selectedSupplier,
+            remainingCredit: selectedBillCreditor.remaining_amount,
+            isUpdatingCompletedBill: state.isUpdatingCompletedBill
+        });
 
         setState(prev => ({ ...prev, isPrinting: true }));
 
@@ -6045,6 +6104,11 @@ export default function SupplierReportPrinted() {
                 return;
             }
 
+            console.log('🟢 Calling creditor update payment API', {
+                bill_no: state.selectedBillNo,
+                payment_amount: paymentAmount,
+                payment_method: paymentMethodForCreditor
+            });
 
             // ✅ Call the creditor update payment endpoint
             const updateResponse = await api.put('/creditors/update-payment', {
@@ -6053,9 +6117,11 @@ export default function SupplierReportPrinted() {
                 payment_method: paymentMethodForCreditor
             });
 
+            console.log('📦 Creditor update response:', updateResponse.data);
 
             if (updateResponse.data.success) {
                 const updatedCreditor = updateResponse.data.data;
+                console.log('✅ Creditor updated successfully', updatedCreditor);
 
                 // Also record this payment in the loan record
                 const totalPayableAmt = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
@@ -6101,12 +6167,14 @@ export default function SupplierReportPrinted() {
                     payload.transfer_notes = bankTransferDetails.notes;
                 }
 
+                console.log('🟢 Creating loan record for credit settlement');
                 const loanResponse = await api.post('/supplier-loan', payload);
 
                 if (loanResponse.data.success) {
                     // ========== DEDUCT FROM ALLOCATED FUNDS ==========
                     // For credit settlement payments, deduct from allocated funds
                     await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
+                    console.log(`💰 Deducted Rs. ${paymentAmount} from allocated funds for credit settlement`);
 
 
                     // ========== END OF DEDUCTION ==========
@@ -6142,12 +6210,13 @@ export default function SupplierReportPrinted() {
                 throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
             }
         } catch (error) {
-            safeError('❌ Failed to process credit payment:', error);
+            console.error('❌ Failed to process credit payment:', error);
             alert('Failed to process credit payment: ' + (error.response?.data?.message || error.message));
             setState(prev => ({ ...prev, isPrinting: false }));
         }
     };
     const handleCashPayment = async () => {
+        console.log('🔵 CASH PAYMENT BUTTON CLICKED at:', new Date().toISOString());
         const amount = parseFloat(state.paymentAmount);
         if (amount === 0 || isNaN(amount)) {
             alert("Please enter an amount");
@@ -6156,23 +6225,27 @@ export default function SupplierReportPrinted() {
 
         // CRITICAL: Use a window flag to prevent double clicks
         if (window.cashPaymentProcessing) {
+            console.log('🔴 CASH PAYMENT ALREADY PROCESSING - BLOCKING DUPLICATE');
             alert('Payment is already being processed. Please wait...');
             return;
         }
 
         window.cashPaymentProcessing = true;
+        console.log('🟢 CASH PAYMENT FLAG SET - Processing payment of Rs.', amount);
 
         // Disable the button element directly
         const cashButton = document.querySelector('button[data-payment-type="cash"]');
         if (cashButton) {
             cashButton.disabled = true;
             cashButton.style.opacity = '0.5';
+            console.log('🔘 Cash button disabled');
         }
 
         try {
             await processPayment(amount);
+            console.log('✅ Cash payment completed successfully');
         } catch (error) {
-            safeError('❌ Cash payment failed:', error);
+            console.error('❌ Cash payment failed:', error);
         } finally {
             // Re-enable after 5 seconds
             runSafeTimeout(() => {
@@ -6181,6 +6254,7 @@ export default function SupplierReportPrinted() {
                     cashButton.disabled = false;
                     cashButton.style.opacity = '1';
                 }
+                console.log('🔘 Cash button re-enabled after timeout');
             }, 5000);
         }
     };
@@ -6304,7 +6378,7 @@ export default function SupplierReportPrinted() {
                 setSelectedBillCreditor(null);
             }
         } catch (error) {
-            safeError('Failed to process credit payment:', error);
+            console.error('Failed to process credit payment:', error);
             alert('Failed to process credit payment.');
             setState(prev => ({ ...prev, isPrinting: false }));
         }
@@ -6363,7 +6437,7 @@ export default function SupplierReportPrinted() {
                 alert('Payment record deleted successfully!');
             }
         } catch (error) {
-            safeError('Failed to delete payment record:', error);
+            console.error('Failed to delete payment record:', error);
             alert('Failed to delete payment record');
         }
         finally { setState(prev => ({ ...prev, isPrinting: false, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null })); }
@@ -6408,6 +6482,8 @@ export default function SupplierReportPrinted() {
         };
     }, [filterPendingSuppliers, filterCompletedSuppliers, state.pendingSuppliers, state.completedSuppliers]);
 
+
+
     const totalPayable = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
     const currentGiven = parseFloat(state.paymentAmount) || 0;
     let remainingAfterPayment;
@@ -6417,19 +6493,12 @@ export default function SupplierReportPrinted() {
     useEffect(() => {
         if (state.selectedSupplier) {
             if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) {
-                    setState(prev => ({ ...prev, paymentAmount: selectedBillCreditor.remaining_amount.toString() }));
-                }
+                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) setState(prev => ({ ...prev, paymentAmount: selectedBillCreditor.remaining_amount.toString() }));
             } else if (!state.isUpdatingCompletedBill && (state.supplierDetails.length > 0 || state.currentBillTotal > 0)) {
-                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) {
-                    // Calculate net payable after advance deduction
-                    const remainingAfterPayments = Math.max(0, totalPayable - state.currentPaidAmount);
-                    const netPayableAfterAdvance = Math.max(0, remainingAfterPayments - totalAdvanceAmount);
-                    setState(prev => ({ ...prev, paymentAmount: netPayableAfterAdvance.toString() }));
-                }
+                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) setState(prev => ({ ...prev, paymentAmount: Math.max(0, totalPayable - state.currentPaidAmount).toString() }));
             }
         }
-    }, [state.selectedSupplier, totalPayable, state.supplierDetails, state.currentPaidAmount, selectedBillCreditor, state.isUpdatingCompletedBill, state.currentBillTotal, totalAdvanceAmount]);
+    }, [state.selectedSupplier, totalPayable, state.supplierDetails, state.currentPaidAmount, selectedBillCreditor, state.isUpdatingCompletedBill, state.currentBillTotal]);
 
     if (state.isLoading) return <LoadingSkeleton />;
     const renderEditModal = () => {
@@ -6553,9 +6622,6 @@ export default function SupplierReportPrinted() {
                                 { label: 'Transport Report', icon: '🚚', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/reports/transport' },
                                 { label: 'Loan Report', icon: '💳', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/sop2' },
                                 { label: 'Supplier Loan', icon: '🚚', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/supplier-vikunum-report' },
-                                { label: 'Banks', icon: '🏦', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/banks' },
-                                { label: 'Cheque Report', icon: '📄', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/reports/cheque' },
-                                { label: 'Cheque Report2', icon: '📄', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/reports/cheque2' },
                             ].map((item, index) => (
                                 <button
                                     key={index}
@@ -6898,6 +6964,11 @@ export default function SupplierReportPrinted() {
                                                                     Remaining: Rs. {formatDecimal(totalNetRemaining)}
                                                                 </div>
                                                             )}
+                                                            {items.some(item => item.advance_amount > 0) && (
+                                                                <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>
+                                                                    💰 Advance: Rs. {formatDecimal(items.reduce((sum, item) => sum + (item.advance_amount || 0), 0))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -7113,45 +7184,29 @@ export default function SupplierReportPrinted() {
                                             </div>
                                         </div>
 
-                                        {/* Financial Summary Card with Credit Amount and Advance */}
-                                        <div style={{
-                                            marginTop: '16px',
-                                            display: 'grid',
-                                            gridTemplateColumns: selectedBillCreditor && selectedBillCreditor.credit_amount > 0 ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)',
-                                            gap: '12px',
-                                            padding: '12px',
-                                            background: '#f8fafc',
-                                            borderRadius: '12px'
-                                        }}>
+                                        {/* Financial Summary Card with Credit Amount */}
+                                        <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: selectedBillCreditor && selectedBillCreditor.credit_amount > 0 ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: '12px', padding: '12px', background: '#f8fafc', borderRadius: '12px' }}>
                                             <div style={{ textAlign: 'center' }}>
                                                 <div style={{ fontSize: '10px', color: '#64748b' }}>💰 Total Bill</div>
-                                                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#dc2626' }}>Rs. {formatDecimal(totalPayable)}</div>
+                                                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#dc2626' }}>
+                                                    Rs. {formatDecimal(totalPayable)}
+                                                </div>
+                                                {totalAdvanceAmount > 0 && (
+                                                    <div style={{ fontSize: '9px', color: '#8b5cf6' }}>
+                                                        (Advance: Rs. {formatDecimal(totalAdvanceAmount)})
+                                                    </div>
+                                                )}
                                             </div>
                                             <div style={{ textAlign: 'center' }}>
                                                 <div style={{ fontSize: '10px', color: '#64748b' }}>✅ Total Paid</div>
-                                                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>Rs.  Rs. {formatDecimal(state.currentPaidAmount + totalAdvanceAmount)}</div>
+                                                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>Rs. {formatDecimal(state.currentPaidAmount)}</div>
                                             </div>
                                             <div style={{ textAlign: 'center' }}>
                                                 <div style={{ fontSize: '10px', color: '#64748b' }}>⏳ Remaining</div>
                                                 <div style={{ fontSize: '18px', fontWeight: 'bold', color: state.isUpdatingCompletedBill ? '#10b981' : '#f59e0b' }}>
-                                                    Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount - totalAdvanceAmount))}
+                                                    Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount))}
                                                 </div>
                                             </div>
-                                            {/* Advance Amount Display */}
-                                            <div style={{ textAlign: 'center' }}>
-                                                <div style={{ fontSize: '10px', color: '#64748b' }}>📌 Advance</div>
-                                                <div style={{
-                                                    fontSize: '18px',
-                                                    fontWeight: 'bold',
-                                                    color: totalAdvanceAmount > 0 ? '#d97706' : '#94a3b8'
-                                                }}>
-                                                    Rs. {formatDecimal(totalAdvanceAmount)}
-                                                </div>
-                                                {totalAdvanceAmount > 0 && (
-                                                    <div style={{ fontSize: '8px', color: '#92400e' }}>Deducted from payable</div>
-                                                )}
-                                            </div>
-
                                             {selectedBillCreditor && selectedBillCreditor.credit_amount > 0 && (
                                                 <div style={{ textAlign: 'center' }}>
                                                     <div style={{ fontSize: '10px', color: '#64748b' }}>⚠️ Credit Payable</div>
@@ -7270,7 +7325,33 @@ export default function SupplierReportPrinted() {
                                                         Remaining Credit: Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
                                                     </span>
                                                 )}
+                                                {/* Display net payable after advance */}
+                                                {totalAdvanceAmount > 0 && !state.isUpdatingCompletedBill && (
+                                                    <span style={{ fontSize: '11px', marginLeft: '8px', color: '#8b5cf6', background: '#ede9fe', padding: '2px 8px', borderRadius: '20px' }}>
+                                                        💰 Advance: Rs. {formatDecimal(totalAdvanceAmount)}
+                                                    </span>
+                                                )}
                                             </div>
+
+                                            {/* Show net payable amount */}
+                                            {totalAdvanceAmount > 0 && !state.isUpdatingCompletedBill && (
+                                                <div style={{
+                                                    fontSize: '13px',
+                                                    color: '#64748b',
+                                                    marginBottom: '8px',
+                                                    padding: '8px 12px',
+                                                    background: '#f8fafc',
+                                                    borderRadius: '8px',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between'
+                                                }}>
+                                                    <span>Net Payable (Total - Advance):</span>
+                                                    <span style={{ fontWeight: 'bold', color: '#1e293b' }}>
+                                                        Rs. {formatDecimal(Math.max(0, totalPayable - totalAdvanceAmount - state.currentPaidAmount))}
+                                                    </span>
+                                                </div>
+                                            )}
+
                                             <input
                                                 type="number"
                                                 value={state.paymentAmount}
@@ -7282,21 +7363,12 @@ export default function SupplierReportPrinted() {
                                                     }
                                                     let num = parseFloat(val);
                                                     // For fully settled bills with credit, max is remaining credit amount
-                                                    // For not settled bills, max is net payable after advance deduction
-                                                    let maxAmount;
-                                                    if (state.isUpdatingCompletedBill && selectedBillCreditor?.remaining_amount > 0) {
-                                                        maxAmount = selectedBillCreditor.remaining_amount;
-                                                    } else {
-                                                        const remainingAfterPayments = Math.max(0, totalPayable - state.currentPaidAmount);
-                                                        maxAmount = Math.max(0, remainingAfterPayments - totalAdvanceAmount);
-                                                    }
-                                                    // FIX: Show alert if amount exceeds maxAmount (even if maxAmount is 0)
-                                                    if (num > maxAmount) {
-                                                        if (maxAmount === 0) {
-                                                            alert(`No payment is allowed. The bill is already fully paid.`);
-                                                        } else {
-                                                            alert(`Maximum payment amount is Rs. ${formatDecimal(maxAmount)}`);
-                                                        }
+                                                    // For not settled bills, max is remaining bill amount after advance
+                                                    const maxAmount = (state.isUpdatingCompletedBill && selectedBillCreditor?.remaining_amount > 0)
+                                                        ? selectedBillCreditor.remaining_amount
+                                                        : Math.max(0, totalPayable - totalAdvanceAmount - state.currentPaidAmount);
+                                                    if (num > maxAmount && maxAmount > 0) {
+                                                        alert(`Maximum payment amount is Rs. ${formatDecimal(maxAmount)}`);
                                                         return;
                                                     }
                                                     setState(prev => ({ ...prev, paymentAmount: val }));
@@ -8039,6 +8111,7 @@ export default function SupplierReportPrinted() {
                 isOpen={showDirectFundAllocationModal}
                 onClose={() => setShowDirectFundAllocationModal(false)}
                 onAllocate={(result) => {
+                    console.log('Funds allocated:', result);
                     // Optionally update any local state here
                     alert(`✅ ${result.message || 'Funds allocated successfully!'}\n\nAllocated Amount: Rs. ${result.allocated_amount.toFixed(2)}\nCashier: ${result.cashier_name}`);
                 }}

@@ -51,6 +51,10 @@ import ExpenseDashboard from './components/Expenses/ExpenseDashboard';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import Transport from './components/Reports/Transport';
+import SupplierVikunumReport from './components/Suppliers/suppliervikunumreport';
+import AdvanceReport from './components/Reports/advancereport';
+import ChequeReport from './components/Reports/ChequeReport';
+import ChequeReport2 from './components/Reports/chequereport2';
 
 const getBasePath = () => {
     if (window.location.hostname === 'goviraju.lk') {
@@ -268,6 +272,10 @@ const AppRoutes = () => {
             <Route path="/sop2" element={<SupplierReport2 />} />
             <Route path="/view-supplier-bill/:token" element={<ViewSupplierBill />} />
              <Route path="/reports/transport" element={<Transport />} />
+                <Route 
+            path="/supplier-vikunum-report" 
+            element={<SupplierVikunumReport />} 
+          />
 
             {/* Protected Routes - All wrapped with AuthLayout */}
             <Route element={<AuthLayout />}>
@@ -297,12 +305,15 @@ const AppRoutes = () => {
                 <Route path="/sales" element={<SalesEntry />} />
                 <Route path="/commissions" element={<CommissionPage />} />
                 <Route path="/income-expense-report2" element={<IncomeExpenseReport2 />} />
+                <Route path="/reports/cheque" element={<ChequeReport />} />
+                 <Route path="/reports/cheque2" element={<ChequeReport2 />} />
            
 
                 <Route path="/suppliermodal" element={<SupplierDetailsModal />} />
                 <Route path="/supplier-profit" element={<SupplierProfitReport />} />
                 <Route path="/financial-report" element={<FinancialReport />} />
                 <Route path="/loan-report" element={<LoanReportManager />} />
+                <Route path="/advance-report" element={<AdvanceReport />} />
                 
                 <Route path="/reports/printed-sales" element={<PrintedSalesReport />} />
                 <Route path="/reports/newsales" element={<SalesReport />} />
