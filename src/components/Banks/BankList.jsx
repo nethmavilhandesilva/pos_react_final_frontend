@@ -15,6 +15,26 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
     const [modalLoading, setModalLoading] = useState(false);
     const [transactionDetails, setTransactionDetails] = useState(null);
     
+    // Statement Modal states
+    const [statementModalOpen, setStatementModalOpen] = useState(false);
+    const [statementData, setStatementData] = useState(null);
+    const [statementLoading, setStatementLoading] = useState(false);
+    const [statementFilters, setStatementFilters] = useState({
+        start_date: '',
+        end_date: '',
+        include_unrealized: false
+    });
+    const [selectedUnrealizedCheques, setSelectedUnrealizedCheques] = useState([]);
+    
+    // Unrealized Cheques Modal states
+    const [chequesModalOpen, setChequesModalOpen] = useState(false);
+    const [unrealizedCheques, setUnrealizedCheques] = useState(null);
+    const [chequesLoading, setChequesLoading] = useState(false);
+    const [chequeFilters, setChequeFilters] = useState({
+        start_date: '',
+        end_date: ''
+    });
+    
     const intervalRef = useRef(null);
 
     // Fetch bank balances from all four tables via API
@@ -51,7 +71,6 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                         cheque_amount: bank.cheque_amount || 0,
                         bank_transfer_amount: bank.bank_transfer_amount || 0,
                         status: bank.status,
-                        // Store additional breakdowns
                         debit_cheque: bank.debit_cheque || 0,
                         debit_bank_transfer: bank.debit_bank_transfer || 0,
                         credit_cheque: bank.credit_cheque || 0,
@@ -122,7 +141,7 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                     debit_bank_transfer: debitBankTransfer,
                     credit_cheque: creditCheque,
                     credit_bank_transfer: creditBankTransfer,
-                    transactions: transactions.slice(0, 50) // Get latest 50 transactions
+                    transactions: transactions.slice(0, 50)
                 });
             } else {
                 throw new Error(response.message || 'Failed to fetch bank details');
@@ -135,6 +154,59 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
         }
     };
 
+    // Fetch bank statement
+    const fetchBankStatement = async (bankId, filters) => {
+        setStatementLoading(true);
+        try {
+            const params = new URLSearchParams();
+            if (filters.start_date) params.append('start_date', filters.start_date);
+            if (filters.end_date) params.append('end_date', filters.end_date);
+            if (filters.include_unrealized) params.append('include_unrealized', 'true');
+            
+            const response = await bankService.getBankStatement(bankId, params.toString());
+            
+            if (response.success && response.data) {
+                setStatementData(response.data);
+                // Extract unrealized cheques if they exist
+                if (response.data.unrealized_cheques) {
+                    setSelectedUnrealizedCheques(response.data.unrealized_cheques);
+                } else {
+                    setSelectedUnrealizedCheques([]);
+                }
+            } else {
+                throw new Error(response.message || 'Failed to fetch bank statement');
+            }
+        } catch (error) {
+            console.error('Error fetching bank statement:', error);
+            setError('Failed to fetch bank statement. Please try again.');
+        } finally {
+            setStatementLoading(false);
+        }
+    };
+
+    // Fetch unrealized cheques
+    const fetchUnrealizedCheques = async (bankId, filters) => {
+        setChequesLoading(true);
+        try {
+            const params = new URLSearchParams();
+            if (filters.start_date) params.append('start_date', filters.start_date);
+            if (filters.end_date) params.append('end_date', filters.end_date);
+            
+            const response = await bankService.getUnrealizedCheques(bankId, params.toString());
+            
+            if (response.success && response.data) {
+                setUnrealizedCheques(response.data);
+            } else {
+                throw new Error(response.message || 'Failed to fetch unrealized cheques');
+            }
+        } catch (error) {
+            console.error('Error fetching unrealized cheques:', error);
+            setError('Failed to fetch unrealized cheques. Please try again.');
+        } finally {
+            setChequesLoading(false);
+        }
+    };
+
     // Handle row click to open modal
     const handleRowClick = (bank) => {
         setSelectedBank(bank);
@@ -142,11 +214,89 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
         fetchBankDetails(bank.id, bank.bank_name);
     };
 
+    // Handle view statement
+    const handleViewStatement = (bank, e) => {
+        e.stopPropagation();
+        setSelectedBank(bank);
+        setStatementModalOpen(true);
+        // Set default date range (last 30 days)
+        const today = new Date();
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+        
+        const filters = {
+            start_date: thirtyDaysAgo.toISOString().split('T')[0],
+            end_date: today.toISOString().split('T')[0],
+            include_unrealized: false
+        };
+        
+        setStatementFilters(filters);
+        fetchBankStatement(bank.id, filters);
+    };
+
+    // Handle view unrealized cheques
+    const handleViewUnrealizedCheques = (bank, e) => {
+        e.stopPropagation();
+        setSelectedBank(bank);
+        setChequesModalOpen(true);
+        // Set default date range (last 30 days)
+        const today = new Date();
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+        
+        const filters = {
+            start_date: thirtyDaysAgo.toISOString().split('T')[0],
+            end_date: today.toISOString().split('T')[0]
+        };
+        
+        setChequeFilters(filters);
+        fetchUnrealizedCheques(bank.id, filters);
+    };
+
+    // Handle statement filter change
+    const handleStatementFilterChange = (field, value) => {
+        const newFilters = { ...statementFilters, [field]: value };
+        setStatementFilters(newFilters);
+    };
+
+    // Handle statement filter apply
+    const handleStatementFilterApply = () => {
+        if (selectedBank) {
+            fetchBankStatement(selectedBank.id, statementFilters);
+        }
+    };
+
+    // Handle cheque filter change
+    const handleChequeFilterChange = (field, value) => {
+        const newFilters = { ...chequeFilters, [field]: value };
+        setChequeFilters(newFilters);
+    };
+
+    // Handle cheque filter apply
+    const handleChequeFilterApply = () => {
+        if (selectedBank) {
+            fetchUnrealizedCheques(selectedBank.id, chequeFilters);
+        }
+    };
+
     // Close modal
     const closeModal = () => {
         setModalOpen(false);
         setSelectedBank(null);
         setTransactionDetails(null);
+    };
+
+    // Close statement modal
+    const closeStatementModal = () => {
+        setStatementModalOpen(false);
+        setStatementData(null);
+        setSelectedUnrealizedCheques([]);
+    };
+
+    // Close cheques modal
+    const closeChequesModal = () => {
+        setChequesModalOpen(false);
+        setUnrealizedCheques(null);
     };
 
     // Set up auto-refresh
@@ -174,7 +324,7 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
     }, [banks]);
 
     const handleDelete = async (id, e) => {
-        e.stopPropagation(); // Prevent row click from triggering
+        e.stopPropagation();
         
         if (!window.confirm('Are you sure you want to delete this bank account?')) {
             return;
@@ -243,8 +393,23 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
         return bankBreakdowns[normalizedBankName] || {};
     };
 
-    // Modal styles
-    const modalStyles = {
+    // Helper function to group transactions by reference
+    const groupTransactionsByReference = (transactions) => {
+        const grouped = {};
+        
+        transactions.forEach(trans => {
+            const key = trans.reference || 'no-ref';
+            if (!grouped[key]) {
+                grouped[key] = [];
+            }
+            grouped[key].push(trans);
+        });
+        
+        return grouped;
+    };
+
+    // Statement Modal styles
+    const statementModalStyles = {
         overlay: {
             position: 'fixed',
             top: 0,
@@ -262,127 +427,17 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
         modal: {
             background: 'white',
             borderRadius: '16px',
-            maxWidth: '900px',
+            maxWidth: '1200px',
             width: '100%',
             maxHeight: '90vh',
             overflow: 'hidden',
             boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
             display: 'flex',
             flexDirection: 'column'
-        },
-        modalHeader: {
-            padding: '20px 24px',
-            borderBottom: '1px solid #e5e7eb',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            background: 'linear-gradient(135deg, #1f2937, #374151)',
-            color: 'white',
-            borderTopLeftRadius: '16px',
-            borderTopRightRadius: '16px'
-        },
-        modalBody: {
-            padding: '24px',
-            overflowY: 'auto',
-            flex: 1
-        },
-        modalClose: {
-            background: 'none',
-            border: 'none',
-            color: 'white',
-            fontSize: '24px',
-            cursor: 'pointer',
-            padding: '4px 8px',
-            borderRadius: '8px',
-            transition: 'background 0.2s'
-        },
-        summaryGrid: {
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '16px',
-            marginBottom: '24px'
-        },
-        summaryCard: {
-            background: '#f9fafb',
-            padding: '16px',
-            borderRadius: '12px',
-            border: '1px solid #e5e7eb'
-        },
-        summaryLabel: {
-            fontSize: '12px',
-            color: '#6b7280',
-            fontWeight: '600',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            marginBottom: '4px'
-        },
-        summaryValue: {
-            fontSize: '20px',
-            fontWeight: 'bold',
-            color: '#111827'
-        },
-        breakdownGrid: {
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '16px',
-            marginBottom: '24px'
-        },
-        breakdownSection: {
-            background: '#f9fafb',
-            padding: '16px',
-            borderRadius: '12px',
-            border: '1px solid #e5e7eb'
-        },
-        breakdownTitle: {
-            fontSize: '14px',
-            fontWeight: 'bold',
-            color: '#374151',
-            marginBottom: '12px',
-            paddingBottom: '8px',
-            borderBottom: '2px solid #e5e7eb'
-        },
-        breakdownRow: {
-            display: 'flex',
-            justifyContent: 'space-between',
-            padding: '6px 0',
-            fontSize: '14px'
-        },
-        breakdownLabel: {
-            color: '#6b7280'
-        },
-        breakdownValue: {
-            fontWeight: '600'
-        },
-        transactionTable: {
-            width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '13px'
-        },
-        transactionTh: {
-            textAlign: 'left',
-            padding: '8px 12px',
-            background: '#f3f4f6',
-            fontWeight: '600',
-            color: '#374151',
-            borderBottom: '2px solid #e5e7eb'
-        },
-        transactionTd: {
-            padding: '8px 12px',
-            borderBottom: '1px solid #f3f4f6'
-        },
-        statusBadge: (type) => ({
-            padding: '2px 10px',
-            borderRadius: '12px',
-            fontSize: '11px',
-            fontWeight: '600',
-            display: 'inline-block',
-            background: type === 'debit' ? '#d1fae5' : '#fee2e2',
-            color: type === 'debit' ? '#065f46' : '#991b1b'
-        })
+        }
     };
 
     const styles = {
-        // ... (keep all existing styles)
         container: {
             background: 'white',
             borderRadius: '16px',
@@ -577,12 +632,196 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
             alignItems: 'center',
             gap: '6px'
         },
+        actionButton: {
+            background: 'none',
+            border: 'none',
+            color: '#3b82f6',
+            cursor: 'pointer',
+            padding: '4px 8px',
+            borderRadius: '6px',
+            fontSize: '12px',
+            fontWeight: '500',
+            transition: 'all 0.2s',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px'
+        },
         loadingIndicator: {
             textAlign: 'center',
             padding: '20px',
             color: '#6b7280',
             fontSize: '14px'
+        },
+        filterContainer: {
+            display: 'flex',
+            gap: '12px',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            marginBottom: '16px',
+            padding: '12px',
+            background: '#f9fafb',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb'
+        },
+        filterInput: {
+            padding: '6px 12px',
+            borderRadius: '6px',
+            border: '1px solid #d1d5db',
+            fontSize: '13px'
+        },
+        filterLabel: {
+            fontSize: '13px',
+            fontWeight: '500',
+            color: '#374151'
+        },
+        filterButton: {
+            padding: '6px 16px',
+            borderRadius: '6px',
+            border: 'none',
+            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+            color: 'white',
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
         }
+    };
+
+    const modalStyles = {
+        overlay: {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            backdropFilter: 'blur(4px)',
+            padding: '20px'
+        },
+        modal: {
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '900px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            display: 'flex',
+            flexDirection: 'column'
+        },
+        modalHeader: {
+            padding: '20px 24px',
+            borderBottom: '1px solid #e5e7eb',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            background: 'linear-gradient(135deg, #1f2937, #374151)',
+            color: 'white',
+            borderTopLeftRadius: '16px',
+            borderTopRightRadius: '16px'
+        },
+        modalBody: {
+            padding: '24px',
+            overflowY: 'auto',
+            flex: 1
+        },
+        modalClose: {
+            background: 'none',
+            border: 'none',
+            color: 'white',
+            fontSize: '24px',
+            cursor: 'pointer',
+            padding: '4px 8px',
+            borderRadius: '8px',
+            transition: 'background 0.2s'
+        },
+        summaryGrid: {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px',
+            marginBottom: '24px'
+        },
+        summaryCard: {
+            background: '#f9fafb',
+            padding: '16px',
+            borderRadius: '12px',
+            border: '1px solid #e5e7eb'
+        },
+        summaryLabel: {
+            fontSize: '12px',
+            color: '#6b7280',
+            fontWeight: '600',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            marginBottom: '4px'
+        },
+        summaryValue: {
+            fontSize: '20px',
+            fontWeight: 'bold',
+            color: '#111827'
+        },
+        breakdownGrid: {
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '16px',
+            marginBottom: '24px'
+        },
+        breakdownSection: {
+            background: '#f9fafb',
+            padding: '16px',
+            borderRadius: '12px',
+            border: '1px solid #e5e7eb'
+        },
+        breakdownTitle: {
+            fontSize: '14px',
+            fontWeight: 'bold',
+            color: '#374151',
+            marginBottom: '12px',
+            paddingBottom: '8px',
+            borderBottom: '2px solid #e5e7eb'
+        },
+        breakdownRow: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            padding: '6px 0',
+            fontSize: '14px'
+        },
+        breakdownLabel: {
+            color: '#6b7280'
+        },
+        breakdownValue: {
+            fontWeight: '600'
+        },
+        transactionTable: {
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '13px'
+        },
+        transactionTh: {
+            textAlign: 'left',
+            padding: '8px 12px',
+            background: '#f3f4f6',
+            fontWeight: '600',
+            color: '#374151',
+            borderBottom: '2px solid #e5e7eb'
+        },
+        transactionTd: {
+            padding: '8px 12px',
+            borderBottom: '1px solid #f3f4f6'
+        },
+        statusBadge: (type) => ({
+            padding: '2px 10px',
+            borderRadius: '12px',
+            fontSize: '11px',
+            fontWeight: '600',
+            display: 'inline-block',
+            background: type === 'debit' ? '#d1fae5' : '#fee2e2',
+            color: type === 'debit' ? '#065f46' : '#991b1b'
+        })
     };
 
     if (banks.length === 0) {
@@ -805,44 +1044,70 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
 
                                     {/* Actions Cell */}
                                     <td style={{ ...styles.td, textAlign: 'right' }}>
-                                        <button
-                                            onClick={(e) => handleDelete(bank.id, e)}
-                                            disabled={deletingId === bank.id}
-                                            style={{
-                                                ...styles.deleteButton,
-                                                opacity: deletingId === bank.id ? 0.5 : 1,
-                                                cursor: deletingId === bank.id ? 'not-allowed' : 'pointer'
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                if (deletingId !== bank.id) {
-                                                    e.currentTarget.style.background = '#fee2e2';
-                                                    e.currentTarget.style.transform = 'scale(1.05)';
-                                                }
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = 'none';
-                                                e.currentTarget.style.transform = 'scale(1)';
-                                            }}
-                                        >
-                                            {deletingId === bank.id ? (
-                                                <>
-                                                    <div style={{
-                                                        width: '16px',
-                                                        height: '16px',
-                                                        border: '2px solid #ef4444',
-                                                        borderTopColor: 'transparent',
-                                                        borderRadius: '50%',
-                                                        animation: 'spin 0.6s linear infinite'
-                                                    }} />
-                                                    <span>Deleting...</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <span>🗑️</span>
-                                                    <span>Delete</span>
-                                                </>
-                                            )}
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+                                            <button
+                                                onClick={(e) => handleViewStatement(bank, e)}
+                                                style={{
+                                                    ...styles.actionButton,
+                                                    color: '#059669'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#d1fae5'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                                                title="View Bank Statement"
+                                            >
+                                                📊
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleViewUnrealizedCheques(bank, e)}
+                                                style={{
+                                                    ...styles.actionButton,
+                                                    color: '#d97706'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#fef3c7'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                                                title="View Unrealized Cheques"
+                                            >
+                                                💳
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleDelete(bank.id, e)}
+                                                disabled={deletingId === bank.id}
+                                                style={{
+                                                    ...styles.deleteButton,
+                                                    opacity: deletingId === bank.id ? 0.5 : 1,
+                                                    cursor: deletingId === bank.id ? 'not-allowed' : 'pointer'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    if (deletingId !== bank.id) {
+                                                        e.currentTarget.style.background = '#fee2e2';
+                                                        e.currentTarget.style.transform = 'scale(1.05)';
+                                                    }
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = 'none';
+                                                    e.currentTarget.style.transform = 'scale(1)';
+                                                }}
+                                            >
+                                                {deletingId === bank.id ? (
+                                                    <>
+                                                        <div style={{
+                                                            width: '16px',
+                                                            height: '16px',
+                                                            border: '2px solid #ef4444',
+                                                            borderTopColor: 'transparent',
+                                                            borderRadius: '50%',
+                                                            animation: 'spin 0.6s linear infinite'
+                                                        }} />
+                                                        <span>Deleting...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span>🗑️</span>
+                                                        <span>Delete</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             );
@@ -851,11 +1116,621 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                 </table>
             </div>
 
-            {/* Modal */}
+            {/* Statement Modal */}
+            {statementModalOpen && selectedBank && (
+                <div style={statementModalStyles.overlay} onClick={closeStatementModal}>
+                    <div style={statementModalStyles.modal} onClick={(e) => e.stopPropagation()}>
+                        <div style={{
+                            padding: '20px 24px',
+                            borderBottom: '1px solid #e5e7eb',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            background: 'linear-gradient(135deg, #1f2937, #374151)',
+                            color: 'white',
+                            borderTopLeftRadius: '16px',
+                            borderTopRightRadius: '16px'
+                        }}>
+                            <div>
+                                <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
+                                    📊 Bank Statement - {selectedBank.bank_name}
+                                </h2>
+                                <p style={{ fontSize: '13px', color: '#9ca3af', margin: '4px 0 0 0' }}>
+                                    Account: {selectedBank.account_no} | Branch: {selectedBank.branch}
+                                </p>
+                            </div>
+                            <button 
+                                onClick={closeStatementModal}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'white',
+                                    fontSize: '24px',
+                                    cursor: 'pointer',
+                                    padding: '4px 8px',
+                                    borderRadius: '8px',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+                            {/* Filters */}
+                            <div style={styles.filterContainer}>
+                                <div>
+                                    <label style={styles.filterLabel}>From:</label>
+                                    <input
+                                        type="date"
+                                        style={styles.filterInput}
+                                        value={statementFilters.start_date}
+                                        onChange={(e) => handleStatementFilterChange('start_date', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={styles.filterLabel}>To:</label>
+                                    <input
+                                        type="date"
+                                        style={styles.filterInput}
+                                        value={statementFilters.end_date}
+                                        onChange={(e) => handleStatementFilterChange('end_date', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={styles.filterLabel}>
+                                        <input
+                                            type="checkbox"
+                                            checked={statementFilters.include_unrealized}
+                                            onChange={(e) => handleStatementFilterChange('include_unrealized', e.target.checked)}
+                                        />
+                                        Show Unrealized Cheques
+                                    </label>
+                                </div>
+                                <button
+                                    style={styles.filterButton}
+                                    onClick={handleStatementFilterApply}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                >
+                                    Apply Filters
+                                </button>
+                            </div>
+
+                            {statementLoading ? (
+                                <div style={{ textAlign: 'center', padding: '40px' }}>
+                                    <div style={{
+                                        width: '48px',
+                                        height: '48px',
+                                        border: '3px solid #e5e7eb',
+                                        borderTopColor: '#3b82f6',
+                                        borderRadius: '50%',
+                                        animation: 'spin 1s linear infinite',
+                                        margin: '0 auto 16px'
+                                    }} />
+                                    <p style={{ color: '#6b7280' }}>Loading statement...</p>
+                                </div>
+                            ) : statementData ? (
+                                <>
+                                    {/* Bank Header Info */}
+                                    <div style={{
+                                        background: 'linear-gradient(135deg, #f3f4f6, #e5e7eb)',
+                                        padding: '16px',
+                                        borderRadius: '8px',
+                                        marginBottom: '20px',
+                                        border: '1px solid #d1d5db'
+                                    }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                                            <div>
+                                                <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: '600', textTransform: 'uppercase' }}>Bank Name</div>
+                                                <div style={{ fontSize: '14px', fontWeight: '600' }}>{selectedBank.bank_name}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: '600', textTransform: 'uppercase' }}>Branch</div>
+                                                <div style={{ fontSize: '14px' }}>{selectedBank.branch}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: '600', textTransform: 'uppercase' }}>Account No</div>
+                                                <div style={{ fontSize: '14px' }}>{selectedBank.account_no}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: '600', textTransform: 'uppercase' }}>Statement Period</div>
+                                                <div style={{ fontSize: '14px' }}>
+                                                    {statementFilters.start_date} to {statementFilters.end_date}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Statement Summary Cards */}
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                                        gap: '12px',
+                                        marginBottom: '20px'
+                                    }}>
+                                        <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                                            <div style={{ fontSize: '11px', color: '#166534', fontWeight: '600', textTransform: 'uppercase' }}>Opening Balance</div>
+                                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#166534' }}>{formatCurrency(statementData.bank.opening_balance)}</div>
+                                        </div>
+                                        <div style={{ background: '#eff6ff', padding: '12px', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                                            <div style={{ fontSize: '11px', color: '#1e40af', fontWeight: '600', textTransform: 'uppercase' }}>Total Debits (DR)</div>
+                                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#1e40af' }}>{formatCurrency(statementData.statement.summary.total_debit)}</div>
+                                        </div>
+                                        <div style={{ background: '#fef2f2', padding: '12px', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                                            <div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '600', textTransform: 'uppercase' }}>Total Credits (CR)</div>
+                                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#991b1b' }}>{formatCurrency(statementData.statement.summary.total_credit)}</div>
+                                        </div>
+                                        <div style={{ background: '#fefce8', padding: '12px', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                                            <div style={{ fontSize: '11px', color: '#92400e', fontWeight: '600', textTransform: 'uppercase' }}>Closing Balance</div>
+                                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: statementData.statement.summary.closing_balance >= 0 ? '#166534' : '#991b1b' }}>
+                                                {formatCurrency(statementData.statement.summary.closing_balance)}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Statement Table Header */}
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        marginBottom: '12px'
+                                    }}>
+                                        <h4 style={{ margin: 0, color: '#374151', fontSize: '16px' }}>
+                                            Transaction Details
+                                        </h4>
+                                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                                            Total: {statementData.statement.summary.total_transactions} transactions
+                                        </span>
+                                    </div>
+
+                                    {/* Transactions Table - DR/CR Format with Grouping */}
+                                    <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                                        <table style={{
+                                            width: '100%',
+                                            borderCollapse: 'collapse',
+                                            fontSize: '13px'
+                                        }}>
+                                            <thead>
+                                                <tr style={{ background: '#f3f4f6' }}>
+                                                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#374151', borderBottom: '2px solid #d1d5db' }}>Date</th>
+                                                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#374151', borderBottom: '2px solid #d1d5db' }}>Description</th>
+                                                    <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#374151', borderBottom: '2px solid #d1d5db' }}>Cheque/Ref</th>
+                                                    <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#1e40af', borderBottom: '2px solid #d1d5db' }}>Debit (DR)</th>
+                                                    <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#991b1b', borderBottom: '2px solid #d1d5db' }}>Credit (CR)</th>
+                                                    <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#374151', borderBottom: '2px solid #d1d5db' }}>Balance</th>
+                                                    <th style={{ textAlign: 'center', padding: '10px 12px', fontWeight: '600', color: '#374151', borderBottom: '2px solid #d1d5db' }}>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {statementData.statement.transactions.length > 0 ? (
+                                                    (() => {
+                                                        // Group transactions by reference
+                                                        const grouped = groupTransactionsByReference(statementData.statement.transactions);
+                                                        const groupedKeys = Object.keys(grouped);
+                                                        
+                                                        return groupedKeys.map((refKey, groupIndex) => {
+                                                            const groupTransactions = grouped[refKey];
+                                                            
+                                                            return groupTransactions.map((trans, idx) => {
+                                                                const isLastInGroup = idx === groupTransactions.length - 1;
+                                                                
+                                                                return (
+                                                                    <tr key={`${refKey}-${idx}`} style={{ 
+                                                                        borderBottom: isLastInGroup ? '2px solid #d1d5db' : '1px solid #f3f4f6',
+                                                                        background: idx % 2 === 0 ? 'white' : '#fafafa'
+                                                                    }}>
+                                                                        <td style={{ padding: '10px 12px' }}>
+                                                                            {trans.date ? new Date(trans.date).toLocaleDateString() : 'N/A'}
+                                                                        </td>
+                                                                        <td style={{ padding: '10px 12px' }}>
+                                                                            <div>
+                                                                                <div>{trans.description || 'N/A'}</div>
+                                                                                {trans.bill_no && (
+                                                                                    <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                                                                                        Bill: {trans.bill_no}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </td>
+                                                                        <td style={{ 
+                                                                            padding: '10px 12px', 
+                                                                            textAlign: 'right', 
+                                                                            fontSize: '12px', 
+                                                                            color: '#6b7280',
+                                                                            fontFamily: 'monospace'
+                                                                        }}>
+                                                                            {trans.reference || '-'}
+                                                                        </td>
+                                                                        <td style={{ 
+                                                                            padding: '10px 12px', 
+                                                                            textAlign: 'right', 
+                                                                            fontWeight: '600',
+                                                                            color: trans.type === 'debit' ? '#1e40af' : '#9ca3af'
+                                                                        }}>
+                                                                            {trans.type === 'debit' ? formatCurrency(trans.amount) : '-'}
+                                                                        </td>
+                                                                        <td style={{ 
+                                                                            padding: '10px 12px', 
+                                                                            textAlign: 'right', 
+                                                                            fontWeight: '600',
+                                                                            color: trans.type === 'credit' ? '#991b1b' : '#9ca3af'
+                                                                        }}>
+                                                                            {trans.type === 'credit' ? formatCurrency(trans.amount) : '-'}
+                                                                        </td>
+                                                                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600' }}>
+                                                                            {formatCurrency(trans.running_balance)}
+                                                                        </td>
+                                                                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                                                            {trans.realized === 'Y' ? (
+                                                                                <span style={{ color: '#059669', fontWeight: '600', fontSize: '12px' }}>✅ Realized</span>
+                                                                            ) : (
+                                                                                <span style={{ color: '#d97706', fontWeight: '600', fontSize: '12px' }}>⏳ Pending</span>
+                                                                            )}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            });
+                                                        });
+                                                    })()
+                                                ) : (
+                                                    <tr>
+                                                        <td colSpan="7" style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                                                            No transactions found for the selected period
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr style={{ background: '#f9fafb', fontWeight: '600', borderTop: '2px solid #d1d5db' }}>
+                                                    <td colSpan="3" style={{ padding: '10px 12px', textAlign: 'right' }}>TOTAL</td>
+                                                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#1e40af' }}>
+                                                        {formatCurrency(statementData.statement.summary.total_debit)}
+                                                    </td>
+                                                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#991b1b' }}>
+                                                        {formatCurrency(statementData.statement.summary.total_credit)}
+                                                    </td>
+                                                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>
+                                                        {formatCurrency(statementData.statement.summary.closing_balance)}
+                                                    </td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+
+                                    {/* Unrealized Cheques Section - Below Statement */}
+                                    {statementFilters.include_unrealized && selectedUnrealizedCheques && selectedUnrealizedCheques.length > 0 && (
+                                        <div style={{ marginTop: '30px' }}>
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                marginBottom: '12px',
+                                                padding: '12px 16px',
+                                                background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                                                borderRadius: '8px',
+                                                border: '1px solid #f59e0b'
+                                            }}>
+                                                <div>
+                                                    <h4 style={{ margin: 0, color: '#92400e' }}>
+                                                        ⚠️ Unrealized Cheques ({selectedUnrealizedCheques.length})
+                                                    </h4>
+                                                    <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#92400e' }}>
+                                                        Total Amount: {formatCurrency(selectedUnrealizedCheques.reduce((sum, c) => sum + c.amount, 0))}
+                                                    </p>
+                                                </div>
+                                                <span style={{
+                                                    padding: '4px 12px',
+                                                    background: '#92400e',
+                                                    color: 'white',
+                                                    borderRadius: '12px',
+                                                    fontSize: '12px',
+                                                    fontWeight: '600'
+                                                }}>
+                                                    Pending Realization
+                                                </span>
+                                            </div>
+
+                                            <div style={{ overflowX: 'auto', border: '1px solid #fde68a', borderRadius: '8px' }}>
+                                                <table style={{
+                                                    width: '100%',
+                                                    borderCollapse: 'collapse',
+                                                    fontSize: '13px'
+                                                }}>
+                                                    <thead>
+                                                        <tr style={{ background: '#fef3c7' }}>
+                                                            <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Date</th>
+                                                            <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Description</th>
+                                                            <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Cheque No</th>
+                                                            <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Amount</th>
+                                                            <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Source</th>
+                                                            <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Bill No</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {selectedUnrealizedCheques.map((cheque, idx) => (
+                                                            <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6', background: idx % 2 === 0 ? 'white' : '#fffbeb' }}>
+                                                                <td style={{ padding: '10px 12px' }}>
+                                                                    {cheque.date ? new Date(cheque.date).toLocaleDateString() : 'N/A'}
+                                                                </td>
+                                                                <td style={{ padding: '10px 12px' }}>{cheque.description || 'N/A'}</td>
+                                                                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                                                                    {cheque.reference || 'N/A'}
+                                                                </td>
+                                                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#92400e' }}>
+                                                                    {formatCurrency(cheque.amount)}
+                                                                </td>
+                                                                <td style={{ padding: '10px 12px' }}>
+                                                                    <span style={{
+                                                                        padding: '2px 8px',
+                                                                        borderRadius: '4px',
+                                                                        fontSize: '11px',
+                                                                        background: '#e5e7eb',
+                                                                        color: '#374151'
+                                                                    }}>
+                                                                        {cheque.source ? cheque.source.replace(/_/g, ' ').toUpperCase() : 'N/A'}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={{ padding: '10px 12px' }}>{cheque.bill_no || 'N/A'}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    <tfoot>
+                                                        <tr style={{ background: '#fef3c7', fontWeight: '600', borderTop: '2px solid #f59e0b' }}>
+                                                            <td colSpan="3" style={{ padding: '10px 12px', textAlign: 'right' }}>TOTAL UNREALIZED</td>
+                                                            <td style={{ padding: '10px 12px', textAlign: 'right', color: '#92400e' }}>
+                                                                {formatCurrency(selectedUnrealizedCheques.reduce((sum, c) => sum + c.amount, 0))}
+                                                            </td>
+                                                            <td colSpan="2"></td>
+                                                        </tr>
+                                                    </tfoot>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {statementFilters.include_unrealized && (!selectedUnrealizedCheques || selectedUnrealizedCheques.length === 0) && (
+                                        <div style={{
+                                            marginTop: '20px',
+                                            padding: '16px',
+                                            background: '#f0fdf4',
+                                            borderRadius: '8px',
+                                            border: '1px solid #bbf7d0',
+                                            textAlign: 'center'
+                                        }}>
+                                            <p style={{ margin: 0, color: '#166534' }}>
+                                                ✅ No unrealized cheques found for the selected period
+                                            </p>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                                    No statement data available
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Unrealized Cheques Modal */}
+            {chequesModalOpen && selectedBank && (
+                <div style={statementModalStyles.overlay} onClick={closeChequesModal}>
+                    <div style={statementModalStyles.modal} onClick={(e) => e.stopPropagation()}>
+                        <div style={{
+                            padding: '20px 24px',
+                            borderBottom: '1px solid #e5e7eb',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            background: 'linear-gradient(135deg, #1f2937, #374151)',
+                            color: 'white',
+                            borderTopLeftRadius: '16px',
+                            borderTopRightRadius: '16px'
+                        }}>
+                            <div>
+                                <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
+                                    💳 Unrealized Cheques - {selectedBank.bank_name}
+                                </h2>
+                                <p style={{ fontSize: '13px', color: '#9ca3af', margin: '4px 0 0 0' }}>
+                                    Account: {selectedBank.account_no} | Branch: {selectedBank.branch}
+                                </p>
+                            </div>
+                            <button 
+                                onClick={closeChequesModal}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'white',
+                                    fontSize: '24px',
+                                    cursor: 'pointer',
+                                    padding: '4px 8px',
+                                    borderRadius: '8px',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+                            {/* Filters */}
+                            <div style={styles.filterContainer}>
+                                <div>
+                                    <label style={styles.filterLabel}>From:</label>
+                                    <input
+                                        type="date"
+                                        style={styles.filterInput}
+                                        value={chequeFilters.start_date}
+                                        onChange={(e) => handleChequeFilterChange('start_date', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={styles.filterLabel}>To:</label>
+                                    <input
+                                        type="date"
+                                        style={styles.filterInput}
+                                        value={chequeFilters.end_date}
+                                        onChange={(e) => handleChequeFilterChange('end_date', e.target.value)}
+                                    />
+                                </div>
+                                <button
+                                    style={styles.filterButton}
+                                    onClick={handleChequeFilterApply}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                >
+                                    Apply Filters
+                                </button>
+                            </div>
+
+                            {chequesLoading ? (
+                                <div style={{ textAlign: 'center', padding: '40px' }}>
+                                    <div style={{
+                                        width: '48px',
+                                        height: '48px',
+                                        border: '3px solid #e5e7eb',
+                                        borderTopColor: '#3b82f6',
+                                        borderRadius: '50%',
+                                        animation: 'spin 1s linear infinite',
+                                        margin: '0 auto 16px'
+                                    }} />
+                                    <p style={{ color: '#6b7280' }}>Loading unrealized cheques...</p>
+                                </div>
+                            ) : unrealizedCheques ? (
+                                <>
+                                    {/* Summary */}
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                        gap: '16px',
+                                        marginBottom: '24px'
+                                    }}>
+                                        <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', padding: '16px', borderRadius: '12px', border: '1px solid #f59e0b' }}>
+                                            <div style={{ fontSize: '12px', color: '#92400e', fontWeight: '600', textTransform: 'uppercase' }}>Total Unrealized Cheques</div>
+                                            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#92400e' }}>{unrealizedCheques.summary.total_count}</div>
+                                        </div>
+                                        <div style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', padding: '16px', borderRadius: '12px', border: '1px solid #f59e0b' }}>
+                                            <div style={{ fontSize: '12px', color: '#92400e', fontWeight: '600', textTransform: 'uppercase' }}>Total Amount</div>
+                                            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#92400e' }}>{formatCurrency(unrealizedCheques.summary.total_amount)}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Unrealized Cheques Table */}
+                                    {unrealizedCheques.unrealized_cheques && unrealizedCheques.unrealized_cheques.length > 0 ? (
+                                        <div style={{ overflowX: 'auto', border: '1px solid #fde68a', borderRadius: '8px' }}>
+                                            <table style={{
+                                                width: '100%',
+                                                borderCollapse: 'collapse',
+                                                fontSize: '13px'
+                                            }}>
+                                                <thead>
+                                                    <tr style={{ background: '#fef3c7' }}>
+                                                        <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Date</th>
+                                                        <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Description</th>
+                                                        <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Cheque No</th>
+                                                        <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Amount</th>
+                                                        <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Source</th>
+                                                        <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600', color: '#92400e', borderBottom: '2px solid #f59e0b' }}>Bill No</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {unrealizedCheques.unrealized_cheques.map((cheque, idx) => (
+                                                        <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6', background: idx % 2 === 0 ? 'white' : '#fffbeb' }}>
+                                                            <td style={{ padding: '10px 12px' }}>
+                                                                {cheque.date ? new Date(cheque.date).toLocaleDateString() : 'N/A'}
+                                                            </td>
+                                                            <td style={{ padding: '10px 12px' }}>{cheque.description || 'N/A'}</td>
+                                                            <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                                                                {cheque.reference || 'N/A'}
+                                                            </td>
+                                                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#92400e' }}>
+                                                                {formatCurrency(cheque.amount)}
+                                                            </td>
+                                                            <td style={{ padding: '10px 12px' }}>
+                                                                <span style={{
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: '4px',
+                                                                    fontSize: '11px',
+                                                                    background: '#e5e7eb',
+                                                                    color: '#374151'
+                                                                }}>
+                                                                    {cheque.source ? cheque.source.replace(/_/g, ' ').toUpperCase() : 'N/A'}
+                                                                </span>
+                                                            </td>
+                                                            <td style={{ padding: '10px 12px' }}>{cheque.bill_no || 'N/A'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr style={{ background: '#fef3c7', fontWeight: '600', borderTop: '2px solid #f59e0b' }}>
+                                                        <td colSpan="3" style={{ padding: '10px 12px', textAlign: 'right' }}>TOTAL</td>
+                                                        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#92400e' }}>
+                                                            {formatCurrency(unrealizedCheques.summary.total_amount)}
+                                                        </td>
+                                                        <td colSpan="2"></td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                                            <p style={{ fontSize: '48px', marginBottom: '16px' }}>✅</p>
+                                            <p>No unrealized cheques found for the selected period.</p>
+                                        </div>
+                                    )}
+
+                                    {/* Grouped by Source */}
+                                    {unrealizedCheques.summary.grouped_by_source && Object.keys(unrealizedCheques.summary.grouped_by_source).length > 0 && (
+                                        <div style={{ marginTop: '24px' }}>
+                                            <h4 style={{ margin: '0 0 12px 0', color: '#374151' }}>Summary by Source</h4>
+                                            <div style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                                                gap: '12px'
+                                            }}>
+                                                {Object.entries(unrealizedCheques.summary.grouped_by_source).map(([source, cheques]) => (
+                                                    <div key={source} style={{
+                                                        background: '#f9fafb',
+                                                        padding: '12px',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #e5e7eb'
+                                                    }}>
+                                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>
+                                                            {source.replace(/_/g, ' ').toUpperCase()}
+                                                        </div>
+                                                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#92400e' }}>
+                                                            {cheques.length} cheques
+                                                        </div>
+                                                        <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                                                            {formatCurrency(cheques.reduce((sum, c) => sum + c.amount, 0))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                                    No unrealized cheques data available
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Main Detail Modal */}
             {modalOpen && (
                 <div style={modalStyles.overlay} onClick={closeModal}>
                     <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
-                        {/* Modal Header */}
                         <div style={modalStyles.modalHeader}>
                             <div>
                                 <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
@@ -875,7 +1750,6 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                             </button>
                         </div>
 
-                        {/* Modal Body */}
                         <div style={modalStyles.modalBody}>
                             {modalLoading ? (
                                 <div style={{ textAlign: 'center', padding: '40px' }}>
@@ -892,7 +1766,6 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                                 </div>
                             ) : transactionDetails ? (
                                 <>
-                                    {/* Summary Cards */}
                                     <div style={modalStyles.summaryGrid}>
                                         <div style={modalStyles.summaryCard}>
                                             <div style={modalStyles.summaryLabel}>Opening Balance</div>
@@ -918,9 +1791,7 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                                         </div>
                                     </div>
 
-                                    {/* Breakdown Section */}
                                     <div style={modalStyles.breakdownGrid}>
-                                        {/* Debit Breakdown */}
                                         <div style={modalStyles.breakdownSection}>
                                             <div style={modalStyles.breakdownTitle}>⬆️ Debit (Money IN)</div>
                                             <div style={modalStyles.breakdownRow}>
@@ -943,7 +1814,6 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                                             </div>
                                         </div>
 
-                                        {/* Credit Breakdown */}
                                         <div style={modalStyles.breakdownSection}>
                                             <div style={modalStyles.breakdownTitle}>⬇️ Credit (Money OUT)</div>
                                             <div style={modalStyles.breakdownRow}>
@@ -967,7 +1837,6 @@ const BankList = ({ banks, onBankDeleted, onRefresh, selectedCashier = 'all' }) 
                                         </div>
                                     </div>
 
-                                    {/* Transactions Table */}
                                     {transactionDetails.transactions && transactionDetails.transactions.length > 0 && (
                                         <>
                                             <h4 style={{ margin: '16px 0 12px 0', color: '#374151' }}>

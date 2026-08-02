@@ -85,7 +85,7 @@ const bankService = {
             if (startDate) params.append('start_date', startDate);
             if (endDate) params.append('end_date', endDate);
             
-            const response = await api.get(`/banks/dashboard?${params.toString()}`);
+            const response = await api.get(`/bank-accounts/dashboard?${params.toString()}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching bank dashboard:', error);
@@ -98,8 +98,8 @@ const bankService = {
         try {
             const queryParams = new URLSearchParams(params);
             const url = bankAccountId 
-                ? `/banks/${bankAccountId}/transactions?${queryParams.toString()}`
-                : `/banks/transactions?${queryParams.toString()}`;
+                ? `/bank-accounts/transactions/${bankAccountId}?${queryParams.toString()}`
+                : `/bank-accounts/transactions?${queryParams.toString()}`;
             const response = await api.get(url);
             return response.data;
         } catch (error) {
@@ -108,14 +108,10 @@ const bankService = {
         }
     },
 
-    // Get bank statement
-    async getBankStatement(bankAccountId, startDate, endDate) {
+    // Get bank statement with filters (date range and include unrealized)
+    async getBankStatement(bankId, params = '') {
         try {
-            const params = new URLSearchParams();
-            if (startDate) params.append('start_date', startDate);
-            if (endDate) params.append('end_date', endDate);
-            
-            const response = await api.get(`/banks/${bankAccountId}/statement?${params.toString()}`);
+            const response = await api.get(`/banks/${bankId}/statement?${params}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching bank statement:', error);
@@ -130,10 +126,36 @@ const bankService = {
             if (startDate) params.append('start_date', startDate);
             if (endDate) params.append('end_date', endDate);
             
-            const response = await api.get(`/banks/all-statement?${params.toString()}`);
+            const response = await api.get(`/bank-accounts/statement/all?${params.toString()}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching all accounts statement:', error);
+            throw error;
+        }
+    },
+
+    // Get statement for a specific bank account
+    async getStatement(bankAccountId, startDate, endDate) {
+        try {
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            
+            const response = await api.get(`/bank-accounts/statement/${bankAccountId}?${params.toString()}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching bank statement:', error);
+            throw error;
+        }
+    },
+
+    // Get unrealized cheques for a specific bank with date filters
+    async getUnrealizedCheques(bankId, params = '') {
+        try {
+            const response = await api.get(`/banks/${bankId}/unrealized-cheques?${params}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching unrealized cheques:', error);
             throw error;
         }
     },
@@ -142,10 +164,22 @@ const bankService = {
     async getChequeReport(params = {}) {
         try {
             const queryParams = new URLSearchParams(params);
-            const response = await api.get(`/banks/cheque-report?${queryParams.toString()}`);
+            const response = await api.get(`/bank-accounts/cheques-report?${queryParams.toString()}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching cheque report:', error);
+            throw error;
+        }
+    },
+
+    // Get cheque payments report (from bank-accounts/cheques)
+    async getChequePaymentsReport(params = {}) {
+        try {
+            const queryParams = new URLSearchParams(params);
+            const response = await api.get(`/bank-accounts/cheques?${queryParams.toString()}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching cheque payments report:', error);
             throw error;
         }
     },
@@ -154,7 +188,7 @@ const bankService = {
     async getBankTransferReport(params = {}) {
         try {
             const queryParams = new URLSearchParams(params);
-            const response = await api.get(`/banks/bank-transfer-report?${queryParams.toString()}`);
+            const response = await api.get(`/bank-accounts/bank-transfers?${queryParams.toString()}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching bank transfer report:', error);
@@ -167,7 +201,7 @@ const bankService = {
         try {
             const params = new URLSearchParams();
             if (year) params.append('year', year);
-            const response = await api.get(`/banks/monthly-summary?${params.toString()}`);
+            const response = await api.get(`/bank-accounts/monthly-summary?${params.toString()}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching monthly summary:', error);
@@ -179,7 +213,7 @@ const bankService = {
     async exportTransactions(params = {}) {
         try {
             const queryParams = new URLSearchParams(params);
-            const response = await api.get(`/banks/export-transactions?${queryParams.toString()}`);
+            const response = await api.get(`/bank-accounts/export?${queryParams.toString()}`);
             return response.data;
         } catch (error) {
             console.error('Error exporting transactions:', error);
@@ -190,7 +224,7 @@ const bankService = {
     // Get single transaction
     async getTransaction(id) {
         try {
-            const response = await api.get(`/banks/transaction/${id}`);
+            const response = await api.get(`/bank-accounts/transactions/${id}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching transaction:', error);
@@ -201,13 +235,14 @@ const bankService = {
     // Get bank balance
     async getBankBalance(bankAccountId) {
         try {
-            const response = await api.get(`/banks/${bankAccountId}/balance`);
+            const response = await api.get(`/bank-accounts/balance/${bankAccountId}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching bank balance:', error);
             throw error;
         }
     }
+    
 };
 
 export default bankService;
