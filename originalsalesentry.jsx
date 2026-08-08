@@ -1453,11 +1453,12 @@ const SupplierSettlementModal = ({
     isOpen, 
     onClose, 
     onSaved, 
-    processPayment, // ← Pass the processPayment function
-    fetchSalesData, // ← Pass fetchSalesData to refresh after payment
-    selectedUniqueCode, // ← Pass the selected cashier
-    saveBillCustomerType // ← Pass the save function
+    processPayment,
+    fetchSalesData,
+    selectedUniqueCode,
+    saveBillCustomerType
 }) => {
+    // ==================== ALL HOOKS FIRST ====================
     const [form, setForm] = useState({
         customerCode: '',
         amount: '',
@@ -1471,14 +1472,13 @@ const SupplierSettlementModal = ({
     const [banks, setBanks] = useState([]);
     const [loadingBanks, setLoadingBanks] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    
-    // State for customer bills
     const [customerBills, setCustomerBills] = useState([]);
     const [loadingBills, setLoadingBills] = useState(false);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
     const [invoiceData, setInvoiceData] = useState(null);
 
-    const resetForm = () => {
+    // ==================== useCallback HOOKS ====================
+    const resetForm = useCallback(() => {
         setForm({
             customerCode: '',
             amount: '',
@@ -1492,9 +1492,9 @@ const SupplierSettlementModal = ({
         setCustomerBills([]);
         setInvoiceData(null);
         setShowInvoiceModal(false);
-    };
+    }, []);
 
-    const loadBanks = async () => {
+    const loadBanks = useCallback(async () => {
         setLoadingBanks(true);
         try {
             const response = await api.get(routes.getBanks);
@@ -1509,10 +1509,77 @@ const SupplierSettlementModal = ({
         } finally {
             setLoadingBanks(false);
         }
-    };
+    }, []);
 
-    // Fetch customer bills based on customer code
-    const fetchCustomerBills = async (customerCode) => {
+    const getTotalSelectedBills = useCallback(() => {
+        return form.selectedBills.reduce((sum, bill) => {
+            return sum + Math.max(0, parseFloat(bill.remainingAmount) || 0);
+        }, 0);
+    }, [form.selectedBills]);
+
+    const calculatePaymentDistribution = useCallback((amount, selectedBills) => {
+        if (!selectedBills || selectedBills.length === 0) {
+            return { distribution: [], totalPaid: 0, extraAmount: 0, totalSelectedBillAmount: 0 };
+        }
+        
+        const sortedBills = [...selectedBills].sort((a, b) => a.bill_no.localeCompare(b.bill_no));
+        let remainingAmount = parseFloat(amount) || 0;
+        const distribution = [];
+        let totalPaid = 0;
+        
+        for (let i = 0; i < sortedBills.length; i++) {
+            const bill = sortedBills[i];
+            const billRemaining = Math.max(0, parseFloat(bill.remainingAmount) || 0);
+            
+            if (billRemaining <= 0) continue;
+            
+            let paymentAmount = 0;
+            let isFullyPaid = false;
+            
+            if (remainingAmount >= billRemaining) {
+                paymentAmount = billRemaining;
+                isFullyPaid = true;
+            } else {
+                paymentAmount = remainingAmount;
+                isFullyPaid = false;
+            }
+            
+            distribution.push({
+                ...bill,
+                paymentAmount: paymentAmount,
+                isFullyPaid: isFullyPaid
+            });
+            
+            totalPaid += paymentAmount;
+            remainingAmount -= paymentAmount;
+            
+            if (remainingAmount <= 0) break;
+        }
+        
+        const extraAmount = Math.max(0, remainingAmount);
+        
+        return {
+            distribution: distribution,
+            totalPaid: totalPaid,
+            extraAmount: extraAmount,
+            totalSelectedBillAmount: getTotalSelectedBills()
+        };
+    }, [getTotalSelectedBills]);
+
+    const getDistributionPreview = useCallback(() => {
+        if (!form.amount || form.selectedBills.length === 0) return null;
+        
+        const amount = parseFloat(form.amount);
+        const validBills = form.selectedBills.filter(bill => 
+            Math.max(0, parseFloat(bill.remainingAmount) || 0) > 0
+        );
+        
+        if (validBills.length === 0) return null;
+        
+        return calculatePaymentDistribution(amount, validBills);
+    }, [form.amount, form.selectedBills, calculatePaymentDistribution]);
+
+    const fetchCustomerBills = useCallback(async (customerCode) => {
         if (!customerCode || customerCode.trim() === '') {
             setCustomerBills([]);
             return;
@@ -1532,7 +1599,6 @@ const SupplierSettlementModal = ({
                 const bills = response.data.data || [];
                 console.log(`📊 Found ${bills.length} bills for customer`);
                 
-                // Fetch detailed info for each bill
                 const billsWithDetails = await Promise.all(bills.map(async (bill) => {
                     try {
                         console.log(`📄 Fetching details for bill: ${bill.bill_no}`);
@@ -1541,7 +1607,6 @@ const SupplierSettlementModal = ({
                         
                         console.log(`📊 Bill ${bill.bill_no} details:`, data);
                         
-                        // Calculate remaining amount
                         const totalAmount = parseFloat(data.total_amount) || 0;
                         const paidAmount = parseFloat(data.paid_amount) || 0;
                         const remainingAmount = Math.max(0, totalAmount - paidAmount);
@@ -1554,7 +1619,7 @@ const SupplierSettlementModal = ({
                             customerName: data.customer_name || '',
                             date: data.date || '',
                             hasDetails: true,
-                            sales: [] // Initialize sales array for processPayment compatibility
+                            sales: []
                         };
                     } catch (e) {
                         console.error(`❌ Error fetching details for bill ${bill.bill_no}:`, e);
@@ -1573,14 +1638,12 @@ const SupplierSettlementModal = ({
                 
                 console.log('✅ Bills with details:', billsWithDetails);
                 
-                // Filter out bills with zero remaining amount
                 const filteredBills = billsWithDetails.filter(bill => bill.remainingAmount > 0);
                 
                 console.log(`📊 ${filteredBills.length} bills with remaining balance out of ${billsWithDetails.length}`);
                 
                 setCustomerBills(filteredBills);
                 
-                // Auto-select all bills that have remaining balance
                 if (filteredBills.length > 0) {
                     setForm(prev => ({
                         ...prev,
@@ -1598,336 +1661,40 @@ const SupplierSettlementModal = ({
         } finally {
             setLoadingBills(false);
         }
-    };
+    }, []);
 
-    useEffect(() => {
-        if (isOpen) {
-            loadBanks();
-            resetForm();
-        }
-    }, [isOpen]);
-
-    // Fetch bills when customer code changes
-    useEffect(() => {
-        if (form.customerCode && form.customerCode.trim() !== '') {
-            const timer = setTimeout(() => {
-                fetchCustomerBills(form.customerCode);
-            }, 500);
-            return () => clearTimeout(timer);
-        } else {
-            setCustomerBills([]);
-            setForm(prev => ({ ...prev, selectedBills: [] }));
-        }
-    }, [form.customerCode]);
-
-    if (!isOpen) return null;
-
-    const selectedBank = banks.find(b => String(b.id) === String(form.bankId));
-    const requiresBank = form.paymentMethod === 'cheque' || form.paymentMethod === 'banktransfer';
-
-    // Calculate distribution of payment across selected bills
-    const calculatePaymentDistribution = (amount, selectedBills) => {
-        if (!selectedBills || selectedBills.length === 0) return [];
-        
-        const sortedBills = [...selectedBills].sort((a, b) => a.bill_no.localeCompare(b.bill_no));
-        let remainingAmount = parseFloat(amount) || 0;
-        const distribution = [];
-        
-        for (let i = 0; i < sortedBills.length; i++) {
-            const bill = sortedBills[i];
-            const billRemaining = Math.max(0, parseFloat(bill.remainingAmount) || 0);
-            
-            if (billRemaining <= 0) continue;
-            
-            let paymentAmount = 0;
-            let isFullyPaid = false;
-            
-            if (i === sortedBills.length - 1) {
-                paymentAmount = Math.min(remainingAmount, billRemaining);
-                isFullyPaid = paymentAmount >= billRemaining;
-            } else {
-                paymentAmount = Math.min(remainingAmount, billRemaining);
-                isFullyPaid = paymentAmount >= billRemaining;
-            }
-            
-            distribution.push({
-                ...bill,
-                paymentAmount: paymentAmount,
-                isFullyPaid: isFullyPaid
-            });
-            
-            remainingAmount -= paymentAmount;
-            if (remainingAmount <= 0) break;
-        }
-        
-        return distribution;
-    };
-
-    // Generate invoice HTML
-    const generateInvoiceHTML = (distribution, customerCode, totalAmount, paymentMethod, paymentDetails) => {
-        const date = new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-        const time = new Date().toLocaleTimeString();
-        const invoiceNo = `INV-${Date.now()}`;
-        
-        let paymentMethodDisplay = '';
-        if (paymentMethod === 'cheque' && paymentDetails) {
-            paymentMethodDisplay = `Cheque: ${paymentDetails.bank_name || 'Bank'} | No: ${paymentDetails.cheque_no || 'N/A'}`;
-        } else if (paymentMethod === 'banktransfer' && paymentDetails) {
-            paymentMethodDisplay = `Bank Transfer: Ref: ${paymentDetails.bank_transfer_ref_no || 'N/A'}`;
-        } else {
-            paymentMethodDisplay = 'Cash Payment';
-        }
-
-        let itemsHtml = distribution.map((bill, index) => {
-            const status = bill.isFullyPaid ? '✅ FULLY PAID' : '⚠️ PARTIAL';
-            return `
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;">${bill.bill_no}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.totalAmount || 0)}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.paymentAmount || 0)}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${status}</td>
-                </tr>
-            `;
-        }).join('');
-
-        return `
-            <div style="width: 100%; max-width: 800px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background: white;">
-                <div style="text-align: center; border-bottom: 3px solid #1a56db; padding-bottom: 20px; margin-bottom: 20px;">
-                    <h1 style="font-size: 28px; color: #1a56db; margin: 0;">Manju Colombage Lanka (Pvt) Ltd</h1>
-                    <p style="font-size: 16px; color: #475569; margin: 5px 0;">එළවළු, පළතුරු තොග වෙළෙන්දෝ</p>
-                    <p style="font-size: 14px; color: #64748b;">No. 123, Main Street, Colombo</p>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; margin-bottom: 20px; padding: 15px; background: #f8fafc; border-radius: 8px;">
-                    <div>
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Invoice No:</strong> ${invoiceNo}</p>
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Date:</strong> ${date} ${time}</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Customer Code:</strong> ${customerCode}</p>
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Payment Method:</strong> ${paymentMethodDisplay}</p>
-                    </div>
-                </div>
-
-                <h3 style="color: #1e293b; margin-bottom: 15px;">Bill Settlement Details</h3>
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                    <thead>
-                        <tr style="background: #f1f5f9;">
-                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">#</th>
-                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Bill No</th>
-                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Total Amount</th>
-                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Paid Amount</th>
-                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${itemsHtml}
-                    </tbody>
-                    <tfoot>
-                        <tr style="background: #f8fafc; font-weight: bold;">
-                            <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #1a56db;">Total Paid:</td>
-                            <td style="padding: 12px; text-align: right; border-top: 2px solid #1a56db; color: #059669;">Rs. ${formatDecimal(totalAmount)}</td>
-                            <td style="padding: 12px; text-align: center; border-top: 2px solid #1a56db;"></td>
-                        </tr>
-                    </tfoot>
-                </table>
-
-                <div style="display: flex; justify-content: space-between; margin-top: 20px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
-                    <div>
-                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Signature: ___________________</p>
-                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Date: ___________________</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <p style="font-size: 14px; color: #475569; margin: 5px 0;"><strong>Thank you for your business!</strong></p>
-                        <p style="font-size: 12px; color: #94a3b8;">This is a computer generated invoice</p>
-                    </div>
-                </div>
-            </div>
-        `;
-    };
-
-    // UPDATED: Use the processPayment function passed from parent
-    const handleSubmit = async () => {
-        if (!form.customerCode.trim()) {
-            alert('Please enter customer code.');
-            return;
-        }
-        if (!form.amount || parseFloat(form.amount) <= 0) {
-            alert('Please enter a valid amount.');
-            return;
-        }
-        if (!form.selectedBills || form.selectedBills.length === 0) {
-            alert('Please select at least one bill to settle.');
-            return;
-        }
-
-        // Filter out bills with zero remaining balance
-        const validBills = form.selectedBills.filter(bill => 
-            Math.max(0, parseFloat(bill.remainingAmount) || 0) > 0
-        );
-
-        if (validBills.length === 0) {
-            alert('Selected bills have no remaining balance to settle.');
-            return;
-        }
-
-        if (form.paymentMethod === 'cheque') {
-            if (!form.chequeDate || !form.chequeNo.trim() || !form.bankId) {
-                alert('Please fill cheque date, cheque number, and bank account.');
-                return;
-            }
-        }
-
-        if (form.paymentMethod === 'banktransfer') {
-            if (!form.bankId || !form.bankTransferRefNo.trim()) {
-                alert('Please select bank account and enter bank transfer reference number.');
-                return;
-            }
-        }
-
-        // Calculate payment distribution
-        const amount = parseFloat(form.amount);
-        const distribution = calculatePaymentDistribution(amount, validBills);
-        
-        // Check if we have enough bills to cover the amount
-        const totalRemaining = validBills.reduce((sum, bill) => {
-            return sum + Math.max(0, parseFloat(bill.remainingAmount) || 0);
-        }, 0);
-        
-        if (totalRemaining <= 0) {
-            alert('Selected bills have no remaining balance to settle.');
-            return;
-        }
-        
-        if (amount > totalRemaining) {
-            alert(`Total amount (Rs. ${formatDecimal(amount)}) exceeds total remaining balance of selected bills (Rs. ${formatDecimal(totalRemaining)}).\n\nPlease reduce the amount or select more bills.`);
-            return;
-        }
-
-        if (distribution.length === 0) {
-            alert('Unable to distribute payment. Please check the selected bills.');
-            return;
-        }
-
-        setSubmitting(true);
-        
-        try {
-            // Process each bill settlement using the same processPayment function
-            const results = [];
-            for (const bill of distribution) {
-                if (!bill.paymentAmount || bill.paymentAmount <= 0) continue;
-                
-                // Create a temporary selectedBill object that matches the format expected by processPayment
-                const tempSelectedBill = {
-                    billNo: bill.bill_no,
-                    customerCode: form.customerCode.trim().toUpperCase(),
-                    totalAmount: bill.totalAmount || 0,
-                    givenAmount: bill.paidAmount || 0,
-                    givenAmountApplied: 'N', // Will be updated by processPayment
-                    creditAmount: 0,
-                    remainingCredit: bill.remainingAmount || 0,
-                    paymentHistory: [],
-                    payment_history: [],
-                    sales: bill.sales || []
+    const toggleBillSelection = useCallback((bill) => {
+        setForm(prev => {
+            const isSelected = prev.selectedBills.some(b => b.bill_no === bill.bill_no);
+            if (isSelected) {
+                return {
+                    ...prev,
+                    selectedBills: prev.selectedBills.filter(b => b.bill_no !== bill.bill_no)
                 };
-
-                // Determine payment method details
-                let isCheque = false;
-                let chequeDetails = null;
-                let isBankTransfer = false;
-                let bankTransferDetails = null;
-                let isAdjustment = false;
-                let adjustmentDetails = null;
-
-                if (form.paymentMethod === 'cheque') {
-                    isCheque = true;
-                    chequeDetails = {
-                        cheq_date: form.chequeDate,
-                        cheq_no: form.chequeNo.trim(),
-                        bank_account_id: form.bankId,
-                        bank_name: selectedBank?.bank_name || null
-                    };
-                } else if (form.paymentMethod === 'banktransfer') {
-                    isBankTransfer = true;
-                    bankTransferDetails = {
-                        bank_account_id: form.bankId,
-                        reference_no: form.bankTransferRefNo.trim(),
-                        transfer_date: new Date().toISOString().split('T')[0],
-                        bank_name: selectedBank?.bank_name || null,
-                        notes: ''
-                    };
-                }
-
-                // Call processPayment for each bill
-                await processPayment(
-                    bill.paymentAmount,
-                    isCheque,
-                    chequeDetails,
-                    isBankTransfer,
-                    bankTransferDetails,
-                    isAdjustment,
-                    adjustmentDetails,
-                    tempSelectedBill // Pass the temp bill
-                );
-
-                results.push({ bill, status: 'success' });
+            } else {
+                return {
+                    ...prev,
+                    selectedBills: [...prev.selectedBills, bill]
+                };
             }
+        });
+    }, []);
 
-            if (results.length === 0) {
-                alert('No payments were processed. Please check the amounts.');
-                return;
-            }
+    const selectAllBills = useCallback(() => {
+        setForm(prev => ({
+            ...prev,
+            selectedBills: [...customerBills]
+        }));
+    }, [customerBills]);
 
-            // Generate invoice
-            const invoiceHTML = generateInvoiceHTML(
-                distribution.filter(b => b.paymentAmount > 0),
-                form.customerCode,
-                amount,
-                form.paymentMethod,
-                {
-                    payment_method: form.paymentMethod,
-                    cheque_date: form.paymentMethod === 'cheque' ? form.chequeDate : null,
-                    cheque_no: form.paymentMethod === 'cheque' ? form.chequeNo.trim() : null,
-                    bank_name: requiresBank ? (selectedBank?.bank_name || null) : null,
-                    bank_transfer_ref_no: form.paymentMethod === 'banktransfer' ? form.bankTransferRefNo.trim() : null,
-                }
-            );
+    const deselectAllBills = useCallback(() => {
+        setForm(prev => ({
+            ...prev,
+            selectedBills: []
+        }));
+    }, []);
 
-            setInvoiceData({
-                html: invoiceHTML,
-                distribution: distribution.filter(b => b.paymentAmount > 0),
-                totalAmount: amount,
-                customerCode: form.customerCode,
-                paymentMethod: form.paymentMethod
-            });
-
-            setShowInvoiceModal(true);
-
-            alert(`${results.length} bill(s) settled successfully!`);
-
-            // Refresh data
-            if (fetchSalesData) {
-                await fetchSalesData(selectedUniqueCode);
-            }
-            
-            onSaved?.();
-            
-        } catch (error) {
-            console.error('❌ Error saving settlement:', error);
-            console.error('Error response:', error.response?.data);
-            const errorMsg = error.response?.data?.message || 'Failed to save settlement.';
-            alert(errorMsg);
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    const handlePrintInvoice = () => {
+    const handlePrintInvoice = useCallback(() => {
         if (!invoiceData) return;
         
         const printWindow = window.open("", "_blank", "width=800,height=600");
@@ -1969,9 +1736,9 @@ const SupplierSettlementModal = ({
             </html>
         `);
         printWindow.document.close();
-    };
+    }, [invoiceData]);
 
-    const handleDownloadInvoice = () => {
+    const handleDownloadInvoice = useCallback(() => {
         if (!invoiceData) return;
         
         const blob = new Blob([invoiceData.html], { type: 'text/html' });
@@ -1983,65 +1750,311 @@ const SupplierSettlementModal = ({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    };
+    }, [invoiceData]);
 
-    const handleCloseInvoice = () => {
+    const handleCloseInvoice = useCallback(() => {
         setShowInvoiceModal(false);
         setInvoiceData(null);
         onClose();
         resetForm();
-    };
+    }, [onClose, resetForm]);
 
-    // Toggle bill selection
-    const toggleBillSelection = (bill) => {
-        setForm(prev => {
-            const isSelected = prev.selectedBills.some(b => b.bill_no === bill.bill_no);
-            if (isSelected) {
-                return {
-                    ...prev,
-                    selectedBills: prev.selectedBills.filter(b => b.bill_no !== bill.bill_no)
-                };
-            } else {
-                return {
-                    ...prev,
-                    selectedBills: [...prev.selectedBills, bill]
-                };
-            }
+    // ==================== useEffect HOOKS ====================
+    useEffect(() => {
+        if (isOpen) {
+            loadBanks();
+            resetForm();
+        }
+    }, [isOpen, loadBanks, resetForm]);
+
+    useEffect(() => {
+        if (form.customerCode && form.customerCode.trim() !== '') {
+            const timer = setTimeout(() => {
+                fetchCustomerBills(form.customerCode);
+            }, 500);
+            return () => clearTimeout(timer);
+        } else {
+            setCustomerBills([]);
+            setForm(prev => ({ ...prev, selectedBills: [] }));
+        }
+    }, [form.customerCode, fetchCustomerBills]);
+
+    // ==================== COMPUTED VALUES (NOT HOOKS) ====================
+    const selectedBank = banks.find(b => String(b.id) === String(form.bankId));
+    const requiresBank = form.paymentMethod === 'cheque' || form.paymentMethod === 'banktransfer';
+    const distributionResult = getDistributionPreview();
+    const totalSelectedBills = getTotalSelectedBills();
+
+    // ==================== CONDITIONAL RETURN (After all hooks) ====================
+    if (!isOpen) return null;
+
+    // ==================== GENERATE INVOICE HTML ====================
+    const generateInvoiceHTML = (distributionData, customerCode, totalAmount, paymentMethod, paymentDetails, extraAmount = 0) => {
+        const date = new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
         });
-    };
-
-    // Select all bills
-    const selectAllBills = () => {
-        setForm(prev => ({
-            ...prev,
-            selectedBills: [...customerBills]
-        }));
-    };
-
-    // Deselect all bills
-    const deselectAllBills = () => {
-        setForm(prev => ({
-            ...prev,
-            selectedBills: []
-        }));
-    };
-
-    // Get distribution preview
-    const getDistributionPreview = () => {
-        if (!form.amount || form.selectedBills.length === 0) return null;
+        const time = new Date().toLocaleTimeString();
+        const invoiceNo = `INV-${Date.now()}`;
+        const distribution = distributionData.distribution || distributionData;
         
-        const amount = parseFloat(form.amount);
+        let paymentMethodDisplay = '';
+        if (paymentMethod === 'cheque' && paymentDetails) {
+            paymentMethodDisplay = `Cheque: ${paymentDetails.bank_name || 'Bank'} | No: ${paymentDetails.cheque_no || 'N/A'}`;
+        } else if (paymentMethod === 'banktransfer' && paymentDetails) {
+            paymentMethodDisplay = `Bank Transfer: Ref: ${paymentDetails.bank_transfer_ref_no || 'N/A'}`;
+        } else {
+            paymentMethodDisplay = 'Cash Payment';
+        }
+
+        let itemsHtml = (Array.isArray(distribution) ? distribution : []).map((bill, index) => {
+            const status = bill.isFullyPaid ? '✅ FULLY PAID' : '⚠️ PARTIAL';
+            return `
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;">${bill.bill_no}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.totalAmount || 0)}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.paymentAmount || 0)}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${status}</td>
+                </tr>
+            `;
+        }).join('');
+
+        let extraRow = '';
+        if (extraAmount > 0) {
+            extraRow = `
+                <tr style="background: #fef3c7;">
+                    <td colspan="4" style="padding: 12px; text-align: right; font-weight: bold; color: #92400e;">💰 EXTRA AMOUNT (Unallocated):</td>
+                    <td style="padding: 12px; text-align: center; font-weight: bold; color: #f59e0b;">Rs. ${formatDecimal(extraAmount)}</td>
+                </tr>
+            `;
+        }
+
+        return `
+            <div style="width: 100%; max-width: 800px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background: white;">
+                <div style="text-align: center; border-bottom: 3px solid #1a56db; padding-bottom: 20px; margin-bottom: 20px;">
+                    <h1 style="font-size: 28px; color: #1a56db; margin: 0;">Manju Colombage Lanka (Pvt) Ltd</h1>
+                    <p style="font-size: 16px; color: #475569; margin: 5px 0;">එළවළු, පළතුරු තොග වෙළෙන්දෝ</p>
+                    <p style="font-size: 14px; color: #64748b;">No. 123, Main Street, Colombo</p>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px; padding: 15px; background: #f8fafc; border-radius: 8px;">
+                    <div>
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Invoice No:</strong> ${invoiceNo}</p>
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Date:</strong> ${date} ${time}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Customer Code:</strong> ${customerCode}</p>
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Payment Method:</strong> ${paymentMethodDisplay}</p>
+                    </div>
+                </div>
+
+                <h3 style="color: #1e293b; margin-bottom: 15px;">Bill Settlement Details</h3>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                    <thead>
+                        <tr style="background: #f1f5f9;">
+                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">#</th>
+                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Bill No</th>
+                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Total Amount</th>
+                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Paid Amount</th>
+                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${itemsHtml}
+                        ${extraRow}
+                    </tbody>
+                    <tfoot>
+                        <tr style="background: #f8fafc; font-weight: bold;">
+                            <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #1a56db;">Total Paid:</td>
+                            <td style="padding: 12px; text-align: right; border-top: 2px solid #1a56db; color: #059669;">Rs. ${formatDecimal(distributionData.totalPaid || totalAmount)}</td>
+                            <td style="padding: 12px; text-align: center; border-top: 2px solid #1a56db;"></td>
+                        </tr>
+                        ${extraAmount > 0 ? `
+                        <tr style="background: #fef3c7; font-weight: bold;">
+                            <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #f59e0b; color: #92400e;">⚠️ Extra Amount (Not Allocated):</td>
+                            <td style="padding: 12px; text-align: right; border-top: 2px solid #f59e0b; color: #f59e0b;">Rs. ${formatDecimal(extraAmount)}</td>
+                            <td style="padding: 12px; text-align: center; border-top: 2px solid #f59e0b;"></td>
+                        </tr>
+                        ` : ''}
+                    </tfoot>
+                </table>
+
+                <div style="display: flex; justify-content: space-between; margin-top: 20px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
+                    <div>
+                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Signature: ___________________</p>
+                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Date: ___________________</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="font-size: 14px; color: #475569; margin: 5px 0;"><strong>Thank you for your business!</strong></p>
+                        <p style="font-size: 12px; color: #94a3b8;">This is a computer generated invoice</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
+
+    // ==================== HANDLE SUBMIT ====================
+    const handleSubmit = async () => {
+        if (!form.customerCode.trim()) {
+            alert('Please enter customer code.');
+            return;
+        }
+        if (!form.amount || parseFloat(form.amount) <= 0) {
+            alert('Please enter a valid amount.');
+            return;
+        }
+        if (!form.selectedBills || form.selectedBills.length === 0) {
+            alert('Please select at least one bill to settle.');
+            return;
+        }
+
         const validBills = form.selectedBills.filter(bill => 
             Math.max(0, parseFloat(bill.remainingAmount) || 0) > 0
         );
+
+        if (validBills.length === 0) {
+            alert('Selected bills have no remaining balance to settle.');
+            return;
+        }
+
+        if (form.paymentMethod === 'cheque') {
+            if (!form.chequeDate || !form.chequeNo.trim() || !form.bankId) {
+                alert('Please fill cheque date, cheque number, and bank account.');
+                return;
+            }
+        }
+
+        if (form.paymentMethod === 'banktransfer') {
+            if (!form.bankId || !form.bankTransferRefNo.trim()) {
+                alert('Please select bank account and enter bank transfer reference number.');
+                return;
+            }
+        }
+
+        const amount = parseFloat(form.amount);
+        const distributionResult2 = calculatePaymentDistribution(amount, validBills);
         
-        if (validBills.length === 0) return null;
+        if (distributionResult2.distribution.length === 0) {
+            alert('Unable to distribute payment. Please check the selected bills.');
+            return;
+        }
+
+        setSubmitting(true);
         
-        return calculatePaymentDistribution(amount, validBills);
+        try {
+            const results = [];
+            for (const bill of distributionResult2.distribution) {
+                if (!bill.paymentAmount || bill.paymentAmount <= 0) continue;
+                
+                const tempSelectedBill = {
+                    billNo: bill.bill_no,
+                    customerCode: form.customerCode.trim().toUpperCase(),
+                    totalAmount: bill.totalAmount || 0,
+                    givenAmount: bill.paidAmount || 0,
+                    givenAmountApplied: 'N',
+                    creditAmount: 0,
+                    remainingCredit: bill.remainingAmount || 0,
+                    paymentHistory: [],
+                    payment_history: [],
+                    sales: bill.sales || []
+                };
+
+                let isCheque = false;
+                let chequeDetails = null;
+                let isBankTransfer = false;
+                let bankTransferDetails = null;
+                let isAdjustment = false;
+                let adjustmentDetails = null;
+
+                if (form.paymentMethod === 'cheque') {
+                    isCheque = true;
+                    chequeDetails = {
+                        cheq_date: form.chequeDate,
+                        cheq_no: form.chequeNo.trim(),
+                        bank_account_id: form.bankId,
+                        bank_name: selectedBank?.bank_name || null
+                    };
+                } else if (form.paymentMethod === 'banktransfer') {
+                    isBankTransfer = true;
+                    bankTransferDetails = {
+                        bank_account_id: form.bankId,
+                        reference_no: form.bankTransferRefNo.trim(),
+                        transfer_date: new Date().toISOString().split('T')[0],
+                        bank_name: selectedBank?.bank_name || null,
+                        notes: ''
+                    };
+                }
+
+                await processPayment(
+                    bill.paymentAmount,
+                    isCheque,
+                    chequeDetails,
+                    isBankTransfer,
+                    bankTransferDetails,
+                    isAdjustment,
+                    adjustmentDetails,
+                    tempSelectedBill
+                );
+
+                results.push({ bill, status: 'success' });
+            }
+
+            if (results.length === 0) {
+                alert('No payments were processed. Please check the amounts.');
+                return;
+            }
+
+            const invoiceHTML = generateInvoiceHTML(
+                distributionResult2,
+                form.customerCode,
+                amount,
+                form.paymentMethod,
+                {
+                    payment_method: form.paymentMethod,
+                    cheque_date: form.paymentMethod === 'cheque' ? form.chequeDate : null,
+                    cheque_no: form.paymentMethod === 'cheque' ? form.chequeNo.trim() : null,
+                    bank_name: requiresBank ? (selectedBank?.bank_name || null) : null,
+                    bank_transfer_ref_no: form.paymentMethod === 'banktransfer' ? form.bankTransferRefNo.trim() : null,
+                },
+                distributionResult2.extraAmount || 0
+            );
+
+            setInvoiceData({
+                html: invoiceHTML,
+                distribution: distributionResult2.distribution,
+                totalAmount: amount,
+                customerCode: form.customerCode,
+                paymentMethod: form.paymentMethod,
+                extraAmount: distributionResult2.extraAmount || 0
+            });
+
+            setShowInvoiceModal(true);
+
+            let message = `${results.length} bill(s) settled successfully!`;
+            if (distributionResult2.extraAmount > 0) {
+                message += `\n\n⚠️ Extra Amount: Rs. ${formatDecimal(distributionResult2.extraAmount)} (Not allocated to any bill)`;
+            }
+            alert(message);
+
+            if (fetchSalesData) {
+                await fetchSalesData(selectedUniqueCode);
+            }
+            
+            onSaved?.();
+            
+        } catch (error) {
+            console.error('❌ Error saving settlement:', error);
+            console.error('Error response:', error.response?.data);
+            const errorMsg = error.response?.data?.message || 'Failed to save settlement.';
+            alert(errorMsg);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    const distributionPreview = getDistributionPreview();
-
+    // ==================== RENDER ====================
     return (
         <>
             <div
@@ -2064,6 +2077,7 @@ const SupplierSettlementModal = ({
                     </div>
 
                     <div style={{ padding: '20px 22px' }}>
+                        {/* Customer Code and Payment Method */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
                                 <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: '600' }}>Customer Code</label>
@@ -2105,6 +2119,7 @@ const SupplierSettlementModal = ({
                             </div>
                         </div>
 
+                        {/* Cheque Details */}
                         {form.paymentMethod === 'cheque' && (
                             <div style={{ marginTop: '12px', padding: '14px', borderRadius: '12px', background: '#f5f3ff' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -2147,6 +2162,7 @@ const SupplierSettlementModal = ({
                             </div>
                         )}
 
+                        {/* Bank Transfer Details */}
                         {form.paymentMethod === 'banktransfer' && (
                             <div style={{ marginTop: '12px', padding: '14px', borderRadius: '12px', background: '#fdf2f8' }}>
                                 <div>
@@ -2178,8 +2194,23 @@ const SupplierSettlementModal = ({
                             </div>
                         )}
 
+                        {/* Amount Section with Total Display */}
                         <div style={{ marginTop: '12px' }}>
-                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: '600' }}>Amount</label>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                <label style={{ fontSize: '12px', fontWeight: '600' }}>Amount</label>
+                                {totalSelectedBills > 0 && (
+                                    <div style={{ 
+                                        fontSize: '13px', 
+                                        fontWeight: '700', 
+                                        color: '#0f766e',
+                                        background: '#d1fae5',
+                                        padding: '4px 12px',
+                                        borderRadius: '20px'
+                                    }}>
+                                        Total Selected Bills: Rs. {formatDecimal(totalSelectedBills)}
+                                    </div>
+                                )}
+                            </div>
                             <input
                                 type="number"
                                 value={form.amount}
@@ -2189,11 +2220,17 @@ const SupplierSettlementModal = ({
                             />
                             {form.amount && form.selectedBills.length > 0 && (
                                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                                    💡 Will settle bills in order: Full payment for earlier bills, partial for the last
+                                    💡 Bills will be settled in order: Full payment for earlier bills, partial for the last
+                                    {parseFloat(form.amount) > totalSelectedBills && (
+                                        <span style={{ color: '#f59e0b', display: 'block', marginTop: '2px' }}>
+                                            ⚠️ Extra amount: Rs. {formatDecimal(parseFloat(form.amount) - totalSelectedBills)} (will show as unallocated)
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </div>
 
+                        {/* Bill Selection */}
                         <div style={{ marginTop: '12px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                 <label style={{ fontSize: '12px', fontWeight: '600' }}>
@@ -2317,7 +2354,7 @@ const SupplierSettlementModal = ({
                             </div>
                             {form.selectedBills.length > 0 && (
                                 <div style={{ fontSize: '11px', color: '#059669', marginTop: '6px' }}>
-                                    ✅ {form.selectedBills.length} bill(s) selected
+                                    ✅ {form.selectedBills.length} bill(s) selected | Total: Rs. {formatDecimal(totalSelectedBills)}
                                 </div>
                             )}
                             <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
@@ -2326,11 +2363,11 @@ const SupplierSettlementModal = ({
                         </div>
 
                         {/* Payment Distribution Preview */}
-                        {distributionPreview && distributionPreview.length > 0 && (
+                        {distributionResult && distributionResult.distribution.length > 0 && (
                             <div style={{ marginTop: '16px', padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>📊 Payment Distribution Preview</div>
-                                {distributionPreview.map((bill, idx) => (
-                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', borderBottom: idx < distributionPreview.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                {distributionResult.distribution.map((bill, idx) => (
+                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', borderBottom: idx < distributionResult.distribution.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                                         <span>{bill.bill_no}</span>
                                         <span>
                                             Rs. {formatDecimal(bill.paymentAmount || 0)}
@@ -2338,6 +2375,12 @@ const SupplierSettlementModal = ({
                                         </span>
                                     </div>
                                 ))}
+                                {distributionResult.extraAmount > 0 && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', color: '#f59e0b', borderBottom: '1px solid #fef3c7' }}>
+                                        <span>⚠️ Extra Amount (Unallocated)</span>
+                                        <span>Rs. {formatDecimal(distributionResult.extraAmount)}</span>
+                                    </div>
+                                )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', marginTop: '4px', borderTop: '2px solid #e2e8f0', fontWeight: 'bold', fontSize: '13px' }}>
                                     <span>Total</span>
                                     <span>Rs. {formatDecimal(parseFloat(form.amount) || 0)}</span>
@@ -2808,6 +2851,9 @@ export default function PrintedBills() {
     const badDebtAmountRef = useRef(null);
     const givenAmountInputRef = useRef(null);
 
+    const [showOutstandingDebtModal, setShowOutstandingDebtModal] = useState(false);
+const [outstandingDebtBills, setOutstandingDebtBills] = useState([]);
+
     const getTotalReceived = (bill) => {
         if (!bill) return 0;
 
@@ -2826,30 +2872,31 @@ export default function PrintedBills() {
         }
         return total;
     };
-    const getRemainingBillAmount = (bill) => {
-        if (!bill) return 0;
+ const getRemainingBillAmount = (bill) => {
+    if (!bill) return 0;
 
-        // Check if this is a completed bill (in applied section)
-        const isAppliedSection = bill.givenAmountApplied === 'Y';
+    // Check if this is a completed bill (in applied section)
+    const isAppliedSection = bill.givenAmountApplied === 'Y';
 
-        if (isAppliedSection) {
-            // COMPLETED SECTION: Maximum allowed is the unsettled credit amount
-            return bill.remainingCredit || 0;
-        } else {
-            // PENDING SECTION: Maximum allowed is bill total - all payments (including credit)
-            let totalAllPayments = 0;
-            const history = bill.paymentHistory || bill.payment_history;
-            if (history) {
-                let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                if (Array.isArray(payments)) {
-                    payments.forEach(p => {
-                        totalAllPayments += parseFloat(p.amount) || 0;
-                    });
-                }
+    if (isAppliedSection) {
+        // COMPLETED SECTION: Maximum allowed is the unsettled credit amount
+        // For walking customers, this might be 0
+        return bill.remainingCredit || 0;
+    } else {
+        // PENDING SECTION: Maximum allowed is bill total - all payments (including credit)
+        let totalAllPayments = 0;
+        const history = bill.paymentHistory || bill.payment_history;
+        if (history) {
+            let payments = typeof history === 'string' ? JSON.parse(history) : history;
+            if (Array.isArray(payments)) {
+                payments.forEach(p => {
+                    totalAllPayments += parseFloat(p.amount) || 0;
+                });
             }
-            return Math.max(0, bill.totalAmount - totalAllPayments);
         }
-    };
+        return Math.max(0, bill.totalAmount - totalAllPayments);
+    }
+};
     // Add this with your other useState declarations
     const [billCustomerTypes, setBillCustomerTypes] = useState(() => {
         try {
@@ -2859,6 +2906,18 @@ export default function PrintedBills() {
             return {};
         }
     });
+   
+const fetchDebtorForBill = async (billNo) => {
+    try {
+        const response = await api.get(`/debtors/${billNo}`);
+        if (response.data.success && response.data.data) {
+            return response.data.data;
+        }
+    } catch (e) {
+        console.log('No debtor record found for bill:', billNo);
+    }
+    return null;
+};
     // Save bill customer types to localStorage
     useEffect(() => {
         localStorage.setItem('billCustomerTypes', JSON.stringify(billCustomerTypes));
@@ -3203,36 +3262,63 @@ export default function PrintedBills() {
             customerType: null
         }));
     };
-    const updateCreditAmountsFromDebtorTable = useCallback(async (bills, source = 'unknown', isAppliedSection = false, debtorMap = {}) => {
-        if (!bills || bills.length === 0) return bills || [];
+ const updateCreditAmountsFromDebtorTable = useCallback(async (bills, source = 'unknown', isAppliedSection = false, debtorMap = {}) => {
+    if (!bills || bills.length === 0) return bills || [];
 
-        const updatedBills = [...bills];
+    const updatedBills = [...bills];
 
-        for (let i = 0; i < updatedBills.length; i++) {
-            const bill = updatedBills[i];
-            if (!bill || !bill.billNo) continue;
+    for (let i = 0; i < updatedBills.length; i++) {
+        const bill = updatedBills[i];
+        if (!bill || !bill.billNo) continue;
 
-            const previousCredit = bill.remainingCredit;
+        const previousCredit = bill.remainingCredit || 0;
 
-            if (isAppliedSection) {
-                const debtor = debtorMap[bill.billNo];
-                if (debtor) {
-                    updatedBills[i].remainingCredit = debtor.remaining_amount || 0;
-                    console.log(`[COMPLETED] Bill ${bill.billNo}: Unsettled credit = ${debtor.remaining_amount}`);
-                } else {
-                    updatedBills[i].remainingCredit = bill.creditAmount || 0;
-                    console.log(`[COMPLETED] Bill ${bill.billNo}: No debtor record found, using credit amount = ${updatedBills[i].remainingCredit}`);
-                }
+        if (isAppliedSection) {
+            // For completed bills, get remaining credit from debtor table
+            const debtor = debtorMap[bill.billNo];
+            if (debtor) {
+                updatedBills[i].remainingCredit = debtor.remaining_amount || 0;
+                console.log(`[COMPLETED] Bill ${bill.billNo}: Unsettled credit = ${debtor.remaining_amount}`);
             } else {
-                updatedBills[i].remainingCredit = bill.creditAmount || 0;
-                console.log(`[PENDING] Bill ${bill.billNo}: Full credit amount = ${bill.creditAmount}`);
+                // No debtor record - this could be a walking customer with no credit
+                // Check if the bill has a saved customer type
+                const savedType = billCustomerTypes[bill.billNo];
+                if (savedType === 'walking') {
+                    // Walking customer - no credit record needed
+                    updatedBills[i].remainingCredit = 0;
+                    console.log(`[COMPLETED] Bill ${bill.billNo}: Walking customer, no credit`);
+                } else {
+                    // Check if bill has any payment history with Credit method
+                    let hasCreditPayment = false;
+                    const history = bill.paymentHistory || bill.payment_history;
+                    if (history) {
+                        let payments = typeof history === 'string' ? JSON.parse(history) : history;
+                        if (Array.isArray(payments)) {
+                            hasCreditPayment = payments.some(p => p.method === 'Credit');
+                        }
+                    }
+                    
+                    if (hasCreditPayment) {
+                        // Has credit payment but no debtor record - create one
+                        updatedBills[i].remainingCredit = bill.creditAmount || 0;
+                        console.log(`[COMPLETED] Bill ${bill.billNo}: Has credit but no debtor, using creditAmount = ${updatedBills[i].remainingCredit}`);
+                    } else {
+                        updatedBills[i].remainingCredit = 0;
+                        console.log(`[COMPLETED] Bill ${bill.billNo}: No debtor record found, using 0`);
+                    }
+                }
             }
-
-            debugCreditChanges(bill.billNo, previousCredit, updatedBills[i].remainingCredit, `${source} - ${isAppliedSection ? 'completed' : 'pending'}`);
+        } else {
+            // For pending bills, show the full credit amount
+            updatedBills[i].remainingCredit = bill.creditAmount || 0;
+            console.log(`[PENDING] Bill ${bill.billNo}: Full credit amount = ${bill.creditAmount}`);
         }
 
-        return updatedBills;
-    }, []);
+        debugCreditChanges(bill.billNo, previousCredit, updatedBills[i].remainingCredit, `${source} - ${isAppliedSection ? 'completed' : 'pending'}`);
+    }
+
+    return updatedBills;
+}, [billCustomerTypes]);
     // Bank Breakdown Modal Component
     const BankBreakdownModal = ({ isOpen, onClose, bankBreakdown }) => {
         if (!isOpen) return null;
@@ -3334,6 +3420,223 @@ export default function PrintedBills() {
             </div>
         );
     };
+// ==================== OUTSTANDING DEBT MODAL ====================
+const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecimal }) => {
+    const [loadingDebtorData, setLoadingDebtorData] = useState(false);
+    const [billsWithDebtorData, setBillsWithDebtorData] = useState([]);
+
+    useEffect(() => {
+        if (isOpen && bills.length > 0) {
+            fetchDebtorDataForBills();
+        } else if (isOpen) {
+            setBillsWithDebtorData([]);
+        }
+    }, [isOpen, bills]);
+
+    const fetchDebtorDataForBills = async () => {
+        setLoadingDebtorData(true);
+        try {
+            const enrichedBills = await Promise.all(
+                bills.map(async (bill) => {
+                    try {
+                        const response = await api.get(`/debtors/${bill.billNo}`);
+                        if (response.data.success && response.data.data) {
+                            return {
+                                ...bill,
+                                debtorData: response.data.data
+                            };
+                        }
+                    } catch (e) {
+                        // No debtor record found
+                    }
+                    return bill;
+                })
+            );
+            setBillsWithDebtorData(enrichedBills);
+        } catch (error) {
+            console.error('Error fetching debtor data:', error);
+            setBillsWithDebtorData(bills);
+        } finally {
+            setLoadingDebtorData(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    const totalOutstanding = billsWithDebtorData.reduce((sum, bill) => {
+        let remaining = 0;
+        
+        if (bill.debtorData?.remaining_amount !== undefined && bill.debtorData?.remaining_amount !== null) {
+            remaining = parseFloat(bill.debtorData.remaining_amount) || 0;
+        } else if (bill.remainingCredit !== undefined && bill.remainingCredit !== null) {
+            remaining = parseFloat(bill.remainingCredit) || 0;
+        }
+        
+        return sum + remaining;
+    }, 0);
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20015,
+        }} onClick={onClose}>
+            <div style={{
+                backgroundColor: 'white',
+                borderRadius: '20px',
+                width: '600px',
+                maxWidth: '90%',
+                maxHeight: '80vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 24px 48px rgba(0,0,0,0.3)'
+            }} onClick={e => e.stopPropagation()}>
+                <div style={{
+                    padding: '20px 24px',
+                    background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                    borderRadius: '20px 20px 0 0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <div>
+                        <h3 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '700' }}>
+                            ⚠️ Outstanding Debt Bills
+                        </h3>
+                        <div style={{ fontSize: '13px', color: '#fca5a5', marginTop: '4px' }}>
+                            {billsWithDebtorData.length} bill(s) with outstanding debt
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            background: 'rgba(255,255,255,0.2)',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '24px',
+                            cursor: 'pointer',
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                    >
+                        ×
+                    </button>
+                </div>
+
+                <div style={{ padding: '20px 24px', borderBottom: '2px solid #fef3c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: '600', color: '#475569' }}>Total Outstanding Debt</span>
+                    <span style={{ fontSize: '22px', fontWeight: '800', color: '#dc2626' }}>
+                        Rs. {formatDecimal(totalOutstanding || 0)}
+                    </span>
+                </div>
+
+                <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+                    {loadingDebtorData ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            ⏳ Loading debtor data...
+                        </div>
+                    ) : billsWithDebtorData.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            ✅ No outstanding debt bills found
+                        </div>
+                    ) : (
+                        billsWithDebtorData.map((bill, index) => {
+                            let outstandingAmount = 0;
+                            if (bill.debtorData?.remaining_amount !== undefined && bill.debtorData?.remaining_amount !== null) {
+                                outstandingAmount = parseFloat(bill.debtorData.remaining_amount) || 0;
+                            } else if (bill.remainingCredit !== undefined && bill.remainingCredit !== null) {
+                                outstandingAmount = parseFloat(bill.remainingCredit) || 0;
+                            }
+                            
+                            const isFullyPaid = outstandingAmount === 0;
+                            
+                            return (
+                                <div
+                                    key={bill.billNo || index}
+                                    onClick={() => {
+                                        if (onBillClick) {
+                                            onBillClick(bill);
+                                            onClose();
+                                        }
+                                    }}
+                                    style={{
+                                        padding: '16px 18px',
+                                        marginBottom: '10px',
+                                        background: isFullyPaid ? '#f0fdf4' : '#fef2f2',
+                                        borderRadius: '12px',
+                                        border: isFullyPaid ? '1px solid #bbf7d0' : '1px solid #fecaca',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.transform = 'translateX(4px)';
+                                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.05)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'translateX(0)';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ fontWeight: '700', fontSize: '16px', color: '#0f172a' }}>
+                                            #{bill.billNo || 'N/A'}
+                                        </div>
+                                        <div style={{ fontSize: '13px', color: '#64748b' }}>
+                                            Customer: {bill.customerCode || 'N/A'}
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                                            Status: {bill.givenAmountApplied === 'Y' ? '✅ Completed' : '⏳ Pending'}
+                                        </div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div style={{ fontSize: '18px', fontWeight: '700', color: isFullyPaid ? '#059669' : '#dc2626' }}>
+                                            Rs. {formatDecimal(outstandingAmount || 0)}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: isFullyPaid ? '#059669' : '#b91c1c' }}>
+                                            {isFullyPaid ? '✅ Fully Settled' : '⚠️ Outstanding'}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+
+                <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '10px 24px',
+                            background: '#f1f5f9',
+                            color: '#475569',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
     // Supplier Loan Details Modal
     const SupplierLoanDetailsModal = ({ isOpen, onClose, stats, adjustedLoanData }) => {
         if (!isOpen) return null;
@@ -3760,43 +4063,69 @@ export default function PrintedBills() {
         }
     }, [state.adjustmentType, state.bagCount, state.bagValue, state.boxCount, state.boxValue, state.customerBillValue, state.badDebtAmount, selectedBillDebtor]);
 
-    const handleBillClick = async (bill) => {
-        // If clicking the same bill, clear it
-        if (state.selectedBill?.billNo === bill.billNo) {
-            setState(prev => ({
-                ...prev,
-                selectedBill: null,
-                givenAmountInput: "",
-                isUpdatingCompletedBill: false,
-                customerType: null
-            }));
-            setSelectedBillDebtor(null);
-            return;
-        }
-
-        // IMPORTANT: Clear debtor data IMMEDIATELY when selecting a new bill
-        setSelectedBillDebtor(null);
-
-        // Reset customer type and selected bill details cleanly
+ const handleBillClick = async (bill) => {
+    // If clicking the same bill, clear it
+    if (state.selectedBill?.billNo === bill.billNo) {
         setState(prev => ({
             ...prev,
-            selectedBill: bill,
+            selectedBill: null,
             givenAmountInput: "",
-            isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
-            customerType: null // FIX: Keep it clean until user interactively selects a type
+            isUpdatingCompletedBill: false,
+            customerType: null
         }));
+        setSelectedBillDebtor(null);
+        return;
+    }
 
-        // Then fetch debtor data asynchronously
+    // IMPORTANT: Clear debtor data IMMEDIATELY when selecting a new bill
+    setSelectedBillDebtor(null);
+
+    // Reset customer type and selected bill details cleanly
+    setState(prev => ({
+        ...prev,
+        selectedBill: bill,
+        givenAmountInput: "",
+        isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
+        customerType: null
+    }));
+
+    // Check if there's a saved customer type for this bill
+    const savedType = billCustomerTypes[bill.billNo];
+    if (savedType) {
+        console.log(`✅ Found saved customer type "${savedType}" for bill #${bill.billNo}`);
+        setState(prev => ({
+            ...prev,
+            customerType: savedType
+        }));
+    } else {
+        // Check for debtor record
         try {
             const response = await api.get(`/debtors/${bill.billNo}`);
-            if (response.data.success && response.data.data) {
-                const debtorData = response.data.data;
-                setSelectedBillDebtor(debtorData);
+            if (response.data.success && response.data.data && response.data.data.Debtor_no) {
+                setSelectedBillDebtor(response.data.data);
+                // Only auto-select debtor if not viewing old bills
+                if (!viewOldBills) {
+                    setState(prev => ({
+                        ...prev,
+                        customerType: 'debtor'
+                    }));
+                    // Save this selection
+                    if (bill.billNo) {
+                        setBillCustomerTypes(prev => ({
+                            ...prev,
+                            [bill.billNo]: 'debtor'
+                        }));
+                    }
+                }
+            } else {
+                // No debtor record found
+                console.log(`ℹ️ No debtor record for bill #${bill.billNo}`);
             }
         } catch (e) {
             console.log('Error fetching debtor:', e);
         }
-    };
+    }
+};
     // Add this useEffect after your state declarations (around line where other useEffects are)
     useEffect(() => {
         if (state.givenAmountInput && state.givenAmountInput !== "0") {
@@ -4020,351 +4349,386 @@ export default function PrintedBills() {
         } catch (error) { console.error('Error fetching payment history:', error); alert('Failed to fetch payment history'); }
     };
 const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null, customSelectedBill = null) => {
-        // Use customSelectedBill if provided, otherwise use state.selectedBill
-        const billToProcess = customSelectedBill || state.selectedBill;
+    // Use customSelectedBill if provided, otherwise use state.selectedBill
+    const billToProcess = customSelectedBill || state.selectedBill;
+    
+    if (!billToProcess || state.isPrinting) return;
+
+    const maxAllowed = getRemainingBillAmount(billToProcess);
+
+    if (paymentAmount > maxAllowed) {
+        alert(`Payment amount exceeds maximum allowed!\n\nMaximum: Rs. ${formatDecimal(maxAllowed)}\nEntered: Rs. ${formatDecimal(paymentAmount)}`);
+        setState(prev => ({ ...prev, isPrinting: false }));
+        return;
+    }
+
+    setState(prev => ({ ...prev, isPrinting: true }));
+
+    try {
+        const currentGiven = billToProcess.givenAmount || 0;
+        const totalGivenAmount = currentGiven + paymentAmount;
         
-        if (!billToProcess || state.isPrinting) return;
+        // IMPORTANT: Calculate the actual total bill amount including all items
+        const totalBillAmount = billToProcess.sales.reduce((sum, s) => {
+            const itemTotal = ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0));
+            const packTotal = ((parseFloat(s.packs) || 0) * (parseFloat(s.CustomerPackCost) || 0));
+            return sum + itemTotal + packTotal;
+        }, 0);
+        
+        // Determine if fully settled
+        const isFullySettled = totalGivenAmount >= totalBillAmount;
+        const givenAmountApplied = isFullySettled ? 'Y' : 'N';
 
-        const maxAllowed = getRemainingBillAmount(billToProcess);
+        let paymentMethod = 'Cash';
+        let paymentMethodForDebtor = 'cash';
 
-        if (paymentAmount > maxAllowed) {
-            alert(`Payment amount exceeds maximum allowed!\n\nMaximum: Rs. ${formatDecimal(maxAllowed)}\nEntered: Rs. ${formatDecimal(paymentAmount)}`);
-            setState(prev => ({ ...prev, isPrinting: false }));
-            return;
+        if (isAdjustment && adjustmentDetails) {
+            paymentMethod = adjustmentDetails.type;
+            if (adjustmentDetails.type === 'bag_to_box') paymentMethodForDebtor = 'bag_to_box';
+            else if (adjustmentDetails.type === 'bill_to_bill') paymentMethodForDebtor = 'bill_to_bill';
+            else if (adjustmentDetails.type === 'bad_debt') paymentMethodForDebtor = 'bad_debt';
+        } else if (isBankTransfer) {
+            paymentMethod = 'Bank Transfer';
+            paymentMethodForDebtor = 'bank_transfer';
+        } else if (isCheque) {
+            paymentMethod = 'Cheque';
+            paymentMethodForDebtor = 'cheque';
+        } else {
+            paymentMethodForDebtor = 'cash';
         }
 
-        setState(prev => ({ ...prev, isPrinting: true }));
+        const payload = {
+            bill_no: billToProcess.billNo,
+            given_amount: totalGivenAmount,
+            given_amount_applied: givenAmountApplied,
+            credit_transaction: 'Y', // Always 'Y' for completed bills with credit
+            payment_amount: paymentAmount,
+            payment_method: paymentMethod,
+            is_walking_customer: state.customerType === 'walking'
+        };
 
-        try {
-            const currentGiven = billToProcess.givenAmount || 0;
-            const totalGivenAmount = currentGiven + paymentAmount;
-            const isFullySettled = totalGivenAmount >= billToProcess.totalAmount;
-            const creditTransaction = isFullySettled ? 'N' : 'Y';
-            const givenAmountApplied = isFullySettled ? 'Y' : 'N';
+        let paymentMethodText = 'Cash';
+        let paymentDetailsForReceipt = null;
+        let bankNameForCashier = null;
 
-            let paymentMethod = 'Cash';
-            let paymentMethodForDebtor = 'cash';
-
-            if (isAdjustment && adjustmentDetails) {
-                paymentMethod = adjustmentDetails.type;
-                if (adjustmentDetails.type === 'bag_to_box') paymentMethodForDebtor = 'bag_to_box';
-                else if (adjustmentDetails.type === 'bill_to_bill') paymentMethodForDebtor = 'bill_to_bill';
-                else if (adjustmentDetails.type === 'bad_debt') paymentMethodForDebtor = 'bad_debt';
-            } else if (isBankTransfer) {
-                paymentMethod = 'Bank Transfer';
-                paymentMethodForDebtor = 'bank_transfer';
-            } else if (isCheque) {
-                paymentMethod = 'Cheque';
-                paymentMethodForDebtor = 'cheque';
-            } else {
-                paymentMethodForDebtor = 'cash';
-            }
-
-            const payload = {
-                bill_no: billToProcess.billNo,
-                given_amount: totalGivenAmount,
-                given_amount_applied: givenAmountApplied,
-                credit_transaction: creditTransaction,
-                payment_amount: paymentAmount,
-                payment_method: paymentMethod,
-                is_walking_customer: state.customerType === 'walking'
-            };
-
-            let paymentMethodText = 'Cash';
-            let paymentDetailsForReceipt = null;
-            let bankNameForCashier = null;
-
-            if (isAdjustment && adjustmentDetails) {
-                if (adjustmentDetails.type === 'bag_to_box') {
-                    payload.bag_count = adjustmentDetails.bag_count;
-                    payload.box_count = adjustmentDetails.box_count;
-                    payload.bag_value = adjustmentDetails.bag_value;
-                    payload.box_value = adjustmentDetails.box_value;
-                    payload.adjustment_amount = adjustmentDetails.amount;
-                    paymentMethodText = 'Bag to Box';
-                    paymentDetailsForReceipt = {
-                        type: 'bag_to_box',
-                        amount: adjustmentDetails.amount,
-                        bag_count: adjustmentDetails.bag_count,
-                        box_count: adjustmentDetails.box_count,
-                        bag_value: adjustmentDetails.bag_value,
-                        box_value: adjustmentDetails.box_value
-                    };
-                } else if (adjustmentDetails.type === 'bill_to_bill') {
-                    payload.target_customer_code = adjustmentDetails.customer_code;
-                    payload.target_bill_no = adjustmentDetails.customer_bill_no;
-                    payload.target_bill_value = adjustmentDetails.customer_bill_value;
-                    payload.adjustment_amount = adjustmentDetails.amount;
-                    paymentMethodText = 'Bill to Bill';
-                    paymentDetailsForReceipt = {
-                        type: 'bill_to_bill',
-                        amount: adjustmentDetails.amount,
-                        customer_bill_no: adjustmentDetails.customer_bill_no
-                    };
-                } else if (adjustmentDetails.type === 'bad_debt') {
-                    payload.bad_debt_name = adjustmentDetails.bad_debt_name;
-                    payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
-                    payload.adjustment_amount = adjustmentDetails.amount;
-                    paymentMethodText = 'Bad Debt';
-                    paymentDetailsForReceipt = {
-                        type: 'bad_debt',
-                        amount: adjustmentDetails.amount,
-                        name: adjustmentDetails.bad_debt_name
-                    };
-                }
-            } else if (isBankTransfer && bankTransferDetails) {
-                payload.bank_account_id = bankTransferDetails.bank_account_id;
-                payload.transfer_reference_no = bankTransferDetails.reference_no;
-                payload.transfer_date = bankTransferDetails.transfer_date;
-                payload.transfer_notes = bankTransferDetails.notes;
-                paymentMethodText = 'Bank Transfer';
+        if (isAdjustment && adjustmentDetails) {
+            if (adjustmentDetails.type === 'bag_to_box') {
+                payload.bag_count = adjustmentDetails.bag_count;
+                payload.box_count = adjustmentDetails.box_count;
+                payload.bag_value = adjustmentDetails.bag_value;
+                payload.box_value = adjustmentDetails.box_value;
+                payload.adjustment_amount = adjustmentDetails.amount;
+                paymentMethodText = 'Bag to Box';
                 paymentDetailsForReceipt = {
-                    reference_no: bankTransferDetails.reference_no,
-                    transfer_date: bankTransferDetails.transfer_date
-                };
-                bankNameForCashier = bankTransferDetails.bank_name || null;
-            } else if (isCheque && chequeDetails) {
-                payload.cheq_date = chequeDetails.cheq_date;
-                payload.cheq_no = chequeDetails.cheq_no;
-                payload.bank_account_id = chequeDetails.bank_account_id;
-                paymentMethodText = 'Cheque';
-                paymentDetailsForReceipt = {
-                    cheq_no: chequeDetails.cheq_no,
-                    cheq_date: chequeDetails.cheq_date
-                };
-                bankNameForCashier = chequeDetails.bank_name || null;
-            }
-
-            const paymentHistoryEntry = {
-                id: Math.random().toString(36).substr(2, 9),
-                date: new Date().toISOString().slice(0, 19).replace('T', ' '),
-                amount: parseFloat(paymentAmount),
-                method: paymentMethod,
-                running_balance: parseFloat(totalGivenAmount),
-                is_fully_paid: isFullySettled,
-                reference: paymentMethod,
-                details: {}
-            };
-
-            if (isCheque && chequeDetails) {
-                paymentHistoryEntry.details = {
-                    cheq_no: chequeDetails.cheq_no,
-                    cheq_date: chequeDetails.cheq_date,
-                    bank_account_id: chequeDetails.bank_account_id,
-                    bank_name: bankNameForCashier
-                };
-            } else if (isBankTransfer && bankTransferDetails) {
-                paymentHistoryEntry.details = {
-                    transfer_reference_no: bankTransferDetails.reference_no,
-                    transfer_date: bankTransferDetails.transfer_date,
-                    bank_account_id: bankTransferDetails.bank_account_id,
-                    bank_name: bankNameForCashier
-                };
-            }
-
-            if (isAdjustment && adjustmentDetails) {
-                paymentHistoryEntry.details.adjustment = {
-                    type: adjustmentDetails.type,
+                    type: 'bag_to_box',
                     amount: adjustmentDetails.amount,
-                    ...(adjustmentDetails.type === 'bag_to_box' && {
-                        bag_count: adjustmentDetails.bag_count,
-                        box_count: adjustmentDetails.box_count,
-                        bag_value: adjustmentDetails.bag_value,
-                        box_value: adjustmentDetails.box_value
-                    }),
-                    ...(adjustmentDetails.type === 'bill_to_bill' && {
-                        customer_code: adjustmentDetails.customer_code,
-                        customer_bill_no: adjustmentDetails.customer_bill_no,
-                        customer_bill_value: adjustmentDetails.customer_bill_value
-                    }),
-                    ...(adjustmentDetails.type === 'bad_debt' && {
-                        bad_debt_name: adjustmentDetails.bad_debt_name,
-                        bad_debt_amount: adjustmentDetails.bad_debt_amount
-                    })
+                    bag_count: adjustmentDetails.bag_count,
+                    box_count: adjustmentDetails.box_count,
+                    bag_value: adjustmentDetails.bag_value,
+                    box_value: adjustmentDetails.box_value
+                };
+            } else if (adjustmentDetails.type === 'bill_to_bill') {
+                payload.target_customer_code = adjustmentDetails.customer_code;
+                payload.target_bill_no = adjustmentDetails.customer_bill_no;
+                payload.target_bill_value = adjustmentDetails.customer_bill_value;
+                payload.adjustment_amount = adjustmentDetails.amount;
+                paymentMethodText = 'Bill to Bill';
+                paymentDetailsForReceipt = {
+                    type: 'bill_to_bill',
+                    amount: adjustmentDetails.amount,
+                    customer_bill_no: adjustmentDetails.customer_bill_no
+                };
+            } else if (adjustmentDetails.type === 'bad_debt') {
+                payload.bad_debt_name = adjustmentDetails.bad_debt_name;
+                payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
+                payload.adjustment_amount = adjustmentDetails.amount;
+                paymentMethodText = 'Bad Debt';
+                paymentDetailsForReceipt = {
+                    type: 'bad_debt',
+                    amount: adjustmentDetails.amount,
+                    name: adjustmentDetails.bad_debt_name
                 };
             }
+        } else if (isBankTransfer && bankTransferDetails) {
+            payload.bank_account_id = bankTransferDetails.bank_account_id;
+            payload.transfer_reference_no = bankTransferDetails.reference_no;
+            payload.transfer_date = bankTransferDetails.transfer_date;
+            payload.transfer_notes = bankTransferDetails.notes;
+            paymentMethodText = 'Bank Transfer';
+            paymentDetailsForReceipt = {
+                reference_no: bankTransferDetails.reference_no,
+                transfer_date: bankTransferDetails.transfer_date
+            };
+            bankNameForCashier = bankTransferDetails.bank_name || null;
+        } else if (isCheque && chequeDetails) {
+            payload.cheq_date = chequeDetails.cheq_date;
+            payload.cheq_no = chequeDetails.cheq_no;
+            payload.bank_account_id = chequeDetails.bank_account_id;
+            paymentMethodText = 'Cheque';
+            paymentDetailsForReceipt = {
+                cheq_no: chequeDetails.cheq_no,
+                cheq_date: chequeDetails.cheq_date
+            };
+            bankNameForCashier = chequeDetails.bank_name || null;
+        }
 
-            let existingDebtor = null;
-            let totalCreditAmount = billToProcess.creditAmount || 0;
+        // ============ FIX: Handle debtor record creation and credit settlement ============
+        let existingDebtor = null;
+        let debtorNeedsCreation = false;
+        let creditToRecord = 0;
 
-            try {
-                const debtorCheck = await api.get(`/debtors/${billToProcess.billNo}`);
-                if (debtorCheck.data.success && debtorCheck.data.data) {
-                    existingDebtor = debtorCheck.data.data;
-                }
-            } catch (e) {
-                // No existing debtor record
+        // Calculate credit amount (difference between total bill and total given)
+        const remainingBillAmount = Math.max(0, totalBillAmount - totalGivenAmount);
+        const isCurrentlyCompleted = billToProcess.givenAmountApplied === 'Y';
+        const isBecomingCompleted = givenAmountApplied === 'Y' && !isCurrentlyCompleted;
+
+        // Check for existing debtor
+        try {
+            const debtorCheck = await api.get(`/debtors/${billToProcess.billNo}`);
+            if (debtorCheck.data.success && debtorCheck.data.data) {
+                existingDebtor = debtorCheck.data.data;
+                console.log(`✅ Found existing debtor for bill ${billToProcess.billNo}:`, existingDebtor);
             }
+        } catch (e) {
+            console.log(`ℹ️ No existing debtor record for bill ${billToProcess.billNo}`);
+        }
 
-            const isCurrentlyCompleted = billToProcess.givenAmountApplied === 'Y';
-            const isBecomingCompleted = givenAmountApplied === 'Y' && !isCurrentlyCompleted;
+        // Determine if we need to create a debtor record
+        // CRITICAL: For walking customers in completed section with remaining amount
+        if (state.customerType === 'walking' && isCurrentlyCompleted && remainingBillAmount > 0) {
+            // Walking customer in completed section with remaining amount - should create debtor
+            debtorNeedsCreation = true;
+            creditToRecord = remainingBillAmount;
+            console.log(`🔄 Walking customer in completed section - need to create debtor for ${creditToRecord}`);
+        } 
+        // For debtor customers with remaining credit
+        else if (state.customerType === 'debtor' && remainingBillAmount > 0 && !existingDebtor) {
+            debtorNeedsCreation = true;
+            creditToRecord = remainingBillAmount;
+            console.log(`🔄 Debtor customer - need to create debtor for ${creditToRecord}`);
+        }
+        // If bill is becoming completed and has remaining amount
+        else if (isBecomingCompleted && remainingBillAmount > 0 && !existingDebtor) {
+            debtorNeedsCreation = true;
+            creditToRecord = remainingBillAmount;
+            console.log(`🔄 Bill becoming completed - need to create debtor for ${creditToRecord}`);
+        }
 
-            if (existingDebtor && existingDebtor.remaining_amount > 0) {
-                let shouldSettleCredit = false;
-
-                if (isCurrentlyCompleted) {
-                    shouldSettleCredit = true;
-                } else if (isBecomingCompleted) {
-                    shouldSettleCredit = false;
-                    paymentHistoryEntry.details.credit_settlement = {
-                        status: 'PENDING',
-                        message: `Credit of Rs. ${formatDecimal(existingDebtor.remaining_amount)} remains unsettled.`
-                    };
-                } else {
-                    shouldSettleCredit = false;
-                    paymentHistoryEntry.details.credit_settlement = {
-                        status: 'PENDING',
-                        message: `Credit will be settled when bill moves to Completed section.`
-                    };
-                }
-
-                if (shouldSettleCredit) {
-                    let debtorPaymentAmount = Math.min(paymentAmount, existingDebtor.remaining_amount);
-
-                    if (debtorPaymentAmount > 0) {
-                        let debtorPaymentMethod = 'cash';
-                        if (isAdjustment && adjustmentDetails) {
-                            if (adjustmentDetails.type === 'bag_to_box') debtorPaymentMethod = 'bag_to_box';
-                            else if (adjustmentDetails.type === 'bill_to_bill') debtorPaymentMethod = 'bill_to_bill';
-                            else if (adjustmentDetails.type === 'bad_debt') debtorPaymentMethod = 'bad_debt';
-                        } else if (paymentMethod === 'Cheque') {
-                            debtorPaymentMethod = 'cheque';
-                        } else if (paymentMethod === 'Bank Transfer') {
-                            debtorPaymentMethod = 'bank_transfer';
-                        }
-
-                        try {
-                            const updateResponse = await api.put('/debtors/update-payment', {
-                                bill_no: billToProcess.billNo,
-                                payment_amount: debtorPaymentAmount,
-                                payment_method: debtorPaymentMethod,
-                                settle_fully: true
-                            });
-
-                            paymentHistoryEntry.details.debtor_payment = {
-                                amount: debtorPaymentAmount,
-                                previous_remaining: existingDebtor.remaining_amount,
-                                new_remaining: existingDebtor.remaining_amount - debtorPaymentAmount,
-                                is_fully_paid: (existingDebtor.remaining_amount - debtorPaymentAmount) <= 0,
-                                settled_way: debtorPaymentMethod,
-                                settlement_type: 'completed_section_payment'
-                            };
-                        } catch (debtorError) {
-                            console.error('Error updating debtor payment:', debtorError);
-                        }
-                    }
-                }
-            } else if (totalCreditAmount > 0 && !existingDebtor && (isCurrentlyCompleted || isBecomingCompleted)) {
-                await api.post('/debtors/create', {
+        // Create debtor record if needed
+        if (debtorNeedsCreation && creditToRecord > 0) {
+            console.log(`🔍 Creating debtor record for bill ${billToProcess.billNo} with credit ${creditToRecord}`);
+            try {
+                const createResponse = await api.post('/debtors/create', {
                     bill_no: billToProcess.billNo,
                     customer_code: billToProcess.customerCode,
-                    credit_amount: totalCreditAmount
+                    credit_amount: parseFloat(creditToRecord)
                 });
+                
+                if (createResponse.data.success) {
+                    existingDebtor = createResponse.data.data;
+                    console.log('✅ Debtor record created successfully:', existingDebtor);
+                    
+                    // Update the bill's remainingCredit
+                    billToProcess.remainingCredit = existingDebtor.remaining_amount || creditToRecord;
+                }
+            } catch (createError) {
+                console.error('❌ Failed to create debtor record:', createError);
+                // Continue with payment processing even if debtor creation fails
             }
-
-            let existingHistory = [];
-            try {
-                const currentHistory = billToProcess.payment_history || billToProcess.paymentHistory;
-                if (currentHistory) {
-                    existingHistory = typeof currentHistory === 'string'
-                        ? JSON.parse(currentHistory)
-                        : currentHistory;
-                }
-            } catch (e) {
-                existingHistory = [];
-            }
-
-            existingHistory.push(paymentHistoryEntry);
-            payload.payment_history = JSON.stringify(existingHistory);
-
-            const response = await api.put(routes.updateGivenAmountApplied, payload);
-
-            if (response.data.success) {
-                await Promise.all([
-                    fetchSalesData(),
-                    (async () => {
-                        try {
-                            await recordCashierTransaction({
-                                paymentAmount: paymentAmount,
-                                paymentMethod: paymentMethodText,
-                                billNo: billToProcess.billNo,
-                                customerCode: billToProcess.customerCode,
-                                bankName: bankNameForCashier,
-                                chequeNumber: (isCheque && chequeDetails?.cheq_no) ? chequeDetails.cheq_no : null,
-                                transferReference: (isBankTransfer && bankTransferDetails?.reference_no) ? bankTransferDetails.reference_no : null
-                            });
-                        } catch (cashierError) {
-                            console.error('Failed to record cashier balance:', cashierError);
-                        }
-                    })()
-                ]);
-
-                const event = new CustomEvent('salesDataUpdated', {
-                    detail: {
-                        billNo: billToProcess.billNo,
-                        customerCode: billToProcess.customerCode,
-                        givenAmount: totalGivenAmount,
-                        timestamp: Date.now()
-                    }
-                });
-                window.dispatchEvent(event);
-
-                const customer = state.customers.find(c =>
-                    String(c.short_name).toUpperCase() === String(billToProcess.customerCode).toUpperCase()
-                );
-
-                let debtorMessage = '';
-                if (existingDebtor && existingDebtor.remaining_amount > 0 && isCurrentlyCompleted) {
-                    const newRemaining = Math.max(0, existingDebtor.remaining_amount - paymentAmount);
-                    if (newRemaining <= 0) {
-                        debtorMessage = `\n\n✅ CREDIT FULLY SETTLED!`;
-                    } else {
-                        debtorMessage = `\n\n💰 CREDIT PARTIALLY SETTLED: Rs. ${formatDecimal(newRemaining)} remaining`;
-                    }
-                } else if (existingDebtor && existingDebtor.remaining_amount > 0 && isBecomingCompleted) {
-                    debtorMessage = `\n\n⏳ CREDIT REMAINS UNSETTLED: Rs. ${formatDecimal(existingDebtor.remaining_amount)}\nMake payment in Completed section to settle.`;
-                }
-
-                const statusMessage = givenAmountApplied === 'Y'
-                    ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill moved to Completed Payments.${debtorMessage}`
-                    : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, billToProcess.totalAmount - totalGivenAmount))}${debtorMessage}`;
-
-                alert(statusMessage);
-
-                // ✅ SAVE THE CUSTOMER TYPE FOR THIS BILL BEFORE CLEARING
-                if (state.customerType === 'walking' && billToProcess?.billNo) {
-                    saveBillCustomerType(billToProcess.billNo, 'walking');
-                } else if (state.customerType === 'debtor' && billToProcess?.billNo) {
-                    saveBillCustomerType(billToProcess.billNo, 'debtor');
-                }
-
-                // Only clear selected bill if it's the actual selected bill (not custom)
-                if (!customSelectedBill) {
-                    setState(prev => ({
-                        ...prev,
-                        selectedBill: null,
-                        givenAmountInput: "",
-                        showChequeModal: false,
-                        showBankToBankModal: false,
-                        showAdjustmentModal: false,
-                        pendingBankToBankAmount: 0,
-                        customerType: null
-                    }));
-                } else {
-                    // For custom bills, just reset the printing state but keep selectedBill
-                    setState(prev => ({
-                        ...prev,
-                        isPrinting: false
-                    }));
-                }
-            }
-        } catch (error) {
-            console.error("Error:", error);
-            alert("Failed to update. Please try again.");
-        } finally {
-            setState(prev => ({ ...prev, isPrinting: false }));
         }
-    };
+
+        // If we have an existing debtor with remaining amount, handle credit settlement
+        if (existingDebtor && existingDebtor.remaining_amount > 0) {
+            let shouldSettleCredit = false;
+
+            if (isCurrentlyCompleted) {
+                // Bill is already in completed section - settle credit with this payment
+                shouldSettleCredit = true;
+                console.log(`💰 Settling credit for completed bill ${billToProcess.billNo}`);
+            } else if (isBecomingCompleted) {
+                // Bill is becoming completed - don't settle automatically
+                shouldSettleCredit = false;
+                console.log(`⏳ Credit pending for bill ${billToProcess.billNo}`);
+            }
+
+            if (shouldSettleCredit) {
+                let debtorPaymentAmount = Math.min(paymentAmount, existingDebtor.remaining_amount);
+
+                if (debtorPaymentAmount > 0) {
+                    let debtorPaymentMethod = 'cash';
+                    if (isAdjustment && adjustmentDetails) {
+                        if (adjustmentDetails.type === 'bag_to_box') debtorPaymentMethod = 'bag_to_box';
+                        else if (adjustmentDetails.type === 'bill_to_bill') debtorPaymentMethod = 'bill_to_bill';
+                        else if (adjustmentDetails.type === 'bad_debt') debtorPaymentMethod = 'bad_debt';
+                    } else if (paymentMethod === 'Cheque') {
+                        debtorPaymentMethod = 'cheque';
+                    } else if (paymentMethod === 'Bank Transfer') {
+                        debtorPaymentMethod = 'bank_transfer';
+                    }
+
+                    try {
+                        const updateResponse = await api.put('/debtors/update-payment', {
+                            bill_no: billToProcess.billNo,
+                            payment_amount: debtorPaymentAmount,
+                            payment_method: debtorPaymentMethod,
+                            settle_fully: true
+                        });
+
+                        const newRemaining = Math.max(0, existingDebtor.remaining_amount - debtorPaymentAmount);
+                        console.log(`✅ Debtor payment recorded: ${debtorPaymentAmount}, remaining: ${newRemaining}`);
+                    } catch (debtorError) {
+                        console.error('Error updating debtor payment:', debtorError);
+                    }
+                }
+            }
+        }
+        // ============ END OF FIX ============
+
+        // Build payment history entry
+        const paymentHistoryEntry = {
+            id: Math.random().toString(36).substr(2, 9),
+            date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+            amount: parseFloat(paymentAmount),
+            method: paymentMethod,
+            running_balance: parseFloat(totalGivenAmount),
+            is_fully_paid: isFullySettled,
+            reference: paymentMethod,
+            details: {
+                customer_type: state.customerType || 'unknown',
+                total_bill_amount: totalBillAmount,
+                remaining_after_payment: remainingBillAmount
+            }
+        };
+
+        if (isCheque && chequeDetails) {
+            paymentHistoryEntry.details.cheq_no = chequeDetails.cheq_no;
+            paymentHistoryEntry.details.cheq_date = chequeDetails.cheq_date;
+            paymentHistoryEntry.details.bank_account_id = chequeDetails.bank_account_id;
+            paymentHistoryEntry.details.bank_name = bankNameForCashier;
+        } else if (isBankTransfer && bankTransferDetails) {
+            paymentHistoryEntry.details.transfer_reference_no = bankTransferDetails.reference_no;
+            paymentHistoryEntry.details.transfer_date = bankTransferDetails.transfer_date;
+            paymentHistoryEntry.details.bank_account_id = bankTransferDetails.bank_account_id;
+            paymentHistoryEntry.details.bank_name = bankNameForCashier;
+        }
+
+        if (isAdjustment && adjustmentDetails) {
+            paymentHistoryEntry.details.adjustment_type = adjustmentDetails.type;
+            paymentHistoryEntry.details.adjustment_amount = adjustmentDetails.amount;
+            if (adjustmentDetails.type === 'bag_to_box') {
+                paymentHistoryEntry.details.bag_count = adjustmentDetails.bag_count;
+                paymentHistoryEntry.details.box_count = adjustmentDetails.box_count;
+                paymentHistoryEntry.details.bag_value = adjustmentDetails.bag_value;
+                paymentHistoryEntry.details.box_value = adjustmentDetails.box_value;
+            } else if (adjustmentDetails.type === 'bill_to_bill') {
+                paymentHistoryEntry.details.customer_code = adjustmentDetails.customer_code;
+                paymentHistoryEntry.details.customer_bill_no = adjustmentDetails.customer_bill_no;
+            } else if (adjustmentDetails.type === 'bad_debt') {
+                paymentHistoryEntry.details.bad_debt_name = adjustmentDetails.bad_debt_name;
+                paymentHistoryEntry.details.bad_debt_amount = adjustmentDetails.bad_debt_amount;
+            }
+        }
+
+        // Save payment history
+        let existingHistory = [];
+        try {
+            const currentHistory = billToProcess.payment_history || billToProcess.paymentHistory;
+            if (currentHistory) {
+                existingHistory = typeof currentHistory === 'string'
+                    ? JSON.parse(currentHistory)
+                    : currentHistory;
+            }
+        } catch (e) {
+            existingHistory = [];
+        }
+
+        existingHistory.push(paymentHistoryEntry);
+        payload.payment_history = JSON.stringify(existingHistory);
+
+        // Update the bill
+        const response = await api.put(routes.updateGivenAmountApplied, payload);
+
+        if (response.data.success) {
+            await Promise.all([
+                fetchSalesData(),
+                (async () => {
+                    try {
+                        await recordCashierTransaction({
+                            paymentAmount: paymentAmount,
+                            paymentMethod: paymentMethodText,
+                            billNo: billToProcess.billNo,
+                            customerCode: billToProcess.customerCode,
+                            bankName: bankNameForCashier,
+                            chequeNumber: (isCheque && chequeDetails?.cheq_no) ? chequeDetails.cheq_no : null,
+                            transferReference: (isBankTransfer && bankTransferDetails?.reference_no) ? bankTransferDetails.reference_no : null
+                        });
+                    } catch (cashierError) {
+                        console.error('Failed to record cashier balance:', cashierError);
+                    }
+                })()
+            ]);
+
+            const event = new CustomEvent('salesDataUpdated', {
+                detail: {
+                    billNo: billToProcess.billNo,
+                    customerCode: billToProcess.customerCode,
+                    givenAmount: totalGivenAmount,
+                    timestamp: Date.now()
+                }
+            });
+            window.dispatchEvent(event);
+
+            let debtorMessage = '';
+            if (existingDebtor && existingDebtor.remaining_amount > 0) {
+                const newRemaining = Math.max(0, existingDebtor.remaining_amount - paymentAmount);
+                if (newRemaining <= 0) {
+                    debtorMessage = `\n\n✅ CREDIT FULLY SETTLED!`;
+                } else {
+                    debtorMessage = `\n\n💰 CREDIT PARTIALLY SETTLED: Rs. ${formatDecimal(newRemaining)} remaining`;
+                }
+            } else if (debtorNeedsCreation && creditToRecord > 0) {
+                debtorMessage = `\n\n💰 CREDIT RECORDED: Rs. ${formatDecimal(creditToRecord)}\n⏳ STATUS: PENDING SETTLEMENT`;
+            }
+
+            const statusMessage = givenAmountApplied === 'Y'
+                ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nTotal Bill: Rs. ${formatDecimal(totalBillAmount)}\nBill moved to Completed Payments.${debtorMessage}`
+                : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, totalBillAmount - totalGivenAmount))}${debtorMessage}`;
+
+            alert(statusMessage);
+
+            // SAVE THE CUSTOMER TYPE FOR THIS BILL
+            if (state.customerType === 'walking' && billToProcess?.billNo) {
+                saveBillCustomerType(billToProcess.billNo, 'walking');
+            } else if (state.customerType === 'debtor' && billToProcess?.billNo) {
+                saveBillCustomerType(billToProcess.billNo, 'debtor');
+            }
+
+            // Only clear selected bill if it's the actual selected bill (not custom)
+            if (!customSelectedBill) {
+                setState(prev => ({
+                    ...prev,
+                    selectedBill: null,
+                    givenAmountInput: "",
+                    showChequeModal: false,
+                    showBankToBankModal: false,
+                    showAdjustmentModal: false,
+                    pendingBankToBankAmount: 0,
+                    customerType: null
+                }));
+            } else {
+                setState(prev => ({
+                    ...prev,
+                    isPrinting: false
+                }));
+            }
+        }
+    } catch (error) {
+        console.error("Error:", error);
+        alert("Failed to update. Please try again.");
+    } finally {
+        setState(prev => ({ ...prev, isPrinting: false }));
+    }
+};
     // Get current data based on dataSource
     const currentPendingBills = dataSource === 'sales_history' ? archivedData.pendingBills : state.pendingBills;
     const currentAppliedBills = dataSource === 'sales_history' ? archivedData.appliedBills : state.appliedBills;
@@ -4380,6 +4744,39 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
         const q = state.appliedSearchQuery.toLowerCase();
         return currentAppliedBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
     }, [currentAppliedBills, state.appliedSearchQuery]);
+     // Filter bills with outstanding debt from both pending and completed sections
+
+const getOutstandingDebtBills = useCallback(() => {
+
+    const allBills = [...filterPendingBills, ...filterAppliedBills];
+
+    
+
+    // Filter bills that have remaining credit/debt
+
+    const debtBills = allBills.filter(bill => {
+
+        // Check if bill has remaining credit/debt
+
+        const hasRemainingCredit = bill.remainingCredit > 0;
+
+        const hasCreditAmount = bill.creditAmount > 0;
+
+        
+
+        // Also check selectedBillDebtor if available
+
+        // We need to fetch debtor data for each bill to get accurate remaining amount
+
+        return hasRemainingCredit || hasCreditAmount;
+
+    });
+
+    
+
+    return debtBills;
+
+}, [filterPendingBills, filterAppliedBills]);
     // Add this function in your PrintedBills component
     const fetchAdjustedSupplierLoan = useCallback(async (totalFunds) => {
         try {
@@ -4611,186 +5008,250 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
     }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
 
     // Process Credit Payment function
-    const processCreditPayment = async (paymentAmount) => {
-        if (!state.selectedBill || state.isPrinting) return;
+ // Process Credit Payment function
+const processCreditPayment = async (paymentAmount) => {
+    if (!state.selectedBill || state.isPrinting) return;
 
-        console.log('=== PROCESS CREDIT PAYMENT ===');
-        console.log('Payment Amount:', paymentAmount);
-        console.log('Bill No:', state.selectedBill.billNo);
-        console.log('Customer Code:', state.selectedBill.customerCode);
-        console.log('Current Given Amount:', state.selectedBill.givenAmount);
-        console.log('Total Bill Amount:', state.selectedBill.totalAmount);
+    console.log('=== PROCESS CREDIT PAYMENT ===');
+    console.log('Payment Amount:', paymentAmount);
+    console.log('Bill No:', state.selectedBill.billNo);
+    console.log('Customer Code:', state.selectedBill.customerCode);
+    console.log('Current Given Amount:', state.selectedBill.givenAmount);
+    console.log('Total Bill Amount:', state.selectedBill.totalAmount);
 
-        setState(prev => ({ ...prev, isPrinting: true }));
+    setState(prev => ({ ...prev, isPrinting: true }));
 
-        try {
-            const currentGiven = state.selectedBill.givenAmount || 0;
-            const totalGivenAmount = currentGiven + paymentAmount;
-            const isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
-            const creditTransaction = isFullySettled ? 'N' : 'Y';
-            const givenAmountApplied = isFullySettled ? 'Y' : 'N';
+    try {
+        const currentGiven = state.selectedBill.givenAmount || 0;
+        const totalGivenAmount = currentGiven + paymentAmount;
+        
+        // ALWAYS set credit_transaction to 'Y' for credit payments
+        const creditTransaction = 'Y';
+        
+        let isFullySettled;
+        let givenAmountApplied;
+        
+        if (paymentAmount === 0) {
+            // Force move to completed section when payment is 0
+            isFullySettled = true;
+            givenAmountApplied = 'Y';
+            console.log('🔄 Zero payment detected - forcing bill to completed section');
+        } else {
+            // Normal logic for positive payments
+            isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
+            givenAmountApplied = isFullySettled ? 'Y' : 'N';
+        }
 
-            console.log('Calculated Values:', {
-                currentGiven,
-                totalGivenAmount,
-                isFullySettled,
-                creditTransaction,
-                givenAmountApplied
-            });
+        console.log('Calculated Values:', {
+            currentGiven,
+            totalGivenAmount,
+            paymentAmount,
+            isFullySettled,
+            creditTransaction,
+            givenAmountApplied
+        });
 
+        // Calculate credit amount
+        let creditAmount = parseFloat(paymentAmount);
+        if (paymentAmount === 0) {
+            // If no payment, the full bill amount becomes credit/debt
+            const remainingBillAmount = state.selectedBill.totalAmount - currentGiven;
+            creditAmount = remainingBillAmount;
+            console.log('💰 Zero payment: Full bill amount will be recorded as debt:', creditAmount);
+        }
+
+        // Only create debtor record if creditAmount > 0
+        let debtorResponse = null;
+        if (creditAmount > 0) {
             const debtorData = {
                 bill_no: state.selectedBill.billNo,
                 customer_code: state.selectedBill.customerCode,
-                credit_amount: parseFloat(paymentAmount)
+                credit_amount: parseFloat(creditAmount)
             };
 
             console.log('Sending to debtor API:', debtorData);
 
-            const debtorResponse = await api.post('/debtors/create', debtorData);
+            debtorResponse = await api.post('/debtors/create', debtorData);
 
             console.log('Debtor API Response:', debtorResponse.data);
 
             if (!debtorResponse.data.success) {
                 throw new Error(debtorResponse.data.message || 'Failed to create credit record');
             }
-
-            let remainingDebtAmount = parseFloat(paymentAmount);
-            let debtorStatus = 'pending';
-
-            if (debtorResponse.data.data?.remaining_amount !== undefined) {
-                remainingDebtAmount = parseFloat(debtorResponse.data.data.remaining_amount);
-                debtorStatus = debtorResponse.data.data.status || 'pending';
-            } else if (debtorResponse.data.data?.credit_amount !== undefined) {
-                remainingDebtAmount = parseFloat(debtorResponse.data.data.credit_amount);
-            }
-
-            console.log('Remaining Debt Amount:', remainingDebtAmount);
-            console.log('Debtor Status:', debtorStatus);
-
-            const paymentHistoryEntry = {
-                id: Math.random().toString(36).substr(2, 9),
-                date: new Date().toISOString().slice(0, 19).replace('T', ' '),
-                amount: parseFloat(paymentAmount),
-                method: 'Credit',
-                running_balance: parseFloat(totalGivenAmount),
-                is_fully_paid: isFullySettled,
-                reference: 'Credit Payment',
-                details: {
-                    debtor_id: debtorResponse.data.data?.id,
-                    credit_amount: parseFloat(paymentAmount),
-                    remaining_debt: remainingDebtAmount,
-                    debtor_status: debtorStatus,
-                    settlement_status: 'PENDING',
-                    message: `This credit of Rs. ${formatDecimal(paymentAmount)} will ONLY be settled when the bill is fully completed and an additional payment is made in the Completed Bills section.`
-                }
-            };
-
-            let existingHistory = [];
-            try {
-                const currentHistory = state.selectedBill.payment_history;
-                if (currentHistory) {
-                    existingHistory = typeof currentHistory === 'string'
-                        ? JSON.parse(currentHistory)
-                        : currentHistory;
-                }
-            } catch (e) {
-                console.error('Error parsing existing history:', e);
-                existingHistory = [];
-            }
-
-            existingHistory.push(paymentHistoryEntry);
-
-            const payload = {
-                bill_no: state.selectedBill.billNo,
-                given_amount: parseFloat(totalGivenAmount),
-                given_amount_applied: givenAmountApplied,
-                credit_transaction: creditTransaction,
-                payment_amount: parseFloat(paymentAmount),
-                payment_method: 'Credit',
-                payment_history: JSON.stringify(existingHistory),
-                is_walking_customer: state.customerType === 'walking',
-                credit_pending_settlement: true
-            };
-
-            console.log('Sending to sales update API:', payload);
-
-            const response = await api.put(routes.updateGivenAmountApplied, payload);
-
-            console.log('Sales update response:', response.data);
-
-            if (response.data.success) {
-                await fetchSalesData();
-
-                const customer = state.customers.find(c =>
-                    String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
-                );
-
-                let statusMessage = '';
-
-                if (isFullySettled) {
-                    statusMessage = `✓ Bill Fully Paid!\n\n` +
-                        `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
-                        `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n\n` +
-                        `💰 CREDIT AMOUNT: Rs. ${formatDecimal(paymentAmount)}\n` +
-                        `⏳ STATUS: PENDING SETTLEMENT\n\n` +
-                        `📌 The bill has been moved to the "Completed Payments" section.\n` +
-                        `💰 To settle this credit of Rs. ${formatDecimal(paymentAmount)}, make a payment in the "Completed Payments" section.\n` +
-                        `✅ Any payment made in the Completed Bills section will automatically go towards settling this credit.`;
-                } else {
-                    statusMessage = `✓ Credit Added Successfully!\n\n` +
-                        `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
-                        `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
-                        `Remaining on Bill: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}\n` +
-                        `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
-                        `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : (debtorStatus === 'partial' ? 'PARTIAL PAYMENT' : 'PENDING')}\n\n` +
-                        `⚠️ IMPORTANT: This amount has been recorded as DEBT.\n` +
-                        `💰 This credit will ONLY be settled when:\n` +
-                        `   1. The bill becomes fully paid and moves to "Completed Payments"\n` +
-                        `   2. You make an additional payment in the "Completed Payments" section\n` +
-                        `📝 The credit will remain as debt until then.`;
-                }
-
-                alert(statusMessage);
-
-                // ✅ SAVE THE CUSTOMER TYPE FOR THIS BILL BEFORE CLEARING
-                if (state.customerType === 'walking' && state.selectedBill?.billNo) {
-                    saveBillCustomerType(state.selectedBill.billNo, 'walking');
-                } else if (state.customerType === 'debtor' && state.selectedBill?.billNo) {
-                    saveBillCustomerType(state.selectedBill.billNo, 'debtor');
-                }
-
-                setState(prev => ({
-                    ...prev,
-                    selectedBill: null,
-                    givenAmountInput: "",
-                    showChequeModal: false,
-                    showBankToBankModal: false,
-                    showAdjustmentModal: false,
-                    pendingBankToBankAmount: 0,
-                    customerType: null
-                }));
-            } else {
-                throw new Error(response.data.message || 'Failed to update sales record');
-            }
-        } catch (error) {
-            console.error("Error processing credit payment:", error);
-            let errorMessage = "Failed to process credit payment. ";
-
-            if (error.response) {
-                console.error("Error response:", error.response.data);
-                errorMessage += error.response.data?.message || error.message;
-            } else if (error.request) {
-                console.error("Error request:", error.request);
-                errorMessage += "No response from server. Please check your connection.";
-            } else {
-                errorMessage += error.message;
-            }
-
-            alert(errorMessage);
-        } finally {
-            setState(prev => ({ ...prev, isPrinting: false }));
         }
-    };
+
+        let remainingDebtAmount = parseFloat(creditAmount);
+        let debtorStatus = 'pending';
+
+        if (debtorResponse && debtorResponse.data.data?.remaining_amount !== undefined) {
+            remainingDebtAmount = parseFloat(debtorResponse.data.data.remaining_amount);
+            debtorStatus = debtorResponse.data.data.status || 'pending';
+        } else if (debtorResponse && debtorResponse.data.data?.credit_amount !== undefined) {
+            remainingDebtAmount = parseFloat(debtorResponse.data.data.credit_amount);
+        }
+
+        console.log('Remaining Debt Amount:', remainingDebtAmount);
+        console.log('Debtor Status:', debtorStatus);
+
+        const paymentHistoryEntry = {
+            id: Math.random().toString(36).substr(2, 9),
+            date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+            amount: parseFloat(paymentAmount),
+            method: 'Credit',
+            running_balance: parseFloat(totalGivenAmount),
+            is_fully_paid: isFullySettled,
+            reference: 'Credit Payment',
+            details: {
+                debtor_id: debtorResponse?.data?.data?.id || null,
+                credit_amount: parseFloat(creditAmount),
+                remaining_debt: remainingDebtAmount,
+                debtor_status: debtorStatus,
+                settlement_status: creditAmount > 0 ? 'PENDING' : 'NONE',
+                message: paymentAmount === 0 
+                    ? `Full bill amount of Rs. ${formatDecimal(creditAmount)} has been recorded as DEBT since no payment was made.`
+                    : `This credit of Rs. ${formatDecimal(paymentAmount)} will ONLY be settled when the bill is fully completed and an additional payment is made in the Completed Bills section.`
+            }
+        };
+
+        let existingHistory = [];
+        try {
+            const currentHistory = state.selectedBill.payment_history;
+            if (currentHistory) {
+                existingHistory = typeof currentHistory === 'string'
+                    ? JSON.parse(currentHistory)
+                    : currentHistory;
+            }
+        } catch (e) {
+            console.error('Error parsing existing history:', e);
+            existingHistory = [];
+        }
+
+        existingHistory.push(paymentHistoryEntry);
+
+        const payload = {
+            bill_no: state.selectedBill.billNo,
+            given_amount: parseFloat(totalGivenAmount),
+            given_amount_applied: givenAmountApplied,
+            credit_transaction: creditTransaction,
+            payment_amount: parseFloat(paymentAmount),
+            payment_method: 'Credit',
+            payment_history: JSON.stringify(existingHistory),
+            is_walking_customer: state.customerType === 'walking',
+            credit_pending_settlement: true
+        };
+
+        console.log('Sending to sales update API:', payload);
+
+        const response = await api.put(routes.updateGivenAmountApplied, payload);
+
+        console.log('Sales update response:', response.data);
+
+        if (response.data.success) {
+            // Refresh sales data to update the UI
+            await fetchSalesData();
+
+            // Also refresh the selected bill's debtor data
+            if (state.selectedBill?.billNo) {
+                try {
+                    const debtorCheck = await api.get(`/debtors/${state.selectedBill.billNo}`);
+                    if (debtorCheck.data.success && debtorCheck.data.data) {
+                        setSelectedBillDebtor(debtorCheck.data.data);
+                    }
+                } catch (e) {
+                    console.log('No debtor record found after refresh');
+                }
+            }
+
+            const customer = state.customers.find(c =>
+                String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
+            );
+
+            let statusMessage = '';
+
+            if (paymentAmount === 0) {
+                statusMessage = `✅ Bill Moved to Completed Section with DEBT!\n\n` +
+                    `Bill Number: ${state.selectedBill.billNo}\n` +
+                    `Customer: ${state.selectedBill.customerCode}\n` +
+                    `Total Bill Amount: Rs. ${formatDecimal(state.selectedBill.totalAmount)}\n` +
+                    `Already Paid: Rs. ${formatDecimal(currentGiven)}\n` +
+                    `Payment Made: Rs. 0.00\n\n` +
+                    `💰 DEBT AMOUNT: Rs. ${formatDecimal(creditAmount)}\n` +
+                    `⏳ STATUS: PENDING SETTLEMENT\n\n` +
+                    `📌 The bill has been moved to the "Completed Payments" section.\n` +
+                    `💳 Full bill amount has been recorded as DEBT since no payment was made.\n` +
+                    `💰 To settle this debt of Rs. ${formatDecimal(creditAmount)}, make a payment in the "Completed Payments" section.`;
+            } else if (isFullySettled) {
+                statusMessage = `✓ Bill Fully Paid!\n\n` +
+                    `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
+                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n\n` +
+                    `💰 CREDIT AMOUNT: Rs. ${formatDecimal(creditAmount)}\n` +
+                    `⏳ STATUS: PENDING SETTLEMENT\n\n` +
+                    `📌 The bill has been moved to the "Completed Payments" section.\n` +
+                    `💰 To settle this credit of Rs. ${formatDecimal(creditAmount)}, make a payment in the "Completed Payments" section.\n` +
+                    `✅ Any payment made in the Completed Bills section will automatically go towards settling this credit.`;
+            } else {
+                statusMessage = `✓ Credit Added Successfully!\n\n` +
+                    `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
+                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
+                    `Remaining on Bill: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}\n` +
+                    `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
+                    `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : (debtorStatus === 'partial' ? 'PARTIAL PAYMENT' : 'PENDING')}\n\n` +
+                    `⚠️ IMPORTANT: This amount has been recorded as DEBT.\n` +
+                    `💰 This credit will ONLY be settled when:\n` +
+                    `   1. The bill becomes fully paid and moves to "Completed Payments"\n` +
+                    `   2. You make an additional payment in the "Completed Payments" section\n` +
+                    `📝 The credit will remain as debt until then.`;
+            }
+
+            alert(statusMessage);
+
+            // ✅ SAVE THE CUSTOMER TYPE FOR THIS BILL BEFORE CLEARING
+            if (state.customerType === 'walking' && state.selectedBill?.billNo) {
+                saveBillCustomerType(state.selectedBill.billNo, 'walking');
+            } else if (state.customerType === 'debtor' && state.selectedBill?.billNo) {
+                saveBillCustomerType(state.selectedBill.billNo, 'debtor');
+            }
+
+            // Clear the selected bill and reset state
+            setState(prev => ({
+                ...prev,
+                selectedBill: null,
+                givenAmountInput: "",
+                showChequeModal: false,
+                showBankToBankModal: false,
+                showAdjustmentModal: false,
+                pendingBankToBankAmount: 0,
+                customerType: null
+            }));
+
+            // Force a refresh of the outstanding debt modal data
+            setTimeout(() => {
+                const debtBills = getOutstandingDebtBills();
+                setOutstandingDebtBills(debtBills);
+            }, 500);
+
+        } else {
+            throw new Error(response.data.message || 'Failed to update sales record');
+        }
+    } catch (error) {
+        console.error("Error processing credit payment:", error);
+        let errorMessage = "Failed to process credit payment. ";
+
+        if (error.response) {
+            console.error("Error response:", error.response.data);
+            errorMessage += error.response.data?.message || error.message;
+        } else if (error.request) {
+            console.error("Error request:", error.request);
+            errorMessage += "No response from server. Please check your connection.";
+        } else {
+            errorMessage += error.message;
+        }
+
+        alert(errorMessage);
+    } finally {
+        setState(prev => ({ ...prev, isPrinting: false }));
+    }
+};
     // Auto-fetch archived sales when both start date and end date are selected
     useEffect(() => {
         if (viewOldBills && startDate && endDate) {
@@ -5067,51 +5528,67 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
 
     // Add the modal just before the closing </div> of your main component (around line 2150, before the closing </div> of the app)
 
-    const handleCreditPayment = async () => {
-        // Get the amount from input field
-        let paymentAmount = parseFloat(state.givenAmountInput);
+  const handleCreditPayment = async () => {
+    // Get the amount from input field
+    let paymentAmount = parseFloat(state.givenAmountInput);
 
-        console.log('=== CREDIT PAYMENT DEBUG ===');
-        console.log('Input field raw value:', state.givenAmountInput);
-        console.log('Parsed payment amount:', paymentAmount);
-        console.log('Selected bill:', state.selectedBill?.billNo);
-        console.log('Customer code:', state.selectedBill?.customerCode);
-        console.log('Total bill amount:', state.selectedBill?.totalAmount);
-        console.log('Already given:', state.selectedBill?.givenAmount);
+    console.log('=== CREDIT PAYMENT DEBUG ===');
+    console.log('Input field raw value:', state.givenAmountInput);
+    console.log('Parsed payment amount:', paymentAmount);
+    console.log('Selected bill:', state.selectedBill?.billNo);
+    console.log('Customer code:', state.selectedBill?.customerCode);
+    console.log('Total bill amount:', state.selectedBill?.totalAmount);
+    console.log('Already given:', state.selectedBill?.givenAmount);
 
-        // Validate amount
-        if (isNaN(paymentAmount) || paymentAmount <= 0) {
-            alert("Please enter a valid amount greater than 0");
-            return;
-        }
+    // Validate amount - allow 0
+    if (isNaN(paymentAmount) || paymentAmount < 0) {
+        alert("Please enter a valid amount (0 or greater)");
+        return;
+    }
 
-        if (!state.selectedBill) {
-            alert("Please select a bill first");
-            return;
-        }
+    if (!state.selectedBill) {
+        alert("Please select a bill first");
+        return;
+    }
 
+    // Only check maxAllowed for positive amounts
+    if (paymentAmount > 0) {
         const maxAllowed = getRemainingBillAmount(state.selectedBill);
-
         if (paymentAmount > maxAllowed) {
             alert(`Amount exceeds maximum allowed!\n\nMaximum: Rs. ${formatDecimal(maxAllowed)}\nEntered: Rs. ${formatDecimal(paymentAmount)}`);
             return;
         }
+    }
 
-        // Show confirmation dialog with the exact amount
+    // If amount is 0, show a special confirmation
+    if (paymentAmount === 0) {
+        const confirmMove = window.confirm(
+            `⚠️ MOVE TO COMPLETED SECTION WITH DEBT ⚠️\n\n` +
+            `Bill Number: ${state.selectedBill.billNo}\n` +
+            `Customer: ${state.selectedBill.customerCode}\n` +
+            `Total Bill Amount: Rs. ${formatDecimal(state.selectedBill.totalAmount)}\n` +
+            `Already Paid: Rs. ${formatDecimal(state.selectedBill.givenAmount || 0)}\n\n` +
+            `You are about to move this bill to the Completed Payments section with NO payment.\n` +
+            `The FULL remaining amount of Rs. ${formatDecimal(state.selectedBill.totalAmount - (state.selectedBill.givenAmount || 0))} will be recorded as DEBT.\n\n` +
+            `Are you sure you want to proceed?`
+        );
+        if (!confirmMove) return;
+    } else {
+        // Show confirmation dialog for positive amounts
         const confirmCredit = window.confirm(
             `⚠️ CREDIT PAYMENT CONFIRMATION ⚠️\n\n` +
             `Bill Number: ${state.selectedBill.billNo}\n` +
             `Customer: ${state.selectedBill.customerCode}\n` +
             `Amount: Rs. ${paymentAmount.toFixed(2)}\n` +
-            `Maximum Allowed: Rs. ${formatDecimal(maxAllowed)}\n\n` +
+            `Maximum Allowed: Rs. ${formatDecimal(getRemainingBillAmount(state.selectedBill))}\n\n` +
             `This amount will be recorded as DEBT in the debtors table.\n` +
             `Are you sure you want to proceed?`
         );
-
         if (!confirmCredit) return;
+    }
 
-        await processCreditPayment(paymentAmount);
-    };
+    await processCreditPayment(paymentAmount);
+};
 
     if (state.isLoading) return <LoadingSkeleton />;
 
@@ -5119,299 +5596,378 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
         <div style={styles.app}>
             <div style={styles.container}>
                 {/* Old Bills Bar with Total Funds */}
-                {/* Updated Bar with UniqueCode Dropdown */}
-                <div style={{ ...styles.oldBillsBar, justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-                        <button
-                            onClick={() => {
-                                modalOpenRef.current = true;
-                                setShowSupplierSettlementModal(true);
-                            }}
-                            style={{
-                                padding: '10px 24px',
-                                background: 'linear-gradient(135deg, #0f766e, #115e59)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '12px',
-                                cursor: 'pointer',
-                                fontWeight: '700',
-                                fontSize: '14px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                transition: 'all 0.2s',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.12)'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.18)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.12)';
-                            }}
-                        >
-                            <span>✅</span>
-                            Settle All Bills
-                        </button>
+               {/* Updated Bar with UniqueCode Dropdown - All in One Line */}
+<div style={{ 
+    ...styles.oldBillsBar, 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    padding: '8px 16px',
+    flexWrap: 'nowrap',
+    gap: '6px',
+    overflowX: 'auto'
+}}>
+    {/* Left side - Action Buttons */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+        {/* View Outstanding Debt Button */}
+        <button
+            onClick={async () => {
+                modalOpenRef.current = true;
+                const debtBills = getOutstandingDebtBills();
+                setOutstandingDebtBills(debtBills);
+                setShowOutstandingDebtModal(true);
+            }}
+            style={{
+                padding: '6px 12px',
+                background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '700',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
+            }}
+            onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(220,38,38,0.3)';
+            }}
+            onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+            }}
+        >
+            <span style={{ fontSize: '12px' }}>⚠️</span>
+            Debt 
+        </button>
 
-                        <button
-                            onClick={async () => {
-                                if (viewOldBills) {
-                                    resetToCurrentSales();
-                                    setState(prev => ({ ...prev, customerType: null }));
-                                } else {
-                                    setViewOldBills(true);
-                                }
-                            }}
-                            style={{
-                                padding: '10px 24px',
-                                background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '12px',
-                                cursor: 'pointer',
-                                fontWeight: '600',
-                                fontSize: '14px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                transition: 'all 0.2s',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
-                            }}
-                        >
-                            <span>{viewOldBills ? '📅' : '📜'}</span>
-                            {viewOldBills ? 'View Current Bills' : 'View Old Bills'}
-                        </button>
+        {/* Settle All Bills Button */}
+        <button
+            onClick={() => {
+                modalOpenRef.current = true;
+                setShowSupplierSettlementModal(true);
+            }}
+            style={{
+                padding: '6px 12px',
+                background: 'linear-gradient(135deg, #0f766e, #115e59)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '700',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
+            }}
+            onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.18)';
+            }}
+            onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+            }}
+        >
+            <span style={{ fontSize: '12px' }}>✅</span>
+            Settle All
+        </button>
 
-                        {/* UniqueCode Dropdown */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>
-                                👤 Cashier:
-                            </label>
-                            <select
-                                value={selectedUniqueCode}
-                                onChange={(e) => handleUniqueCodeChange(e.target.value)}
-                                disabled={isLoadingUniqueCodes || isChangingFilter}
-                                style={{
-                                    padding: '8px 16px',
-                                    border: '2px solid #e2e8f0',
-                                    borderRadius: '10px',
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                    background: 'white',
-                                    cursor: (isLoadingUniqueCodes || isChangingFilter) ? 'not-allowed' : 'pointer',
-                                    minWidth: '150px'
-                                }}
-                            >
-                                <option value="all">🧑‍💼 All Cashiers</option>
-                                {uniqueCodes.map(code => (
-                                    <option key={code} value={code}>
-                                        🧑‍💼 {code}
-                                    </option>
-                                ))}
-                            </select>
-                            {isLoadingUniqueCodes && (
-                                <span style={{ fontSize: '12px', color: '#64748b' }}>⏳ Loading...</span>
-                            )}
-                        </div>
+        {/* View Old/Current Bills Button */}
+        <button
+            onClick={async () => {
+                if (viewOldBills) {
+                    resetToCurrentSales();
+                    setState(prev => ({ ...prev, customerType: null }));
+                } else {
+                    setViewOldBills(true);
+                }
+            }}
+            style={{
+                padding: '6px 12px',
+                background: viewOldBills ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #64748b, #475569)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+            }}
+            onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+            }}
+            onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+            }}
+        >
+            <span style={{ fontSize: '12px' }}>{viewOldBills ? '📅' : '📜'}</span>
+            {viewOldBills ? 'Current' : 'Old Bills'}
+        </button>
+    </div>
 
-                        {viewOldBills && (
-                            <div style={styles.datePickerContainer}>
-                                <div>
-                                    <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Start Date</label>
-                                    <input
-                                        type="date"
-                                        value={startDate}
-                                        onChange={(e) => {
-                                            setStartDate(e.target.value);
-                                            if (endDate && e.target.value) {
-                                                setTimeout(() => {
-                                                    fetchArchivedSales();
-                                                }, 100);
-                                            }
-                                        }}
-                                        style={styles.dateInput}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>End Date</label>
-                                    <input
-                                        type="date"
-                                        value={endDate}
-                                        onChange={(e) => {
-                                            setEndDate(e.target.value);
-                                            if (startDate && e.target.value) {
-                                                setTimeout(() => {
-                                                    fetchArchivedSales();
-                                                }, 100);
-                                            }
-                                        }}
-                                        style={styles.dateInput}
-                                    />
-                                </div>
-                                <button
-                                    onClick={async () => {
-                                        if (startDate && endDate) {
-                                            setArchivedData(prev => ({ ...prev, isLoading: true }));
-                                            await refreshBeforeLoadingOldBills();
-                                            await fetchArchivedSales();
-                                        } else {
-                                            alert('Please select both start and end dates');
-                                        }
-                                    }}
-                                    style={{
-                                        padding: '8px 20px',
-                                        background: 'linear-gradient(135deg, #10b981, #059669)',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        cursor: 'pointer',
-                                        fontWeight: '600',
-                                        marginTop: '18px'
-                                    }}
-                                >
-                                    Apply Filter
-                                </button>
-                                <button
-                                    onClick={resetToCurrentSales}
-                                    style={{
-                                        padding: '8px 20px',
-                                        background: '#f1f5f9',
-                                        color: '#475569',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        cursor: 'pointer',
-                                        fontWeight: '600',
-                                        marginTop: '18px'
-                                    }}
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        )}
+    {/* Center - Cashier Dropdown */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+        <label style={{ fontSize: '10px', fontWeight: '600', color: '#475569', whiteSpace: 'nowrap' }}>
+            👤 Cashier:
+        </label>
+        <select
+            value={selectedUniqueCode}
+            onChange={(e) => handleUniqueCodeChange(e.target.value)}
+            disabled={isLoadingUniqueCodes || isChangingFilter}
+            style={{
+                padding: '4px 8px',
+                border: '1.5px solid #e2e8f0',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: '500',
+                background: 'white',
+                cursor: (isLoadingUniqueCodes || isChangingFilter) ? 'not-allowed' : 'pointer',
+                minWidth: '100px',
+                height: '28px'
+            }}
+        >
+            <option value="all">🧑‍💼 All</option>
+            {uniqueCodes.map(code => (
+                <option key={code} value={code}>
+                    🧑‍💼 {code}
+                </option>
+            ))}
+        </select>
+        {isLoadingUniqueCodes && (
+            <span style={{ fontSize: '10px', color: '#64748b' }}>⏳</span>
+        )}
+    </div>
 
-                        {dataSource === 'sales_history' && (
-                            <div style={styles.viewTypeIndicator}>
-                                <span>📚</span>Viewing Archived Bills
-                                <button
-                                    onClick={() => {
-                                        resetToCurrentSales();
-                                        setState(prev => ({ ...prev, customerType: null }));
-                                    }}
-                                    style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        color: '#92400e',
-                                        cursor: 'pointer',
-                                        marginLeft: '4px'
-                                    }}
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                        )}
-                    </div>
+    {/* Right side - Date Picker (only when viewing old bills) */}
+    {viewOldBills && (
+        <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '4px', 
+            flexShrink: 0,
+            background: '#f8fafc',
+            padding: '4px 8px',
+            borderRadius: '8px'
+        }}>
+            <div>
+                <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                        setStartDate(e.target.value);
+                        if (endDate && e.target.value) {
+                            setTimeout(() => {
+                                fetchArchivedSales();
+                            }, 100);
+                        }
+                    }}
+                    style={{
+                        padding: '4px 6px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        width: '110px',
+                        height: '26px'
+                    }}
+                />
+            </div>
+            <span style={{ fontSize: '10px', color: '#64748b' }}>→</span>
+            <div>
+                <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                        setEndDate(e.target.value);
+                        if (startDate && e.target.value) {
+                            setTimeout(() => {
+                                fetchArchivedSales();
+                            }, 100);
+                        }
+                    }}
+                    style={{
+                        padding: '4px 6px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        width: '110px',
+                        height: '26px'
+                    }}
+                />
+            </div>
+            <button
+                onClick={async () => {
+                    if (startDate && endDate) {
+                        setArchivedData(prev => ({ ...prev, isLoading: true }));
+                        await refreshBeforeLoadingOldBills();
+                        await fetchArchivedSales();
+                    } else {
+                        alert('Please select both start and end dates');
+                    }
+                }}
+                style={{
+                    padding: '4px 10px',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '10px',
+                    height: '26px',
+                    whiteSpace: 'nowrap'
+                }}
+            >
+                Apply
+            </button>
+            <button
+                onClick={resetToCurrentSales}
+                style={{
+                    padding: '4px 10px',
+                    background: '#f1f5f9',
+                    color: '#475569',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '10px',
+                    height: '26px',
+                    whiteSpace: 'nowrap'
+                }}
+            >
+                Cancel
+            </button>
+        </div>
+    )}
 
-                    {/* TOTAL FUNDS CARD */}
-                    <div style={{
-                        background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-                        borderRadius: '16px',
-                        padding: '12px 24px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                        minWidth: '280px',
-                        textAlign: 'center'
-                    }}>
-                        <div style={{
-                            background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-                            borderRadius: '12px',
-                            padding: '6px 10px',
-                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-                            minWidth: '260px',
-                            maxWidth: '320px'
-                        }}>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '10px',
-                                height: '28px'
-                            }}>
-                                {/* CASH */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                    <span style={{
-                                        fontSize: '9px',
-                                        fontWeight: 700,
-                                        color: '#94a3b8',
-                                        letterSpacing: '0.5px'
-                                    }}>
-                                        💰 CASH
-                                    </span>
-                                    <span style={{
-                                        fontSize: '13px',
-                                        fontWeight: 800,
-                                        fontFamily: 'monospace',
-                                        color: remainingBalances.cash_remaining >= 0 ? '#10b981' : '#ef4444',
-                                        lineHeight: '1'
-                                    }}>
-                                        Rs {formatDecimal(remainingBalances.cash_remaining)}
-                                    </span>
-                                </div>
+    {/* Archived Indicator */}
+    {dataSource === 'sales_history' && (
+        <div style={{
+            ...styles.viewTypeIndicator,
+            padding: '4px 10px',
+            fontSize: '10px',
+            flexShrink: 0,
+            height: '26px'
+        }}>
+            <span>📚</span>Archived
+            <button
+                onClick={() => {
+                    resetToCurrentSales();
+                    setState(prev => ({ ...prev, customerType: null }));
+                }}
+                style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#92400e',
+                    cursor: 'pointer',
+                    marginLeft: '2px',
+                    fontSize: '12px'
+                }}
+            >
+                ✕
+            </button>
+        </div>
+    )}
 
-                                {/* BANK (CLICKABLE) */}
-                                <div
-                                    onClick={() => setShowBankBreakdownModal(true)}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        flex: 1,
-                                        cursor: 'pointer',
-                                        padding: '2px 6px',
-                                        borderRadius: '6px'
-                                    }}
-                                    onMouseEnter={(e) =>
-                                        e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
-                                    }
-                                    onMouseLeave={(e) =>
-                                        e.currentTarget.style.background = 'transparent'
-                                    }
-                                >
-                                    <span style={{
-                                        fontSize: '9px',
-                                        fontWeight: 700,
-                                        color: '#94a3b8',
-                                        letterSpacing: '0.5px'
-                                    }}>
-                                        🏦 BANK
-                                    </span>
-                                    <span style={{
-                                        fontSize: '13px',
-                                        fontWeight: 800,
-                                        fontFamily: 'monospace',
-                                        color: remainingBalances.total_bank_remaining >= 0 ? '#60a5fa' : '#ef4444',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '3px',
-                                        lineHeight: '1'
-                                    }}>
-                                        Rs {formatDecimal(remainingBalances.total_bank_remaining)}
-                                        <span style={{ fontSize: '9px', color: '#64748b' }}>▼</span>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+    {/* TOTAL FUNDS CARD - Right side */}
+    <div style={{
+        background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+        borderRadius: '8px',
+        padding: '4px 12px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+        minWidth: '160px',
+        textAlign: 'center',
+        flexShrink: 0,
+        height: '28px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+    }}>
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            width: '100%'
+        }}>
+            {/* CASH */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <span style={{
+                    fontSize: '8px',
+                    fontWeight: 700,
+                    color: '#94a3b8',
+                    letterSpacing: '0.3px'
+                }}>
+                    💰CASH
+                </span>
+                <span style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    fontFamily: 'monospace',
+                    color: remainingBalances.cash_remaining >= 0 ? '#10b981' : '#ef4444',
+                    lineHeight: '1'
+                }}>
+                    Rs{formatDecimal(remainingBalances.cash_remaining)}
+                </span>
+            </div>
 
+            {/* BANK (CLICKABLE) */}
+            <div
+                onClick={() => setShowBankBreakdownModal(true)}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    cursor: 'pointer',
+                    padding: '1px 4px',
+                    borderRadius: '4px'
+                }}
+                onMouseEnter={(e) =>
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+                }
+                onMouseLeave={(e) =>
+                    e.currentTarget.style.background = 'transparent'
+                }
+            >
+                <span style={{
+                    fontSize: '8px',
+                    fontWeight: 700,
+                    color: '#94a3b8',
+                    letterSpacing: '0.3px'
+                }}>
+                    🏦BANK
+                </span>
+                <span style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    fontFamily: 'monospace',
+                    color: remainingBalances.total_bank_remaining >= 0 ? '#60a5fa' : '#ef4444',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '2px',
+                    lineHeight: '1'
+                }}>
+                    Rs{formatDecimal(remainingBalances.total_bank_remaining)}
+                    <span style={{ fontSize: '7px', color: '#64748b' }}>▼</span>
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
                 <div style={styles.threeColumns}>
                     {/* LEFT: Completed Payments */}
                     <div style={styles.panel}>
@@ -5658,37 +6214,51 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
                                                 Remaining: Rs. {formatDecimal(getDisplayRemaining(state.selectedBill, state.selectedBill.givenAmountApplied === 'Y'))}
                                             </div>
                                         </div>
-                                        <input
-                                            ref={givenAmountInputRef}
-                                            type="number"
-                                            value={state.givenAmountInput}
-                                            onChange={(e) => {
-                                                let val = e.target.value;
-                                                if (val === "") return setState(prev => ({ ...prev, givenAmountInput: "" }));
-                                                let num = parseFloat(val);
-                                                if (state.selectedBill) {
-                                                    const maxAmount = getRemainingBillAmount(state.selectedBill);
-                                                    if (num > maxAmount) {
-                                                        alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
-                                                        return;
-                                                    }
-                                                }
-                                                setState(prev => ({ ...prev, givenAmountInput: val }));
-                                            }}
-                                            placeholder="0.00"
-                                            disabled={state.isPrinting}
-                                            style={{
-                                                width: '100%',
-                                                padding: '16px',
-                                                border: '2px solid #fbbf24',
-                                                borderRadius: '14px',
-                                                fontSize: '20px',
-                                                fontWeight: '700',
-                                                textAlign: 'center',
-                                                background: 'white',
-                                                fontFamily: 'monospace'
-                                            }}
-                                        />
+                                       <input
+    ref={givenAmountInputRef}
+    type="number"
+    value={state.givenAmountInput}
+    onChange={(e) => {
+        let val = e.target.value;
+        if (val === "") return setState(prev => ({ ...prev, givenAmountInput: "" }));
+        let num = parseFloat(val);
+        if (state.selectedBill) {
+            const maxAmount = getRemainingBillAmount(state.selectedBill);
+            if (num > maxAmount) {
+                alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
+                return;
+            }
+        }
+        setState(prev => ({ ...prev, givenAmountInput: val }));
+    }}
+    onKeyDown={(e) => {
+        // Check if F2 key is pressed (key code 113)
+        if (e.key === 'F2' || e.keyCode === 113) {
+            e.preventDefault(); // Prevent default browser behavior (like renaming in some apps)
+            const amt = parseFloat(state.givenAmountInput);
+            // Validate the amount
+            if (isNaN(amt) || amt <= 0) {
+                alert("Please enter a valid amount greater than 0");
+                return;
+            }
+            // Process cash payment
+            processPayment(amt);
+        }
+    }}
+    placeholder="0.00"
+    disabled={state.isPrinting}
+    style={{
+        width: '100%',
+        padding: '16px',
+        border: '2px solid #fbbf24',
+        borderRadius: '14px',
+        fontSize: '20px',
+        fontWeight: '700',
+        textAlign: 'center',
+        background: 'white',
+        fontFamily: 'monospace'
+    }}
+/>
 
 
                                         <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
@@ -6165,6 +6735,25 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
                 onClose={() => setShowBankBreakdownModal(false)}
                 bankBreakdown={remainingBalances.bank_breakdown}
             />
+            <OutstandingDebtModal
+    isOpen={showOutstandingDebtModal}
+    onClose={() => {
+        modalOpenRef.current = false;
+        setShowOutstandingDebtModal(false);
+    }}
+    bills={outstandingDebtBills}
+    onBillClick={(bill) => {
+        // This will select the bill and show it in the center panel
+        handleBillClick(bill);
+        // If the bill is in pending section, use checkAndHandleDebtor
+        if (bill.givenAmountApplied !== 'Y') {
+            checkAndHandleDebtor(bill);
+        } else {
+            handleBillClick(bill);
+        }
+    }}
+    formatDecimal={formatDecimal}
+/>
         </div>
     );
 } 

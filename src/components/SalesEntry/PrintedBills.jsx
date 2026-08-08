@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition } from "react";
 import api from "../../api";
 import ItemReportModal from '../Itemrepo/ItemReportModal';
 import WeightReportModal from '../WeightReport/WeightReportModal';
@@ -44,69 +44,58 @@ const formatDecimal = (value) => {
         maximumFractionDigits: 2,
     }).format(Number(value || 0));
 };
-// ADD THIS DEBUG FUNCTION RIGHT HERE
-const debugCreditChanges = (billNo, previousCredit, newCredit, source) => {
-    console.log(`🔍 CREDIT DEBUG - Bill: ${billNo}`);
-    console.log(`   Previous Credit: ${previousCredit}`);
-    console.log(`   New Credit: ${newCredit}`);
-    console.log(`   Source: ${source}`);
-    console.log(`   Changed: ${previousCredit !== newCredit ? 'YES ⚠️' : 'NO ✓'}`);
-    if (previousCredit !== newCredit) {
-        console.trace('Credit change stack trace:');
-    }
-};
-
-
 const processBillData = (salesData) => {
-    const pendingMap = {};
-    const appliedMap = {};
+    const pendingMap = Object.create(null);
+    const appliedMap = Object.create(null);
+    const len = salesData.length;
 
-    salesData.filter(s => s.bill_printed === 'Y' && s.bill_no).forEach(sale => {
+    for (let i = 0; i < len; i++) {
+        const sale = salesData[i];
+        if (sale.bill_printed !== 'Y' || !sale.bill_no) continue;
+
         const billNo = sale.bill_no;
-        let paymentHistory = [];
-        if (sale.payment_history) {
-            try {
-                paymentHistory = typeof sale.payment_history === 'string' ? JSON.parse(sale.payment_history) : sale.payment_history;
-                if (!Array.isArray(paymentHistory)) paymentHistory = [];
-            } catch (e) { paymentHistory = []; }
-        }
-
-        let totalCreditAmount = 0;  // Total credit taken
-        let totalCashPaid = 0;      // Total cash/cheque/transfer payments (not credit)
-        let totalGivenAmount = 0;
-
-        // Process payment history - track total credit taken
-        paymentHistory.forEach(payment => {
-            const amount = parseFloat(payment.amount) || 0;
-            totalGivenAmount += amount;
-
-            if (payment.method === 'Credit') {
-                totalCreditAmount += amount;
-            } else if (['Cash', 'Cheque', 'Bank Transfer'].includes(payment.method)) {
-                totalCashPaid += amount;
-            }
-        });
-
-        const finalGivenAmount = totalGivenAmount;
-        const finalCashPayments = totalCashPaid;
-        const finalCreditAmount = totalCreditAmount;
-
-        // Initialize remainingCredit as totalCreditAmount. It can be refined later from debtor table data.
-        let finalRemainingCredit = totalCreditAmount;
-
         const isApplied = sale.given_amount_applied === 'Y';
         const targetMap = isApplied ? appliedMap : pendingMap;
+        let bill = targetMap[billNo];
 
-        if (!targetMap[billNo]) {
-            targetMap[billNo] = {
+        if (!bill) {
+            // Parse payment history ONCE per bill (not per line item)
+            let paymentHistory = [];
+            const rawHistory = sale.payment_history;
+            if (rawHistory) {
+                if (typeof rawHistory === 'string') {
+                    try {
+                        paymentHistory = JSON.parse(rawHistory);
+                        if (!Array.isArray(paymentHistory)) paymentHistory = [];
+                    } catch (e) { paymentHistory = []; }
+                } else if (Array.isArray(rawHistory)) {
+                    paymentHistory = rawHistory;
+                }
+            }
+
+            let totalCreditAmount = 0;
+            let totalCashPaid = 0;
+            let totalGivenAmount = 0;
+            for (let p = 0; p < paymentHistory.length; p++) {
+                const payment = paymentHistory[p];
+                const amount = parseFloat(payment.amount) || 0;
+                totalGivenAmount += amount;
+                if (payment.method === 'Credit') {
+                    totalCreditAmount += amount;
+                } else if (payment.method === 'Cash' || payment.method === 'Cheque' || payment.method === 'Bank Transfer') {
+                    totalCashPaid += amount;
+                }
+            }
+
+            bill = {
                 billNo,
                 customerCode: sale.customer_code,
                 sales: [],
                 totalAmount: 0,
-                givenAmount: finalGivenAmount,
-                cashPayments: finalCashPayments,
-                creditAmount: finalCreditAmount,
-                remainingCredit: finalRemainingCredit,
+                givenAmount: totalGivenAmount,
+                cashPayments: totalCashPaid,
+                creditAmount: totalCreditAmount,
+                remainingCredit: totalCreditAmount,
                 givenAmountApplied: sale.given_amount_applied || 'N',
                 paymentAdjustmentType: sale.payment_adjustment_type || null,
                 createdAt: sale.created_at,
@@ -114,18 +103,59 @@ const processBillData = (salesData) => {
                 transferDetails: sale.transfer_reference_no ? { reference_no: sale.transfer_reference_no, transfer_date: sale.transfer_date } : null,
                 paymentHistory
             };
+            targetMap[billNo] = bill;
         }
-        targetMap[billNo].sales.push(sale);
-        // Keep list totals aligned with the detail card's Total Payable formula.
-        targetMap[billNo].totalAmount +=
+
+        bill.sales.push(sale);
+        bill.totalAmount +=
             ((parseFloat(sale.weight) || 0) * (parseFloat(sale.price_per_kg) || 0)) +
             ((parseFloat(sale.packs) || 0) * (parseFloat(sale.CustomerPackCost) || 0));
-    });
+    }
+
+    const byNewest = (a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+    };
 
     return {
-        pendingBills: Object.values(pendingMap).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-        appliedBills: Object.values(appliedMap).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        pendingBills: Object.values(pendingMap).sort(byNewest),
+        appliedBills: Object.values(appliedMap).sort(byNewest)
     };
+};
+
+const buildDebtorMap = (debtorsData) => {
+    const map = Object.create(null);
+    if (!debtorsData) return map;
+    for (let i = 0; i < debtorsData.length; i++) {
+        const debtor = debtorsData[i];
+        if (debtor?.bill_no) map[debtor.bill_no] = debtor;
+    }
+    return map;
+};
+
+const applyDebtorCredits = (bills, isAppliedSection, debtorMap) => {
+    if (!bills || bills.length === 0) return bills || [];
+    const out = new Array(bills.length);
+    for (let i = 0; i < bills.length; i++) {
+        const bill = bills[i];
+        if (!bill?.billNo) {
+            out[i] = bill;
+            continue;
+        }
+        if (isAppliedSection) {
+            const debtor = debtorMap[bill.billNo];
+            out[i] = {
+                ...bill,
+                remainingCredit: debtor ? (debtor.remaining_amount || 0) : (bill.creditAmount || 0)
+            };
+        } else {
+            out[i] = bill.remainingCredit === bill.creditAmount
+                ? bill
+                : { ...bill, remainingCredit: bill.creditAmount || 0 };
+        }
+    }
+    return out;
 };
 // ==================== CUSTOMER TYPE SELECTOR ====================
 const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebtorClick, onUnlockScreen, billCustomerCode = null, billNo = null, selectedBillDebtor = null, customers = [], viewOldBills = false, onSaveBillCustomerType }) => {
@@ -167,14 +197,7 @@ const CustomerTypeSelector = ({ selectedType, onSelect, disabled = false, onDebt
         finally { setIsLoadingCustomers(false); }
     };
 
-    // Initial fetch if no customers from parent
-    useEffect(() => {
-        if (!customers.length && !customersLoaded) {
-            fetchAllCustomers();
-        }
-    }, []);
-
-    // Fetch customers when modal opens if needed
+    // Do NOT fetch customers on mount — only when debtor modal opens (keeps page load fast)
     useEffect(() => {
         if (showDebtorConfirm && !customersLoaded) fetchAllCustomers();
     }, [showDebtorConfirm]);
@@ -1453,11 +1476,12 @@ const SupplierSettlementModal = ({
     isOpen, 
     onClose, 
     onSaved, 
-    processPayment, // ← Pass the processPayment function
-    fetchSalesData, // ← Pass fetchSalesData to refresh after payment
-    selectedUniqueCode, // ← Pass the selected cashier
-    saveBillCustomerType // ← Pass the save function
+    processPayment,
+    fetchSalesData,
+    selectedUniqueCode,
+    saveBillCustomerType
 }) => {
+    // ==================== ALL HOOKS FIRST ====================
     const [form, setForm] = useState({
         customerCode: '',
         amount: '',
@@ -1471,14 +1495,13 @@ const SupplierSettlementModal = ({
     const [banks, setBanks] = useState([]);
     const [loadingBanks, setLoadingBanks] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    
-    // State for customer bills
     const [customerBills, setCustomerBills] = useState([]);
     const [loadingBills, setLoadingBills] = useState(false);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
     const [invoiceData, setInvoiceData] = useState(null);
 
-    const resetForm = () => {
+    // ==================== useCallback HOOKS ====================
+    const resetForm = useCallback(() => {
         setForm({
             customerCode: '',
             amount: '',
@@ -1492,9 +1515,9 @@ const SupplierSettlementModal = ({
         setCustomerBills([]);
         setInvoiceData(null);
         setShowInvoiceModal(false);
-    };
+    }, []);
 
-    const loadBanks = async () => {
+    const loadBanks = useCallback(async () => {
         setLoadingBanks(true);
         try {
             const response = await api.get(routes.getBanks);
@@ -1509,129 +1532,23 @@ const SupplierSettlementModal = ({
         } finally {
             setLoadingBanks(false);
         }
-    };
+    }, []);
 
-    // Fetch customer bills based on customer code
-    const fetchCustomerBills = async (customerCode) => {
-        if (!customerCode || customerCode.trim() === '') {
-            setCustomerBills([]);
-            return;
+    const getTotalSelectedBills = useCallback(() => {
+        return form.selectedBills.reduce((sum, bill) => {
+            return sum + Math.max(0, parseFloat(bill.remainingAmount) || 0);
+        }, 0);
+    }, [form.selectedBills]);
+
+    const calculatePaymentDistribution = useCallback((amount, selectedBills) => {
+        if (!selectedBills || selectedBills.length === 0) {
+            return { distribution: [], totalPaid: 0, extraAmount: 0, totalSelectedBillAmount: 0 };
         }
-
-        setLoadingBills(true);
-        try {
-            console.log('🔍 Fetching bills for customer:', customerCode);
-            
-            const response = await api.get('/customer-bills', {
-                params: { customer_code: customerCode.trim().toUpperCase() }
-            });
-            
-            console.log('📋 API Response:', response.data);
-            
-            if (response.data?.success) {
-                const bills = response.data.data || [];
-                console.log(`📊 Found ${bills.length} bills for customer`);
-                
-                // Fetch detailed info for each bill
-                const billsWithDetails = await Promise.all(bills.map(async (bill) => {
-                    try {
-                        console.log(`📄 Fetching details for bill: ${bill.bill_no}`);
-                        const detailResponse = await api.get(`/sales/bill-details/${bill.bill_no}`);
-                        const data = detailResponse.data;
-                        
-                        console.log(`📊 Bill ${bill.bill_no} details:`, data);
-                        
-                        // Calculate remaining amount
-                        const totalAmount = parseFloat(data.total_amount) || 0;
-                        const paidAmount = parseFloat(data.paid_amount) || 0;
-                        const remainingAmount = Math.max(0, totalAmount - paidAmount);
-                        
-                        return {
-                            ...bill,
-                            totalAmount: totalAmount,
-                            paidAmount: paidAmount,
-                            remainingAmount: remainingAmount,
-                            customerName: data.customer_name || '',
-                            date: data.date || '',
-                            hasDetails: true,
-                            sales: [] // Initialize sales array for processPayment compatibility
-                        };
-                    } catch (e) {
-                        console.error(`❌ Error fetching details for bill ${bill.bill_no}:`, e);
-                        return {
-                            ...bill,
-                            totalAmount: 0,
-                            paidAmount: 0,
-                            remainingAmount: 0,
-                            customerName: '',
-                            date: '',
-                            hasDetails: false,
-                            sales: []
-                        };
-                    }
-                }));
-                
-                console.log('✅ Bills with details:', billsWithDetails);
-                
-                // Filter out bills with zero remaining amount
-                const filteredBills = billsWithDetails.filter(bill => bill.remainingAmount > 0);
-                
-                console.log(`📊 ${filteredBills.length} bills with remaining balance out of ${billsWithDetails.length}`);
-                
-                setCustomerBills(filteredBills);
-                
-                // Auto-select all bills that have remaining balance
-                if (filteredBills.length > 0) {
-                    setForm(prev => ({
-                        ...prev,
-                        selectedBills: filteredBills
-                    }));
-                }
-            } else {
-                console.warn('⚠️ API returned success: false');
-                setCustomerBills([]);
-            }
-        } catch (error) {
-            console.error('❌ Error fetching customer bills:', error);
-            console.error('Error details:', error.response?.data);
-            setCustomerBills([]);
-        } finally {
-            setLoadingBills(false);
-        }
-    };
-
-    useEffect(() => {
-        if (isOpen) {
-            loadBanks();
-            resetForm();
-        }
-    }, [isOpen]);
-
-    // Fetch bills when customer code changes
-    useEffect(() => {
-        if (form.customerCode && form.customerCode.trim() !== '') {
-            const timer = setTimeout(() => {
-                fetchCustomerBills(form.customerCode);
-            }, 500);
-            return () => clearTimeout(timer);
-        } else {
-            setCustomerBills([]);
-            setForm(prev => ({ ...prev, selectedBills: [] }));
-        }
-    }, [form.customerCode]);
-
-    if (!isOpen) return null;
-
-    const selectedBank = banks.find(b => String(b.id) === String(form.bankId));
-    const requiresBank = form.paymentMethod === 'cheque' || form.paymentMethod === 'banktransfer';
-
-    // Calculate distribution of payment across selected bills
-    const calculatePaymentDistribution = (amount, selectedBills) => {
-        if (!selectedBills || selectedBills.length === 0) return [];
         
         const sortedBills = [...selectedBills].sort((a, b) => a.bill_no.localeCompare(b.bill_no));
         let remainingAmount = parseFloat(amount) || 0;
         const distribution = [];
+        let totalPaid = 0;
         
         for (let i = 0; i < sortedBills.length; i++) {
             const bill = sortedBills[i];
@@ -1642,12 +1559,12 @@ const SupplierSettlementModal = ({
             let paymentAmount = 0;
             let isFullyPaid = false;
             
-            if (i === sortedBills.length - 1) {
-                paymentAmount = Math.min(remainingAmount, billRemaining);
-                isFullyPaid = paymentAmount >= billRemaining;
+            if (remainingAmount >= billRemaining) {
+                paymentAmount = billRemaining;
+                isFullyPaid = true;
             } else {
-                paymentAmount = Math.min(remainingAmount, billRemaining);
-                isFullyPaid = paymentAmount >= billRemaining;
+                paymentAmount = remainingAmount;
+                isFullyPaid = false;
             }
             
             distribution.push({
@@ -1656,278 +1573,253 @@ const SupplierSettlementModal = ({
                 isFullyPaid: isFullyPaid
             });
             
+            totalPaid += paymentAmount;
             remainingAmount -= paymentAmount;
+            
             if (remainingAmount <= 0) break;
         }
         
-        return distribution;
-    };
-
-    // Generate invoice HTML
-    const generateInvoiceHTML = (distribution, customerCode, totalAmount, paymentMethod, paymentDetails) => {
-        const date = new Date().toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-        const time = new Date().toLocaleTimeString();
-        const invoiceNo = `INV-${Date.now()}`;
+        const extraAmount = Math.max(0, remainingAmount);
         
-        let paymentMethodDisplay = '';
-        if (paymentMethod === 'cheque' && paymentDetails) {
-            paymentMethodDisplay = `Cheque: ${paymentDetails.bank_name || 'Bank'} | No: ${paymentDetails.cheque_no || 'N/A'}`;
-        } else if (paymentMethod === 'banktransfer' && paymentDetails) {
-            paymentMethodDisplay = `Bank Transfer: Ref: ${paymentDetails.bank_transfer_ref_no || 'N/A'}`;
-        } else {
-            paymentMethodDisplay = 'Cash Payment';
-        }
+        return {
+            distribution: distribution,
+            totalPaid: totalPaid,
+            extraAmount: extraAmount,
+            totalSelectedBillAmount: getTotalSelectedBills()
+        };
+    }, [getTotalSelectedBills]);
 
-        let itemsHtml = distribution.map((bill, index) => {
-            const status = bill.isFullyPaid ? '✅ FULLY PAID' : '⚠️ PARTIAL';
-            return `
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;">${bill.bill_no}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.totalAmount || 0)}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.paymentAmount || 0)}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${status}</td>
-                </tr>
-            `;
-        }).join('');
-
-        return `
-            <div style="width: 100%; max-width: 800px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background: white;">
-                <div style="text-align: center; border-bottom: 3px solid #1a56db; padding-bottom: 20px; margin-bottom: 20px;">
-                    <h1 style="font-size: 28px; color: #1a56db; margin: 0;">Manju Colombage Lanka (Pvt) Ltd</h1>
-                    <p style="font-size: 16px; color: #475569; margin: 5px 0;">එළවළු, පළතුරු තොග වෙළෙන්දෝ</p>
-                    <p style="font-size: 14px; color: #64748b;">No. 123, Main Street, Colombo</p>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; margin-bottom: 20px; padding: 15px; background: #f8fafc; border-radius: 8px;">
-                    <div>
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Invoice No:</strong> ${invoiceNo}</p>
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Date:</strong> ${date} ${time}</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Customer Code:</strong> ${customerCode}</p>
-                        <p style="margin: 5px 0; font-size: 14px;"><strong>Payment Method:</strong> ${paymentMethodDisplay}</p>
-                    </div>
-                </div>
-
-                <h3 style="color: #1e293b; margin-bottom: 15px;">Bill Settlement Details</h3>
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                    <thead>
-                        <tr style="background: #f1f5f9;">
-                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">#</th>
-                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Bill No</th>
-                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Total Amount</th>
-                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Paid Amount</th>
-                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${itemsHtml}
-                    </tbody>
-                    <tfoot>
-                        <tr style="background: #f8fafc; font-weight: bold;">
-                            <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #1a56db;">Total Paid:</td>
-                            <td style="padding: 12px; text-align: right; border-top: 2px solid #1a56db; color: #059669;">Rs. ${formatDecimal(totalAmount)}</td>
-                            <td style="padding: 12px; text-align: center; border-top: 2px solid #1a56db;"></td>
-                        </tr>
-                    </tfoot>
-                </table>
-
-                <div style="display: flex; justify-content: space-between; margin-top: 20px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
-                    <div>
-                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Signature: ___________________</p>
-                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Date: ___________________</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <p style="font-size: 14px; color: #475569; margin: 5px 0;"><strong>Thank you for your business!</strong></p>
-                        <p style="font-size: 12px; color: #94a3b8;">This is a computer generated invoice</p>
-                    </div>
-                </div>
-            </div>
-        `;
-    };
-
-    // UPDATED: Use the processPayment function passed from parent
-    const handleSubmit = async () => {
-        if (!form.customerCode.trim()) {
-            alert('Please enter customer code.');
-            return;
-        }
-        if (!form.amount || parseFloat(form.amount) <= 0) {
-            alert('Please enter a valid amount.');
-            return;
-        }
-        if (!form.selectedBills || form.selectedBills.length === 0) {
-            alert('Please select at least one bill to settle.');
-            return;
-        }
-
-        // Filter out bills with zero remaining balance
+    const getDistributionPreview = useCallback(() => {
+        if (!form.amount || form.selectedBills.length === 0) return null;
+        
+        const amount = parseFloat(form.amount);
         const validBills = form.selectedBills.filter(bill => 
             Math.max(0, parseFloat(bill.remainingAmount) || 0) > 0
         );
-
-        if (validBills.length === 0) {
-            alert('Selected bills have no remaining balance to settle.');
-            return;
-        }
-
-        if (form.paymentMethod === 'cheque') {
-            if (!form.chequeDate || !form.chequeNo.trim() || !form.bankId) {
-                alert('Please fill cheque date, cheque number, and bank account.');
-                return;
-            }
-        }
-
-        if (form.paymentMethod === 'banktransfer') {
-            if (!form.bankId || !form.bankTransferRefNo.trim()) {
-                alert('Please select bank account and enter bank transfer reference number.');
-                return;
-            }
-        }
-
-        // Calculate payment distribution
-        const amount = parseFloat(form.amount);
-        const distribution = calculatePaymentDistribution(amount, validBills);
         
-        // Check if we have enough bills to cover the amount
-        const totalRemaining = validBills.reduce((sum, bill) => {
-            return sum + Math.max(0, parseFloat(bill.remainingAmount) || 0);
-        }, 0);
+        if (validBills.length === 0) return null;
         
-        if (totalRemaining <= 0) {
-            alert('Selected bills have no remaining balance to settle.');
-            return;
+        return calculatePaymentDistribution(amount, validBills);
+    }, [form.amount, form.selectedBills, calculatePaymentDistribution]);
+
+ const fetchCustomerBills = useCallback(async (customerCode) => {
+    if (!customerCode || customerCode.trim() === '') {
+        setCustomerBills([]);
+        return;
+    }
+
+    setLoadingBills(true);
+    try {
+        const upperCustomerCode = customerCode.trim().toUpperCase();
+        console.log('🔍 Fetching bills for customer:', upperCustomerCode);
+        
+        // 1. Fetch regular bills from customer-bills endpoint
+        const response = await api.get('/customer-bills', {
+            params: { customer_code: upperCustomerCode }
+        });
+        
+        console.log('📋 Customer Bills API Response:', response.data);
+        
+        let bills = [];
+        
+        if (response.data?.success) {
+            bills = response.data.data || [];
+            console.log(`📊 Found ${bills.length} regular bills for customer`);
         }
         
-        if (amount > totalRemaining) {
-            alert(`Total amount (Rs. ${formatDecimal(amount)}) exceeds total remaining balance of selected bills (Rs. ${formatDecimal(totalRemaining)}).\n\nPlease reduce the amount or select more bills.`);
-            return;
-        }
-
-        if (distribution.length === 0) {
-            alert('Unable to distribute payment. Please check the selected bills.');
-            return;
-        }
-
-        setSubmitting(true);
-        
+        // 2. ALSO fetch debtor bills for this customer
+        let debtorBills = [];
         try {
-            // Process each bill settlement using the same processPayment function
-            const results = [];
-            for (const bill of distribution) {
-                if (!bill.paymentAmount || bill.paymentAmount <= 0) continue;
-                
-                // Create a temporary selectedBill object that matches the format expected by processPayment
-                const tempSelectedBill = {
-                    billNo: bill.bill_no,
-                    customerCode: form.customerCode.trim().toUpperCase(),
-                    totalAmount: bill.totalAmount || 0,
-                    givenAmount: bill.paidAmount || 0,
-                    givenAmountApplied: 'N', // Will be updated by processPayment
-                    creditAmount: 0,
-                    remainingCredit: bill.remainingAmount || 0,
-                    paymentHistory: [],
-                    payment_history: [],
-                    sales: bill.sales || []
-                };
-
-                // Determine payment method details
-                let isCheque = false;
-                let chequeDetails = null;
-                let isBankTransfer = false;
-                let bankTransferDetails = null;
-                let isAdjustment = false;
-                let adjustmentDetails = null;
-
-                if (form.paymentMethod === 'cheque') {
-                    isCheque = true;
-                    chequeDetails = {
-                        cheq_date: form.chequeDate,
-                        cheq_no: form.chequeNo.trim(),
-                        bank_account_id: form.bankId,
-                        bank_name: selectedBank?.bank_name || null
-                    };
-                } else if (form.paymentMethod === 'banktransfer') {
-                    isBankTransfer = true;
-                    bankTransferDetails = {
-                        bank_account_id: form.bankId,
-                        reference_no: form.bankTransferRefNo.trim(),
-                        transfer_date: new Date().toISOString().split('T')[0],
-                        bank_name: selectedBank?.bank_name || null,
-                        notes: ''
-                    };
-                }
-
-                // Call processPayment for each bill
-                await processPayment(
-                    bill.paymentAmount,
-                    isCheque,
-                    chequeDetails,
-                    isBankTransfer,
-                    bankTransferDetails,
-                    isAdjustment,
-                    adjustmentDetails,
-                    tempSelectedBill // Pass the temp bill
-                );
-
-                results.push({ bill, status: 'success' });
-            }
-
-            if (results.length === 0) {
-                alert('No payments were processed. Please check the amounts.');
-                return;
-            }
-
-            // Generate invoice
-            const invoiceHTML = generateInvoiceHTML(
-                distribution.filter(b => b.paymentAmount > 0),
-                form.customerCode,
-                amount,
-                form.paymentMethod,
-                {
-                    payment_method: form.paymentMethod,
-                    cheque_date: form.paymentMethod === 'cheque' ? form.chequeDate : null,
-                    cheque_no: form.paymentMethod === 'cheque' ? form.chequeNo.trim() : null,
-                    bank_name: requiresBank ? (selectedBank?.bank_name || null) : null,
-                    bank_transfer_ref_no: form.paymentMethod === 'banktransfer' ? form.bankTransferRefNo.trim() : null,
-                }
-            );
-
-            setInvoiceData({
-                html: invoiceHTML,
-                distribution: distribution.filter(b => b.paymentAmount > 0),
-                totalAmount: amount,
-                customerCode: form.customerCode,
-                paymentMethod: form.paymentMethod
-            });
-
-            setShowInvoiceModal(true);
-
-            alert(`${results.length} bill(s) settled successfully!`);
-
-            // Refresh data
-            if (fetchSalesData) {
-                await fetchSalesData(selectedUniqueCode);
-            }
+            const debtorResponse = await api.get(`/debtors/customer/${upperCustomerCode}`);
+            console.log('📋 Debtor API Response:', debtorResponse.data);
             
-            onSaved?.();
-            
-        } catch (error) {
-            console.error('❌ Error saving settlement:', error);
-            console.error('Error response:', error.response?.data);
-            const errorMsg = error.response?.data?.message || 'Failed to save settlement.';
-            alert(errorMsg);
-        } finally {
-            setSubmitting(false);
+            if (debtorResponse.data?.success && debtorResponse.data?.data) {
+                // The response might be an array directly or nested in data
+                const debtorData = debtorResponse.data.data;
+                debtorBills = Array.isArray(debtorData) ? debtorData : [debtorData];
+                console.log(`📊 Found ${debtorBills.length} debtor bills for customer`);
+            }
+        } catch (debtorError) {
+            console.log('No debtor bills found for this customer:', debtorError.message);
         }
-    };
+        
+        // 3. Merge regular bills and debtor bills, avoiding duplicates
+        const billNoSet = new Set();
+        const mergedBills = [];
+        
+        // Add regular bills first
+        bills.forEach(bill => {
+            if (bill.bill_no) {
+                billNoSet.add(bill.bill_no);
+                mergedBills.push({
+                    ...bill,
+                    isDebtorBill: false
+                });
+            }
+        });
+        
+        // Add debtor bills that don't already exist
+        debtorBills.forEach(debtorBill => {
+            if (debtorBill.bill_no && !billNoSet.has(debtorBill.bill_no)) {
+                billNoSet.add(debtorBill.bill_no);
+                mergedBills.push({
+                    bill_no: debtorBill.bill_no,
+                    customer_code: debtorBill.customer_code || upperCustomerCode,
+                    total_amount: debtorBill.total_amount || debtorBill.credit_amount || 0,
+                    paid_amount: debtorBill.paid_amount || 0,
+                    remaining_amount: debtorBill.remaining_amount || debtorBill.credit_amount || 0,
+                    isDebtorBill: true,
+                    debtor_no: debtorBill.Debtor_no || debtorBill.debtor_no || null,
+                    credit_amount: debtorBill.credit_amount || 0,
+                    remaining_amount: debtorBill.remaining_amount || debtorBill.credit_amount || 0,
+                    customerName: debtorBill.customer_name || '',
+                    date: debtorBill.date || new Date().toISOString().split('T')[0],
+                    source: 'debtor'
+                });
+            }
+        });
+        
+        console.log(`📊 Merged ${mergedBills.length} total bills (${bills.length} regular + ${debtorBills.length} debtor)`);
+        
+        // 4. Fetch details for each bill
+        const billsWithDetails = await Promise.all(mergedBills.map(async (bill) => {
+            try {
+                // If it's a debtor bill, we already have the data from debtor endpoint
+                if (bill.isDebtorBill) {
+                    return {
+                        ...bill,
+                        totalAmount: bill.total_amount || bill.credit_amount || 0,
+                        paidAmount: bill.paid_amount || 0,
+                        remainingAmount: bill.remaining_amount || bill.credit_amount || 0,
+                        customerName: bill.customer_name || '',
+                        date: bill.date || new Date().toISOString().split('T')[0],
+                        hasDetails: true,
+                        sales: [],
+                        isDebtorBill: true,
+                        debtorNo: bill.debtor_no
+                    };
+                }
+                
+                // For regular bills, fetch detailed information
+                console.log(`📄 Fetching details for bill: ${bill.bill_no}`);
+                const detailResponse = await api.get(`/sales/bill-details/${bill.bill_no}`);
+                const data = detailResponse.data;
+                
+                console.log(`📊 Bill ${bill.bill_no} details:`, data);
+                
+                const totalAmount = parseFloat(data.total_amount) || 0;
+                const paidAmount = parseFloat(data.paid_amount) || 0;
+                const remainingAmount = Math.max(0, totalAmount - paidAmount);
+                
+                return {
+                    ...bill,
+                    totalAmount: totalAmount,
+                    paidAmount: paidAmount,
+                    remainingAmount: remainingAmount,
+                    customerName: data.customer_name || '',
+                    date: data.date || '',
+                    hasDetails: true,
+                    sales: [],
+                    isDebtorBill: false,
+                    debtorNo: null
+                };
+            } catch (e) {
+                console.error(`❌ Error fetching details for bill ${bill.bill_no}:`, e);
+                // If we can't get details, use what we have
+                return {
+                    ...bill,
+                    totalAmount: bill.total_amount || bill.credit_amount || 0,
+                    paidAmount: bill.paid_amount || 0,
+                    remainingAmount: bill.remaining_amount || bill.credit_amount || 0,
+                    customerName: bill.customer_name || '',
+                    date: bill.date || new Date().toISOString().split('T')[0],
+                    hasDetails: false,
+                    sales: [],
+                    isDebtorBill: bill.isDebtorBill || false,
+                    debtorNo: bill.debtor_no || null
+                };
+            }
+        }));
+        
+        console.log('✅ Bills with details:', billsWithDetails);
+        
+        // 5. Filter bills with remaining balance > 0
+        // For debtor bills, show them even if remaining is 0 (they might have credit)
+        const filteredBills = billsWithDetails.filter(bill => {
+            const remaining = parseFloat(bill.remainingAmount) || 0;
+            if (bill.isDebtorBill) {
+                // Show debtor bills even if remaining is 0, but only if they have credit_amount
+                return parseFloat(bill.credit_amount || bill.totalAmount || 0) > 0;
+            }
+            return remaining > 0;
+        });
+        
+        console.log(`📊 ${filteredBills.length} bills with remaining balance out of ${billsWithDetails.length}`);
+        
+        // Sort bills: debtor bills first, then regular bills
+        const sortedBills = filteredBills.sort((a, b) => {
+            if (a.isDebtorBill && !b.isDebtorBill) return -1;
+            if (!a.isDebtorBill && b.isDebtorBill) return 1;
+            return a.bill_no.localeCompare(b.bill_no);
+        });
+        
+        setCustomerBills(sortedBills);
+        
+        // Auto-select all bills with remaining balance
+        if (sortedBills.length > 0) {
+            setForm(prev => ({
+                ...prev,
+                selectedBills: sortedBills
+            }));
+        }
+        
+    } catch (error) {
+        console.error('❌ Error fetching customer bills:', error);
+        console.error('Error details:', error.response?.data);
+        // Show a more helpful error message
+        if (error.response?.status === 404) {
+            alert(`No bills found for customer: ${customerCode}`);
+        } else {
+            alert(`Failed to fetch bills: ${error.response?.data?.message || error.message}`);
+        }
+        setCustomerBills([]);
+    } finally {
+        setLoadingBills(false);
+    }
+}, []);
 
-    const handlePrintInvoice = () => {
+    const toggleBillSelection = useCallback((bill) => {
+        setForm(prev => {
+            const isSelected = prev.selectedBills.some(b => b.bill_no === bill.bill_no);
+            if (isSelected) {
+                return {
+                    ...prev,
+                    selectedBills: prev.selectedBills.filter(b => b.bill_no !== bill.bill_no)
+                };
+            } else {
+                return {
+                    ...prev,
+                    selectedBills: [...prev.selectedBills, bill]
+                };
+            }
+        });
+    }, []);
+
+    const selectAllBills = useCallback(() => {
+        setForm(prev => ({
+            ...prev,
+            selectedBills: [...customerBills]
+        }));
+    }, [customerBills]);
+
+    const deselectAllBills = useCallback(() => {
+        setForm(prev => ({
+            ...prev,
+            selectedBills: []
+        }));
+    }, []);
+
+    const handlePrintInvoice = useCallback(() => {
         if (!invoiceData) return;
         
         const printWindow = window.open("", "_blank", "width=800,height=600");
@@ -1969,9 +1861,9 @@ const SupplierSettlementModal = ({
             </html>
         `);
         printWindow.document.close();
-    };
+    }, [invoiceData]);
 
-    const handleDownloadInvoice = () => {
+    const handleDownloadInvoice = useCallback(() => {
         if (!invoiceData) return;
         
         const blob = new Blob([invoiceData.html], { type: 'text/html' });
@@ -1983,65 +1875,311 @@ const SupplierSettlementModal = ({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    };
+    }, [invoiceData]);
 
-    const handleCloseInvoice = () => {
+    const handleCloseInvoice = useCallback(() => {
         setShowInvoiceModal(false);
         setInvoiceData(null);
         onClose();
         resetForm();
-    };
+    }, [onClose, resetForm]);
 
-    // Toggle bill selection
-    const toggleBillSelection = (bill) => {
-        setForm(prev => {
-            const isSelected = prev.selectedBills.some(b => b.bill_no === bill.bill_no);
-            if (isSelected) {
-                return {
-                    ...prev,
-                    selectedBills: prev.selectedBills.filter(b => b.bill_no !== bill.bill_no)
-                };
-            } else {
-                return {
-                    ...prev,
-                    selectedBills: [...prev.selectedBills, bill]
-                };
-            }
+    // ==================== useEffect HOOKS ====================
+    useEffect(() => {
+        if (isOpen) {
+            loadBanks();
+            resetForm();
+        }
+    }, [isOpen, loadBanks, resetForm]);
+
+    useEffect(() => {
+        if (form.customerCode && form.customerCode.trim() !== '') {
+            const timer = setTimeout(() => {
+                fetchCustomerBills(form.customerCode);
+            }, 500);
+            return () => clearTimeout(timer);
+        } else {
+            setCustomerBills([]);
+            setForm(prev => ({ ...prev, selectedBills: [] }));
+        }
+    }, [form.customerCode, fetchCustomerBills]);
+
+    // ==================== COMPUTED VALUES (NOT HOOKS) ====================
+    const selectedBank = banks.find(b => String(b.id) === String(form.bankId));
+    const requiresBank = form.paymentMethod === 'cheque' || form.paymentMethod === 'banktransfer';
+    const distributionResult = getDistributionPreview();
+    const totalSelectedBills = getTotalSelectedBills();
+
+    // ==================== CONDITIONAL RETURN (After all hooks) ====================
+    if (!isOpen) return null;
+
+    // ==================== GENERATE INVOICE HTML ====================
+    const generateInvoiceHTML = (distributionData, customerCode, totalAmount, paymentMethod, paymentDetails, extraAmount = 0) => {
+        const date = new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
         });
-    };
-
-    // Select all bills
-    const selectAllBills = () => {
-        setForm(prev => ({
-            ...prev,
-            selectedBills: [...customerBills]
-        }));
-    };
-
-    // Deselect all bills
-    const deselectAllBills = () => {
-        setForm(prev => ({
-            ...prev,
-            selectedBills: []
-        }));
-    };
-
-    // Get distribution preview
-    const getDistributionPreview = () => {
-        if (!form.amount || form.selectedBills.length === 0) return null;
+        const time = new Date().toLocaleTimeString();
+        const invoiceNo = `INV-${Date.now()}`;
+        const distribution = distributionData.distribution || distributionData;
         
-        const amount = parseFloat(form.amount);
+        let paymentMethodDisplay = '';
+        if (paymentMethod === 'cheque' && paymentDetails) {
+            paymentMethodDisplay = `Cheque: ${paymentDetails.bank_name || 'Bank'} | No: ${paymentDetails.cheque_no || 'N/A'}`;
+        } else if (paymentMethod === 'banktransfer' && paymentDetails) {
+            paymentMethodDisplay = `Bank Transfer: Ref: ${paymentDetails.bank_transfer_ref_no || 'N/A'}`;
+        } else {
+            paymentMethodDisplay = 'Cash Payment';
+        }
+
+        let itemsHtml = (Array.isArray(distribution) ? distribution : []).map((bill, index) => {
+            const status = bill.isFullyPaid ? '✅ FULLY PAID' : '⚠️ PARTIAL';
+            return `
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;">${bill.bill_no}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.totalAmount || 0)}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right;">Rs. ${formatDecimal(bill.paymentAmount || 0)}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${status}</td>
+                </tr>
+            `;
+        }).join('');
+
+        let extraRow = '';
+        if (extraAmount > 0) {
+            extraRow = `
+                <tr style="background: #fef3c7;">
+                    <td colspan="4" style="padding: 12px; text-align: right; font-weight: bold; color: #92400e;">💰 EXTRA AMOUNT (Unallocated):</td>
+                    <td style="padding: 12px; text-align: center; font-weight: bold; color: #f59e0b;">Rs. ${formatDecimal(extraAmount)}</td>
+                </tr>
+            `;
+        }
+
+        return `
+            <div style="width: 100%; max-width: 800px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background: white;">
+                <div style="text-align: center; border-bottom: 3px solid #1a56db; padding-bottom: 20px; margin-bottom: 20px;">
+                    <h1 style="font-size: 28px; color: #1a56db; margin: 0;">Manju Colombage Lanka (Pvt) Ltd</h1>
+                    <p style="font-size: 16px; color: #475569; margin: 5px 0;">එළවළු, පළතුරු තොග වෙළෙන්දෝ</p>
+                    <p style="font-size: 14px; color: #64748b;">No. 123, Main Street, Colombo</p>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px; padding: 15px; background: #f8fafc; border-radius: 8px;">
+                    <div>
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Invoice No:</strong> ${invoiceNo}</p>
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Date:</strong> ${date} ${time}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Customer Code:</strong> ${customerCode}</p>
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>Payment Method:</strong> ${paymentMethodDisplay}</p>
+                    </div>
+                </div>
+
+                <h3 style="color: #1e293b; margin-bottom: 15px;">Bill Settlement Details</h3>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                    <thead>
+                        <tr style="background: #f1f5f9;">
+                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">#</th>
+                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Bill No</th>
+                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Total Amount</th>
+                            <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e2e8f0;">Paid Amount</th>
+                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${itemsHtml}
+                        ${extraRow}
+                    </tbody>
+                    <tfoot>
+                        <tr style="background: #f8fafc; font-weight: bold;">
+                            <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #1a56db;">Total Paid:</td>
+                            <td style="padding: 12px; text-align: right; border-top: 2px solid #1a56db; color: #059669;">Rs. ${formatDecimal(distributionData.totalPaid || totalAmount)}</td>
+                            <td style="padding: 12px; text-align: center; border-top: 2px solid #1a56db;"></td>
+                        </tr>
+                        ${extraAmount > 0 ? `
+                        <tr style="background: #fef3c7; font-weight: bold;">
+                            <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #f59e0b; color: #92400e;">⚠️ Extra Amount (Not Allocated):</td>
+                            <td style="padding: 12px; text-align: right; border-top: 2px solid #f59e0b; color: #f59e0b;">Rs. ${formatDecimal(extraAmount)}</td>
+                            <td style="padding: 12px; text-align: center; border-top: 2px solid #f59e0b;"></td>
+                        </tr>
+                        ` : ''}
+                    </tfoot>
+                </table>
+
+                <div style="display: flex; justify-content: space-between; margin-top: 20px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
+                    <div>
+                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Signature: ___________________</p>
+                        <p style="font-size: 12px; color: #64748b; margin: 5px 0;">Date: ___________________</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="font-size: 14px; color: #475569; margin: 5px 0;"><strong>Thank you for your business!</strong></p>
+                        <p style="font-size: 12px; color: #94a3b8;">This is a computer generated invoice</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
+
+    // ==================== HANDLE SUBMIT ====================
+    const handleSubmit = async () => {
+        if (!form.customerCode.trim()) {
+            alert('Please enter customer code.');
+            return;
+        }
+        if (!form.amount || parseFloat(form.amount) <= 0) {
+            alert('Please enter a valid amount.');
+            return;
+        }
+        if (!form.selectedBills || form.selectedBills.length === 0) {
+            alert('Please select at least one bill to settle.');
+            return;
+        }
+
         const validBills = form.selectedBills.filter(bill => 
             Math.max(0, parseFloat(bill.remainingAmount) || 0) > 0
         );
+
+        if (validBills.length === 0) {
+            alert('Selected bills have no remaining balance to settle.');
+            return;
+        }
+
+        if (form.paymentMethod === 'cheque') {
+            if (!form.chequeDate || !form.chequeNo.trim() || !form.bankId) {
+                alert('Please fill cheque date, cheque number, and bank account.');
+                return;
+            }
+        }
+
+        if (form.paymentMethod === 'banktransfer') {
+            if (!form.bankId || !form.bankTransferRefNo.trim()) {
+                alert('Please select bank account and enter bank transfer reference number.');
+                return;
+            }
+        }
+
+        const amount = parseFloat(form.amount);
+        const distributionResult2 = calculatePaymentDistribution(amount, validBills);
         
-        if (validBills.length === 0) return null;
+        if (distributionResult2.distribution.length === 0) {
+            alert('Unable to distribute payment. Please check the selected bills.');
+            return;
+        }
+
+        setSubmitting(true);
         
-        return calculatePaymentDistribution(amount, validBills);
+        try {
+            const results = [];
+            for (const bill of distributionResult2.distribution) {
+                if (!bill.paymentAmount || bill.paymentAmount <= 0) continue;
+                
+                const tempSelectedBill = {
+                    billNo: bill.bill_no,
+                    customerCode: form.customerCode.trim().toUpperCase(),
+                    totalAmount: bill.totalAmount || 0,
+                    givenAmount: bill.paidAmount || 0,
+                    givenAmountApplied: 'N',
+                    creditAmount: 0,
+                    remainingCredit: bill.remainingAmount || 0,
+                    paymentHistory: [],
+                    payment_history: [],
+                    sales: bill.sales || []
+                };
+
+                let isCheque = false;
+                let chequeDetails = null;
+                let isBankTransfer = false;
+                let bankTransferDetails = null;
+                let isAdjustment = false;
+                let adjustmentDetails = null;
+
+                if (form.paymentMethod === 'cheque') {
+                    isCheque = true;
+                    chequeDetails = {
+                        cheq_date: form.chequeDate,
+                        cheq_no: form.chequeNo.trim(),
+                        bank_account_id: form.bankId,
+                        bank_name: selectedBank?.bank_name || null
+                    };
+                } else if (form.paymentMethod === 'banktransfer') {
+                    isBankTransfer = true;
+                    bankTransferDetails = {
+                        bank_account_id: form.bankId,
+                        reference_no: form.bankTransferRefNo.trim(),
+                        transfer_date: new Date().toISOString().split('T')[0],
+                        bank_name: selectedBank?.bank_name || null,
+                        notes: ''
+                    };
+                }
+
+                await processPayment(
+                    bill.paymentAmount,
+                    isCheque,
+                    chequeDetails,
+                    isBankTransfer,
+                    bankTransferDetails,
+                    isAdjustment,
+                    adjustmentDetails,
+                    tempSelectedBill
+                );
+
+                results.push({ bill, status: 'success' });
+            }
+
+            if (results.length === 0) {
+                alert('No payments were processed. Please check the amounts.');
+                return;
+            }
+
+            const invoiceHTML = generateInvoiceHTML(
+                distributionResult2,
+                form.customerCode,
+                amount,
+                form.paymentMethod,
+                {
+                    payment_method: form.paymentMethod,
+                    cheque_date: form.paymentMethod === 'cheque' ? form.chequeDate : null,
+                    cheque_no: form.paymentMethod === 'cheque' ? form.chequeNo.trim() : null,
+                    bank_name: requiresBank ? (selectedBank?.bank_name || null) : null,
+                    bank_transfer_ref_no: form.paymentMethod === 'banktransfer' ? form.bankTransferRefNo.trim() : null,
+                },
+                distributionResult2.extraAmount || 0
+            );
+
+            setInvoiceData({
+                html: invoiceHTML,
+                distribution: distributionResult2.distribution,
+                totalAmount: amount,
+                customerCode: form.customerCode,
+                paymentMethod: form.paymentMethod,
+                extraAmount: distributionResult2.extraAmount || 0
+            });
+
+            setShowInvoiceModal(true);
+
+            let message = `${results.length} bill(s) settled successfully!`;
+            if (distributionResult2.extraAmount > 0) {
+                message += `\n\n⚠️ Extra Amount: Rs. ${formatDecimal(distributionResult2.extraAmount)} (Not allocated to any bill)`;
+            }
+            alert(message);
+
+            if (fetchSalesData) {
+                await fetchSalesData(selectedUniqueCode);
+            }
+            
+            onSaved?.();
+            
+        } catch (error) {
+            console.error('❌ Error saving settlement:', error);
+            console.error('Error response:', error.response?.data);
+            const errorMsg = error.response?.data?.message || 'Failed to save settlement.';
+            alert(errorMsg);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    const distributionPreview = getDistributionPreview();
-
+    // ==================== RENDER ====================
     return (
         <>
             <div
@@ -2064,6 +2202,7 @@ const SupplierSettlementModal = ({
                     </div>
 
                     <div style={{ padding: '20px 22px' }}>
+                        {/* Customer Code and Payment Method */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
                                 <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: '600' }}>Customer Code</label>
@@ -2105,6 +2244,7 @@ const SupplierSettlementModal = ({
                             </div>
                         </div>
 
+                        {/* Cheque Details */}
                         {form.paymentMethod === 'cheque' && (
                             <div style={{ marginTop: '12px', padding: '14px', borderRadius: '12px', background: '#f5f3ff' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -2147,6 +2287,7 @@ const SupplierSettlementModal = ({
                             </div>
                         )}
 
+                        {/* Bank Transfer Details */}
                         {form.paymentMethod === 'banktransfer' && (
                             <div style={{ marginTop: '12px', padding: '14px', borderRadius: '12px', background: '#fdf2f8' }}>
                                 <div>
@@ -2178,8 +2319,23 @@ const SupplierSettlementModal = ({
                             </div>
                         )}
 
+                        {/* Amount Section with Total Display */}
                         <div style={{ marginTop: '12px' }}>
-                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: '600' }}>Amount</label>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                <label style={{ fontSize: '12px', fontWeight: '600' }}>Amount</label>
+                                {totalSelectedBills > 0 && (
+                                    <div style={{ 
+                                        fontSize: '13px', 
+                                        fontWeight: '700', 
+                                        color: '#0f766e',
+                                        background: '#d1fae5',
+                                        padding: '4px 12px',
+                                        borderRadius: '20px'
+                                    }}>
+                                        Total Selected Bills: Rs. {formatDecimal(totalSelectedBills)}
+                                    </div>
+                                )}
+                            </div>
                             <input
                                 type="number"
                                 value={form.amount}
@@ -2189,11 +2345,17 @@ const SupplierSettlementModal = ({
                             />
                             {form.amount && form.selectedBills.length > 0 && (
                                 <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                                    💡 Will settle bills in order: Full payment for earlier bills, partial for the last
+                                    💡 Bills will be settled in order: Full payment for earlier bills, partial for the last
+                                    {parseFloat(form.amount) > totalSelectedBills && (
+                                        <span style={{ color: '#f59e0b', display: 'block', marginTop: '2px' }}>
+                                            ⚠️ Extra amount: Rs. {formatDecimal(parseFloat(form.amount) - totalSelectedBills)} (will show as unallocated)
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </div>
 
+                        {/* Bill Selection */}
                         <div style={{ marginTop: '12px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                 <label style={{ fontSize: '12px', fontWeight: '600' }}>
@@ -2317,7 +2479,7 @@ const SupplierSettlementModal = ({
                             </div>
                             {form.selectedBills.length > 0 && (
                                 <div style={{ fontSize: '11px', color: '#059669', marginTop: '6px' }}>
-                                    ✅ {form.selectedBills.length} bill(s) selected
+                                    ✅ {form.selectedBills.length} bill(s) selected | Total: Rs. {formatDecimal(totalSelectedBills)}
                                 </div>
                             )}
                             <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
@@ -2326,11 +2488,11 @@ const SupplierSettlementModal = ({
                         </div>
 
                         {/* Payment Distribution Preview */}
-                        {distributionPreview && distributionPreview.length > 0 && (
+                        {distributionResult && distributionResult.distribution.length > 0 && (
                             <div style={{ marginTop: '16px', padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>📊 Payment Distribution Preview</div>
-                                {distributionPreview.map((bill, idx) => (
-                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', borderBottom: idx < distributionPreview.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                {distributionResult.distribution.map((bill, idx) => (
+                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', borderBottom: idx < distributionResult.distribution.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                                         <span>{bill.bill_no}</span>
                                         <span>
                                             Rs. {formatDecimal(bill.paymentAmount || 0)}
@@ -2338,6 +2500,12 @@ const SupplierSettlementModal = ({
                                         </span>
                                     </div>
                                 ))}
+                                {distributionResult.extraAmount > 0 && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', color: '#f59e0b', borderBottom: '1px solid #fef3c7' }}>
+                                        <span>⚠️ Extra Amount (Unallocated)</span>
+                                        <span>Rs. {formatDecimal(distributionResult.extraAmount)}</span>
+                                    </div>
+                                )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', marginTop: '4px', borderTop: '2px solid #e2e8f0', fontWeight: 'bold', fontSize: '13px' }}>
                                     <span>Total</span>
                                     <span>Rs. {formatDecimal(parseFloat(form.amount) || 0)}</span>
@@ -2807,24 +2975,27 @@ export default function PrintedBills() {
     const badDebtNameRef = useRef(null);
     const badDebtAmountRef = useRef(null);
     const givenAmountInputRef = useRef(null);
+    // After full payment, block stale silent-refresh from bouncing the bill back to Pending
+    const recentlySettledRef = useRef(new Map()); // billNo -> { until, bill }
+    const paymentBusyUntilRef = useRef(0);
+    const salesRequestIdRef = useRef(0);
 
     const [showOutstandingDebtModal, setShowOutstandingDebtModal] = useState(false);
 const [outstandingDebtBills, setOutstandingDebtBills] = useState([]);
 
     const getTotalReceived = (bill) => {
         if (!bill) return 0;
-
-        let total = 0;
         const history = bill.paymentHistory || bill.payment_history;
-        if (history) {
-            let payments = typeof history === 'string' ? JSON.parse(history) : history;
-            if (Array.isArray(payments)) {
-                payments.forEach(p => {
-                    // Exclude Credit payments from total received (they're debt, not actual received cash)
-                    if (p.method !== 'Credit') {
-                        total += parseFloat(p.amount) || 0;
-                    }
-                });
+        if (!history) return 0;
+        const payments = Array.isArray(history)
+            ? history
+            : (typeof history === 'string'
+                ? (() => { try { const p = JSON.parse(history); return Array.isArray(p) ? p : []; } catch { return []; } })()
+                : []);
+        let total = 0;
+        for (let i = 0; i < payments.length; i++) {
+            if (payments[i].method !== 'Credit') {
+                total += parseFloat(payments[i].amount) || 0;
             }
         }
         return total;
@@ -2862,21 +3033,30 @@ const [outstandingDebtBills, setOutstandingDebtBills] = useState([]);
             return {};
         }
     });
-   
-const fetchDebtorForBill = async (billNo) => {
-    try {
-        const response = await api.get(`/debtors/${billNo}`);
-        if (response.data.success && response.data.data) {
-            return response.data.data;
-        }
-    } catch (e) {
-        console.log('No debtor record found for bill:', billNo);
-    }
-    return null;
-};
-    // Save bill customer types to localStorage
+    const billCustomerTypesRef = useRef(billCustomerTypes);
     useEffect(() => {
-        localStorage.setItem('billCustomerTypes', JSON.stringify(billCustomerTypes));
+        billCustomerTypesRef.current = billCustomerTypes;
+    }, [billCustomerTypes]);
+
+    const fetchDebtorForBill = async (billNo) => {
+        try {
+            const response = await api.get(`/debtors/${billNo}`);
+            if (response.data.success && response.data.data) {
+                return response.data.data;
+            }
+        } catch (e) {
+            // no debtor record — expected for walking customers
+        }
+        return null;
+    };
+    // Save bill customer types to localStorage (debounced to avoid blocking UI)
+    useEffect(() => {
+        const t = setTimeout(() => {
+            try {
+                localStorage.setItem('billCustomerTypes', JSON.stringify(billCustomerTypes));
+            } catch (e) { /* ignore quota errors */ }
+        }, 300);
+        return () => clearTimeout(t);
     }, [billCustomerTypes]);
     // Handle Enter key navigation for adjustment fields
     const handleAdjustmentKeyPress = (e, nextFieldRef) => {
@@ -2987,9 +3167,24 @@ const fetchDebtorForBill = async (billNo) => {
             }, 100);
         }
     }, [state.selectedBill]);
+
+    // Focus cash amount field when Walking Customer is chosen
+    useEffect(() => {
+        if (state.customerType !== 'walking' || !state.selectedBill) return;
+        const t = setTimeout(() => {
+            if (!givenAmountInputRef.current) return;
+            givenAmountInputRef.current.focus();
+            givenAmountInputRef.current.select();
+        }, 80);
+        return () => clearTimeout(t);
+    }, [state.customerType, state.selectedBill?.billNo]);
     const [selectedBillDebtor, setSelectedBillDebtor] = useState(null);
     const [user, setUser] = useState(null);
     const [isChangingFilter, setIsChangingFilter] = useState(false);
+    const isChangingFilterRef = useRef(false);
+    useEffect(() => {
+        isChangingFilterRef.current = isChangingFilter;
+    }, [isChangingFilter]);
     const filterChangeTimeoutRef = useRef(null);
     const lastSelectedCodeRef = useRef('all');
     const [uniqueCodes, setUniqueCodes] = useState([]);
@@ -2999,6 +3194,9 @@ const fetchDebtorForBill = async (billNo) => {
     const [isLoadingUniqueCodes, setIsLoadingUniqueCodes] = useState(false);
     const selectedUniqueCodeRef = useRef(selectedUniqueCode);
     const isRefreshingRef = useRef(false);
+    const silentRefreshRef = useRef(null);
+    const refreshPendingSidebarRef = useRef(null);
+    const pendingRefreshInFlightRef = useRef(false);
 
     useEffect(() => {
         selectedUniqueCodeRef.current = selectedUniqueCode;
@@ -3013,11 +3211,7 @@ const fetchDebtorForBill = async (billNo) => {
     // Find this function in your code and update it to pass the selected cashier name
     const recordCashierTransaction = async (paymentData) => {
         try {
-            console.log('📝 Recording cashier transaction:', paymentData);
-
-            // Get the currently selected cashier from the dropdown
-            const selectedCashier = selectedUniqueCode === 'all' ? null : selectedUniqueCode;
-
+            const selectedCashier = selectedUniqueCodeRef.current === 'all' ? null : selectedUniqueCodeRef.current;
             const response = await api.post('/cashier-balance/record-payment', {
                 payment_amount: paymentData.paymentAmount,
                 payment_method: paymentData.paymentMethod,
@@ -3026,26 +3220,159 @@ const fetchDebtorForBill = async (billNo) => {
                 bank_name: paymentData.bankName || null,
                 cheque_number: paymentData.chequeNumber || null,
                 transfer_reference: paymentData.transferReference || null,
-                cashier_name: selectedCashier  // ← Pass the selected dropdown value
+                cashier_name: selectedCashier
             });
-
             if (response.data.success) {
-                console.log('✅ Cashier balance updated:', response.data.data);
-                if (response.data.data.bank_balance_formatted) {
-                    console.log('   🏦 Bank Balances:', response.data.data.bank_balance_formatted);
-                }
-                console.log('   💰 Cash Balance: Rs.', response.data.data.cash_balance);
-                console.log('   🏦 Bank Balance:', response.data.data.bank_balance);
+                // Refresh balances in background (don't block payment UX)
+                fetchRemainingBalances(selectedUniqueCodeRef.current);
                 return response.data.data;
             }
         } catch (error) {
-            console.error('❌ Failed to record cashier transaction:', error);
-            if (error.response) {
-                console.error('   Server response:', error.response.data);
-            }
+            console.error('Failed to record cashier transaction:', error);
             return null;
         }
     };
+
+    // Instant local list update after payment — avoids waiting for full sales refetch
+    const [settledVersion, setSettledVersion] = useState(0);
+
+    const markRecentlySettled = useCallback((billNo, bill) => {
+        if (!billNo) return;
+        recentlySettledRef.current.set(String(billNo), {
+            until: Date.now() + 30000,
+            bill: { ...bill, givenAmountApplied: 'Y' },
+        });
+        // Invalidate any in-flight sales fetch so stale pending lists cannot overwrite UI
+        salesRequestIdRef.current += 1;
+        paymentBusyUntilRef.current = Date.now() + 15000;
+        setSettledVersion(v => v + 1);
+    }, []);
+
+    const isRecentlySettledBill = useCallback((billNo) => {
+        const entry = recentlySettledRef.current.get(String(billNo));
+        return !!(entry && entry.until > Date.now());
+    }, [settledVersion]);
+
+    // Keep optimistic "completed" moves stable until DB refresh catches up
+    const reconcileSidebarLists = useCallback((pendingBills, appliedBills) => {
+        const now = Date.now();
+        for (const [k, v] of recentlySettledRef.current) {
+            if (!v || v.until < now) recentlySettledRef.current.delete(k);
+        }
+        if (recentlySettledRef.current.size === 0) {
+            return { pendingBills, appliedBills };
+        }
+
+        let pending = (pendingBills || []).slice();
+        let applied = (appliedBills || []).slice();
+
+        for (const [billNo, entry] of recentlySettledRef.current) {
+            // Always strip from pending (stale DB reads put it back otherwise)
+            const pendingIdx = pending.findIndex(b => String(b.billNo) === billNo);
+            let fromPending = null;
+            if (pendingIdx >= 0) {
+                fromPending = pending[pendingIdx];
+                pending.splice(pendingIdx, 1);
+            }
+
+            const appliedIdx = applied.findIndex(b => String(b.billNo) === billNo);
+            if (appliedIdx >= 0) {
+                if (applied[appliedIdx].givenAmountApplied === 'Y') {
+                    // Server confirmed — keep lock until expiry so rapid stale polls cannot bounce it
+                    applied[appliedIdx] = {
+                        ...applied[appliedIdx],
+                        givenAmountApplied: 'Y',
+                    };
+                } else {
+                    applied[appliedIdx] = {
+                        ...applied[appliedIdx],
+                        ...entry.bill,
+                        givenAmountApplied: 'Y',
+                    };
+                }
+            } else {
+                const merged = {
+                    ...(fromPending || {}),
+                    ...entry.bill,
+                    givenAmountApplied: 'Y',
+                };
+                applied = [merged, ...applied];
+            }
+        }
+
+        return { pendingBills: pending, appliedBills: applied };
+    }, [settledVersion]);
+
+    const applyLocalPaymentToLists = useCallback((bill, {
+        paymentAmount,
+        paymentMethod,
+        totalGivenAmount,
+        givenAmountApplied,
+        paymentHistoryEntry,
+        creditAmountAdd = 0
+    }) => {
+        const billNo = bill.billNo;
+        const wasApplied = bill.givenAmountApplied === 'Y';
+        const nowApplied = givenAmountApplied === 'Y';
+
+        const updatedBill = {
+            ...bill,
+            givenAmount: totalGivenAmount,
+            givenAmountApplied: givenAmountApplied,
+            cashPayments: paymentMethod === 'Credit'
+                ? (bill.cashPayments || 0)
+                : ((bill.cashPayments || 0) + (['Cash', 'Cheque', 'Bank Transfer'].includes(paymentMethod) ? paymentAmount : 0)),
+            creditAmount: (bill.creditAmount || 0) + (creditAmountAdd || 0),
+            remainingCredit: paymentMethod === 'Credit'
+                ? ((bill.remainingCredit || 0) + (creditAmountAdd || paymentAmount || 0))
+                : Math.max(0, (bill.remainingCredit || 0) - (
+                    bill.givenAmountApplied === 'Y' && paymentMethod !== 'Credit' ? paymentAmount : 0
+                )),
+            paymentHistory: [
+                ...((Array.isArray(bill.paymentHistory) && bill.paymentHistory) || []),
+                paymentHistoryEntry
+            ]
+        };
+
+        // Lock BEFORE setState so any concurrent refresh reconcile/filter sees it
+        if (nowApplied) {
+            markRecentlySettled(billNo, updatedBill);
+        }
+
+        // Sync update so Completed/Pending move before any refresh can race
+        setState(prev => {
+            let pending = prev.pendingBills.slice();
+            let applied = prev.appliedBills.slice();
+
+            const removeFrom = (list) => list.filter(b => String(b.billNo) !== String(billNo));
+
+            if (wasApplied) {
+                applied = removeFrom(applied);
+            } else {
+                pending = removeFrom(pending);
+            }
+
+            if (nowApplied) {
+                applied = [updatedBill, ...removeFrom(applied)];
+            } else {
+                pending = [updatedBill, ...removeFrom(pending)];
+            }
+
+            return {
+                ...prev,
+                pendingBills: pending,
+                appliedBills: applied,
+                selectedBill: null,
+                givenAmountInput: "",
+                showChequeModal: false,
+                showBankToBankModal: false,
+                showAdjustmentModal: false,
+                pendingBankToBankAmount: 0,
+                isPrinting: false,
+                customerType: null
+            };
+        });
+    }, [markRecentlySettled]);
     //cashier categorization
     // Add this function to fetch unique codes
     const fetchUniqueCodes = useCallback(async () => {
@@ -3062,9 +3389,10 @@ const fetchDebtorForBill = async (billNo) => {
         }
     }, []);
 
-    // Fetch unique codes on component mount
+    // Fetch unique codes after first paint (non-blocking)
     useEffect(() => {
-        fetchUniqueCodes();
+        const t = setTimeout(() => { fetchUniqueCodes(); }, 0);
+        return () => clearTimeout(t);
     }, [fetchUniqueCodes]);
 
     const handleAdjustmentTypeSelect = (type) => {
@@ -3108,15 +3436,10 @@ const fetchDebtorForBill = async (billNo) => {
                 params.cashier_name = cashier;
             }
 
-            console.log('🔍 Fetching balances for cashier (param/ref):', { cashier, params });
-
             const response = await api.get('/cashier-balance/remaining-balances', { params });
-
-            console.log('📊 Response received:', response.data);
 
             if (response.data.success) {
                 setRemainingBalances(response.data.data);
-                console.log('✅ Balances updated:', response.data.data);
             }
         } catch (error) {
             console.error('❌ Error fetching remaining balances:', error);
@@ -3126,18 +3449,20 @@ const fetchDebtorForBill = async (billNo) => {
     }, []); // stable - uses ref when needed
     // Fetch remaining balances on component mount
 
+    // Balances after first paint; refresh every 60s (not competing with sales load)
     useEffect(() => {
-        fetchRemainingBalances();
-
-        // Refresh remaining balances every 30 seconds
+        const start = setTimeout(() => { fetchRemainingBalances(); }, 100);
         const remainingBalanceInterval = setInterval(() => {
-            if (!modalOpenRef.current) {
+            if (!modalOpenRef.current && !isRefreshingRef.current) {
                 fetchRemainingBalances();
             }
-        }, 30000);
+        }, 60000);
 
-        return () => clearInterval(remainingBalanceInterval);
-    }, [fetchRemainingBalances]); // Add fetchRemainingBalances as dependency
+        return () => {
+            clearTimeout(start);
+            clearInterval(remainingBalanceInterval);
+        };
+    }, [fetchRemainingBalances]);
 
 
     const handleAdjustmentPayment = async () => {
@@ -3201,7 +3526,12 @@ const fetchDebtorForBill = async (billNo) => {
 
         await processPayment(paymentAmount, false, null, false, null, true, adjustmentDetails);
 
-        // Clear all adjustment fields after submission
+        // Clear adjustment fields but keep customer type so the panel stays unlocked
+        const billNo = state.selectedBill?.billNo;
+        const keptType = billNo
+            ? (billCustomerTypesRef.current[billNo] || state.customerType)
+            : state.customerType;
+
         setState(prev => ({
             ...prev,
             givenAmountInput: "",
@@ -3215,38 +3545,11 @@ const fetchDebtorForBill = async (billNo) => {
             badDebtName: '',
             badDebtAmount: '',
             adjustmentType: 'bag_to_box',
-            customerType: null
+            customerType: keptType
         }));
     };
-    const updateCreditAmountsFromDebtorTable = useCallback(async (bills, source = 'unknown', isAppliedSection = false, debtorMap = {}) => {
-        if (!bills || bills.length === 0) return bills || [];
-
-        const updatedBills = [...bills];
-
-        for (let i = 0; i < updatedBills.length; i++) {
-            const bill = updatedBills[i];
-            if (!bill || !bill.billNo) continue;
-
-            const previousCredit = bill.remainingCredit;
-
-            if (isAppliedSection) {
-                const debtor = debtorMap[bill.billNo];
-                if (debtor) {
-                    updatedBills[i].remainingCredit = debtor.remaining_amount || 0;
-                    console.log(`[COMPLETED] Bill ${bill.billNo}: Unsettled credit = ${debtor.remaining_amount}`);
-                } else {
-                    updatedBills[i].remainingCredit = bill.creditAmount || 0;
-                    console.log(`[COMPLETED] Bill ${bill.billNo}: No debtor record found, using credit amount = ${updatedBills[i].remainingCredit}`);
-                }
-            } else {
-                updatedBills[i].remainingCredit = bill.creditAmount || 0;
-                console.log(`[PENDING] Bill ${bill.billNo}: Full credit amount = ${bill.creditAmount}`);
-            }
-
-            debugCreditChanges(bill.billNo, previousCredit, updatedBills[i].remainingCredit, `${source} - ${isAppliedSection ? 'completed' : 'pending'}`);
-        }
-
-        return updatedBills;
+    const updateCreditAmountsFromDebtorTable = useCallback((bills, source = 'unknown', isAppliedSection = false, debtorMap = {}) => {
+        return applyDebtorCredits(bills, isAppliedSection, debtorMap);
     }, []);
     // Bank Breakdown Modal Component
     const BankBreakdownModal = ({ isOpen, onClose, bankBreakdown }) => {
@@ -3351,58 +3654,21 @@ const fetchDebtorForBill = async (billNo) => {
     };
 // ==================== OUTSTANDING DEBT MODAL ====================
 const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecimal }) => {
-    const [loadingDebtorData, setLoadingDebtorData] = useState(false);
-    const [billsWithDebtorData, setBillsWithDebtorData] = useState([]);
+    // Use bill.remainingCredit already loaded with the page — no per-bill API storm
+    const billsWithDebt = useMemo(() => {
+        if (!bills?.length) return [];
+        return bills.filter((bill) => {
+            const remaining = parseFloat(bill.remainingCredit) || 0;
+            return remaining > 0 || (parseFloat(bill.creditAmount) || 0) > 0;
+        });
+    }, [bills]);
 
-    useEffect(() => {
-        if (isOpen && bills.length > 0) {
-            fetchDebtorDataForBills();
-        } else if (isOpen) {
-            setBillsWithDebtorData([]);
-        }
-    }, [isOpen, bills]);
-
-    const fetchDebtorDataForBills = async () => {
-        setLoadingDebtorData(true);
-        try {
-            const enrichedBills = await Promise.all(
-                bills.map(async (bill) => {
-                    try {
-                        const response = await api.get(`/debtors/${bill.billNo}`);
-                        if (response.data.success && response.data.data) {
-                            return {
-                                ...bill,
-                                debtorData: response.data.data
-                            };
-                        }
-                    } catch (e) {
-                        // No debtor record found
-                    }
-                    return bill;
-                })
-            );
-            setBillsWithDebtorData(enrichedBills);
-        } catch (error) {
-            console.error('Error fetching debtor data:', error);
-            setBillsWithDebtorData(bills);
-        } finally {
-            setLoadingDebtorData(false);
-        }
-    };
+    const totalOutstanding = useMemo(() => {
+        return billsWithDebt.reduce((sum, bill) => sum + (parseFloat(bill.remainingCredit) || 0), 0);
+    }, [billsWithDebt]);
 
     if (!isOpen) return null;
 
-    const totalOutstanding = billsWithDebtorData.reduce((sum, bill) => {
-        let remaining = 0;
-        
-        if (bill.debtorData?.remaining_amount !== undefined && bill.debtorData?.remaining_amount !== null) {
-            remaining = parseFloat(bill.debtorData.remaining_amount) || 0;
-        } else if (bill.remainingCredit !== undefined && bill.remainingCredit !== null) {
-            remaining = parseFloat(bill.remainingCredit) || 0;
-        }
-        
-        return sum + remaining;
-    }, 0);
 
     return (
         <div style={{
@@ -3441,7 +3707,7 @@ const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecim
                             ⚠️ Outstanding Debt Bills
                         </h3>
                         <div style={{ fontSize: '13px', color: '#fca5a5', marginTop: '4px' }}>
-                            {billsWithDebtorData.length} bill(s) with outstanding debt
+                            {billsWithDebt.length} bill(s) with outstanding debt
                         </div>
                     </div>
                     <button
@@ -3472,23 +3738,13 @@ const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecim
                 </div>
 
                 <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
-                    {loadingDebtorData ? (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                            ⏳ Loading debtor data...
-                        </div>
-                    ) : billsWithDebtorData.length === 0 ? (
+                    {billsWithDebt.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
                             ✅ No outstanding debt bills found
                         </div>
                     ) : (
-                        billsWithDebtorData.map((bill, index) => {
-                            let outstandingAmount = 0;
-                            if (bill.debtorData?.remaining_amount !== undefined && bill.debtorData?.remaining_amount !== null) {
-                                outstandingAmount = parseFloat(bill.debtorData.remaining_amount) || 0;
-                            } else if (bill.remainingCredit !== undefined && bill.remainingCredit !== null) {
-                                outstandingAmount = parseFloat(bill.remainingCredit) || 0;
-                            }
-                            
+                        billsWithDebt.map((bill, index) => {
+                            const outstandingAmount = parseFloat(bill.remainingCredit) || 0;
                             const isFullyPaid = outstandingAmount === 0;
                             
                             return (
@@ -3651,143 +3907,149 @@ const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecim
             </div>
         );
     };
-    const fetchSalesData = async (uniqueCode = selectedUniqueCode) => {
-        // Don't fetch if we're currently changing the filter (to prevent race conditions)
-        if (isChangingFilter) {
-            console.log('Skipping fetchSalesData - filter is changing');
-            return;
-        }
+    const customersCacheRef = useRef(null);
+    const debtorMapRef = useRef(Object.create(null));
+    // salesRequestIdRef declared earlier (near payment locks) so settle can invalidate in-flight fetches
+
+    const fetchSalesData = useCallback(async (uniqueCode = selectedUniqueCodeRef.current) => {
+        if (isChangingFilterRef.current) return;
+        if (Date.now() < paymentBusyUntilRef.current) return;
+
+        const requestId = ++salesRequestIdRef.current;
 
         try {
-            // ALWAYS use the filtered endpoint when a specific cashier is selected
-            let url = routes.getAllSales;
-            let params = {};
+            // Always use filtered endpoint — lighter/consistent for cashier + all
+            const params = {
+                unique_code: (uniqueCode && uniqueCode !== 'all') ? uniqueCode : 'all'
+            };
 
-            if (uniqueCode && uniqueCode !== 'all') {
-                url = '/sales/all-with-filter';
-                params = { unique_code: uniqueCode };
-            }
-
-            console.log('🔄 Fetching sales with filter:', {
-                url,
-                uniqueCode,
-                params,
-                viewOldBills: viewOldBills
-            });
-
-            const [salesRes, customersRes, debtorsRes] = await Promise.all([
-                api.get(url, { params }),
-                api.get(routes.customers),
-                api.get(routes.debtors.getPending)
-            ]);
+            // CRITICAL PATH: sales only — paint bills ASAP
+            const salesRes = await api.get('/sales/all-with-filter', { params });
+            if (requestId !== salesRequestIdRef.current || !isMountedRef.current) return;
 
             const salesData = salesRes.data.sales || salesRes.data || [];
-            const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
-            const debtorsData = debtorsRes.data?.data || [];
-            const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
-                if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
-                return acc;
-            }, {});
-
-            // Log to verify filtering is working
-            const uniqueCodesInData = [...new Set(salesData.map(s => s.UniqueCode))];
-            console.log('📊 Sales data unique codes:', uniqueCodesInData);
-            console.log('📊 Requested filter:', uniqueCode);
-
             const { pendingBills, appliedBills } = processBillData(salesData);
+            const firstPass = reconcileSidebarLists(pendingBills, appliedBills);
 
-            const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchSalesData-pending', false, debtorMap);
-            const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchSalesData-applied', true, debtorMap);
+            // Show bills immediately (credits refined when debtors arrive) — never bounce settled bills
+            startTransition(() => {
+                setState(prev => ({
+                    ...prev,
+                    pendingBills: firstPass.pendingBills,
+                    appliedBills: firstPass.appliedBills,
+                    isLoading: false
+                }));
+            });
 
-            setState(prev => ({
-                ...prev,
-                pendingBills: updatedPending,
-                appliedBills: updatedApplied,
-                customers: customersData,
-                isLoading: false
-            }));
-
-            if (state.selectedBill) {
-                const isApplied = state.selectedBill.givenAmountApplied === 'Y';
-                const updatedBillsList = isApplied ? updatedApplied : updatedPending;
-                const updatedBill = updatedBillsList.find(b => b.billNo === state.selectedBill.billNo);
-                if (updatedBill) {
-                    setState(prev => ({
-                        ...prev,
-                        selectedBill: {
-                            ...prev.selectedBill,
-                            remainingCredit: updatedBill.remainingCredit,
-                            creditAmount: updatedBill.creditAmount
-                        }
-                    }));
-                }
+            // BACKGROUND: debtors + customers (customers skipped if cached)
+            const backgroundJobs = [api.get(routes.debtors.getPending)];
+            const needCustomers = !customersCacheRef.current?.length;
+            if (needCustomers) {
+                backgroundJobs.push(api.get(routes.customers));
             }
+
+            const results = await Promise.all(backgroundJobs);
+            if (requestId !== salesRequestIdRef.current || !isMountedRef.current) return;
+
+            const debtorsData = results[0].data?.data || [];
+            const debtorMap = buildDebtorMap(debtorsData);
+            debtorMapRef.current = debtorMap;
+
+            let customersData = customersCacheRef.current || [];
+            if (needCustomers && results[1]) {
+                customersData = results[1].data?.data || results[1].data?.customers || results[1].data || [];
+                customersCacheRef.current = customersData;
+            }
+
+            const updatedPending = applyDebtorCredits(firstPass.pendingBills, false, debtorMap);
+            const updatedApplied = applyDebtorCredits(firstPass.appliedBills, true, debtorMap);
+            const reconciled = reconcileSidebarLists(updatedPending, updatedApplied);
+
+            startTransition(() => {
+                setState(prev => {
+                    const next = {
+                        ...prev,
+                        pendingBills: reconciled.pendingBills,
+                        appliedBills: reconciled.appliedBills,
+                        customers: customersData.length ? customersData : prev.customers,
+                        isLoading: false
+                    };
+                    if (prev.selectedBill) {
+                        const isApplied = prev.selectedBill.givenAmountApplied === 'Y';
+                        const list = isApplied ? reconciled.appliedBills : reconciled.pendingBills;
+                        const updatedBill = list.find(b => b.billNo === prev.selectedBill.billNo);
+                        if (updatedBill) {
+                            next.selectedBill = {
+                                ...prev.selectedBill,
+                                remainingCredit: updatedBill.remainingCredit,
+                                creditAmount: updatedBill.creditAmount,
+                                givenAmount: updatedBill.givenAmount,
+                                cashPayments: updatedBill.cashPayments,
+                                totalAmount: updatedBill.totalAmount,
+                                sales: updatedBill.sales || prev.selectedBill.sales,
+                                paymentHistory: updatedBill.paymentHistory || prev.selectedBill.paymentHistory
+                            };
+                        }
+                    }
+                    return next;
+                });
+            });
         } catch (error) {
             console.error("Error fetching data:", error);
-            setState(prev => ({ ...prev, isLoading: false }));
+            if (isMountedRef.current) {
+                setState(prev => ({ ...prev, isLoading: false }));
+            }
         }
-    };
+    }, [reconcileSidebarLists]);
+
 
     const refreshCustomersList = useCallback(async () => {
         try {
             const response = await api.get(routes.customers);
             const customersData = response.data.data || response.data.customers || response.data || [];
+            customersCacheRef.current = customersData;
             setState(prev => ({ ...prev, customers: customersData }));
         } catch (error) {
             console.error('Error refreshing customers:', error);
         }
     }, []);
-    const fetchArchivedSales = async (isFromStorage = false, uniqueCode = selectedUniqueCode) => {
-        // Don't fetch if we're currently changing the filter
-        if (isChangingFilter) {
-            console.log('Skipping fetchArchivedSales - filter is changing');
-            return;
-        }
-
-        if (!startDate || !endDate) {
-            return;
-        }
-
-        if (viewOldBills) {
-            await refreshBeforeLoadingOldBills();
-        }
+    const fetchArchivedSales = useCallback(async (isFromStorage = false, uniqueCode = selectedUniqueCodeRef.current) => {
+        if (isChangingFilterRef.current) return;
+        if (!startDate || !endDate) return;
 
         setArchivedData(prev => ({ ...prev, isLoading: true }));
         try {
-            const url = routes.getArchivedSales;
             const params = {
                 start_date: startDate,
                 end_date: endDate
             };
-
-            // Add unique_code as a parameter if a specific cashier is selected
             if (uniqueCode && uniqueCode !== 'all') {
                 params.unique_code = uniqueCode;
             }
 
-            console.log('🔄 Fetching archived sales with filter:', { url, params, uniqueCode });
-
-            const response = await api.get(url, { params });
+            // Parallel: archived sales + debtors (no double refresh of current sales)
+            const [response, debtorsRes] = await Promise.all([
+                api.get(routes.getArchivedSales, { params }),
+                api.get(routes.debtors.getPending)
+            ]);
 
             if (response.data.success) {
                 const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-                const debtorsRes = await api.get(routes.debtors.getPending);
-                const debtorsData = debtorsRes.data?.data || [];
-                const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
-                    if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
-                    return acc;
-                }, {});
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'fetchArchivedSales-pending', false, debtorMap);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'fetchArchivedSales-applied', true, debtorMap);
+                const debtorMap = buildDebtorMap(debtorsRes.data?.data || []);
+                debtorMapRef.current = debtorMap;
+                const updatedPending = applyDebtorCredits(pendingBills, false, debtorMap);
+                const updatedApplied = applyDebtorCredits(appliedBills, true, debtorMap);
 
-                setArchivedData({ pendingBills: updatedPending, appliedBills: updatedApplied, isLoading: false });
-                setDataSource('sales_history');
+                startTransition(() => {
+                    setArchivedData({ pendingBills: updatedPending, appliedBills: updatedApplied, isLoading: false });
+                    setDataSource('sales_history');
+                });
 
                 localStorage.setItem('printedBills_startDate', startDate);
                 localStorage.setItem('printedBills_endDate', endDate);
                 localStorage.setItem('printedBills_dataSource', 'sales_history');
                 localStorage.setItem('printedBills_viewOldBills', 'true');
-                localStorage.setItem('printedBills_selectedUniqueCode', selectedUniqueCode);
+                localStorage.setItem('printedBills_selectedUniqueCode', selectedUniqueCodeRef.current);
 
                 if (!isFromStorage) {
                     alert(`Loaded ${updatedPending.length + updatedApplied.length} bills from ${startDate} to ${endDate}`);
@@ -3801,7 +4063,8 @@ const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecim
             if (!isFromStorage) alert('Failed to fetch archived data');
             setArchivedData(prev => ({ ...prev, isLoading: false }));
         }
-    };
+    }, [startDate, endDate]);
+
     const handleUniqueCodeChange = useCallback((newValue) => {
         // Clear any pending timeout
         if (filterChangeTimeoutRef.current) {
@@ -3855,40 +4118,79 @@ const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecim
 
         fetchData();
     }, [viewOldBills, startDate, endDate, fetchSalesData, fetchArchivedSales, fetchRemainingBalances]);
-    // Update the interval useEffect (around line 1440)
+    // Keep both sidebars in sync with live DB data
     useEffect(() => {
         isMountedRef.current = true;
 
         const storedUser = localStorage.getItem('user');
-        if (storedUser) setUser(JSON.parse(storedUser));
+        if (storedUser) {
+            try { setUser(JSON.parse(storedUser)); } catch (e) { /* ignore */ }
+        }
 
-        // Initial load with loading indicator
-        const initialLoad = async () => {
-            setState(prev => ({ ...prev, isLoading: true }));
-            await fetchSalesData();
-            setState(prev => ({ ...prev, isLoading: false }));
-        };
-        initialLoad();
+        // Kick off sales load immediately (progressive — UI unlocks as soon as sales return)
+        fetchSalesData();
 
-        // Set up interval for silent refresh every 5 seconds (increased from 3)
-        const intervalId = setInterval(() => {
-            // Only refresh if not changing filter and no modal open
-            if (!isRefreshingRef.current && isMountedRef.current && !modalOpenRef.current && !isChangingFilter) {
-                silentRefresh();
-            } else {
-                console.log('⏸️ Interval skip - conditions not met');
+        const runPendingRefresh = () => {
+            if (!isMountedRef.current || modalOpenRef.current || isChangingFilterRef.current) return;
+            if (typeof refreshPendingSidebarRef.current === 'function') {
+                refreshPendingSidebarRef.current();
             }
-        }, 5000); // Increased to 5 seconds for better stability
+        };
 
-        // Cleanup on unmount
+        const runSilentRefresh = () => {
+            if (Date.now() < paymentBusyUntilRef.current) return;
+            if (!isRefreshingRef.current && isMountedRef.current && !modalOpenRef.current && !isChangingFilterRef.current) {
+                if (typeof silentRefreshRef.current === 'function') {
+                    silentRefreshRef.current();
+                }
+            }
+        };
+
+        // Pending sidebar: real sales data every 3 seconds (Completed list is left alone)
+        const pendingIntervalId = setInterval(runPendingRefresh, 3000);
+        // Full sync (both sidebars) less often — still respects post-payment busy window
+        const fullIntervalId = setInterval(runSilentRefresh, 10000);
+
+        // Refresh when another screen updates sales (ignore self-payment events that set skipImmediateRefresh)
+        const onSalesDataUpdated = (event) => {
+            if (event?.detail?.skipImmediateRefresh) {
+                // Still pull new pending bills quickly; settled filter prevents flicker
+                runPendingRefresh();
+                return;
+            }
+            runPendingRefresh();
+            runSilentRefresh();
+        };
+        window.addEventListener('salesDataUpdated', onSalesDataUpdated);
+
+        // Refresh when user returns to this tab/window
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                runPendingRefresh();
+                runSilentRefresh();
+            }
+        };
+        const onWindowFocus = () => {
+            runPendingRefresh();
+            runSilentRefresh();
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('focus', onWindowFocus);
+
+        // First pending tick soon after mount
+        const firstPending = setTimeout(runPendingRefresh, 1200);
+
         return () => {
             isMountedRef.current = false;
-            if (refreshTimeoutRef.current) {
-                clearTimeout(refreshTimeoutRef.current);
-            }
-            clearInterval(intervalId);
+            if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+            clearTimeout(firstPending);
+            clearInterval(pendingIntervalId);
+            clearInterval(fullIntervalId);
+            window.removeEventListener('salesDataUpdated', onSalesDataUpdated);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('focus', onWindowFocus);
         };
-    }, []);
+    }, [fetchSalesData]);
     // Add this function near your other functions (around line 1400)
     const refreshBeforeLoadingOldBills = async () => {
         try {
@@ -3993,40 +4295,38 @@ const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecim
     }, [state.adjustmentType, state.bagCount, state.bagValue, state.boxCount, state.boxValue, state.customerBillValue, state.badDebtAmount, selectedBillDebtor]);
 
     const handleBillClick = async (bill) => {
-        // If clicking the same bill, clear it
+        const savedType = billCustomerTypesRef.current[bill.billNo] || null;
+
+        // Same bill already selected: keep selection (do not lock / clear type)
         if (state.selectedBill?.billNo === bill.billNo) {
-            setState(prev => ({
-                ...prev,
-                selectedBill: null,
-                givenAmountInput: "",
-                isUpdatingCompletedBill: false,
-                customerType: null
-            }));
-            setSelectedBillDebtor(null);
+            if (!state.customerType && savedType) {
+                setState(prev => ({ ...prev, customerType: savedType }));
+            }
             return;
         }
 
-        // IMPORTANT: Clear debtor data IMMEDIATELY when selecting a new bill
         setSelectedBillDebtor(null);
 
-        // Reset customer type and selected bill details cleanly
         setState(prev => ({
             ...prev,
             selectedBill: bill,
             givenAmountInput: "",
             isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
-            customerType: null // FIX: Keep it clean until user interactively selects a type
+            customerType: savedType
         }));
 
-        // Then fetch debtor data asynchronously
         try {
             const response = await api.get(`/debtors/${bill.billNo}`);
             if (response.data.success && response.data.data) {
                 const debtorData = response.data.data;
                 setSelectedBillDebtor(debtorData);
+                if (!savedType && debtorData.Debtor_no && !viewOldBills) {
+                    setState(prev => ({ ...prev, customerType: 'debtor' }));
+                    setBillCustomerTypes(prev => ({ ...prev, [bill.billNo]: 'debtor' }));
+                }
             }
         } catch (e) {
-            console.log('Error fetching debtor:', e);
+            // no debtor for this bill
         }
     };
     // Add this useEffect after your state declarations (around line where other useEffects are)
@@ -4080,92 +4380,45 @@ const OutstandingDebtModal = ({ isOpen, onClose, bills, onBillClick, formatDecim
         finally { setState(prev => ({ ...prev, isPrinting: false, showDeleteModal: false, deleteBillNo: null, deleteCustomerCode: null })); }
     };
     const checkAndHandleDebtor = async (bill) => {
-        console.log('Checking debtor for:', bill.customerCode, 'Customer type:', state.customerType);
-        console.log('Bill number:', bill.billNo);
+        const savedCustomerType = billCustomerTypesRef.current[bill.billNo] || null;
 
-        // NEW: Check if this bill has a saved customer type
-        const savedCustomerType = billCustomerTypes[bill.billNo];
-        console.log('Saved customer type for this bill:', savedCustomerType);
-
-        // If clicking the same bill that's already selected, clear everything
-        if (state.selectedBill && state.selectedBill.billNo === bill.billNo) {
-            setState(prev => ({
-                ...prev,
-                selectedBill: null,
-                givenAmountInput: "",
-                isUpdatingCompletedBill: false,
-                customerType: null
-            }));
-            setSelectedBillDebtor(null);
+        // Same bill already selected: restore type if needed, never lock again
+        if (state.selectedBill?.billNo === bill.billNo) {
+            if (!state.customerType && savedCustomerType) {
+                setState(prev => ({ ...prev, customerType: savedCustomerType }));
+            }
             return;
         }
 
-        // Clear debtor data immediately
         setSelectedBillDebtor(null);
 
-        // Reset customer type and selectedBill first
         setState(prev => ({
             ...prev,
-            selectedBill: null,
-            customerType: null
+            selectedBill: bill,
+            givenAmountInput: "",
+            isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
+            customerType: savedCustomerType
         }));
 
-        // Small delay to ensure state is completely cleared
-        setTimeout(async () => {
-            // Check if there's a saved customer type for this bill
-            let initialCustomerType = null;
-
-            if (savedCustomerType === 'walking') {
-                console.log('✅ Found saved WALKING customer type for bill #' + bill.billNo);
-                initialCustomerType = 'walking';
-            } else if (savedCustomerType === 'debtor') {
-                console.log('✅ Found saved DEBTOR customer type for bill #' + bill.billNo);
-                initialCustomerType = 'debtor';
-            }
-
-            setState(prev => ({
-                ...prev,
-                selectedBill: bill,
-                givenAmountInput: "",
-                isUpdatingCompletedBill: bill.givenAmountApplied === 'Y',
-                customerType: initialCustomerType  // <-- Use saved type if exists
-            }));
-
-            // If we have a saved type, unlock the panel immediately
-            if (initialCustomerType) {
-                console.log('🎉 Using saved customer type, panel unlocked!');
-                // No need to lock the panel since we already have a type
-            }
-
-            // Only check for debtor if we don't have a saved type or if we need to verify
-            try {
-                const response = await api.get(`/debtors/${bill.billNo}`);
-                if (response.data.success && response.data.data && response.data.data.Debtor_no) {
-                    setSelectedBillDebtor(response.data.data);
-                    // Only auto-select debtor if not viewing old bills AND no saved type
-                    if (!viewOldBills && !initialCustomerType) {
-                        setState(prev => ({ ...prev, customerType: 'debtor' }));
-                        // Save this selection
-                        if (bill.billNo) {
-                            setBillCustomerTypes(prev => ({ ...prev, [bill.billNo]: 'debtor' }));
-                        }
-                    }
-                } else if (!initialCustomerType) {
-                    // If no debtor found and no saved type, we need to lock the panel
-                    // The lock will be shown because customerType is null
-                    console.log('⚠️ No debtor record and no saved type - panel will be locked');
+        try {
+            const response = await api.get(`/debtors/${bill.billNo}`);
+            if (response.data.success && response.data.data && response.data.data.Debtor_no) {
+                setSelectedBillDebtor(response.data.data);
+                if (!viewOldBills && !savedCustomerType) {
+                    setState(prev => ({ ...prev, customerType: 'debtor' }));
+                    setBillCustomerTypes(prev => ({ ...prev, [bill.billNo]: 'debtor' }));
                 }
-            } catch (e) {
-                setSelectedBillDebtor(null);
             }
-        }, 50);
+        } catch (e) {
+            setSelectedBillDebtor(null);
+        }
     };
     const saveBillCustomerType = useCallback((billNo, type) => {
-        console.log(`Saving customer type "${type}" for bill #${billNo}`);
-        setBillCustomerTypes(prev => ({
-            ...prev,
-            [billNo]: type
-        }));
+        if (!billNo || !type) return;
+        setBillCustomerTypes(prev => {
+            if (prev[billNo] === type) return prev;
+            return { ...prev, [billNo]: type };
+        });
     }, []);
     const handleDebtorSave = async (saved, debtorNo = null) => {
         console.log('Debtor save callback:', saved, 'Debtor No:', debtorNo);
@@ -4419,17 +4672,27 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
             let existingDebtor = null;
             let totalCreditAmount = billToProcess.creditAmount || 0;
 
-            try {
-                const debtorCheck = await api.get(`/debtors/${billToProcess.billNo}`);
-                if (debtorCheck.data.success && debtorCheck.data.data) {
-                    existingDebtor = debtorCheck.data.data;
+            // Prefer already-loaded debtor data — skip slow GET when possible
+            if (selectedBillDebtor && String(selectedBillDebtor.bill_no) === String(billToProcess.billNo)) {
+                existingDebtor = selectedBillDebtor;
+            } else if (debtorMapRef.current?.[billToProcess.billNo]) {
+                existingDebtor = debtorMapRef.current[billToProcess.billNo];
+            } else {
+                try {
+                    const debtorCheck = await api.get(`/debtors/${billToProcess.billNo}`);
+                    if (debtorCheck.data.success && debtorCheck.data.data) {
+                        existingDebtor = debtorCheck.data.data;
+                    }
+                } catch (e) {
+                    // No existing debtor record
                 }
-            } catch (e) {
-                // No existing debtor record
             }
 
             const isCurrentlyCompleted = billToProcess.givenAmountApplied === 'Y';
             const isBecomingCompleted = givenAmountApplied === 'Y' && !isCurrentlyCompleted;
+
+            // Debtor settlement runs in parallel with sales update when needed (faster submit)
+            let debtorSettlePromise = Promise.resolve();
 
             if (existingDebtor && existingDebtor.remaining_amount > 0) {
                 let shouldSettleCredit = false;
@@ -4465,33 +4728,32 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
                             debtorPaymentMethod = 'bank_transfer';
                         }
 
-                        try {
-                            const updateResponse = await api.put('/debtors/update-payment', {
-                                bill_no: billToProcess.billNo,
-                                payment_amount: debtorPaymentAmount,
-                                payment_method: debtorPaymentMethod,
-                                settle_fully: true
-                            });
+                        // Record expected settlement details before sales PUT
+                        paymentHistoryEntry.details.debtor_payment = {
+                            amount: debtorPaymentAmount,
+                            previous_remaining: existingDebtor.remaining_amount,
+                            new_remaining: existingDebtor.remaining_amount - debtorPaymentAmount,
+                            is_fully_paid: (existingDebtor.remaining_amount - debtorPaymentAmount) <= 0,
+                            settled_way: debtorPaymentMethod,
+                            settlement_type: 'completed_section_payment'
+                        };
 
-                            paymentHistoryEntry.details.debtor_payment = {
-                                amount: debtorPaymentAmount,
-                                previous_remaining: existingDebtor.remaining_amount,
-                                new_remaining: existingDebtor.remaining_amount - debtorPaymentAmount,
-                                is_fully_paid: (existingDebtor.remaining_amount - debtorPaymentAmount) <= 0,
-                                settled_way: debtorPaymentMethod,
-                                settlement_type: 'completed_section_payment'
-                            };
-                        } catch (debtorError) {
+                        debtorSettlePromise = api.put('/debtors/update-payment', {
+                            bill_no: billToProcess.billNo,
+                            payment_amount: debtorPaymentAmount,
+                            payment_method: debtorPaymentMethod,
+                            settle_fully: true
+                        }).catch((debtorError) => {
                             console.error('Error updating debtor payment:', debtorError);
-                        }
+                        });
                     }
                 }
             } else if (totalCreditAmount > 0 && !existingDebtor && (isCurrentlyCompleted || isBecomingCompleted)) {
-                await api.post('/debtors/create', {
+                debtorSettlePromise = api.post('/debtors/create', {
                     bill_no: billToProcess.billNo,
                     customer_code: billToProcess.customerCode,
                     credit_amount: totalCreditAmount
-                });
+                }).catch(() => {});
             }
 
             let existingHistory = [];
@@ -4500,7 +4762,7 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
                 if (currentHistory) {
                     existingHistory = typeof currentHistory === 'string'
                         ? JSON.parse(currentHistory)
-                        : currentHistory;
+                        : (Array.isArray(currentHistory) ? currentHistory.slice() : []);
                 }
             } catch (e) {
                 existingHistory = [];
@@ -4509,86 +4771,71 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
             existingHistory.push(paymentHistoryEntry);
             payload.payment_history = JSON.stringify(existingHistory);
 
-            const response = await api.put(routes.updateGivenAmountApplied, payload);
+            // Critical path: save payment (+ settle debtor in parallel)
+            const [response] = await Promise.all([
+                api.put(routes.updateGivenAmountApplied, payload),
+                debtorSettlePromise
+            ]);
 
             if (response.data.success) {
-                await Promise.all([
-                    fetchSalesData(),
-                    (async () => {
-                        try {
-                            await recordCashierTransaction({
-                                paymentAmount: paymentAmount,
-                                paymentMethod: paymentMethodText,
-                                billNo: billToProcess.billNo,
-                                customerCode: billToProcess.customerCode,
-                                bankName: bankNameForCashier,
-                                chequeNumber: (isCheque && chequeDetails?.cheq_no) ? chequeDetails.cheq_no : null,
-                                transferReference: (isBankTransfer && bankTransferDetails?.reference_no) ? bankTransferDetails.reference_no : null
-                            });
-                        } catch (cashierError) {
-                            console.error('Failed to record cashier balance:', cashierError);
-                        }
-                    })()
-                ]);
-
-                const event = new CustomEvent('salesDataUpdated', {
-                    detail: {
-                        billNo: billToProcess.billNo,
-                        customerCode: billToProcess.customerCode,
-                        givenAmount: totalGivenAmount,
-                        timestamp: Date.now()
-                    }
-                });
-                window.dispatchEvent(event);
-
-                const customer = state.customers.find(c =>
-                    String(c.short_name).toUpperCase() === String(billToProcess.customerCode).toUpperCase()
-                );
-
-                let debtorMessage = '';
-                if (existingDebtor && existingDebtor.remaining_amount > 0 && isCurrentlyCompleted) {
-                    const newRemaining = Math.max(0, existingDebtor.remaining_amount - paymentAmount);
-                    if (newRemaining <= 0) {
-                        debtorMessage = `\n\n✅ CREDIT FULLY SETTLED!`;
-                    } else {
-                        debtorMessage = `\n\n💰 CREDIT PARTIALLY SETTLED: Rs. ${formatDecimal(newRemaining)} remaining`;
-                    }
-                } else if (existingDebtor && existingDebtor.remaining_amount > 0 && isBecomingCompleted) {
-                    debtorMessage = `\n\n⏳ CREDIT REMAINS UNSETTLED: Rs. ${formatDecimal(existingDebtor.remaining_amount)}\nMake payment in Completed section to settle.`;
-                }
-
-                const statusMessage = givenAmountApplied === 'Y'
-                    ? `✅ Payment Complete!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nBill moved to Completed Payments.${debtorMessage}`
-                    : `✓ Payment Added!\n\nPayment Method: ${paymentMethodText}\nAmount Paid: Rs. ${formatDecimal(paymentAmount)}\nTotal Given: Rs. ${formatDecimal(totalGivenAmount)}\nRemaining: Rs. ${formatDecimal(Math.max(0, billToProcess.totalAmount - totalGivenAmount))}${debtorMessage}`;
-
-                alert(statusMessage);
-
-                // ✅ SAVE THE CUSTOMER TYPE FOR THIS BILL BEFORE CLEARING
                 if (state.customerType === 'walking' && billToProcess?.billNo) {
                     saveBillCustomerType(billToProcess.billNo, 'walking');
                 } else if (state.customerType === 'debtor' && billToProcess?.billNo) {
                     saveBillCustomerType(billToProcess.billNo, 'debtor');
                 }
 
-                // Only clear selected bill if it's the actual selected bill (not custom)
+                // Instant UI update — do not wait for full sales reload
                 if (!customSelectedBill) {
-                    setState(prev => ({
-                        ...prev,
-                        selectedBill: null,
-                        givenAmountInput: "",
-                        showChequeModal: false,
-                        showBankToBankModal: false,
-                        showAdjustmentModal: false,
-                        pendingBankToBankAmount: 0,
-                        customerType: null
-                    }));
+                    applyLocalPaymentToLists(billToProcess, {
+                        paymentAmount,
+                        paymentMethod,
+                        totalGivenAmount,
+                        givenAmountApplied,
+                        paymentHistoryEntry
+                    });
+                    setSelectedBillDebtor(null);
                 } else {
-                    // For custom bills, just reset the printing state but keep selectedBill
-                    setState(prev => ({
-                        ...prev,
-                        isPrinting: false
-                    }));
+                    setState(prev => ({ ...prev, isPrinting: false }));
                 }
+
+                // Background work only — never block the cashier
+                // Full settle: do NOT refresh lists immediately (in-flight/stale polls caused pending flicker).
+                // Polling + reconcile will sync once the DB has caught up.
+                recordCashierTransaction({
+                    paymentAmount: paymentAmount,
+                    paymentMethod: paymentMethodText,
+                    billNo: billToProcess.billNo,
+                    customerCode: billToProcess.customerCode,
+                    bankName: bankNameForCashier,
+                    chequeNumber: (isCheque && chequeDetails?.cheq_no) ? chequeDetails.cheq_no : null,
+                    transferReference: (isBankTransfer && bankTransferDetails?.reference_no) ? bankTransferDetails.reference_no : null
+                }).catch(() => {});
+
+                if (givenAmountApplied !== 'Y') {
+                    setTimeout(() => {
+                        if (typeof silentRefreshRef.current === 'function') {
+                            silentRefreshRef.current().catch(() => {});
+                        }
+                    }, 800);
+                }
+
+                window.dispatchEvent(new CustomEvent('salesDataUpdated', {
+                    detail: {
+                        billNo: billToProcess.billNo,
+                        customerCode: billToProcess.customerCode,
+                        givenAmount: totalGivenAmount,
+                        timestamp: Date.now(),
+                        skipImmediateRefresh: true
+                    }
+                }));
+
+                const remaining = Math.max(0, billToProcess.totalAmount - totalGivenAmount);
+                const statusMessage = givenAmountApplied === 'Y'
+                    ? `✅ ${paymentMethodText} Rs. ${formatDecimal(paymentAmount)} saved. Bill completed.`
+                    : `✓ ${paymentMethodText} Rs. ${formatDecimal(paymentAmount)} saved. Remaining Rs. ${formatDecimal(remaining)}.`;
+
+                // Non-blocking toast-style alert after UI is already free
+                setTimeout(() => alert(statusMessage), 0);
             }
         } catch (error) {
             console.error("Error:", error);
@@ -4602,16 +4849,49 @@ const processPayment = async (paymentAmount, isCheque = false, chequeDetails = n
     const currentAppliedBills = dataSource === 'sales_history' ? archivedData.appliedBills : state.appliedBills;
 
     const filterPendingBills = useMemo(() => {
-        if (!state.pendingSearchQuery) return currentPendingBills;
-        const q = state.pendingSearchQuery.toLowerCase();
-        return currentPendingBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
-    }, [currentPendingBills, state.pendingSearchQuery]);
+        let list = currentPendingBills;
+        if (state.pendingSearchQuery) {
+            const q = state.pendingSearchQuery.toLowerCase();
+            list = list.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
+        }
+        // Never show a bill that was just fully settled (blocks stale refresh flicker)
+        if (recentlySettledRef.current.size > 0) {
+            list = list.filter(b => !isRecentlySettledBill(b.billNo));
+        }
+        return list;
+    }, [currentPendingBills, state.pendingSearchQuery, settledVersion, isRecentlySettledBill]);
 
     const filterAppliedBills = useMemo(() => {
-        if (!state.appliedSearchQuery) return currentAppliedBills;
-        const q = state.appliedSearchQuery.toLowerCase();
-        return currentAppliedBills.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
-    }, [currentAppliedBills, state.appliedSearchQuery]);
+        let list = currentAppliedBills;
+        if (state.appliedSearchQuery) {
+            const q = state.appliedSearchQuery.toLowerCase();
+            list = list.filter(b => b.billNo.toString().includes(q) || b.customerCode.toLowerCase().includes(q));
+        }
+        // Keep just-settled bills visible in Completed even if a stale refresh wiped appliedBills
+        if (recentlySettledRef.current.size > 0) {
+            const have = new Set(list.map(b => String(b.billNo)));
+            const extras = [];
+            for (const [billNo, entry] of recentlySettledRef.current) {
+                if (entry?.until > Date.now() && !have.has(billNo) && entry.bill) {
+                    extras.push(entry.bill);
+                }
+            }
+            if (extras.length) list = [...extras, ...list];
+        }
+        return list;
+    }, [currentAppliedBills, state.appliedSearchQuery, settledVersion]);
+
+    const sortBillsByNo = useCallback((bills) => {
+        return [...bills].sort((a, b) => {
+            const numA = parseInt(a.billNo, 10);
+            const numB = parseInt(b.billNo, 10);
+            if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+            return String(a.billNo).localeCompare(String(b.billNo));
+        });
+    }, []);
+
+    const sortedPendingBills = useMemo(() => sortBillsByNo(filterPendingBills), [filterPendingBills, sortBillsByNo]);
+    const sortedAppliedBills = useMemo(() => sortBillsByNo(filterAppliedBills), [filterAppliedBills, sortBillsByNo]);
      // Filter bills with outstanding debt from both pending and completed sections
 
 const getOutstandingDebtBills = useCallback(() => {
@@ -4672,294 +4952,245 @@ const getOutstandingDebtBills = useCallback(() => {
     }, []);
     const silentRefresh = useCallback(async () => {
         if (!isMountedRef.current) return;
-
-        // CRITICAL: Don't refresh if modal is open, filter is changing, or we're already refreshing
-        if (modalOpenRef.current || isChangingFilter || isRefreshingRef.current) {
-            console.log('⏸️ Skipping silent refresh -', {
-                modalOpen: modalOpenRef.current,
-                isChangingFilter: isChangingFilter,
-                isRefreshing: isRefreshingRef.current
-            });
-            return;
-        }
+        if (modalOpenRef.current || isChangingFilterRef.current || isRefreshingRef.current) return;
+        // Avoid overwriting optimistic Completed moves with a stale DB read right after payment
+        if (Date.now() < paymentBusyUntilRef.current) return;
 
         setIsRefreshing(true);
         try {
             const isViewingOldBills = viewOldBillsRef.current;
             const hasDateRange = startDateRef.current && endDateRef.current;
-
-            // Get the CURRENT selected unique code at refresh time
             const currentUniqueCode = selectedUniqueCodeRef.current;
 
-            console.log('🔄 Silent refresh starting with cashier:', currentUniqueCode);
-
-            // REFRESH DROPDOWN OPTIONS FIRST (fetch unique codes)
-            try {
-                const uniqueCodesResponse = await api.get('/sales/unique-codes');
-                if (uniqueCodesResponse.data.success && isMountedRef.current) {
-                    const newUniqueCodes = uniqueCodesResponse.data.unique_codes;
-                    setUniqueCodes(newUniqueCodes);
-                    console.log('🔄 Dropdown options refreshed:', newUniqueCodes);
-                }
-            } catch (uniqueError) {
-                console.error('Error refreshing unique codes:', uniqueError);
-            }
-
             if (isViewingOldBills && hasDateRange) {
-                // Fetch archived sales with current filter
-                const url = routes.getArchivedSales;
                 const params = {
                     start_date: startDateRef.current,
                     end_date: endDateRef.current
                 };
-
-                // Add unique_code as a parameter if a specific cashier is selected
                 if (currentUniqueCode && currentUniqueCode !== 'all') {
                     params.unique_code = currentUniqueCode;
-                } else {
-                    // IMPORTANT: When 'all' is selected, we still need to ensure we're getting the right data
-                    // For 'all', we don't add the unique_code parameter
-                    console.log('📊 Fetching all cashiers data');
                 }
 
-                console.log('🔄 Silent refresh fetching archived sales with params:', params);
-
-                const response = await api.get(url, { params });
-
+                const [response, debtorsRes] = await Promise.all([
+                    api.get(routes.getArchivedSales, { params }),
+                    api.get(routes.debtors.getPending)
+                ]);
                 if (!isMountedRef.current) return;
 
                 if (response.data.success) {
                     const { pendingBills, appliedBills } = processBillData(response.data.sales || []);
-                    const debtorsRes = await api.get(routes.debtors.getPending);
-                    const debtorsData = debtorsRes.data?.data || [];
-                    const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
-                        if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
-                        return acc;
-                    }, {});
-                    const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-archived-pending', false, debtorMap);
-                    const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-archived-applied', true, debtorMap);
-
-                    setArchivedData({
-                        pendingBills: updatedPending,
-                        appliedBills: updatedApplied,
-                        isLoading: false
+                    const debtorMap = buildDebtorMap(debtorsRes.data?.data || []);
+                    debtorMapRef.current = debtorMap;
+                    const reconciled = reconcileSidebarLists(
+                        applyDebtorCredits(pendingBills, false, debtorMap),
+                        applyDebtorCredits(appliedBills, true, debtorMap)
+                    );
+                    startTransition(() => {
+                        setArchivedData({
+                            pendingBills: reconciled.pendingBills,
+                            appliedBills: reconciled.appliedBills,
+                            isLoading: false
+                        });
                     });
-
-                    console.log(`✅ Silent refresh complete (Archived): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-                    await fetchRemainingBalances();
-                } else {
-                    console.error('❌ Silent refresh failed - archived sales response not successful:', response.data);
                 }
             } else {
-                // Fetch current sales with current filter
-                let url = '/sales/all-with-filter';
-                const params = {};
+                const params = {
+                    unique_code: (currentUniqueCode && currentUniqueCode !== 'all') ? currentUniqueCode : 'all'
+                };
 
-                // ALWAYS pass the unique_code parameter, even for 'all' we pass 'all' to backend
-                // This ensures consistent behavior
-                if (currentUniqueCode && currentUniqueCode !== 'all') {
-                    params.unique_code = currentUniqueCode;
-                } else if (currentUniqueCode === 'all') {
-                    params.unique_code = 'all';
-                }
-
-                console.log('🔄 Silent refresh fetching current sales with:', { url, params, currentUniqueCode });
-
-                const [salesRes, customersRes] = await Promise.all([
-                    api.get(url, { params }),
-                    api.get(routes.customers)
+                const [salesRes, debtorsRes] = await Promise.all([
+                    api.get('/sales/all-with-filter', { params }),
+                    api.get(routes.debtors.getPending)
                 ]);
-
                 if (!isMountedRef.current) return;
 
                 const salesData = salesRes.data.sales || salesRes.data || [];
-                const customersData = customersRes.data.data || customersRes.data.customers || customersRes.data || [];
-
-                // Log the unique codes in the fetched data
-                const uniqueCodesInData = [...new Set(salesData.map(s => s.UniqueCode))];
-                console.log('📊 Unique codes in fetched data:', uniqueCodesInData);
-                console.log('📊 Current filter:', currentUniqueCode);
-
                 const { pendingBills, appliedBills } = processBillData(salesData);
-                const debtorsRes = await api.get(routes.debtors.getPending);
-                const debtorsData = debtorsRes.data?.data || [];
-                const debtorMap = (debtorsData || []).reduce((acc, debtor) => {
-                    if (debtor?.bill_no) acc[debtor.bill_no] = debtor;
-                    return acc;
-                }, {});
+                const debtorMap = buildDebtorMap(debtorsRes.data?.data || []);
+                debtorMapRef.current = debtorMap;
+                const updatedPending = applyDebtorCredits(pendingBills, false, debtorMap);
+                const updatedApplied = applyDebtorCredits(appliedBills, true, debtorMap);
+                const reconciled = reconcileSidebarLists(updatedPending, updatedApplied);
 
-                const updatedPending = await updateCreditAmountsFromDebtorTable(pendingBills, 'silentRefresh-pending', false, debtorMap);
-                const updatedApplied = await updateCreditAmountsFromDebtorTable(appliedBills, 'silentRefresh-applied', true, debtorMap);
-
-                // Only update if the filter hasn't changed during this refresh
                 if (selectedUniqueCodeRef.current === currentUniqueCode) {
-                    setState(prev => ({
-                        ...prev,
-                        pendingBills: updatedPending,
-                        appliedBills: updatedApplied,
-                        customers: customersData,
-                    }));
-
-                    // Update selected bill if needed
-                    if (state.selectedBill && isMountedRef.current) {
-                        const isApplied = state.selectedBill.givenAmountApplied === 'Y';
-                        const updatedBillsList = isApplied ? updatedApplied : updatedPending;
-                        const updatedBill = updatedBillsList.find(b => b.billNo === state.selectedBill.billNo);
-
-                        if (updatedBill && updatedBill !== state.selectedBill) {
-                            setState(prev => ({
+                    startTransition(() => {
+                        setState(prev => {
+                            const next = {
                                 ...prev,
-                                selectedBill: {
-                                    ...prev.selectedBill,
-                                    remainingCredit: updatedBill.remainingCredit,
-                                    creditAmount: updatedBill.creditAmount,
-                                    givenAmount: updatedBill.givenAmount,
-                                    cashPayments: updatedBill.cashPayments,
-                                    totalAmount: updatedBill.totalAmount
+                                pendingBills: reconciled.pendingBills,
+                                appliedBills: reconciled.appliedBills,
+                            };
+                            if (prev.selectedBill) {
+                                const isApplied = prev.selectedBill.givenAmountApplied === 'Y';
+                                const list = isApplied ? reconciled.appliedBills : reconciled.pendingBills;
+                                const updatedBill = list.find(b => b.billNo === prev.selectedBill.billNo);
+                                if (updatedBill) {
+                                    next.selectedBill = {
+                                        ...prev.selectedBill,
+                                        remainingCredit: updatedBill.remainingCredit,
+                                        creditAmount: updatedBill.creditAmount,
+                                        givenAmount: updatedBill.givenAmount,
+                                        cashPayments: updatedBill.cashPayments,
+                                        totalAmount: updatedBill.totalAmount,
+                                        sales: updatedBill.sales || prev.selectedBill.sales,
+                                        paymentHistory: updatedBill.paymentHistory || prev.selectedBill.paymentHistory
+                                    };
                                 }
-                            }));
-                        }
-                    }
-
-                    const pendingGiven = updatedPending.reduce((sum, b) => {
-                        let total = 0;
-                        const history = b.paymentHistory || b.payment_history;
-                        if (history) {
-                            let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                            if (Array.isArray(payments)) {
-                                payments.forEach(p => {
-                                    if (p.method !== 'Credit') {
-                                        total += parseFloat(p.amount) || 0;
-                                    }
-                                });
+                                if (!prev.customerType) {
+                                    const saved = billCustomerTypesRef.current[prev.selectedBill.billNo];
+                                    if (saved) next.customerType = saved;
+                                }
                             }
-                        }
-                        return sum + total;
-                    }, 0);
-
-                    const appliedGiven = updatedApplied.reduce((sum, b) => {
-                        let total = 0;
-                        const history = b.paymentHistory || b.payment_history;
-                        if (history) {
-                            let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                            if (Array.isArray(payments)) {
-                                payments.forEach(p => {
-                                    if (p.method !== 'Credit') {
-                                        total += parseFloat(p.amount) || 0;
-                                    }
-                                });
-                            }
-                        }
-                        return sum + total;
-                    }, 0);
-
-                    const totalFunds = pendingGiven + appliedGiven;
-
-                    if (totalFunds > 0) {
-                        await fetchAdjustedSupplierLoan(totalFunds);
-                    }
-
-                    await fetchRemainingBalances();
-
-                    console.log(`✅ Silent refresh complete (Current): ${updatedPending.length} pending, ${updatedApplied.length} completed`);
-                } else {
-                    console.log('⏭️ Skipping state update - filter changed during refresh');
+                            return next;
+                        });
+                    });
                 }
             }
         } catch (error) {
             console.error("Silent refresh error:", error);
         } finally {
-            if (isMountedRef.current) {
-                setIsRefreshing(false);
-            }
+            if (isMountedRef.current) setIsRefreshing(false);
         }
-    }, [state.selectedBill, updateCreditAmountsFromDebtorTable, fetchAdjustedSupplierLoan, fetchRemainingBalances]);
+    }, [reconcileSidebarLists]);
+
+    useEffect(() => {
+        silentRefreshRef.current = silentRefresh;
+    }, [silentRefresh]);
+
+    // Pending sidebar only — fast DB sync every 3s (does not rewrite Completed list)
+    const refreshPendingSidebar = useCallback(async () => {
+        if (!isMountedRef.current) return;
+        if (pendingRefreshInFlightRef.current) return;
+        if (modalOpenRef.current || isChangingFilterRef.current) return;
+        // Archived view uses a different dataset
+        if (viewOldBillsRef.current) return;
+
+        pendingRefreshInFlightRef.current = true;
+        const currentUniqueCode = selectedUniqueCodeRef.current;
+
+        try {
+            const params = {
+                unique_code: (currentUniqueCode && currentUniqueCode !== 'all') ? currentUniqueCode : 'all'
+            };
+            const salesRes = await api.get('/sales/all-with-filter', { params });
+            if (!isMountedRef.current) return;
+            if (selectedUniqueCodeRef.current !== currentUniqueCode) return;
+
+            const salesData = salesRes.data.sales || salesRes.data || [];
+            const { pendingBills } = processBillData(salesData);
+            const debtorMap = debtorMapRef.current || Object.create(null);
+            let updatedPending = applyDebtorCredits(pendingBills, false, debtorMap);
+
+            // Never re-show a bill that was just fully settled
+            const now = Date.now();
+            updatedPending = updatedPending.filter((b) => {
+                const locked = recentlySettledRef.current.get(String(b.billNo));
+                return !(locked && locked.until > now);
+            });
+
+            setState((prev) => {
+                const prevList = prev.pendingBills || [];
+                if (prevList.length === updatedPending.length) {
+                    let same = true;
+                    for (let i = 0; i < updatedPending.length; i++) {
+                        const a = prevList[i];
+                        const b = updatedPending[i];
+                        if (!a || String(a.billNo) !== String(b.billNo)
+                            || a.givenAmount !== b.givenAmount
+                            || a.totalAmount !== b.totalAmount
+                            || a.givenAmountApplied !== b.givenAmountApplied) {
+                            same = false;
+                            break;
+                        }
+                    }
+                    if (same) return prev;
+                }
+                return { ...prev, pendingBills: updatedPending };
+            });
+        } catch (error) {
+            console.error('Pending sidebar refresh error:', error);
+        } finally {
+            pendingRefreshInFlightRef.current = false;
+        }
+    }, []);
+
+    useEffect(() => {
+        refreshPendingSidebarRef.current = refreshPendingSidebar;
+    }, [refreshPendingSidebar]);
+
+    // Keep customerType in sync with saved map whenever a bill is selected
+    useEffect(() => {
+        const billNo = state.selectedBill?.billNo;
+        if (!billNo) return;
+        const saved = billCustomerTypes[billNo];
+        if (saved && state.customerType !== saved) {
+            setState(prev => (prev.customerType === saved ? prev : { ...prev, customerType: saved }));
+        }
+    }, [state.selectedBill?.billNo, billCustomerTypes]);
 
     // Process Credit Payment function
  // Process Credit Payment function
 const processCreditPayment = async (paymentAmount) => {
     if (!state.selectedBill || state.isPrinting) return;
 
-    console.log('=== PROCESS CREDIT PAYMENT ===');
-    console.log('Payment Amount:', paymentAmount);
-    console.log('Bill No:', state.selectedBill.billNo);
-    console.log('Customer Code:', state.selectedBill.customerCode);
-    console.log('Current Given Amount:', state.selectedBill.givenAmount);
-    console.log('Total Bill Amount:', state.selectedBill.totalAmount);
-
+    const bill = state.selectedBill;
     setState(prev => ({ ...prev, isPrinting: true }));
 
     try {
-        const currentGiven = state.selectedBill.givenAmount || 0;
+        const currentGiven = bill.givenAmount || 0;
         const totalGivenAmount = currentGiven + paymentAmount;
-        
-        // Handle 0 payment case - force move to completed section
+        const creditTransaction = 'Y';
+
         let isFullySettled;
         let givenAmountApplied;
-        // ALWAYS set credit_transaction to 'Y' for credit payments
-        const creditTransaction = 'Y'; // <-- THIS IS THE KEY CHANGE
-        
         if (paymentAmount === 0) {
-            // Force move to completed section when payment is 0
             isFullySettled = true;
             givenAmountApplied = 'Y';
-            console.log('🔄 Zero payment detected - forcing bill to completed section');
         } else {
-            // Normal logic for positive payments
-            isFullySettled = totalGivenAmount >= state.selectedBill.totalAmount;
+            isFullySettled = totalGivenAmount >= bill.totalAmount;
             givenAmountApplied = isFullySettled ? 'Y' : 'N';
         }
 
-        console.log('Calculated Values:', {
-            currentGiven,
-            totalGivenAmount,
-            paymentAmount,
-            isFullySettled,
-            creditTransaction, // Should always be 'Y'
-            givenAmountApplied
-        });
-
-        // For 0 payment, the FULL bill amount becomes debt (since no money was given)
         let creditAmount = parseFloat(paymentAmount);
         if (paymentAmount === 0) {
-            // If no payment, the full bill amount becomes credit/debt
-            const remainingBillAmount = state.selectedBill.totalAmount - currentGiven;
-            creditAmount = remainingBillAmount;
-            console.log('💰 Zero payment: Full bill amount will be recorded as debt:', creditAmount);
+            creditAmount = bill.totalAmount - currentGiven;
         }
 
-        // Only create debtor record if creditAmount > 0
-        let debtorResponse = null;
+        // Start debtor create early (parallel with history prep)
+        let debtorPromise = Promise.resolve(null);
         if (creditAmount > 0) {
-            const debtorData = {
-                bill_no: state.selectedBill.billNo,
-                customer_code: state.selectedBill.customerCode,
+            debtorPromise = api.post('/debtors/create', {
+                bill_no: bill.billNo,
+                customer_code: bill.customerCode,
                 credit_amount: parseFloat(creditAmount)
-            };
+            });
+        }
 
-            console.log('Sending to debtor API:', debtorData);
-
-            debtorResponse = await api.post('/debtors/create', debtorData);
-
-            console.log('Debtor API Response:', debtorResponse.data);
-
-            if (!debtorResponse.data.success) {
-                throw new Error(debtorResponse.data.message || 'Failed to create credit record');
+        let existingHistory = [];
+        try {
+            const currentHistory = bill.paymentHistory || bill.payment_history;
+            if (currentHistory) {
+                existingHistory = typeof currentHistory === 'string'
+                    ? JSON.parse(currentHistory)
+                    : (Array.isArray(currentHistory) ? currentHistory.slice() : []);
             }
+        } catch (e) {
+            existingHistory = [];
+        }
+
+        const debtorResponse = await debtorPromise;
+        if (creditAmount > 0 && debtorResponse && !debtorResponse.data.success) {
+            throw new Error(debtorResponse.data.message || 'Failed to create credit record');
         }
 
         let remainingDebtAmount = parseFloat(creditAmount);
         let debtorStatus = 'pending';
-
-        if (debtorResponse && debtorResponse.data.data?.remaining_amount !== undefined) {
+        if (debtorResponse?.data?.data?.remaining_amount !== undefined) {
             remainingDebtAmount = parseFloat(debtorResponse.data.data.remaining_amount);
             debtorStatus = debtorResponse.data.data.status || 'pending';
-        } else if (debtorResponse && debtorResponse.data.data?.credit_amount !== undefined) {
+        } else if (debtorResponse?.data?.data?.credit_amount !== undefined) {
             remainingDebtAmount = parseFloat(debtorResponse.data.data.credit_amount);
         }
-
-        console.log('Remaining Debt Amount:', remainingDebtAmount);
-        console.log('Debtor Status:', debtorStatus);
 
         const paymentHistoryEntry = {
             id: Math.random().toString(36).substr(2, 9),
@@ -4975,32 +5206,19 @@ const processCreditPayment = async (paymentAmount) => {
                 remaining_debt: remainingDebtAmount,
                 debtor_status: debtorStatus,
                 settlement_status: creditAmount > 0 ? 'PENDING' : 'NONE',
-                message: paymentAmount === 0 
-                    ? `Full bill amount of Rs. ${formatDecimal(creditAmount)} has been recorded as DEBT since no payment was made.`
-                    : `This credit of Rs. ${formatDecimal(paymentAmount)} will ONLY be settled when the bill is fully completed and an additional payment is made in the Completed Bills section.`
+                message: paymentAmount === 0
+                    ? `Full bill amount of Rs. ${formatDecimal(creditAmount)} recorded as DEBT.`
+                    : `Credit of Rs. ${formatDecimal(paymentAmount)} pending settlement.`
             }
         };
-
-        let existingHistory = [];
-        try {
-            const currentHistory = state.selectedBill.payment_history;
-            if (currentHistory) {
-                existingHistory = typeof currentHistory === 'string'
-                    ? JSON.parse(currentHistory)
-                    : currentHistory;
-            }
-        } catch (e) {
-            console.error('Error parsing existing history:', e);
-            existingHistory = [];
-        }
 
         existingHistory.push(paymentHistoryEntry);
 
         const payload = {
-            bill_no: state.selectedBill.billNo,
+            bill_no: bill.billNo,
             given_amount: parseFloat(totalGivenAmount),
             given_amount_applied: givenAmountApplied,
-            credit_transaction: creditTransaction, // <-- ALWAYS 'Y' for credit payments
+            credit_transaction: creditTransaction,
             payment_amount: parseFloat(paymentAmount),
             payment_method: 'Credit',
             payment_history: JSON.stringify(existingHistory),
@@ -5008,115 +5226,52 @@ const processCreditPayment = async (paymentAmount) => {
             credit_pending_settlement: true
         };
 
-        console.log('Sending to sales update API:', payload);
-
         const response = await api.put(routes.updateGivenAmountApplied, payload);
 
-        console.log('Sales update response:', response.data);
-
         if (response.data.success) {
-            // Refresh sales data to update the UI
-            await fetchSalesData();
-
-            // Also refresh the selected bill's debtor data
-            if (state.selectedBill?.billNo) {
-                try {
-                    const debtorCheck = await api.get(`/debtors/${state.selectedBill.billNo}`);
-                    if (debtorCheck.data.success && debtorCheck.data.data) {
-                        setSelectedBillDebtor(debtorCheck.data.data);
-                    }
-                } catch (e) {
-                    console.log('No debtor record found after refresh');
-                }
+            if (state.customerType === 'walking' && bill.billNo) {
+                saveBillCustomerType(bill.billNo, 'walking');
+            } else if (state.customerType === 'debtor' && bill.billNo) {
+                saveBillCustomerType(bill.billNo, 'debtor');
             }
 
-            const customer = state.customers.find(c =>
-                String(c.short_name).toUpperCase() === String(state.selectedBill.customerCode).toUpperCase()
-            );
+            applyLocalPaymentToLists(bill, {
+                paymentAmount,
+                paymentMethod: 'Credit',
+                totalGivenAmount,
+                givenAmountApplied,
+                paymentHistoryEntry,
+                creditAmountAdd: creditAmount
+            });
+            setSelectedBillDebtor(debtorResponse?.data?.data || null);
 
-            let statusMessage = '';
-
-            if (paymentAmount === 0) {
-                // Special message for 0 payment
-                statusMessage = `✅ Bill Moved to Completed Section with DEBT!\n\n` +
-                    `Bill Number: ${state.selectedBill.billNo}\n` +
-                    `Customer: ${state.selectedBill.customerCode}\n` +
-                    `Total Bill Amount: Rs. ${formatDecimal(state.selectedBill.totalAmount)}\n` +
-                    `Already Paid: Rs. ${formatDecimal(currentGiven)}\n` +
-                    `Payment Made: Rs. 0.00\n\n` +
-                    `💰 DEBT AMOUNT: Rs. ${formatDecimal(creditAmount)}\n` +
-                    `⏳ STATUS: PENDING SETTLEMENT\n\n` +
-                    `📌 The bill has been moved to the "Completed Payments" section.\n` +
-                    `💳 Full bill amount has been recorded as DEBT since no payment was made.\n` +
-                    `💰 To settle this debt of Rs. ${formatDecimal(creditAmount)}, make a payment in the "Completed Payments" section.`;
-            } else if (isFullySettled) {
-                statusMessage = `✓ Bill Fully Paid!\n\n` +
-                    `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
-                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n\n` +
-                    `💰 CREDIT AMOUNT: Rs. ${formatDecimal(creditAmount)}\n` +
-                    `⏳ STATUS: PENDING SETTLEMENT\n\n` +
-                    `📌 The bill has been moved to the "Completed Payments" section.\n` +
-                    `💰 To settle this credit of Rs. ${formatDecimal(creditAmount)}, make a payment in the "Completed Payments" section.\n` +
-                    `✅ Any payment made in the Completed Bills section will automatically go towards settling this credit.`;
+            // Background sync only
+            if (typeof silentRefreshRef.current === 'function') {
+                silentRefreshRef.current().catch(() => {});
             } else {
-                statusMessage = `✓ Credit Added Successfully!\n\n` +
-                    `Amount: Rs. ${formatDecimal(paymentAmount)}\n` +
-                    `Total Given: Rs. ${formatDecimal(totalGivenAmount)}\n` +
-                    `Remaining on Bill: Rs. ${formatDecimal(Math.max(0, state.selectedBill.totalAmount - totalGivenAmount))}\n` +
-                    `Remaining Debt: Rs. ${formatDecimal(remainingDebtAmount)}\n` +
-                    `Debt Status: ${debtorStatus === 'paid' ? 'FULLY PAID' : (debtorStatus === 'partial' ? 'PARTIAL PAYMENT' : 'PENDING')}\n\n` +
-                    `⚠️ IMPORTANT: This amount has been recorded as DEBT.\n` +
-                    `💰 This credit will ONLY be settled when:\n` +
-                    `   1. The bill becomes fully paid and moves to "Completed Payments"\n` +
-                    `   2. You make an additional payment in the "Completed Payments" section\n` +
-                    `📝 The credit will remain as debt until then.`;
+                fetchSalesData().catch(() => {});
             }
 
-            alert(statusMessage);
+            const statusMessage = paymentAmount === 0
+                ? `✅ Bill completed with debt Rs. ${formatDecimal(creditAmount)}.`
+                : (isFullySettled
+                    ? `✓ Credit Rs. ${formatDecimal(paymentAmount)} saved. Bill completed (debt pending).`
+                    : `✓ Credit Rs. ${formatDecimal(paymentAmount)} saved. Remaining on bill Rs. ${formatDecimal(Math.max(0, bill.totalAmount - totalGivenAmount))}.`);
 
-            // ✅ SAVE THE CUSTOMER TYPE FOR THIS BILL BEFORE CLEARING
-            if (state.customerType === 'walking' && state.selectedBill?.billNo) {
-                saveBillCustomerType(state.selectedBill.billNo, 'walking');
-            } else if (state.customerType === 'debtor' && state.selectedBill?.billNo) {
-                saveBillCustomerType(state.selectedBill.billNo, 'debtor');
-            }
-
-            // Clear the selected bill and reset state
-            setState(prev => ({
-                ...prev,
-                selectedBill: null,
-                givenAmountInput: "",
-                showChequeModal: false,
-                showBankToBankModal: false,
-                showAdjustmentModal: false,
-                pendingBankToBankAmount: 0,
-                customerType: null
-            }));
-
-            // Force a refresh of the outstanding debt modal data
-            // This will ensure the debt appears in the Outstanding Debt Modal
-            setTimeout(() => {
-                const debtBills = getOutstandingDebtBills();
-                setOutstandingDebtBills(debtBills);
-            }, 500);
-
+            setTimeout(() => alert(statusMessage), 0);
         } else {
             throw new Error(response.data.message || 'Failed to update sales record');
         }
     } catch (error) {
         console.error("Error processing credit payment:", error);
         let errorMessage = "Failed to process credit payment. ";
-
         if (error.response) {
-            console.error("Error response:", error.response.data);
             errorMessage += error.response.data?.message || error.message;
         } else if (error.request) {
-            console.error("Error request:", error.request);
             errorMessage += "No response from server. Please check your connection.";
         } else {
             errorMessage += error.message;
         }
-
         alert(errorMessage);
     } finally {
         setState(prev => ({ ...prev, isPrinting: false }));
@@ -5190,30 +5345,17 @@ const processCreditPayment = async (paymentAmount) => {
     }, [filterPendingBills, filterAppliedBills]);
     const [adjustedLoanData, setAdjustedLoanData] = useState(null);
 
-    // Fetch adjusted supplier loan amount when totalFunds changes
+    // Fetch adjusted supplier loan amount when totalFunds changes (debounced)
     useEffect(() => {
-        const getAdjustedLoan = async () => {
-            if (stats.totalFunds > 0) {
-                const data = await fetchAdjustedSupplierLoan(stats.totalFunds);
-                if (data) {
-                    console.log('Loan data updated:', data);
-                }
-            }
-        };
-        getAdjustedLoan();
+        if (!(stats.totalFunds > 0)) return;
+        const t = setTimeout(() => {
+            fetchAdjustedSupplierLoan(stats.totalFunds);
+        }, 400);
+        return () => clearTimeout(t);
     }, [stats.totalFunds, fetchAdjustedSupplierLoan]);
 
     // Add this state for the summary popup (add with your other useState declarations around line 1130)
     const [showAdjustmentSummary, setShowAdjustmentSummary] = useState(false);
-    const [adjustmentTotals, setAdjustmentTotals] = useState({
-        cash: 0,
-        cheque: 0,
-        bank_transfer: 0,
-        credit: 0,
-        bag_to_box: 0,
-        bill_to_bill: 0,
-        bad_debt: 0
-    });
     const [netValue, setNetValue] = useState(0);
 
     // Add this useEffect to monitor net value changes and show warning only once per session
@@ -5221,11 +5363,6 @@ const processCreditPayment = async (paymentAmount) => {
         const actualNet = stats.totalFunds - (adjustedLoanData?.total_loan_amount || 0);
 
         setNetValue(actualNet);  // Store actual value (can be negative)
-
-        // Check if the warning has already been shown in this session
-        const warningAlreadyShown = sessionStorage.getItem('net_negative_warning_shown') === 'true';
-
-
 
         // Reset the session flag when value becomes positive again (so it can trigger again if it goes negative later)
         if (actualNet > 0) {
@@ -5236,8 +5373,8 @@ const processCreditPayment = async (paymentAmount) => {
         }
     }, [stats.totalFunds, adjustedLoanData?.total_loan_amount]);
 
-    // Add this function to calculate payment totals (add near your other functions)
-    const calculatePaymentTotals = useCallback(() => {
+    // Memoized payment totals — computed only when bill lists change (no setState loop)
+    const adjustmentTotals = useMemo(() => {
         const totals = {
             cash: 0,
             cheque: 0,
@@ -5248,53 +5385,28 @@ const processCreditPayment = async (paymentAmount) => {
             bad_debt: 0
         };
 
-        // Combine pending and applied bills
-        const allBills = [...filterPendingBills, ...filterAppliedBills];
-
-        allBills.forEach(bill => {
-            const history = bill.paymentHistory || bill.payment_history;
-            if (history) {
-                let payments = typeof history === 'string' ? JSON.parse(history) : history;
-                if (Array.isArray(payments)) {
-                    payments.forEach(payment => {
-                        const amount = parseFloat(payment.amount) || 0;
-                        switch (payment.method) {
-                            case 'Cash':
-                                totals.cash += amount;
-                                break;
-                            case 'Cheque':
-                                totals.cheque += amount;
-                                break;
-                            case 'Bank Transfer':
-                                totals.bank_transfer += amount;
-                                break;
-                            case 'Credit':
-                                totals.credit += amount;
-                                break;
-                            case 'bag_to_box':
-                                totals.bag_to_box += amount;
-                                break;
-                            case 'bill_to_bill':
-                                totals.bill_to_bill += amount;
-                                break;
-                            case 'bad_debt':
-                                totals.bad_debt += amount;
-                                break;
-                            default:
-                                break;
-                        }
-                    });
+        const allBills = filterPendingBills.concat(filterAppliedBills);
+        for (let i = 0; i < allBills.length; i++) {
+            const history = allBills[i].paymentHistory || allBills[i].payment_history;
+            if (!history) continue;
+            const payments = Array.isArray(history) ? history : (typeof history === 'string' ? (() => { try { const p = JSON.parse(history); return Array.isArray(p) ? p : []; } catch { return []; } })() : []);
+            for (let j = 0; j < payments.length; j++) {
+                const payment = payments[j];
+                const amount = parseFloat(payment.amount) || 0;
+                switch (payment.method) {
+                    case 'Cash': totals.cash += amount; break;
+                    case 'Cheque': totals.cheque += amount; break;
+                    case 'Bank Transfer': totals.bank_transfer += amount; break;
+                    case 'Credit': totals.credit += amount; break;
+                    case 'bag_to_box': totals.bag_to_box += amount; break;
+                    case 'bill_to_bill': totals.bill_to_bill += amount; break;
+                    case 'bad_debt': totals.bad_debt += amount; break;
+                    default: break;
                 }
             }
-        });
-
-        setAdjustmentTotals(totals);
+        }
+        return totals;
     }, [filterPendingBills, filterAppliedBills]);
-
-    // Add this effect to recalculate when bills change
-    useEffect(() => {
-        calculatePaymentTotals();  // <- CHANGE THIS LINE
-    }, [filterPendingBills, filterAppliedBills, calculatePaymentTotals]);
 
     // Add this component for the summary popup (add before the return statement)
     const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
@@ -5460,8 +5572,7 @@ const processCreditPayment = async (paymentAmount) => {
     await processCreditPayment(paymentAmount);
 };
 
-    if (state.isLoading) return <LoadingSkeleton />;
-
+    // Never block the whole app chrome — show page shell while lists load
     return (
         <div style={styles.app}>
             <div style={styles.container}>
@@ -5683,7 +5794,6 @@ const processCreditPayment = async (paymentAmount) => {
                 onClick={async () => {
                     if (startDate && endDate) {
                         setArchivedData(prev => ({ ...prev, isLoading: true }));
-                        await refreshBeforeLoadingOldBills();
                         await fetchArchivedSales();
                     } else {
                         alert('Please select both start and end dates');
@@ -5859,21 +5969,12 @@ const processCreditPayment = async (paymentAmount) => {
                         </div>
 
                         <div style={styles.panelContent}>
-                            {filterAppliedBills.length === 0 ? (
+                            {state.isLoading ? (
+                                <EmptyStateComponent message="Loading bills..." />
+                            ) : sortedAppliedBills.length === 0 ? (
                                 <EmptyStateComponent message="No completed bills" />
                             ) : (
-                                // Sort bills by bill_no in ascending order
-                                [...filterAppliedBills]
-                                    .sort((a, b) => {
-                                        // Convert to numbers if bill_no are numeric, or use string comparison
-                                        const numA = parseInt(a.billNo);
-                                        const numB = parseInt(b.billNo);
-                                        if (!isNaN(numA) && !isNaN(numB)) {
-                                            return numA - numB;
-                                        }
-                                        return String(a.billNo).localeCompare(String(b.billNo));
-                                    })
-                                    .map(bill => (
+                                sortedAppliedBills.map(bill => (
                                         <div
                                             key={bill.billNo}
                                             style={{
@@ -5937,9 +6038,23 @@ const processCreditPayment = async (paymentAmount) => {
                         {/* Customer Type Selector */}
                         <div style={{ padding: '20px 24px 0', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
                             <CustomerTypeSelector
-                                selectedType={state.customerType}
-                                onSelect={(type) => setState(prev => ({ ...prev, customerType: type }))}
-                                onUnlockScreen={null} // Removed the forced 'debtor' state override here
+                                selectedType={state.customerType || (state.selectedBill ? billCustomerTypes[state.selectedBill.billNo] : null) || null}
+                                onSelect={(type) => {
+                                    setState(prev => ({ ...prev, customerType: type }));
+                                    if (state.selectedBill?.billNo) {
+                                        saveBillCustomerType(state.selectedBill.billNo, type);
+                                    }
+                                    if (type === 'walking') {
+                                        // Unlock + focus cash field on next paint
+                                        requestAnimationFrame(() => {
+                                            setTimeout(() => {
+                                                givenAmountInputRef.current?.focus();
+                                                givenAmountInputRef.current?.select();
+                                            }, 60);
+                                        });
+                                    }
+                                }}
+                                onUnlockScreen={null}
                                 disabled={state.isPrinting}
                                 onDebtorClick={(code, billNo) => setState(prev => ({ ...prev, showDebtorForm: true, pendingDebtorBill: { customerCode: code, billNo } }))}
                                 billCustomerCode={state.selectedBill?.customerCode}
@@ -5951,8 +6066,8 @@ const processCreditPayment = async (paymentAmount) => {
                             />
                         </div>
 
-                        {/* Scrollable Content */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc', position: 'relative', opacity: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 0.5 : 1, pointerEvents: (!state.customerType && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 'none' : 'auto' }}>
+                        {/* Scrollable Content — unlocked if type selected OR saved OR debtor exists OR old bills */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc', position: 'relative', opacity: (!state.customerType && !(state.selectedBill && billCustomerTypes[state.selectedBill.billNo]) && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 0.5 : 1, pointerEvents: (!state.customerType && !(state.selectedBill && billCustomerTypes[state.selectedBill.billNo]) && !selectedBillDebtor?.Debtor_no && !viewOldBills) ? 'none' : 'auto' }}>
                             {state.selectedBill ? (
                                 <>
                                     {/* Bill Info Card */}
@@ -6086,13 +6201,16 @@ const processCreditPayment = async (paymentAmount) => {
                                         </div>
                                        <input
     ref={givenAmountInputRef}
-    type="number"
+    type="text"
+    inputMode="decimal"
     value={state.givenAmountInput}
     onChange={(e) => {
         let val = e.target.value;
+        // Allow empty or valid decimal only (normal text field — no mouse-wheel number stepping)
         if (val === "") return setState(prev => ({ ...prev, givenAmountInput: "" }));
+        if (!/^\d*\.?\d*$/.test(val)) return;
         let num = parseFloat(val);
-        if (state.selectedBill) {
+        if (state.selectedBill && !isNaN(num)) {
             const maxAmount = getRemainingBillAmount(state.selectedBill);
             if (num > maxAmount) {
                 alert(`Maximum allowed: Rs. ${formatDecimal(maxAmount)}`);
@@ -6382,19 +6500,9 @@ const processCreditPayment = async (paymentAmount) => {
                         <div style={styles.panelHeader}><h2 style={styles.panelTitle}><span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%' }}></span>{dataSource === 'sales_history' ? 'Archived Pending' : 'Pending Payment'}</h2></div>
                         <div style={{ padding: '12px 16px 0' }}><input type="text" placeholder="🔍 Search pending bills..." value={state.pendingSearchQuery} onChange={(e) => setState(prev => ({ ...prev, pendingSearchQuery: e.target.value.toUpperCase() }))} style={styles.searchInput} /></div>
                         <div style={styles.panelContent}>
-                            {filterPendingBills.length === 0 ? <EmptyStateComponent message="No pending bills" /> :
-                                // Sort bills by bill_no in ascending order
-                                [...filterPendingBills]
-                                    .sort((a, b) => {
-                                        // Convert to numbers if bill_no are numeric, or use string comparison
-                                        const numA = parseInt(a.billNo);
-                                        const numB = parseInt(b.billNo);
-                                        if (!isNaN(numA) && !isNaN(numB)) {
-                                            return numA - numB;
-                                        }
-                                        return String(a.billNo).localeCompare(String(b.billNo));
-                                    })
-                                    .map(bill => (
+                            {state.isLoading ? <EmptyStateComponent message="Loading bills..." /> :
+                            sortedPendingBills.length === 0 ? <EmptyStateComponent message="No pending bills" /> :
+                                sortedPendingBills.map(bill => (
                                         <div key={bill.billNo} style={{ ...styles.billItem, ...(state.selectedBill?.billNo === bill.billNo && !state.isUpdatingCompletedBill ? styles.billSelected : {}) }} onClick={() => checkAndHandleDebtor(bill)}>
                                             <div style={styles.billRow}>
                                                 <div style={styles.billLeft}>
@@ -6441,7 +6549,6 @@ const processCreditPayment = async (paymentAmount) => {
                         style={{ ...styles.statBox, cursor: 'pointer' }}
                         onClick={() => {
                             modalOpenRef.current = true;
-                            calculatePaymentTotals();
                             setShowAdjustmentSummary(true);
                         }}
                         onMouseEnter={(e) => {
@@ -6613,9 +6720,6 @@ const processCreditPayment = async (paymentAmount) => {
     }}
     bills={outstandingDebtBills}
     onBillClick={(bill) => {
-        // This will select the bill and show it in the center panel
-        handleBillClick(bill);
-        // If the bill is in pending section, use checkAndHandleDebtor
         if (bill.givenAmountApplied !== 'Y') {
             checkAndHandleDebtor(bill);
         } else {

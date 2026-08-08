@@ -1,23 +1,27 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, memo, startTransition } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
+import { flushSync } from 'react-dom';
 import api from "../../api";
 import { useNavigate } from 'react-router-dom';
 
 // --- CONSTANTS for the background refresh loop ---
 // Tuned so clicks / F4 always win the browser connection pool over background work.
-const REFRESH_DELAY_MS = 5000;   // wait after previous refresh finishes (avoids all-day pile-up)
-const POLL_TIMEOUT_MS = 8000;    // abort hung polling requests
-const CLICK_TIMEOUT_MS = 6000;   // abort hung bill-detail requests so UI never sticks on loading
-const PREFETCH_TIMEOUT_MS = 4000;
+const REFRESH_DELAY_MS = 4000;   // keep sidebars close to DB all day
+const POLL_TIMEOUT_MS = 7000;    // abort hung polling requests
+const CLICK_TIMEOUT_MS = 5000;   // abort hung bill-detail requests so UI never sticks on loading
+const PREFETCH_TIMEOUT_MS = 3500;
 const DETAILS_REFRESH_EVERY = 4; // refresh open bill every Nth poll (summary still every tick)
-const USER_BUSY_MS = 1800;       // pause polling/prefetch after click / print
-const MUTATION_SAFETY_MS = 45000;// auto-clear stuck mutation lock
-const CACHE_MAX = 180;           // max cached bills / suppliers (keeps day-long use snappy)
-const PREFETCH_MAX_CONCURRENT = 2; // keep slots free for user clicks (browser ~6/host)
-const PREFETCH_BATCH = 20;       // warm a small batch — hover covers the rest
-const REVALIDATE_DEBOUNCE_MS = 80; // rapid clicks: only fetch the last selected bill
-const BILL_HTML_CACHE_MAX = 12;
-const MUTATION_TIMEOUT_MS = 15000; // never wait forever on POST/PUT
-const PRINT_LOCK_SAFETY_MS = 20000; // auto-clear stuck print lock
+const USER_BUSY_MS = 1200;       // pause polling/prefetch after click / print (keeps F4 hot)
+const MUTATION_SAFETY_MS = 30000;// auto-clear stuck mutation lock
+const CACHE_MAX = 300;           // max cached bills / suppliers (keeps day-long use snappy)
+const PREFETCH_MAX_CONCURRENT = 3; // warm several bills so sidebar clicks paint instantly
+const PREFETCH_BATCH = 60;       // warm enough of both lists that clicks rarely miss cache
+const BILL_HTML_CACHE_MAX = 16;
+const MUTATION_TIMEOUT_MS = 10000; // never wait forever on POST/PUT
+const PRINT_LOCK_SAFETY_MS = 8000; // auto-clear stuck print lock (never block F4 long)
+const PRINT_WAIT_DETAILS_MS = 8000; // F4 right after click: wait for details before giving up
+
+// Module-level print entry — survives remount gaps so F4 never finds a null ref mid-day
+let latestSupplierPrintHandler = null;
 
 // GET with abort timeout. Optional external signal aborts when user clicks another bill.
 const getWithTimeout = (url, externalSignal = null, timeoutMs = POLL_TIMEOUT_MS) => {
@@ -49,6 +53,7 @@ const detailsCache = new Map();   // key -> details array
 const supplierCache = new Map();  // code -> supplier profile object
 const billContentCache = new Map(); // key -> HTML (must be module-scope or cache is useless)
 const prefetchInFlight = new Map(); // key -> Promise
+const prefetchAbortControllers = new Set(); // abort in-flight warm requests on click/F4
 let prefetchActive = 0;
 let prefetchPaused = false;
 const prefetchQueue = [];
@@ -61,12 +66,19 @@ const cachePut = (map, key, value) => {
     }
 };
 
+// Never poison the cache with empty results (causes slow clicks / failed F4 later)
+const cachePutDetails = (key, rows) => {
+    if (Array.isArray(rows) && rows.length > 0) cachePut(detailsCache, key, rows);
+    else detailsCache.delete(key);
+};
+
 const detailsCacheKey = (isUnprinted, supplierCode, billNo) =>
     isUnprinted ? `u:${supplierCode}` : `p:${billNo}`;
 
 const pausePrefetch = () => {
     prefetchPaused = true;
-    // Drop pending warm jobs so click/F4 get free connections immediately
+    // Drop pending queue so new clicks get free slots — but do NOT abort in-flight
+    // warm jobs: the bill the user just clicked is often the one being prefetched.
     prefetchQueue.length = 0;
 };
 
@@ -97,6 +109,9 @@ const sameSummaryList = (a, b) => {
     for (let i = 0; i < a.length; i++) {
         if (a[i].supplier_code !== b[i].supplier_code) return false;
         if (String(a[i].supplier_bill_no ?? '') !== String(b[i].supplier_bill_no ?? '')) return false;
+        // Catch status / amount updates so sidebars never look stale all day
+        if (String(a[i].updated_at ?? a[i].timestamp ?? '') !== String(b[i].updated_at ?? b[i].timestamp ?? '')) return false;
+        if (String(a[i].total ?? a[i].SupplierTotal ?? '') !== String(b[i].total ?? b[i].SupplierTotal ?? '')) return false;
     }
     return true;
 };
@@ -118,51 +133,100 @@ const sameDetailsList = (a, b) => {
 const sameDocs = (a, b) =>
     a === b || (!!a && !!b && a.title === b.title && a.profile === b.profile && a.nic_front === b.nic_front && a.nic_back === b.nic_back);
 
-// Open print dialog from HTML string as fast as possible (reuse one hidden iframe all day)
-const printHtml = (content) => new Promise((resolve) => {
+// Create / reset the shared print iframe (reset fixes day-long detached-document failures)
+let printIframeUseCount = 0;
+const ensurePrintIframe = (forceNew = false) => {
     let iframe = document.getElementById('print-iframe');
-    if (!iframe) {
-        iframe = document.createElement('iframe');
-        iframe.id = 'print-iframe';
-        iframe.setAttribute('aria-hidden', 'true');
-        Object.assign(iframe.style, {
-            position: 'fixed', right: '0', bottom: '0', width: '0', height: '0',
-            border: 'none', visibility: 'hidden',
-        });
-        document.body.appendChild(iframe);
+    if (forceNew && iframe) {
+        try { iframe.remove(); } catch { /* ignore */ }
+        iframe = null;
+        printIframeUseCount = 0;
     }
-
-    let done = false;
-    const runPrint = () => {
-        if (done) return;
-        done = true;
+    if (iframe) {
         try {
             const win = iframe.contentWindow;
-            win.focus();
-            win.print();
-        } catch (e) {
-            console.error('Print failed:', e);
+            if (!win || !win.document) {
+                iframe.remove();
+                iframe = null;
+            }
+        } catch {
+            try { iframe.remove(); } catch { /* ignore */ }
+            iframe = null;
         }
-        // Keep iframe for next F4 — never recreate (prevents day-long DOM churn)
-        resolve();
-    };
+    }
+    if (iframe) return iframe;
+    iframe = document.createElement('iframe');
+    iframe.id = 'print-iframe';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('title', 'print');
+    Object.assign(iframe.style, {
+        position: 'fixed',
+        right: '0',
+        bottom: '0',
+        width: '1px',
+        height: '1px',
+        border: 'none',
+        opacity: '0',
+        pointerEvents: 'none',
+        zIndex: '-1',
+    });
+    document.body.appendChild(iframe);
+    return iframe;
+};
 
+const printViaPopup = (content) => {
     try {
-        const doc = iframe.contentWindow.document;
+        const w = window.open('', '_blank', 'noopener,noreferrer,width=420,height=640');
+        if (!w) return false;
+        w.document.open();
+        w.document.write(content);
+        w.document.close();
+        w.focus();
+        w.print();
+        return true;
+    } catch (e) {
+        console.error('Print popup failed:', e);
+        return false;
+    }
+};
+
+// SYNCHRONOUS print — always use a fresh iframe (reused iframes often stop showing the dialog after the 1st print).
+const printHtml = (content) => {
+    if (!content || typeof content !== 'string') return false;
+    printIframeUseCount += 1;
+
+    const tryIframePrint = (target) => {
+        const win = target.contentWindow;
+        if (!win) throw new Error('no contentWindow');
+        const doc = win.document;
         doc.open();
         doc.write(content);
         doc.close();
-    } catch (e) {
-        console.error('Print write failed:', e);
-        resolve();
-        return;
-    }
+        win.focus();
+        win.print();
+        return true;
+    };
 
-    iframe.onload = () => runPrint();
-    // Fast path: thermal receipts are tiny — print on next frame
-    requestAnimationFrame(() => requestAnimationFrame(runPrint));
-    setTimeout(runPrint, 30);
-});
+    // Always recreate — day-long / multi-print sessions fail when the old iframe stays attached
+    let iframe = ensurePrintIframe(true);
+    try {
+        const ok = tryIframePrint(iframe);
+        try { window.focus(); } catch { /* ignore */ }
+        return ok;
+    } catch (e) {
+        console.error('Print write/print failed, recreating iframe:', e);
+        try { iframe.remove(); } catch { /* ignore */ }
+        iframe = ensurePrintIframe(true);
+        try {
+            const ok2 = tryIframePrint(iframe);
+            try { window.focus(); } catch { /* ignore */ }
+            return ok2;
+        } catch (e2) {
+            console.error('Print iframe failed, using popup:', e2);
+            return printViaPopup(content);
+        }
+    }
+};
 // --- Pure helpers (module scope: created once, never re-allocated per render) ---
 const formatDecimal = (value, decimals = 2) => (parseFloat(value) || 0).toLocaleString(undefined, {
     minimumFractionDigits: decimals,
@@ -200,11 +264,12 @@ const detailTdStyle = { padding: '6px 8px', textAlign: 'left', borderBottom: '1p
 const BillListButton = memo(({ code, id, billNo, label, buttonStyle, onSelect, onPrefetch }) => (
     <button
         type="button"
-        onMouseDown={(e) => {
-            if (e.button !== 0) return;
+        onPointerDown={(e) => {
+            if (e.button != null && e.button !== 0) return;
             e.preventDefault();
             onSelect(code, billNo);
         }}
+        onPointerEnter={() => onPrefetch?.(code, billNo)}
         onMouseEnter={() => onPrefetch?.(code, billNo)}
         onFocus={() => onPrefetch?.(code, billNo)}
         style={buttonStyle}
@@ -322,11 +387,14 @@ const SupplierReport = () => {
     // has clicked something newer is silently discarded (prevents stale data overwrites).
     const detailsSeqRef = useRef(0);
     const detailsAbortRef = useRef(null);
+    // Tracks the in-flight click load so F4 can await it instead of failing with "No data"
+    const detailsLoadRef = useRef(null); // { key, seq, promise }
 
     // Counter of in-flight mutations (print/finalize/update). While > 0 the background
     // refresh is paused so it can never clobber data mid-operation.
     const mutationCountRef = useRef(0);
     const mutationSafetyTimerRef = useRef(null);
+    
     const beginMutation = () => {
         mutationCountRef.current += 1;
         clearTimeout(mutationSafetyTimerRef.current);
@@ -342,7 +410,6 @@ const SupplierReport = () => {
     // Pause background polling briefly after user actions so clicks/F4 stay snappy all day
     const userBusyRef = useRef(false);
     const userBusyTimerRef = useRef(null);
-    const revalidateTimerRef = useRef(null);
     const markUserBusy = useCallback(() => {
         userBusyRef.current = true;
         pausePrefetch();
@@ -354,9 +421,9 @@ const SupplierReport = () => {
     }, []);
 
     const printInFlightRef = useRef(false);
-    const printGenerationRef = useRef(0); // bump on each F4 so stale prints are ignored
     const printLockSafetyTimerRef = useRef(null);
     const handlePrintRef = useRef(null);
+    const printGenRef = useRef(0); // newer F4 supersedes an in-flight wait/print
     const pollTickRef = useRef(0);
 
     const clearPrintLock = useCallback(() => {
@@ -371,6 +438,40 @@ const SupplierReport = () => {
             printInFlightRef.current = false;
             resumePrefetchSoon(0);
         }, PRINT_LOCK_SAFETY_MS);
+    }, []);
+
+    // Clear middle details panel after a successful print (selection reset).
+    const clearCenterPanel = useCallback(() => {
+        selectedStateRef.current = {
+            selectedSupplier: null,
+            selectedBillNo: null,
+            isUnprintedBill: false,
+        };
+        liveBillRef.current = {
+            details: [],
+            selectedSupplier: null,
+            selectedBillNo: null,
+            isUnprintedBill: false,
+            advanceAmount: 0,
+            payingAmount: '',
+            billSize: liveBillRef.current.billSize || '3mm',
+        };
+        detailsLoadRef.current = null;
+        flushSync(() => {
+            setSelectedSupplier(null);
+            setSelectedBillNo(null);
+            setIsUnprintedBill(false);
+            setSupplierDetails([]);
+            setIsDetailsLoading(false);
+            setPayingAmount('');
+            setAdvanceAmount(0);
+            setProfilePic(null);
+            setAdvancePayload({ code: '', advance_amount: '' });
+            setAdvanceStatus({ type: '', text: '' });
+            setEditingRecord(null);
+            setNewFarmerCode('');
+            setNewCustomerCode('');
+        });
     }, []);
 
     // Always-current bill snapshot for instant F4 (updated sync on click, not only after re-render)
@@ -468,17 +569,22 @@ const SupplierReport = () => {
         if (detailsCache.has(key) && supplierCache.has(supplierCode)) return;
         if (prefetchInFlight.has(key)) return prefetchInFlight.get(key);
 
+        const abortCtrl = new AbortController();
+        prefetchAbortControllers.add(abortCtrl);
+
         const job = (async () => {
             try {
+                if (prefetchPaused) return;
                 const detailsUrl = isUnprinted
                     ? `/suppliers/${supplierCode}/unprinted-details`
                     : `/suppliers/bill/${billNo}/details`;
                 const [detailsRes, supRes] = await Promise.allSettled([
-                    detailsCache.has(key) ? Promise.resolve(null) : getWithTimeout(detailsUrl, null, PREFETCH_TIMEOUT_MS),
-                    supplierCache.has(supplierCode) ? Promise.resolve(null) : getWithTimeout(`/suppliers/search-by-code/${supplierCode}`, null, PREFETCH_TIMEOUT_MS),
+                    detailsCache.has(key) ? Promise.resolve(null) : getWithTimeout(detailsUrl, abortCtrl.signal, PREFETCH_TIMEOUT_MS),
+                    supplierCache.has(supplierCode) ? Promise.resolve(null) : getWithTimeout(`/suppliers/search-by-code/${supplierCode}`, abortCtrl.signal, PREFETCH_TIMEOUT_MS),
                 ]);
+                if (abortCtrl.signal.aborted || prefetchPaused) return;
                 if (detailsRes.status === 'fulfilled' && detailsRes.value?.data) {
-                    cachePut(detailsCache, key, detailsRes.value.data || []);
+                    cachePutDetails(key, detailsRes.value.data || []);
                 }
                 if (supRes.status === 'fulfilled' && supRes.value?.data) {
                     cachePut(supplierCache, supplierCode, supRes.value.data);
@@ -486,6 +592,7 @@ const SupplierReport = () => {
             } catch {
                 // prefetch failures are ignored
             } finally {
+                prefetchAbortControllers.delete(abortCtrl);
                 prefetchInFlight.delete(key);
             }
         })();
@@ -527,11 +634,11 @@ const SupplierReport = () => {
         enqueuePrefetch(true, supplierCode, null);
     }, [enqueuePrefetch]);
 
-    // Warm a small batch only — hover prefetch covers the rest without flooding the network
+    // Warm both sidebars aggressively so clicks paint from cache (instant middle panel)
     const warmSidebarCache = useCallback((printed, unprinted) => {
         if (userBusyRef.current || printInFlightRef.current || mutationCountRef.current > 0 || prefetchPaused) return;
-        const unprintedBatch = (unprinted || []).slice(0, PREFETCH_BATCH);
-        for (const item of unprintedBatch) {
+        // Unprinted list is usually smaller — warm all of it
+        for (const item of (unprinted || [])) {
             enqueuePrefetch(true, item.supplier_code, null);
         }
         const printedBatch = (printed || []).slice(0, PREFETCH_BATCH);
@@ -565,7 +672,7 @@ const SupplierReport = () => {
 
         if (detailsRes.status === 'fulfilled' && detailsRes.value?.data) {
             const data = detailsRes.value.data;
-            cachePut(detailsCache, key, data || []);
+            cachePutDetails(key, data || []);
             setSupplierDetails(prev => sameDetailsList(prev, data) ? prev : data);
         }
 
@@ -622,14 +729,24 @@ const SupplierReport = () => {
             }
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
+        // Warm print iframe once so first F4 does not pay creation cost
+        try { ensurePrintIframe(); } catch { /* ignore */ }
+
+        // Extra sidebar pull on focus — keeps printed/unprinted lists fresh all day
+        const onWindowFocus = () => {
+            if (!cancelled && !userBusyRef.current && mutationCountRef.current === 0) {
+                silentFetchSummary();
+            }
+        };
+        window.addEventListener('focus', onWindowFocus);
 
         return () => {
             cancelled = true;
             if (timerId) clearTimeout(timerId);
             document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('focus', onWindowFocus);
             clearTimeout(userBusyTimerRef.current);
             clearTimeout(mutationSafetyTimerRef.current);
-            clearTimeout(revalidateTimerRef.current);
             clearTimeout(printLockSafetyTimerRef.current);
             if (detailsAbortRef.current) detailsAbortRef.current.abort();
         };
@@ -694,10 +811,15 @@ const SupplierReport = () => {
         );
     }, [unprintedSearchTerm, summary.unprinted]);
 
-    // Shared: paint from cache instantly, then revalidate only the LAST click (debounced)
+    // Shared: paint from cache instantly, fetch immediately (last click wins via seq + abort)
     const loadBillIntoPanel = useCallback((supplierCode, billNo, isUnprinted) => {
         const seq = ++detailsSeqRef.current;
         markUserBusy();
+
+        const key = detailsCacheKey(isUnprinted, supplierCode, billNo);
+        // Capture in-flight prefetch BEFORE pausing the queue (never abort that warm job)
+        const inflightPrefetch = prefetchInFlight.get(key);
+        pausePrefetch(); // stop queueing more warm work; keep in-flight prefetches alive
 
         selectedStateRef.current = {
             selectedSupplier: supplierCode,
@@ -709,10 +831,25 @@ const SupplierReport = () => {
         const controller = new AbortController();
         detailsAbortRef.current = controller;
 
-        const key = detailsCacheKey(isUnprinted, supplierCode, billNo);
         const cachedDetails = detailsCache.get(key);
         const cachedSupplier = supplierCache.get(supplierCode);
         const hasCache = Array.isArray(cachedDetails) && cachedDetails.length > 0;
+
+        // Unblock any F4 waiting on a superseded click
+        const prevLoad = detailsLoadRef.current;
+        if (prevLoad?.settle) prevLoad.settle(prevLoad.rows || []);
+
+        let settled = false;
+        let settleLoad;
+        const loadPromise = new Promise((resolve) => { settleLoad = resolve; });
+        const resolveLoad = (rows) => {
+            if (settled) return;
+            settled = true;
+            const entry = detailsLoadRef.current;
+            if (entry && entry.seq === seq) entry.rows = rows || [];
+            settleLoad(rows || []);
+        };
+        detailsLoadRef.current = { key, seq, promise: loadPromise, settle: resolveLoad, rows: hasCache ? cachedDetails : null };
 
         // Sync selection + live snapshot FIRST so middle panel / F4 are ready this frame
         const nextAdvance = cachedSupplier ? (parseFloat(cachedSupplier.advance_amount) || 0) : 0;
@@ -721,43 +858,47 @@ const SupplierReport = () => {
             selectedSupplier: supplierCode,
             selectedBillNo: billNo,
             isUnprintedBill: isUnprinted,
-            advanceAmount: hasCache || cachedSupplier ? nextAdvance : 0,
+            advanceAmount: hasCache || cachedSupplier ? nextAdvance : liveBillRef.current.advanceAmount,
             payingAmount: '',
             billSize: liveBillRef.current.billSize,
         };
 
-        // Urgent UI update — must paint before next paint frame
-        setSelectedSupplier(supplierCode);
-        setSelectedBillNo(billNo);
-        setIsUnprintedBill(isUnprinted);
-        setPayingAmount('');
-        setAdvancePayload({ code: supplierCode, advance_amount: '' });
-
-        if (hasCache) {
-            setSupplierDetails(cachedDetails);
+        // Paint middle panel synchronously this click — never show a loading spinner
+        flushSync(() => {
+            setSelectedSupplier(supplierCode);
+            setSelectedBillNo(billNo);
+            setIsUnprintedBill(isUnprinted);
+            setPayingAmount('');
+            setAdvancePayload({ code: supplierCode, advance_amount: '' });
             setIsDetailsLoading(false);
-        } else {
-            setSupplierDetails([]);
-            setIsDetailsLoading(true);
-        }
 
-        if (cachedSupplier) {
-            applySupplierToState(cachedSupplier, supplierCode, {
-                setAdvanceAmount, setProfilePic, setSupplierDocs,
-            });
-        } else {
-            setAdvanceAmount(0);
-            setProfilePic(null);
-        }
+            if (hasCache) {
+                setSupplierDetails(cachedDetails);
+            } else {
+                // Clear stale rows for the previous bill; fresh rows paint the instant fetch lands
+                setSupplierDetails([]);
+            }
+
+            if (cachedSupplier) {
+                applySupplierToState(cachedSupplier, supplierCode, {
+                    setAdvanceAmount, setProfilePic, setSupplierDocs,
+                });
+            } else if (!hasCache) {
+                setAdvanceAmount(0);
+                setProfilePic(null);
+            }
+        });
+
+        if (hasCache) resolveLoad(cachedDetails);
 
         const detailsUrl = isUnprinted
             ? `/suppliers/${supplierCode}/unprinted-details`
             : `/suppliers/bill/${billNo}/details`;
 
         const applyDetails = (data) => {
-            if (seq !== detailsSeqRef.current) return;
+            if (seq !== detailsSeqRef.current) return false;
             const rows = data || [];
-            cachePut(detailsCache, key, rows);
+            cachePutDetails(key, rows);
             liveBillRef.current = {
                 ...liveBillRef.current,
                 details: rows,
@@ -765,55 +906,51 @@ const SupplierReport = () => {
                 selectedBillNo: billNo,
                 isUnprintedBill: isUnprinted,
             };
-            setSupplierDetails(prev => sameDetailsList(prev, rows) ? prev : rows);
-            setIsDetailsLoading(false);
+            // Instant paint when network/prefetch lands
+            flushSync(() => {
+                setSupplierDetails(prev => sameDetailsList(prev, rows) ? prev : rows);
+                setIsDetailsLoading(false);
+            });
+            resolveLoad(rows);
+            return true;
         };
 
         // If a prefetch is already fetching this bill, paint as soon as it lands
-        const inflight = prefetchInFlight.get(key);
-        if (inflight && !hasCache) {
-            inflight.then(() => {
+        if (inflightPrefetch && !hasCache) {
+            inflightPrefetch.then(() => {
                 if (seq !== detailsSeqRef.current) return;
                 const data = detailsCache.get(key);
-                if (data) applyDetails(data);
+                if (data?.length) applyDetails(data);
             }).catch(() => {});
         }
 
-        // Debounce network revalidation when cache already painted; fetch immediately if cold
-        clearTimeout(revalidateTimerRef.current);
-        const runRevalidate = () => {
-            if (seq !== detailsSeqRef.current) return;
+        // Always fetch immediately — rapid clicks abort older requests via controller + seq
+        getWithTimeout(detailsUrl, controller.signal, CLICK_TIMEOUT_MS)
+            .then((res) => applyDetails(res.data))
+            .catch((err) => {
+                if (controller.signal.aborted || seq !== detailsSeqRef.current) return;
+                console.error(`❌ Error fetching ${isUnprinted ? 'unprinted' : 'printed'} details:`, err?.message);
+                if (!hasCache) {
+                    setIsDetailsLoading(false);
+                    resolveLoad([]);
+                }
+            });
 
-            getWithTimeout(detailsUrl, controller.signal, CLICK_TIMEOUT_MS)
-                .then((res) => applyDetails(res.data))
-                .catch((err) => {
-                    if (controller.signal.aborted || seq !== detailsSeqRef.current) return;
-                    console.error(`❌ Error fetching ${isUnprinted ? 'unprinted' : 'printed'} details:`, err?.message);
-                    if (!hasCache) setIsDetailsLoading(false);
+        getWithTimeout(`/suppliers/search-by-code/${supplierCode}`, controller.signal, CLICK_TIMEOUT_MS)
+            .then((res) => {
+                if (seq !== detailsSeqRef.current || !res.data) return;
+                cachePut(supplierCache, supplierCode, res.data);
+                liveBillRef.current = {
+                    ...liveBillRef.current,
+                    advanceAmount: parseFloat(res.data.advance_amount) || 0,
+                };
+                applySupplierToState(res.data, supplierCode, {
+                    setAdvanceAmount, setProfilePic, setSupplierDocs,
                 });
+            })
+            .catch(() => { /* profile is secondary — ignore */ });
 
-            getWithTimeout(`/suppliers/search-by-code/${supplierCode}`, controller.signal, CLICK_TIMEOUT_MS)
-                .then((res) => {
-                    if (seq !== detailsSeqRef.current || !res.data) return;
-                    cachePut(supplierCache, supplierCode, res.data);
-                    liveBillRef.current = {
-                        ...liveBillRef.current,
-                        advanceAmount: parseFloat(res.data.advance_amount) || 0,
-                    };
-                    startTransition(() => {
-                        applySupplierToState(res.data, supplierCode, {
-                            setAdvanceAmount, setProfilePic, setSupplierDocs,
-                        });
-                    });
-                })
-                .catch(() => { /* profile is secondary — ignore */ });
-        };
-
-        if (hasCache) {
-            revalidateTimerRef.current = setTimeout(runRevalidate, REVALIDATE_DEBOUNCE_MS);
-        } else {
-            runRevalidate();
-        }
+        return loadPromise;
     }, [markUserBusy]);
 
     const handlePrintedBillClick = useCallback((supplierCode, billNo) => {
@@ -831,44 +968,128 @@ const SupplierReport = () => {
     const handlePrefetchUnprinted = useCallback((supplierCode) => {
         prefetchUnprinted(supplierCode);
     }, [prefetchUnprinted]);
-    // --- 🚀 Update Farmer Logic with Conditional Bill Number Generation ---
+    // --- Update supplier/customer on a line — paint table instantly, sync API in background ---
     const handleUpdateFarmer = async () => {
-        const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
-        const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
+        if (!editingRecord?.id) return;
 
+        const recordId = editingRecord.id;
+        const previousDetails = Array.isArray(supplierDetails) ? supplierDetails.slice() : [];
+        const previousLive = { ...liveBillRef.current };
+        const previousBillNo = selectedBillNo;
+        const previousSelectedState = { ...selectedStateRef.current };
+
+        const finalSupplierCode = String(newFarmerCode || editingRecord.supplier_code || '').trim().toUpperCase();
+        const finalCustomerCode = String(newCustomerCode || editingRecord.customer_code || '').trim().toUpperCase();
+        const currentSupplier = String(selectedSupplier || '').trim().toUpperCase();
+        const supplierMovedAway = !!finalSupplierCode && !!currentSupplier && finalSupplierCode !== currentSupplier;
+
+        const syncDetailsCaches = (rows, billNo = selectedBillNo) => {
+            liveBillRef.current = {
+                ...liveBillRef.current,
+                details: rows,
+                selectedSupplier: selectedStateRef.current.selectedSupplier,
+                selectedBillNo: billNo,
+                isUnprintedBill: selectedStateRef.current.isUnprintedBill,
+            };
+            const key = detailsCacheKey(
+                selectedStateRef.current.isUnprintedBill,
+                selectedStateRef.current.selectedSupplier,
+                billNo
+            );
+            if (rows.length > 0) cachePutDetails(key, rows);
+            else detailsCache.delete(key);
+
+            // Force F4 to rebuild HTML from the updated rows (never print stale codes)
+            const supplierKey = selectedStateRef.current.selectedSupplier;
+            for (const cacheKey of [...billContentCache.keys()]) {
+                if (supplierKey && cacheKey.startsWith(`${supplierKey}-`)) billContentCache.delete(cacheKey);
+                if (billNo && String(cacheKey).includes(String(billNo))) billContentCache.delete(cacheKey);
+            }
+        };
+
+        // 1) Instant UI: close modal + update/remove the row in the details table now
+        let nextRows = previousDetails;
+        flushSync(() => {
+            setSupplierDetails((prev) => {
+                if (supplierMovedAway) {
+                    nextRows = prev.filter((r) => String(r.id) !== String(recordId));
+                } else {
+                    nextRows = prev.map((r) =>
+                        String(r.id) === String(recordId)
+                            ? {
+                                ...r,
+                                supplier_code: finalSupplierCode || r.supplier_code,
+                                customer_code: finalCustomerCode || r.customer_code,
+                            }
+                            : r
+                    );
+                }
+                return nextRows;
+            });
+            setEditingRecord(null);
+            setNewFarmerCode('');
+            setNewCustomerCode('');
+            setIsDetailsLoading(false);
+        });
+        syncDetailsCaches(nextRows);
+
+        // 2) Persist to DB — do not block the table on a full bill reload
         beginMutation();
+        markUserBusy();
         try {
-            setIsDetailsLoading(true);
-            const response = await mutateWithTimeout('put', `/sales/${editingRecord.id}/update-supplier`, {
+            const response = await mutateWithTimeout('put', `/sales/${recordId}/update-supplier`, {
                 supplier_code: finalSupplierCode,
-                customer_code: finalCustomerCode
+                customer_code: finalCustomerCode,
             });
 
-            if (response.status === 200) {
-                if (response.data.bill_updated && response.data.new_bill_no) {
-                    // Update the displayed bill number in the state
-                    if (selectedBillNo) {
-                        setSelectedBillNo(response.data.new_bill_no.toString());
-                    }
+            if (response.status === 200 || response.status === 201) {
+                let nextBillNo = selectedBillNo;
+                if (response.data?.bill_updated && response.data?.new_bill_no) {
+                    nextBillNo = String(response.data.new_bill_no);
+                    setSelectedBillNo(nextBillNo);
+                    selectedStateRef.current = {
+                        ...selectedStateRef.current,
+                        selectedBillNo: nextBillNo,
+                    };
                 }
 
-                setEditingRecord(null);
-                setNewFarmerCode('');
-                setNewCustomerCode('');
-
-                // Refresh current view to show updated data
-                if (isUnprintedBill) {
-                    handleUnprintedBillClick(selectedSupplier, null);
+                const updatedSale = response.data?.sale || response.data?.data || null;
+                if (updatedSale && !supplierMovedAway) {
+                    flushSync(() => {
+                        setSupplierDetails((prev) => {
+                            nextRows = prev.map((r) =>
+                                String(r.id) === String(recordId) ? { ...r, ...updatedSale } : r
+                            );
+                            return nextRows;
+                        });
+                    });
+                    syncDetailsCaches(nextRows, nextBillNo);
                 } else {
-                    handlePrintedBillClick(selectedSupplier, selectedBillNo);
+                    syncDetailsCaches(nextRows, nextBillNo);
                 }
-                silentFetchSummary(); // Refresh the summary lists without a loading screen
+
+                // Sidebars stay fresh without wiping the middle panel
+                silentFetchSummary();
+            } else {
+                throw new Error('Update failed');
             }
         } catch (error) {
-            console.error("Update failed:", error);
-            alert("Failed to update records. Please try again.");
+            console.error('Update failed:', error);
+            // Rollback table to pre-edit snapshot
+            flushSync(() => {
+                setSupplierDetails(previousDetails);
+                setSelectedBillNo(previousBillNo);
+            });
+            selectedStateRef.current = previousSelectedState;
+            liveBillRef.current = previousLive;
+            const key = detailsCacheKey(
+                previousSelectedState.isUnprintedBill,
+                previousSelectedState.selectedSupplier,
+                previousSelectedState.selectedBillNo
+            );
+            if (previousDetails.length > 0) cachePutDetails(key, previousDetails);
+            alert('Failed to update records. Please try again.');
         } finally {
-            setIsDetailsLoading(false);
             endMutation();
         }
     };
@@ -972,6 +1193,9 @@ const SupplierReport = () => {
             }
         }
     };
+// Add this with your other refs at the top of the component (around line 90-100)
+const billVersionRef = useRef(0);
+
 // --- Bill HTML built from live snapshot (module-scope cache — see billContentCache) ---
 const getBillContent = useCallback((currentBillNo) => {
     // Always read the live snapshot so click→F4 never prints the previous bill
@@ -980,8 +1204,8 @@ const getBillContent = useCallback((currentBillNo) => {
     const printSupplier = snap.selectedSupplier;
     const printPaying = snap.payingAmount;
 
-    // Include advance + paying so loan edits invalidate correctly
-    const cacheKey = `${printSupplier}-${currentBillNo}-${snap.isUnprintedBill}-${snap.billSize}-${snap.advanceAmount}-${printPaying}-${details.length}`;
+    // Include version in cache key to bust cache on updates
+    const cacheKey = `${printSupplier}-${currentBillNo}-${snap.isUnprintedBill}-${snap.billSize}-${snap.advanceAmount}-${printPaying}-${details.length}-${billVersionRef.current}`;
 
     if (billContentCache.has(cacheKey)) {
         return billContentCache.get(cacheKey);
@@ -1405,49 +1629,254 @@ const getBillContent = useCallback((currentBillNo) => {
     return content;
 }, []);
 
-// --- Print: F4-ready — generation token lets rapid F4 override stuck work ---
-const handlePrint = useCallback(async () => {
-    const myGen = ++printGenerationRef.current;
-    const snap = liveBillRef.current;
-    const rowsForPrint = snap.details || [];
+// --- Print: F4 always gets rows — never depend only on the click request (can be aborted) ---
+const ensureRowsForPrint = async (snap) => {
+    if (!snap.selectedSupplier) return [];
 
-    if (rowsForPrint.length === 0) {
-        // Try cache one more time in case UI hasn't painted yet
-        const key = detailsCacheKey(snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
+    const key = detailsCacheKey(snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
+
+    const readRows = () => {
+        if (Array.isArray(snap.details) && snap.details.length > 0) return snap.details;
         const cached = detailsCache.get(key);
-        if (!cached || cached.length === 0) {
-            alert('No data to print!');
-            return;
+        if (cached?.length) return cached;
+        const live = liveBillRef.current || {};
+        if (
+            live.selectedSupplier === snap.selectedSupplier
+            && String(live.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+            && live.isUnprintedBill === snap.isUnprintedBill
+            && Array.isArray(live.details)
+            && live.details.length > 0
+        ) {
+            return live.details;
         }
-        liveBillRef.current = { ...liveBillRef.current, details: cached };
-    }
+        const pending = detailsLoadRef.current;
+        if (pending && pending.key === key && pending.rows?.length) return pending.rows;
+        return null;
+    };
 
-    const rows = liveBillRef.current.details || [];
-    if (rows.length === 0) return;
+    const immediate = readRows();
+    if (immediate) return immediate;
 
-    if (snap.isUnprintedBill) {
-        const hasInvalidSupplierPrice = rows.some(record => {
-            const supplierPrice = parseFloat(record.SupplierPricePerKg) || 0;
-            return supplierPrice === 0 || supplierPrice === 1;
+    const forceFetch = async () => {
+        try {
+            const detailsUrl = snap.isUnprintedBill
+                ? `/suppliers/${snap.selectedSupplier}/unprinted-details`
+                : (snap.selectedBillNo ? `/suppliers/bill/${snap.selectedBillNo}/details` : null);
+            if (!detailsUrl) return [];
+            pausePrefetch();
+            const res = await getWithTimeout(detailsUrl, null, CLICK_TIMEOUT_MS);
+            const fetched = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.details || []);
+            if (fetched.length) {
+                cachePutDetails(key, fetched);
+                const live = liveBillRef.current || {};
+                if (
+                    live.selectedSupplier === snap.selectedSupplier
+                    && String(live.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+                    && live.isUnprintedBill === snap.isUnprintedBill
+                ) {
+                    liveBillRef.current = { ...live, details: fetched };
+                }
+            }
+            return fetched;
+        } catch {
+            return detailsCache.get(key) || [];
+        }
+    };
+
+    // Start force-fetch immediately so F4 never stalls if the click request was aborted/settled empty
+    const fetchPromise = forceFetch();
+
+    const pending = detailsLoadRef.current;
+    const pendingPromise = (pending && pending.key === key && pending.promise)
+        ? pending.promise.then(() => readRows() || []).catch(() => readRows() || [])
+        : Promise.resolve(readRows() || []);
+
+    const rows = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        const tryFinish = (value) => {
+            if (Array.isArray(value) && value.length > 0) finish(value);
+        };
+
+        pendingPromise.then(tryFinish);
+        fetchPromise.then(tryFinish);
+
+        Promise.all([pendingPromise, fetchPromise]).then(([a, b]) => {
+            if (settled) return;
+            finish((a?.length && a) || (b?.length && b) || readRows() || []);
         });
 
-        if (hasInvalidSupplierPrice) {
-            alert('⚠️ මුද්‍රණය කළ නොහැක! සැපයුම් මිල තීරුවේ 0 හෝ 1 අගයන් අඩංගු වේ.\n\nCannot print! The "සැපයුම් මිල" column contains values 0 or 1.');
+        setTimeout(() => {
+            if (settled) return;
+            finish(readRows() || []);
+        }, PRINT_WAIT_DETAILS_MS);
+    });
+
+    if (rows?.length) return rows;
+    // Final attempt if both paths raced to empty (rare network glitch)
+    const last = await forceFetch();
+    return last?.length ? last : (readRows() || []);
+};
+
+const handlePrint = useCallback(async () => {
+    // Only supersede an older wait if another F4 starts while this one is still loading.
+    // Do NOT bump generation on every call from duplicate key events — that cancels a valid print.
+    const myGen = printGenRef.current + 1;
+    printGenRef.current = myGen;
+    const stillMine = () => myGen === printGenRef.current;
+
+    // Prefer live snapshot; fall back to React selection so F4 never misses a selected bill
+    const live = liveBillRef.current || {};
+    const sel = selectedStateRef.current || {};
+    const snap = {
+        details: live.details || [],
+        selectedSupplier: live.selectedSupplier || sel.selectedSupplier || selectedSupplier || null,
+        selectedBillNo: live.selectedBillNo ?? sel.selectedBillNo ?? selectedBillNo ?? null,
+        isUnprintedBill: live.isUnprintedBill ?? sel.isUnprintedBill ?? isUnprintedBill ?? false,
+        advanceAmount: live.advanceAmount ?? advanceAmount ?? 0,
+        payingAmount: live.payingAmount ?? payingAmount ?? '',
+        billSize: live.billSize || billSize || '3mm',
+    };
+
+    if (!snap.details.length && Array.isArray(supplierDetails) && supplierDetails.length
+        && String(selectedSupplier || '') === String(snap.selectedSupplier || '')) {
+        snap.details = supplierDetails;
+    }
+    if (!snap.details.length && snap.selectedSupplier) {
+        const key = detailsCacheKey(!!snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
+        const cached = detailsCache.get(key);
+        if (cached?.length) snap.details = cached;
+    }
+
+    if (!snap.selectedSupplier) {
+        alert('Select a bill first!');
+        return;
+    }
+
+    // If a print dialog path is already running for this same selection, ignore duplicate F4
+    if (printInFlightRef.current) {
+        const cur = liveBillRef.current || {};
+        if (
+            String(cur.selectedSupplier || '') === String(snap.selectedSupplier || '')
+            && String(cur.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+            && !!cur.isUnprintedBill === !!snap.isUnprintedBill
+        ) {
             return;
         }
     }
 
-    // Latest F4 wins — no artificial delay
-    armPrintLock();
     markUserBusy();
     pausePrefetch();
+    armPrintLock();
 
-    const advanceForPrint = parseFloat(liveBillRef.current.advanceAmount) || 0;
-    const supplierForPrint = liveBillRef.current.selectedSupplier;
-    const wasUnprinted = liveBillRef.current.isUnprintedBill;
-    let printBillNo = liveBillRef.current.selectedBillNo;
+    const openPrintAndClear = (billNo) => {
+        // Always print once we have content — do not drop the dialog because a duplicate F4 bumped gen
+        liveBillRef.current = {
+            ...liveBillRef.current,
+            details: snap.details || liveBillRef.current.details || [],
+            selectedSupplier: snap.selectedSupplier,
+            selectedBillNo: billNo,
+            isUnprintedBill: false,
+            advanceAmount: snap.advanceAmount,
+            payingAmount: snap.payingAmount,
+            billSize: snap.billSize,
+        };
+        const billContent = getBillContent(billNo);
+        let ok = false;
+        try {
+            ok = !!printHtml(billContent);
+        } catch (e) {
+            console.error('Print error:', e);
+            ok = false;
+        }
+        if (!ok) ok = printViaPopup(billContent);
+        if (!ok) {
+            alert('Print dialog could not open. Allow popups for this site and press F4 again.');
+            clearPrintLock();
+            return false;
+        }
+        clearPrintLock();
+        clearCenterPanel();
+        silentFetchSummary();
+        setTimeout(() => silentFetchSummary(), 800);
+        return true;
+    };
 
     try {
+        // ⚡ Instant reprint: rows already in memory — open dialog immediately (keeps user-gesture for print)
+        if (!snap.isUnprintedBill && snap.selectedBillNo && Array.isArray(snap.details) && snap.details.length > 0) {
+            openPrintAndClear(snap.selectedBillNo);
+            return;
+        }
+
+        let rows = [];
+        try {
+            rows = await ensureRowsForPrint(snap);
+        } catch (e) {
+            console.error('Print wait failed:', e);
+            rows = [];
+        }
+
+        // A newer F4 for a *different* bill superseded this wait
+        if (!stillMine()) {
+            clearPrintLock();
+            return;
+        }
+
+        if (!rows || rows.length === 0) {
+            clearPrintLock();
+            alert('No data to print! Select the bill again, then press F4.');
+            return;
+        }
+
+        liveBillRef.current = {
+            ...liveBillRef.current,
+            details: rows,
+            selectedSupplier: snap.selectedSupplier,
+            selectedBillNo: snap.selectedBillNo,
+            isUnprintedBill: snap.isUnprintedBill,
+            advanceAmount: snap.advanceAmount,
+            payingAmount: snap.payingAmount,
+            billSize: snap.billSize,
+        };
+        snap.details = rows;
+
+        if (
+            selectedStateRef.current.selectedSupplier === snap.selectedSupplier
+            && String(selectedStateRef.current.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+            && selectedStateRef.current.isUnprintedBill === snap.isUnprintedBill
+        ) {
+            setSupplierDetails(prev => sameDetailsList(prev, rows) ? prev : rows);
+            setIsDetailsLoading(false);
+        }
+
+        if (!snap.isUnprintedBill && snap.selectedBillNo) {
+            openPrintAndClear(snap.selectedBillNo);
+            return;
+        }
+
+        if (snap.isUnprintedBill) {
+            const hasInvalidSupplierPrice = rows.some(record => {
+                const supplierPrice = parseFloat(record.SupplierPricePerKg) || 0;
+                return supplierPrice === 0 || supplierPrice === 1;
+            });
+
+            if (hasInvalidSupplierPrice) {
+                clearPrintLock();
+                alert('⚠️ මුද්‍රණය කළ නොහැක! සැපයුම් මිල තීරුවේ 0 හෝ 1 අගයන් අඩංගු වේ.\n\nCannot print! The "සැපයුම් මිල" column contains values 0 or 1.');
+                return;
+            }
+        }
+
+        const advanceForPrint = parseFloat(snap.advanceAmount) || 0;
+        const supplierForPrint = snap.selectedSupplier;
+        const wasUnprinted = snap.isUnprintedBill;
+        let printBillNo = snap.selectedBillNo;
+
         if (wasUnprinted) {
             beginMutation();
             try {
@@ -1457,9 +1886,9 @@ const handlePrint = useCallback(async () => {
                     supplier_code: supplierForPrint
                 });
 
-                // A newer F4 superseded this one — abandon quietly
-                if (myGen !== printGenerationRef.current) {
+                if (!stillMine()) {
                     endMutation();
+                    clearPrintLock();
                     return;
                 }
 
@@ -1468,30 +1897,24 @@ const handlePrint = useCallback(async () => {
                     throw new Error('Server did not return a bill number');
                 }
 
-                setSelectedBillNo(printBillNo);
-                setIsUnprintedBill(false);
-                selectedStateRef.current = {
+                detailsCache.delete(detailsCacheKey(true, supplierForPrint, null));
+                cachePutDetails(detailsCacheKey(false, supplierForPrint, printBillNo), rows);
+
+                for (const cacheKey of [...billContentCache.keys()]) {
+                    if (cacheKey.startsWith(`${supplierForPrint}-`)) billContentCache.delete(cacheKey);
+                }
+
+                liveBillRef.current = {
+                    ...liveBillRef.current,
                     selectedSupplier: supplierForPrint,
                     selectedBillNo: printBillNo,
                     isUnprintedBill: false,
-                };
-                liveBillRef.current = {
-                    ...liveBillRef.current,
-                    selectedBillNo: printBillNo,
-                    isUnprintedBill: false,
                     details: rows,
+                    advanceAmount: advanceForPrint,
+                    payingAmount: snap.payingAmount,
+                    billSize: snap.billSize,
                 };
-                detailsCache.delete(detailsCacheKey(true, supplierForPrint, null));
-                cachePut(detailsCache, detailsCacheKey(false, supplierForPrint, printBillNo), rows);
-
-                for (const key of [...billContentCache.keys()]) {
-                    if (key.startsWith(`${supplierForPrint}-`)) billContentCache.delete(key);
-                }
             } catch (err) {
-                if (myGen !== printGenerationRef.current) {
-                    endMutation();
-                    return;
-                }
                 console.error('Finalize Error:', err);
                 const timedOut = err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || err?.name === 'AbortError';
                 alert(timedOut
@@ -1504,49 +1927,334 @@ const handlePrint = useCallback(async () => {
             endMutation();
         }
 
-        if (myGen !== printGenerationRef.current) return;
+        if (!stillMine()) {
+            clearPrintLock();
+            return;
+        }
 
         if (!printBillNo) {
+            clearPrintLock();
             alert('❌ No bill number available to print.');
             return;
         }
 
-        const billContent = getBillContent(printBillNo);
-        await printHtml(billContent);
-
-        if (myGen === printGenerationRef.current) {
-            silentFetchSummary();
-        }
+        openPrintAndClear(printBillNo);
     } catch (error) {
-        if (myGen !== printGenerationRef.current) return;
         console.error('Print error:', error);
+        clearPrintLock();
         alert('An error occurred while printing. Please try again.');
-    } finally {
-        if (myGen === printGenerationRef.current) {
-            clearPrintLock();
-            markUserBusy();
+    }
+}, [getBillContent, markUserBusy, silentFetchSummary, armPrintLock, clearPrintLock, clearCenterPanel, selectedSupplier, selectedBillNo, isUnprintedBill, supplierDetails, advanceAmount, payingAmount, billSize]);
+const handleForcePrint = useCallback(async () => {
+    // Only supersede an older wait if another F4 starts while this one is still loading.
+    const myGen = printGenRef.current + 1;
+    printGenRef.current = myGen;
+    const stillMine = () => myGen === printGenRef.current;
+
+    // Prefer live snapshot; fall back to React selection
+    const live = liveBillRef.current || {};
+    const sel = selectedStateRef.current || {};
+    const snap = {
+        details: live.details || [],
+        selectedSupplier: live.selectedSupplier || sel.selectedSupplier || selectedSupplier || null,
+        selectedBillNo: live.selectedBillNo ?? sel.selectedBillNo ?? selectedBillNo ?? null,
+        isUnprintedBill: live.isUnprintedBill ?? sel.isUnprintedBill ?? isUnprintedBill ?? false,
+        advanceAmount: live.advanceAmount ?? advanceAmount ?? 0,
+        payingAmount: live.payingAmount ?? payingAmount ?? '',
+        billSize: live.billSize || billSize || '3mm',
+    };
+
+    if (!snap.details.length && Array.isArray(supplierDetails) && supplierDetails.length
+        && String(selectedSupplier || '') === String(snap.selectedSupplier || '')) {
+        snap.details = supplierDetails;
+    }
+    if (!snap.details.length && snap.selectedSupplier) {
+        const key = detailsCacheKey(!!snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
+        const cached = detailsCache.get(key);
+        if (cached?.length) snap.details = cached;
+    }
+
+    if (!snap.selectedSupplier) {
+        return;
+    }
+
+    // If a print dialog path is already running for this same selection, ignore duplicate
+    if (printInFlightRef.current) {
+        const cur = liveBillRef.current || {};
+        if (
+            String(cur.selectedSupplier || '') === String(snap.selectedSupplier || '')
+            && String(cur.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+            && !!cur.isUnprintedBill === !!snap.isUnprintedBill
+        ) {
+            return;
         }
     }
-}, [getBillContent, markUserBusy, silentFetchSummary, armPrintLock, clearPrintLock]);
 
-    handlePrintRef.current = handlePrint;
+    markUserBusy();
+    pausePrefetch();
+    armPrintLock();
 
-    // --- Keyboard event listener (stable) — F4 always uses latest print via ref ---
-    useEffect(() => {
-        const handleKeyDown = (event) => {
-            if (event.key === 'F1' || event.keyCode === 112) {
-                event.preventDefault();
-                return false;
-            }
-            if (event.key === 'F4' || event.keyCode === 115) {
-                event.preventDefault();
-                // Don't gate on isDetailsLoading — print uses live snapshot / cache
-                if (handlePrintRef.current) handlePrintRef.current();
-            }
+    const openPrintAndClear = (billNo) => {
+        liveBillRef.current = {
+            ...liveBillRef.current,
+            details: snap.details || liveBillRef.current.details || [],
+            selectedSupplier: snap.selectedSupplier,
+            selectedBillNo: billNo,
+            isUnprintedBill: false,
+            advanceAmount: snap.advanceAmount,
+            payingAmount: snap.payingAmount,
+            billSize: snap.billSize,
         };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+        const billContent = getBillContent(billNo);
+        let ok = false;
+        try {
+            ok = !!printHtml(billContent);
+        } catch (e) {
+            console.error('Print error:', e);
+            ok = false;
+        }
+        if (!ok) ok = printViaPopup(billContent);
+        if (!ok) {
+            clearPrintLock();
+            return false;
+        }
+        clearPrintLock();
+        clearCenterPanel();
+        silentFetchSummary();
+        setTimeout(() => silentFetchSummary(), 800);
+        return true;
+    };
+
+    try {
+        let rows = [];
+        try {
+            rows = await ensureRowsForPrint(snap);
+        } catch (e) {
+            console.error('Print wait failed:', e);
+            rows = [];
+        }
+
+        if (!stillMine()) {
+            clearPrintLock();
+            return;
+        }
+
+        if (!rows || rows.length === 0) {
+            if (snap.details && snap.details.length > 0) {
+                rows = snap.details;
+            } else {
+                clearPrintLock();
+                return;
+            }
+        }
+
+        liveBillRef.current = {
+            ...liveBillRef.current,
+            details: rows,
+            selectedSupplier: snap.selectedSupplier,
+            selectedBillNo: snap.selectedBillNo,
+            isUnprintedBill: snap.isUnprintedBill,
+            advanceAmount: snap.advanceAmount,
+            payingAmount: snap.payingAmount,
+            billSize: snap.billSize,
+        };
+        snap.details = rows;
+
+        if (
+            selectedStateRef.current.selectedSupplier === snap.selectedSupplier
+            && String(selectedStateRef.current.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+            && selectedStateRef.current.isUnprintedBill === snap.isUnprintedBill
+        ) {
+            setSupplierDetails(prev => sameDetailsList(prev, rows) ? prev : rows);
+            setIsDetailsLoading(false);
+        }
+
+        if (!snap.isUnprintedBill && snap.selectedBillNo) {
+            openPrintAndClear(snap.selectedBillNo);
+            return;
+        }
+
+        if (snap.isUnprintedBill) {
+            const hasInvalidSupplierPrice = rows.some(record => {
+                const supplierPrice = parseFloat(record.SupplierPricePerKg) || 0;
+                return supplierPrice === 0 || supplierPrice === 1;
+            });
+
+            if (hasInvalidSupplierPrice) {
+                clearPrintLock();
+                return;
+            }
+        }
+
+        const advanceForPrint = parseFloat(snap.advanceAmount) || 0;
+        const supplierForPrint = snap.selectedSupplier;
+        const wasUnprinted = snap.isUnprintedBill;
+        let printBillNo = snap.selectedBillNo;
+
+        if (wasUnprinted) {
+            beginMutation();
+            try {
+                const response = await mutateWithTimeout('post', '/suppliers/mark-as-printed', {
+                    transaction_ids: rows.map(r => r.id),
+                    advance_amount: advanceForPrint,
+                    supplier_code: supplierForPrint
+                });
+
+                if (!stillMine()) {
+                    endMutation();
+                    clearPrintLock();
+                    return;
+                }
+
+                printBillNo = response.data.new_bill_no;
+                if (!printBillNo) {
+                    endMutation();
+                    clearPrintLock();
+                    return;
+                }
+
+                detailsCache.delete(detailsCacheKey(true, supplierForPrint, null));
+                cachePutDetails(detailsCacheKey(false, supplierForPrint, printBillNo), rows);
+
+                for (const cacheKey of [...billContentCache.keys()]) {
+                    if (cacheKey.startsWith(`${supplierForPrint}-`)) billContentCache.delete(cacheKey);
+                }
+
+                liveBillRef.current = {
+                    ...liveBillRef.current,
+                    selectedSupplier: supplierForPrint,
+                    selectedBillNo: printBillNo,
+                    isUnprintedBill: false,
+                    details: rows,
+                    advanceAmount: advanceForPrint,
+                    payingAmount: snap.payingAmount,
+                    billSize: snap.billSize,
+                };
+            } catch (err) {
+                console.error('Finalize Error (Force Print):', err);
+                endMutation();
+                clearPrintLock();
+                return;
+            }
+            endMutation();
+        }
+
+        if (!stillMine()) {
+            clearPrintLock();
+            return;
+        }
+
+        if (!printBillNo) {
+            clearPrintLock();
+            return;
+        }
+
+        openPrintAndClear(printBillNo);
+    } catch (error) {
+        console.error('Print error:', error);
+        clearPrintLock();
+    }
+}, [getBillContent, markUserBusy, silentFetchSummary, armPrintLock, clearPrintLock, clearCenterPanel, selectedSupplier, selectedBillNo, isUnprintedBill, supplierDetails, advanceAmount, payingAmount, billSize]);
+
+    // Keep BOTH ref + module handler fresh every render — F4 must never find null mid-day
+    handlePrintRef.current = handlePrint;
+    latestSupplierPrintHandler = handlePrint;
+
+   // --- F4 must always call handlePrint (window + document; keydown only) ---
+useEffect(() => {
+    const isF4 = (event) =>
+        event.key === 'F4'
+        || event.code === 'F4'
+        || event.keyCode === 115
+        || event.which === 115;
+
+    const isF1 = (event) =>
+        event.key === 'F1'
+        || event.code === 'F1'
+        || event.keyCode === 112
+        || event.which === 112;
+
+    let lastF4At = 0;
+
+    const invokePrint = () => {
+        const now = Date.now();
+        // Dedup window+document listeners for the same physical press
+        if (now - lastF4At < 250) return;
+        lastF4At = now;
+
+        const printFn = handlePrintRef.current || latestSupplierPrintHandler;
+        if (typeof printFn === 'function') {
+            try {
+                void printFn();
+            } catch (err) {
+                console.error('F4 handlePrint threw:', err);
+                alert('Print failed to start. Try F4 again.');
+            }
+        } else {
+            alert('Print is not ready yet. Select a bill and try F4 again.');
+        }
+    };
+
+    const onKeyDown = (event) => {
+        if (isF1(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+        if (!isF4(event)) return;
+        try {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+        } catch { /* ignore */ }
+        // Ignore OS key-repeat only — do NOT gate on a "held" flag.
+        // win.print() is modal: F4 keyup is often lost, which used to require a double-press.
+        if (event.repeat) return;
+        invokePrint();
+    };
+
+    const onKeyUp = (event) => {
+        if (!isF4(event)) return;
+        try { event.preventDefault(); } catch { /* ignore */ }
+        // keyup must not print (that cancelled in-flight work) and must not require a held-flag reset
+    };
+
+    const opts = { capture: true, passive: false };
+    window.addEventListener('keydown', onKeyDown, opts);
+    document.addEventListener('keydown', onKeyDown, opts);
+    window.addEventListener('keyup', onKeyUp, opts);
+    document.addEventListener('keyup', onKeyUp, opts);
+
+    // After print dialog closes, focus often stays on the iframe — restore so the next F4 is heard
+    const onAfterPrint = () => {
+        try { window.focus(); } catch { /* ignore */ }
+        printInFlightRef.current = false;
+        lastF4At = 0;
+    };
+    window.addEventListener('afterprint', onAfterPrint);
+
+    const onVisible = () => {
+        if (document.visibilityState === 'visible') {
+            handlePrintRef.current = latestSupplierPrintHandler;
+            printInFlightRef.current = false;
+            lastF4At = 0;
+            try { window.focus(); } catch { /* ignore */ }
+        }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+        window.removeEventListener('keydown', onKeyDown, opts);
+        document.removeEventListener('keydown', onKeyDown, opts);
+        window.removeEventListener('keyup', onKeyUp, opts);
+        document.removeEventListener('keyup', onKeyUp, opts);
+        window.removeEventListener('afterprint', onAfterPrint);
+        document.removeEventListener('visibilitychange', onVisible);
+        if (latestSupplierPrintHandler === handlePrintRef.current) {
+            latestSupplierPrintHandler = null;
+        }
+    };
+}, []);
 
     //new profile pic view modal
     const renderImageModal = () => {
@@ -1754,7 +2462,7 @@ const handlePrint = useCallback(async () => {
                                 <th style={thStyle}>කොමි</th>
                             </tr>
                         </thead>
-                        {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0' }}>{isDetailsLoading ? 'Loading details…' : 'Select a bill to view details'}</td></tr></tbody>}
+                        {selectedSupplier && supplierDetails.length > 0 ? renderDataRows() : <tbody><tr><td colSpan="11" style={{ textAlign: 'center', color: '#6c757d', fontStyle: 'italic', padding: '50px 0' }}>Select a bill to view details</td></tr></tbody>}
                     </table>
                 </div>
 
@@ -1820,10 +2528,44 @@ const handlePrint = useCallback(async () => {
                     </>
                 )}
                 <div style={{ textAlign: 'center' }}>
-                    <button style={{ padding: '10px 20px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: '#ffc107', color: '#343a40', border: 'none', borderRadius: '6px', cursor: 'pointer', marginTop: '20px', opacity: selectedSupplier && supplierDetails.length > 0 ? 1 : 0.5 }} onClick={handlePrint} disabled={!selectedSupplier || supplierDetails.length === 0}>
-                        🖨️ {selectedSupplier ? (isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`) : 'Select a Bill First'}
-                    </button>
-                </div>
+    <button 
+        style={{ 
+            padding: '10px 20px', 
+            fontSize: '1.1rem', 
+            fontWeight: 'bold', 
+            backgroundColor: '#ffc107', 
+            color: '#343a40', 
+            border: 'none', 
+            borderRadius: '6px', 
+            cursor: selectedSupplier ? 'pointer' : 'not-allowed', 
+            marginTop: '20px', 
+            opacity: selectedSupplier ? 1 : 0.5 
+        }} 
+        onClick={async () => {
+            if (!selectedSupplier) return;
+            
+            // For unprinted bills, offer a choice
+            if (isUnprintedBill) {
+                const shouldForce = window.confirm(
+                    '⚠️ This is an unprinted bill.\n\n' +
+                    'Press OK to FORCE PRINT (bypass API) - use if F4 is failing.\n' +
+                    'Press Cancel to try normal print (with finalization).'
+                );
+                if (shouldForce) {
+                    await handleForcePrint();
+                } else {
+                    await handlePrint();
+                }
+            } else {
+                // For printed bills, just print normally
+                await handlePrint();
+            }
+        }} 
+        disabled={!selectedSupplier}
+    >
+        🖨️ {selectedSupplier ? (isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`) : 'Select a Bill First'}
+    </button>
+</div>
             </div>
         );
     };
