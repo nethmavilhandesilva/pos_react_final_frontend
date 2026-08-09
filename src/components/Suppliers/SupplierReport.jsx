@@ -394,7 +394,7 @@ const SupplierReport = () => {
     // refresh is paused so it can never clobber data mid-operation.
     const mutationCountRef = useRef(0);
     const mutationSafetyTimerRef = useRef(null);
-    
+
     const beginMutation = () => {
         mutationCountRef.current += 1;
         clearTimeout(mutationSafetyTimerRef.current);
@@ -439,6 +439,7 @@ const SupplierReport = () => {
             resumePrefetchSoon(0);
         }, PRINT_LOCK_SAFETY_MS);
     }, []);
+
 
     // Clear middle details panel after a successful print (selection reset).
     const clearCenterPanel = useCallback(() => {
@@ -921,7 +922,7 @@ const SupplierReport = () => {
                 if (seq !== detailsSeqRef.current) return;
                 const data = detailsCache.get(key);
                 if (data?.length) applyDetails(data);
-            }).catch(() => {});
+            }).catch(() => { });
         }
 
         // Always fetch immediately — rapid clicks abort older requests via controller + seq
@@ -1132,22 +1133,28 @@ const SupplierReport = () => {
         };
     }, [supplierDetails]);
 
-    // Sync secondary fields into the live snapshot only when selection already matches.
-    // Never overwrite a newer click that React state has not caught up to yet (prevents wrong F4).
-    useEffect(() => {
-        const live = liveBillRef.current;
-        if (
-            live.selectedSupplier !== selectedSupplier ||
-            String(live.selectedBillNo ?? '') !== String(selectedBillNo ?? '') ||
-            live.isUnprintedBill !== isUnprintedBill
-        ) {
-            return;
-        }
+   // Sync secondary fields into the live snapshot only when selection matches.
+// Never overwrite a newer click that React state has not caught up to yet (prevents wrong F4).
+useEffect(() => {
+    const live = liveBillRef.current;
+    if (
+        live.selectedSupplier !== selectedSupplier ||
+        String(live.selectedBillNo ?? '') !== String(selectedBillNo ?? '') ||
+        live.isUnprintedBill !== isUnprintedBill
+    ) {
+        return;
+    }
+    
+    // Only update if details actually changed
+    if (!sameDetailsList(live.details, supplierDetails)) {
         live.details = supplierDetails;
         live.advanceAmount = advanceAmount;
         live.payingAmount = payingAmount;
         live.billSize = billSize;
-    }, [supplierDetails, selectedSupplier, selectedBillNo, isUnprintedBill, advanceAmount, payingAmount, billSize]);
+        // Increment version to bust print cache when data changes
+        billVersionRef.current += 1;
+    }
+}, [supplierDetails, selectedSupplier, selectedBillNo, isUnprintedBill, advanceAmount, payingAmount, billSize]);
 
     // 🚀 NEW: Handle loan amount submission and trigger print
     const handleLoanSubmit = async (e) => {
@@ -1193,8 +1200,8 @@ const SupplierReport = () => {
             }
         }
     };
-// Add this with your other refs at the top of the component (around line 90-100)
-const billVersionRef = useRef(0);
+    // Add this with your other refs at the top of the component (around line 90-100)
+    const billVersionRef = useRef(0);
 
 // --- Bill HTML built from live snapshot (module-scope cache — see billContentCache) ---
 const getBillContent = useCallback((currentBillNo) => {
@@ -1629,98 +1636,98 @@ const getBillContent = useCallback((currentBillNo) => {
     return content;
 }, []);
 
-// --- Print: F4 always gets rows — never depend only on the click request (can be aborted) ---
-const ensureRowsForPrint = async (snap) => {
-    if (!snap.selectedSupplier) return [];
+    // --- Print: F4 always gets rows — never depend only on the click request (can be aborted) ---
+    const ensureRowsForPrint = async (snap) => {
+        if (!snap.selectedSupplier) return [];
 
-    const key = detailsCacheKey(snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
+        const key = detailsCacheKey(snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
 
-    const readRows = () => {
-        if (Array.isArray(snap.details) && snap.details.length > 0) return snap.details;
-        const cached = detailsCache.get(key);
-        if (cached?.length) return cached;
-        const live = liveBillRef.current || {};
-        if (
-            live.selectedSupplier === snap.selectedSupplier
-            && String(live.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
-            && live.isUnprintedBill === snap.isUnprintedBill
-            && Array.isArray(live.details)
-            && live.details.length > 0
-        ) {
-            return live.details;
-        }
-        const pending = detailsLoadRef.current;
-        if (pending && pending.key === key && pending.rows?.length) return pending.rows;
-        return null;
-    };
-
-    const immediate = readRows();
-    if (immediate) return immediate;
-
-    const forceFetch = async () => {
-        try {
-            const detailsUrl = snap.isUnprintedBill
-                ? `/suppliers/${snap.selectedSupplier}/unprinted-details`
-                : (snap.selectedBillNo ? `/suppliers/bill/${snap.selectedBillNo}/details` : null);
-            if (!detailsUrl) return [];
-            pausePrefetch();
-            const res = await getWithTimeout(detailsUrl, null, CLICK_TIMEOUT_MS);
-            const fetched = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.details || []);
-            if (fetched.length) {
-                cachePutDetails(key, fetched);
-                const live = liveBillRef.current || {};
-                if (
-                    live.selectedSupplier === snap.selectedSupplier
-                    && String(live.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
-                    && live.isUnprintedBill === snap.isUnprintedBill
-                ) {
-                    liveBillRef.current = { ...live, details: fetched };
-                }
+        const readRows = () => {
+            if (Array.isArray(snap.details) && snap.details.length > 0) return snap.details;
+            const cached = detailsCache.get(key);
+            if (cached?.length) return cached;
+            const live = liveBillRef.current || {};
+            if (
+                live.selectedSupplier === snap.selectedSupplier
+                && String(live.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+                && live.isUnprintedBill === snap.isUnprintedBill
+                && Array.isArray(live.details)
+                && live.details.length > 0
+            ) {
+                return live.details;
             }
-            return fetched;
-        } catch {
-            return detailsCache.get(key) || [];
-        }
-    };
-
-    // Start force-fetch immediately so F4 never stalls if the click request was aborted/settled empty
-    const fetchPromise = forceFetch();
-
-    const pending = detailsLoadRef.current;
-    const pendingPromise = (pending && pending.key === key && pending.promise)
-        ? pending.promise.then(() => readRows() || []).catch(() => readRows() || [])
-        : Promise.resolve(readRows() || []);
-
-    const rows = await new Promise((resolve) => {
-        let settled = false;
-        const finish = (value) => {
-            if (settled) return;
-            settled = true;
-            resolve(value);
-        };
-        const tryFinish = (value) => {
-            if (Array.isArray(value) && value.length > 0) finish(value);
+            const pending = detailsLoadRef.current;
+            if (pending && pending.key === key && pending.rows?.length) return pending.rows;
+            return null;
         };
 
-        pendingPromise.then(tryFinish);
-        fetchPromise.then(tryFinish);
+        const immediate = readRows();
+        if (immediate) return immediate;
 
-        Promise.all([pendingPromise, fetchPromise]).then(([a, b]) => {
-            if (settled) return;
-            finish((a?.length && a) || (b?.length && b) || readRows() || []);
+        const forceFetch = async () => {
+            try {
+                const detailsUrl = snap.isUnprintedBill
+                    ? `/suppliers/${snap.selectedSupplier}/unprinted-details`
+                    : (snap.selectedBillNo ? `/suppliers/bill/${snap.selectedBillNo}/details` : null);
+                if (!detailsUrl) return [];
+                pausePrefetch();
+                const res = await getWithTimeout(detailsUrl, null, CLICK_TIMEOUT_MS);
+                const fetched = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.details || []);
+                if (fetched.length) {
+                    cachePutDetails(key, fetched);
+                    const live = liveBillRef.current || {};
+                    if (
+                        live.selectedSupplier === snap.selectedSupplier
+                        && String(live.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+                        && live.isUnprintedBill === snap.isUnprintedBill
+                    ) {
+                        liveBillRef.current = { ...live, details: fetched };
+                    }
+                }
+                return fetched;
+            } catch {
+                return detailsCache.get(key) || [];
+            }
+        };
+
+        // Start force-fetch immediately so F4 never stalls if the click request was aborted/settled empty
+        const fetchPromise = forceFetch();
+
+        const pending = detailsLoadRef.current;
+        const pendingPromise = (pending && pending.key === key && pending.promise)
+            ? pending.promise.then(() => readRows() || []).catch(() => readRows() || [])
+            : Promise.resolve(readRows() || []);
+
+        const rows = await new Promise((resolve) => {
+            let settled = false;
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                resolve(value);
+            };
+            const tryFinish = (value) => {
+                if (Array.isArray(value) && value.length > 0) finish(value);
+            };
+
+            pendingPromise.then(tryFinish);
+            fetchPromise.then(tryFinish);
+
+            Promise.all([pendingPromise, fetchPromise]).then(([a, b]) => {
+                if (settled) return;
+                finish((a?.length && a) || (b?.length && b) || readRows() || []);
+            });
+
+            setTimeout(() => {
+                if (settled) return;
+                finish(readRows() || []);
+            }, PRINT_WAIT_DETAILS_MS);
         });
 
-        setTimeout(() => {
-            if (settled) return;
-            finish(readRows() || []);
-        }, PRINT_WAIT_DETAILS_MS);
-    });
-
-    if (rows?.length) return rows;
-    // Final attempt if both paths raced to empty (rare network glitch)
-    const last = await forceFetch();
-    return last?.length ? last : (readRows() || []);
-};
+        if (rows?.length) return rows;
+        // Final attempt if both paths raced to empty (rare network glitch)
+        const last = await forceFetch();
+        return last?.length ? last : (readRows() || []);
+    };
 
 const handlePrint = useCallback(async () => {
     // Only supersede an older wait if another F4 starts while this one is still loading.
@@ -1774,6 +1781,9 @@ const handlePrint = useCallback(async () => {
     armPrintLock();
 
     const openPrintAndClear = (billNo) => {
+        // Increment version to force fresh print HTML
+        billVersionRef.current += 1;
+        
         // Always print once we have content — do not drop the dialog because a duplicate F4 bumped gen
         liveBillRef.current = {
             ...liveBillRef.current,
@@ -1945,316 +1955,316 @@ const handlePrint = useCallback(async () => {
         alert('An error occurred while printing. Please try again.');
     }
 }, [getBillContent, markUserBusy, silentFetchSummary, armPrintLock, clearPrintLock, clearCenterPanel, selectedSupplier, selectedBillNo, isUnprintedBill, supplierDetails, advanceAmount, payingAmount, billSize]);
-const handleForcePrint = useCallback(async () => {
-    // Only supersede an older wait if another F4 starts while this one is still loading.
-    const myGen = printGenRef.current + 1;
-    printGenRef.current = myGen;
-    const stillMine = () => myGen === printGenRef.current;
+    const handleForcePrint = useCallback(async () => {
+        // Only supersede an older wait if another F4 starts while this one is still loading.
+        const myGen = printGenRef.current + 1;
+        printGenRef.current = myGen;
+        const stillMine = () => myGen === printGenRef.current;
 
-    // Prefer live snapshot; fall back to React selection
-    const live = liveBillRef.current || {};
-    const sel = selectedStateRef.current || {};
-    const snap = {
-        details: live.details || [],
-        selectedSupplier: live.selectedSupplier || sel.selectedSupplier || selectedSupplier || null,
-        selectedBillNo: live.selectedBillNo ?? sel.selectedBillNo ?? selectedBillNo ?? null,
-        isUnprintedBill: live.isUnprintedBill ?? sel.isUnprintedBill ?? isUnprintedBill ?? false,
-        advanceAmount: live.advanceAmount ?? advanceAmount ?? 0,
-        payingAmount: live.payingAmount ?? payingAmount ?? '',
-        billSize: live.billSize || billSize || '3mm',
-    };
-
-    if (!snap.details.length && Array.isArray(supplierDetails) && supplierDetails.length
-        && String(selectedSupplier || '') === String(snap.selectedSupplier || '')) {
-        snap.details = supplierDetails;
-    }
-    if (!snap.details.length && snap.selectedSupplier) {
-        const key = detailsCacheKey(!!snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
-        const cached = detailsCache.get(key);
-        if (cached?.length) snap.details = cached;
-    }
-
-    if (!snap.selectedSupplier) {
-        return;
-    }
-
-    // If a print dialog path is already running for this same selection, ignore duplicate
-    if (printInFlightRef.current) {
-        const cur = liveBillRef.current || {};
-        if (
-            String(cur.selectedSupplier || '') === String(snap.selectedSupplier || '')
-            && String(cur.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
-            && !!cur.isUnprintedBill === !!snap.isUnprintedBill
-        ) {
-            return;
-        }
-    }
-
-    markUserBusy();
-    pausePrefetch();
-    armPrintLock();
-
-    const openPrintAndClear = (billNo) => {
-        liveBillRef.current = {
-            ...liveBillRef.current,
-            details: snap.details || liveBillRef.current.details || [],
-            selectedSupplier: snap.selectedSupplier,
-            selectedBillNo: billNo,
-            isUnprintedBill: false,
-            advanceAmount: snap.advanceAmount,
-            payingAmount: snap.payingAmount,
-            billSize: snap.billSize,
+        // Prefer live snapshot; fall back to React selection
+        const live = liveBillRef.current || {};
+        const sel = selectedStateRef.current || {};
+        const snap = {
+            details: live.details || [],
+            selectedSupplier: live.selectedSupplier || sel.selectedSupplier || selectedSupplier || null,
+            selectedBillNo: live.selectedBillNo ?? sel.selectedBillNo ?? selectedBillNo ?? null,
+            isUnprintedBill: live.isUnprintedBill ?? sel.isUnprintedBill ?? isUnprintedBill ?? false,
+            advanceAmount: live.advanceAmount ?? advanceAmount ?? 0,
+            payingAmount: live.payingAmount ?? payingAmount ?? '',
+            billSize: live.billSize || billSize || '3mm',
         };
-        const billContent = getBillContent(billNo);
-        let ok = false;
-        try {
-            ok = !!printHtml(billContent);
-        } catch (e) {
-            console.error('Print error:', e);
-            ok = false;
-        }
-        if (!ok) ok = printViaPopup(billContent);
-        if (!ok) {
-            clearPrintLock();
-            return false;
-        }
-        clearPrintLock();
-        clearCenterPanel();
-        silentFetchSummary();
-        setTimeout(() => silentFetchSummary(), 800);
-        return true;
-    };
 
-    try {
-        let rows = [];
-        try {
-            rows = await ensureRowsForPrint(snap);
-        } catch (e) {
-            console.error('Print wait failed:', e);
-            rows = [];
+        if (!snap.details.length && Array.isArray(supplierDetails) && supplierDetails.length
+            && String(selectedSupplier || '') === String(snap.selectedSupplier || '')) {
+            snap.details = supplierDetails;
+        }
+        if (!snap.details.length && snap.selectedSupplier) {
+            const key = detailsCacheKey(!!snap.isUnprintedBill, snap.selectedSupplier, snap.selectedBillNo);
+            const cached = detailsCache.get(key);
+            if (cached?.length) snap.details = cached;
         }
 
-        if (!stillMine()) {
-            clearPrintLock();
+        if (!snap.selectedSupplier) {
             return;
         }
 
-        if (!rows || rows.length === 0) {
-            if (snap.details && snap.details.length > 0) {
-                rows = snap.details;
-            } else {
-                clearPrintLock();
+        // If a print dialog path is already running for this same selection, ignore duplicate
+        if (printInFlightRef.current) {
+            const cur = liveBillRef.current || {};
+            if (
+                String(cur.selectedSupplier || '') === String(snap.selectedSupplier || '')
+                && String(cur.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+                && !!cur.isUnprintedBill === !!snap.isUnprintedBill
+            ) {
                 return;
             }
         }
 
-        liveBillRef.current = {
-            ...liveBillRef.current,
-            details: rows,
-            selectedSupplier: snap.selectedSupplier,
-            selectedBillNo: snap.selectedBillNo,
-            isUnprintedBill: snap.isUnprintedBill,
-            advanceAmount: snap.advanceAmount,
-            payingAmount: snap.payingAmount,
-            billSize: snap.billSize,
-        };
-        snap.details = rows;
+        markUserBusy();
+        pausePrefetch();
+        armPrintLock();
 
-        if (
-            selectedStateRef.current.selectedSupplier === snap.selectedSupplier
-            && String(selectedStateRef.current.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
-            && selectedStateRef.current.isUnprintedBill === snap.isUnprintedBill
-        ) {
-            setSupplierDetails(prev => sameDetailsList(prev, rows) ? prev : rows);
-            setIsDetailsLoading(false);
-        }
-
-        if (!snap.isUnprintedBill && snap.selectedBillNo) {
-            openPrintAndClear(snap.selectedBillNo);
-            return;
-        }
-
-        if (snap.isUnprintedBill) {
-            const hasInvalidSupplierPrice = rows.some(record => {
-                const supplierPrice = parseFloat(record.SupplierPricePerKg) || 0;
-                return supplierPrice === 0 || supplierPrice === 1;
-            });
-
-            if (hasInvalidSupplierPrice) {
-                clearPrintLock();
-                return;
-            }
-        }
-
-        const advanceForPrint = parseFloat(snap.advanceAmount) || 0;
-        const supplierForPrint = snap.selectedSupplier;
-        const wasUnprinted = snap.isUnprintedBill;
-        let printBillNo = snap.selectedBillNo;
-
-        if (wasUnprinted) {
-            beginMutation();
+        const openPrintAndClear = (billNo) => {
+            liveBillRef.current = {
+                ...liveBillRef.current,
+                details: snap.details || liveBillRef.current.details || [],
+                selectedSupplier: snap.selectedSupplier,
+                selectedBillNo: billNo,
+                isUnprintedBill: false,
+                advanceAmount: snap.advanceAmount,
+                payingAmount: snap.payingAmount,
+                billSize: snap.billSize,
+            };
+            const billContent = getBillContent(billNo);
+            let ok = false;
             try {
-                const response = await mutateWithTimeout('post', '/suppliers/mark-as-printed', {
-                    transaction_ids: rows.map(r => r.id),
-                    advance_amount: advanceForPrint,
-                    supplier_code: supplierForPrint
+                ok = !!printHtml(billContent);
+            } catch (e) {
+                console.error('Print error:', e);
+                ok = false;
+            }
+            if (!ok) ok = printViaPopup(billContent);
+            if (!ok) {
+                clearPrintLock();
+                return false;
+            }
+            clearPrintLock();
+            clearCenterPanel();
+            silentFetchSummary();
+            setTimeout(() => silentFetchSummary(), 800);
+            return true;
+        };
+
+        try {
+            let rows = [];
+            try {
+                rows = await ensureRowsForPrint(snap);
+            } catch (e) {
+                console.error('Print wait failed:', e);
+                rows = [];
+            }
+
+            if (!stillMine()) {
+                clearPrintLock();
+                return;
+            }
+
+            if (!rows || rows.length === 0) {
+                if (snap.details && snap.details.length > 0) {
+                    rows = snap.details;
+                } else {
+                    clearPrintLock();
+                    return;
+                }
+            }
+
+            liveBillRef.current = {
+                ...liveBillRef.current,
+                details: rows,
+                selectedSupplier: snap.selectedSupplier,
+                selectedBillNo: snap.selectedBillNo,
+                isUnprintedBill: snap.isUnprintedBill,
+                advanceAmount: snap.advanceAmount,
+                payingAmount: snap.payingAmount,
+                billSize: snap.billSize,
+            };
+            snap.details = rows;
+
+            if (
+                selectedStateRef.current.selectedSupplier === snap.selectedSupplier
+                && String(selectedStateRef.current.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
+                && selectedStateRef.current.isUnprintedBill === snap.isUnprintedBill
+            ) {
+                setSupplierDetails(prev => sameDetailsList(prev, rows) ? prev : rows);
+                setIsDetailsLoading(false);
+            }
+
+            if (!snap.isUnprintedBill && snap.selectedBillNo) {
+                openPrintAndClear(snap.selectedBillNo);
+                return;
+            }
+
+            if (snap.isUnprintedBill) {
+                const hasInvalidSupplierPrice = rows.some(record => {
+                    const supplierPrice = parseFloat(record.SupplierPricePerKg) || 0;
+                    return supplierPrice === 0 || supplierPrice === 1;
                 });
 
-                if (!stillMine()) {
+                if (hasInvalidSupplierPrice) {
+                    clearPrintLock();
+                    return;
+                }
+            }
+
+            const advanceForPrint = parseFloat(snap.advanceAmount) || 0;
+            const supplierForPrint = snap.selectedSupplier;
+            const wasUnprinted = snap.isUnprintedBill;
+            let printBillNo = snap.selectedBillNo;
+
+            if (wasUnprinted) {
+                beginMutation();
+                try {
+                    const response = await mutateWithTimeout('post', '/suppliers/mark-as-printed', {
+                        transaction_ids: rows.map(r => r.id),
+                        advance_amount: advanceForPrint,
+                        supplier_code: supplierForPrint
+                    });
+
+                    if (!stillMine()) {
+                        endMutation();
+                        clearPrintLock();
+                        return;
+                    }
+
+                    printBillNo = response.data.new_bill_no;
+                    if (!printBillNo) {
+                        endMutation();
+                        clearPrintLock();
+                        return;
+                    }
+
+                    detailsCache.delete(detailsCacheKey(true, supplierForPrint, null));
+                    cachePutDetails(detailsCacheKey(false, supplierForPrint, printBillNo), rows);
+
+                    for (const cacheKey of [...billContentCache.keys()]) {
+                        if (cacheKey.startsWith(`${supplierForPrint}-`)) billContentCache.delete(cacheKey);
+                    }
+
+                    liveBillRef.current = {
+                        ...liveBillRef.current,
+                        selectedSupplier: supplierForPrint,
+                        selectedBillNo: printBillNo,
+                        isUnprintedBill: false,
+                        details: rows,
+                        advanceAmount: advanceForPrint,
+                        payingAmount: snap.payingAmount,
+                        billSize: snap.billSize,
+                    };
+                } catch (err) {
+                    console.error('Finalize Error (Force Print):', err);
                     endMutation();
                     clearPrintLock();
                     return;
                 }
-
-                printBillNo = response.data.new_bill_no;
-                if (!printBillNo) {
-                    endMutation();
-                    clearPrintLock();
-                    return;
-                }
-
-                detailsCache.delete(detailsCacheKey(true, supplierForPrint, null));
-                cachePutDetails(detailsCacheKey(false, supplierForPrint, printBillNo), rows);
-
-                for (const cacheKey of [...billContentCache.keys()]) {
-                    if (cacheKey.startsWith(`${supplierForPrint}-`)) billContentCache.delete(cacheKey);
-                }
-
-                liveBillRef.current = {
-                    ...liveBillRef.current,
-                    selectedSupplier: supplierForPrint,
-                    selectedBillNo: printBillNo,
-                    isUnprintedBill: false,
-                    details: rows,
-                    advanceAmount: advanceForPrint,
-                    payingAmount: snap.payingAmount,
-                    billSize: snap.billSize,
-                };
-            } catch (err) {
-                console.error('Finalize Error (Force Print):', err);
                 endMutation();
+            }
+
+            if (!stillMine()) {
                 clearPrintLock();
                 return;
             }
-            endMutation();
-        }
 
-        if (!stillMine()) {
+            if (!printBillNo) {
+                clearPrintLock();
+                return;
+            }
+
+            openPrintAndClear(printBillNo);
+        } catch (error) {
+            console.error('Print error:', error);
             clearPrintLock();
-            return;
         }
-
-        if (!printBillNo) {
-            clearPrintLock();
-            return;
-        }
-
-        openPrintAndClear(printBillNo);
-    } catch (error) {
-        console.error('Print error:', error);
-        clearPrintLock();
-    }
-}, [getBillContent, markUserBusy, silentFetchSummary, armPrintLock, clearPrintLock, clearCenterPanel, selectedSupplier, selectedBillNo, isUnprintedBill, supplierDetails, advanceAmount, payingAmount, billSize]);
+    }, [getBillContent, markUserBusy, silentFetchSummary, armPrintLock, clearPrintLock, clearCenterPanel, selectedSupplier, selectedBillNo, isUnprintedBill, supplierDetails, advanceAmount, payingAmount, billSize]);
 
     // Keep BOTH ref + module handler fresh every render — F4 must never find null mid-day
     handlePrintRef.current = handlePrint;
     latestSupplierPrintHandler = handlePrint;
 
-   // --- F4 must always call handlePrint (window + document; keydown only) ---
-useEffect(() => {
-    const isF4 = (event) =>
-        event.key === 'F4'
-        || event.code === 'F4'
-        || event.keyCode === 115
-        || event.which === 115;
+    // --- F4 must always call handlePrint (window + document; keydown only) ---
+    useEffect(() => {
+        const isF4 = (event) =>
+            event.key === 'F4'
+            || event.code === 'F4'
+            || event.keyCode === 115
+            || event.which === 115;
 
-    const isF1 = (event) =>
-        event.key === 'F1'
-        || event.code === 'F1'
-        || event.keyCode === 112
-        || event.which === 112;
+        const isF1 = (event) =>
+            event.key === 'F1'
+            || event.code === 'F1'
+            || event.keyCode === 112
+            || event.which === 112;
 
-    let lastF4At = 0;
+        let lastF4At = 0;
 
-    const invokePrint = () => {
-        const now = Date.now();
-        // Dedup window+document listeners for the same physical press
-        if (now - lastF4At < 250) return;
-        lastF4At = now;
+        const invokePrint = () => {
+            const now = Date.now();
+            // Dedup window+document listeners for the same physical press
+            if (now - lastF4At < 250) return;
+            lastF4At = now;
 
-        const printFn = handlePrintRef.current || latestSupplierPrintHandler;
-        if (typeof printFn === 'function') {
-            try {
-                void printFn();
-            } catch (err) {
-                console.error('F4 handlePrint threw:', err);
-                alert('Print failed to start. Try F4 again.');
+            const printFn = handlePrintRef.current || latestSupplierPrintHandler;
+            if (typeof printFn === 'function') {
+                try {
+                    void printFn();
+                } catch (err) {
+                    console.error('F4 handlePrint threw:', err);
+                    alert('Print failed to start. Try F4 again.');
+                }
+            } else {
+                alert('Print is not ready yet. Select a bill and try F4 again.');
             }
-        } else {
-            alert('Print is not ready yet. Select a bill and try F4 again.');
-        }
-    };
+        };
 
-    const onKeyDown = (event) => {
-        if (isF1(event)) {
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-        }
-        if (!isF4(event)) return;
-        try {
-            event.preventDefault();
-            event.stopPropagation();
-            if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-        } catch { /* ignore */ }
-        // Ignore OS key-repeat only — do NOT gate on a "held" flag.
-        // win.print() is modal: F4 keyup is often lost, which used to require a double-press.
-        if (event.repeat) return;
-        invokePrint();
-    };
+        const onKeyDown = (event) => {
+            if (isF1(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            if (!isF4(event)) return;
+            try {
+                event.preventDefault();
+                event.stopPropagation();
+                if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+            } catch { /* ignore */ }
+            // Ignore OS key-repeat only — do NOT gate on a "held" flag.
+            // win.print() is modal: F4 keyup is often lost, which used to require a double-press.
+            if (event.repeat) return;
+            invokePrint();
+        };
 
-    const onKeyUp = (event) => {
-        if (!isF4(event)) return;
-        try { event.preventDefault(); } catch { /* ignore */ }
-        // keyup must not print (that cancelled in-flight work) and must not require a held-flag reset
-    };
+        const onKeyUp = (event) => {
+            if (!isF4(event)) return;
+            try { event.preventDefault(); } catch { /* ignore */ }
+            // keyup must not print (that cancelled in-flight work) and must not require a held-flag reset
+        };
 
-    const opts = { capture: true, passive: false };
-    window.addEventListener('keydown', onKeyDown, opts);
-    document.addEventListener('keydown', onKeyDown, opts);
-    window.addEventListener('keyup', onKeyUp, opts);
-    document.addEventListener('keyup', onKeyUp, opts);
+        const opts = { capture: true, passive: false };
+        window.addEventListener('keydown', onKeyDown, opts);
+        document.addEventListener('keydown', onKeyDown, opts);
+        window.addEventListener('keyup', onKeyUp, opts);
+        document.addEventListener('keyup', onKeyUp, opts);
 
-    // After print dialog closes, focus often stays on the iframe — restore so the next F4 is heard
-    const onAfterPrint = () => {
-        try { window.focus(); } catch { /* ignore */ }
-        printInFlightRef.current = false;
-        lastF4At = 0;
-    };
-    window.addEventListener('afterprint', onAfterPrint);
-
-    const onVisible = () => {
-        if (document.visibilityState === 'visible') {
-            handlePrintRef.current = latestSupplierPrintHandler;
+        // After print dialog closes, focus often stays on the iframe — restore so the next F4 is heard
+        const onAfterPrint = () => {
+            try { window.focus(); } catch { /* ignore */ }
             printInFlightRef.current = false;
             lastF4At = 0;
-            try { window.focus(); } catch { /* ignore */ }
-        }
-    };
-    document.addEventListener('visibilitychange', onVisible);
+        };
+        window.addEventListener('afterprint', onAfterPrint);
 
-    return () => {
-        window.removeEventListener('keydown', onKeyDown, opts);
-        document.removeEventListener('keydown', onKeyDown, opts);
-        window.removeEventListener('keyup', onKeyUp, opts);
-        document.removeEventListener('keyup', onKeyUp, opts);
-        window.removeEventListener('afterprint', onAfterPrint);
-        document.removeEventListener('visibilitychange', onVisible);
-        if (latestSupplierPrintHandler === handlePrintRef.current) {
-            latestSupplierPrintHandler = null;
-        }
-    };
-}, []);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') {
+                handlePrintRef.current = latestSupplierPrintHandler;
+                printInFlightRef.current = false;
+                lastF4At = 0;
+                try { window.focus(); } catch { /* ignore */ }
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+            window.removeEventListener('keydown', onKeyDown, opts);
+            document.removeEventListener('keydown', onKeyDown, opts);
+            window.removeEventListener('keyup', onKeyUp, opts);
+            document.removeEventListener('keyup', onKeyUp, opts);
+            window.removeEventListener('afterprint', onAfterPrint);
+            document.removeEventListener('visibilitychange', onVisible);
+            if (latestSupplierPrintHandler === handlePrintRef.current) {
+                latestSupplierPrintHandler = null;
+            }
+        };
+    }, []);
 
     //new profile pic view modal
     const renderImageModal = () => {
@@ -2328,57 +2338,57 @@ useEffect(() => {
         );
     };
 
-   const renderEditModal = () => {
-    if (!editingRecord) return null;
-    
-    const handleSubmit = (e) => {
-        e.preventDefault(); // Prevent page refresh
-        handleUpdateFarmer(); // Call your existing update function
-    };
-    
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
-            <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-                <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
+    const renderEditModal = () => {
+        if (!editingRecord) return null;
 
-                <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
-                    <p style={{ margin: '2px 0' }}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
-                    <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
+        const handleSubmit = (e) => {
+            e.preventDefault(); // Prevent page refresh
+            handleUpdateFarmer(); // Call your existing update function
+        };
+
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+                    <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
+
+                    <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
+                        <p style={{ margin: '2px 0' }}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
+                        <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
+                    </div>
+
+                    <form onSubmit={handleSubmit}>
+                        <div style={{ marginTop: '15px' }}>
+                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
+                            <input
+                                type="text"
+                                placeholder={editingRecord.supplier_code}
+                                value={newFarmerCode}
+                                onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
+                                style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                                autoFocus
+                            />
+                        </div>
+
+                        <div style={{ marginTop: '15px' }}>
+                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
+                            <input
+                                type="text"
+                                placeholder={editingRecord.customer_code}
+                                value={newCustomerCode}
+                                onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
+                                style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
+                            <button type="submit" style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
+                            <button type="button" onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                        </div>
+                    </form>
                 </div>
-
-                <form onSubmit={handleSubmit}>
-                    <div style={{ marginTop: '15px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
-                        <input
-                            type="text"
-                            placeholder={editingRecord.supplier_code}
-                            value={newFarmerCode}
-                            onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
-                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                            autoFocus
-                        />
-                    </div>
-
-                    <div style={{ marginTop: '15px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
-                        <input
-                            type="text"
-                            placeholder={editingRecord.customer_code}
-                            value={newCustomerCode}
-                            onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
-                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                        />
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
-                        <button type="submit" style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
-                        <button type="button" onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
-                    </div>
-                </form>
             </div>
-        </div>
-    );
-};
+        );
+    };
 
     // --- ALWAYS DISPLAYED DETAILS PANEL ---
     const renderDetailsPanel = () => {
@@ -2528,44 +2538,44 @@ useEffect(() => {
                     </>
                 )}
                 <div style={{ textAlign: 'center' }}>
-    <button 
-        style={{ 
-            padding: '10px 20px', 
-            fontSize: '1.1rem', 
-            fontWeight: 'bold', 
-            backgroundColor: '#ffc107', 
-            color: '#343a40', 
-            border: 'none', 
-            borderRadius: '6px', 
-            cursor: selectedSupplier ? 'pointer' : 'not-allowed', 
-            marginTop: '20px', 
-            opacity: selectedSupplier ? 1 : 0.5 
-        }} 
-        onClick={async () => {
-            if (!selectedSupplier) return;
-            
-            // For unprinted bills, offer a choice
-            if (isUnprintedBill) {
-                const shouldForce = window.confirm(
-                    '⚠️ This is an unprinted bill.\n\n' +
-                    'Press OK to FORCE PRINT (bypass API) - use if F4 is failing.\n' +
-                    'Press Cancel to try normal print (with finalization).'
-                );
-                if (shouldForce) {
-                    await handleForcePrint();
-                } else {
-                    await handlePrint();
-                }
-            } else {
-                // For printed bills, just print normally
-                await handlePrint();
-            }
-        }} 
-        disabled={!selectedSupplier}
-    >
-        🖨️ {selectedSupplier ? (isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`) : 'Select a Bill First'}
-    </button>
-</div>
+                    <button
+                        style={{
+                            padding: '10px 20px',
+                            fontSize: '1.1rem',
+                            fontWeight: 'bold',
+                            backgroundColor: '#ffc107',
+                            color: '#343a40',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: selectedSupplier ? 'pointer' : 'not-allowed',
+                            marginTop: '20px',
+                            opacity: selectedSupplier ? 1 : 0.5
+                        }}
+                        onClick={async () => {
+                            if (!selectedSupplier) return;
+
+                            // For unprinted bills, offer a choice
+                            if (isUnprintedBill) {
+                                const shouldForce = window.confirm(
+                                    '⚠️ This is an unprinted bill.\n\n' +
+                                    'Press OK to FORCE PRINT (bypass API) - use if F4 is failing.\n' +
+                                    'Press Cancel to try normal print (with finalization).'
+                                );
+                                if (shouldForce) {
+                                    await handleForcePrint();
+                                } else {
+                                    await handlePrint();
+                                }
+                            } else {
+                                // For printed bills, just print normally
+                                await handlePrint();
+                            }
+                        }}
+                        disabled={!selectedSupplier}
+                    >
+                        🖨️ {selectedSupplier ? (isUnprintedBill ? `Print & Finalize Bill (F4)` : `Print Copy (F4)`) : 'Select a Bill First'}
+                    </button>
+                </div>
             </div>
         );
     };
@@ -2582,7 +2592,7 @@ useEffect(() => {
                 <h1 style={{ color: 'white', fontSize: '1.5rem', margin: 0 }}>සැපයුම්කරු වාර්තාව</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/sales')}>මුල් පිටුව</button>
-                     <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/advance-report')}>Advance Report</button>
+                    <button style={{ padding: '8px 15px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#e83e8c', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }} onClick={() => navigate('/advance-report')}>Advance Report</button>
                 </div>
             </nav>
 

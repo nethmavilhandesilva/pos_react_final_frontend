@@ -24,6 +24,7 @@ const SalesReportView = ({ reportData, onClose }) => {
         bill_no: '',
         item_code: '',
         item_name: '',
+        supplier_code: '',
         min_total: '',
         max_total: '',
         sort_by: 'bill_no_asc'
@@ -91,6 +92,7 @@ const SalesReportView = ({ reportData, onClose }) => {
         }
     };
 
+    // Filter items that START WITH the search term (not contains)
     const filteredItems = items.filter(item => {
         const searchLower = itemSearchTerm.toLowerCase().trim();
         if (!searchLower) return true;
@@ -99,8 +101,8 @@ const SalesReportView = ({ reportData, onClose }) => {
         const itemName = (item.name || item.item_name || item.type || item.item_type || '').toLowerCase();
         
         return (
-            itemName.includes(searchLower) ||
-            itemNo.includes(searchLower)
+            itemName.startsWith(searchLower) ||
+            itemNo.startsWith(searchLower)
         );
     });
 
@@ -226,6 +228,7 @@ const SalesReportView = ({ reportData, onClose }) => {
             if (localFilters.bill_no) params.bill_no = localFilters.bill_no;
             if (localFilters.item_code) params.item_code = localFilters.item_code;
             if (localFilters.item_name) params.item_name = localFilters.item_name;
+            if (localFilters.supplier_code) params.supplier_code = localFilters.supplier_code;
 
             if (showUserTransactions && currentUser && currentUser.user_id) {
                 params.user_id = currentUser.user_id;
@@ -327,6 +330,7 @@ const SalesReportView = ({ reportData, onClose }) => {
             bill_no: '',
             item_code: '',
             item_name: '',
+            supplier_code: '',
             min_total: '',
             max_total: '',
             sort_by: 'bill_no_asc'
@@ -380,7 +384,7 @@ const SalesReportView = ({ reportData, onClose }) => {
         XLSX.writeFile(wb, fileName);
     };
 
-    // ===== UPDATED PRINT FUNCTION - Uses exact same table structure as detailed view =====
+    // ===== UPDATED PRINT FUNCTION - Removes specific columns =====
     const handlePrint = () => {
         const printWindow = window.open('', '_blank');
 
@@ -389,7 +393,7 @@ const SalesReportView = ({ reportData, onClose }) => {
         let totalPackCostSum = 0;
         let totalWeightKg = 0;
 
-        // Generate the table rows using the EXACT same structure as the detailed view
+        // Generate the table rows WITHOUT the columns: මලු කුලිය, කුලි, අයිතිය, විලා, දිනය
         const tableRows = filteredData.map((sale, idx) => {
             const weightTotal = (Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0);
             const packCost = (Number(sale.packs) || 0) * (Number(sale.CustomerPackCost) || 0);
@@ -404,20 +408,13 @@ const SalesReportView = ({ reportData, onClose }) => {
                     <td style="padding:4px 3px; font-size:11px; text-align:left;">${sale.item_name || '-'}</td>
                     <td style="padding:4px 3px; font-size:11px; text-align:right;">${Number(sale.weight || 0).toFixed(2)}</td>
                     <td style="padding:4px 3px; font-size:11px; text-align:right;">${Number(sale.price_per_kg || 0).toFixed(2)}</td>
-                    <td style="padding:4px 3px; font-size:11px; text-align:right;">${packCost.toFixed(2)}</td>
                     <td style="padding:4px 3px; font-size:11px; text-align:right; font-weight:bold;">${calculateSaleTotal(sale).toFixed(2)}</td>
-                    <td style="padding:4px 3px; font-size:11px; text-align:right;">${Number(sale.kuliya || 0).toFixed(2)}</td>
-                    <td style="padding:4px 3px; font-size:11px; text-align:center;">${sale.supplier_code || 0}</td>
-                    <td style="padding:4px 3px; font-size:11px; text-align:center;">${sale.customer_code || 0}</td>
-                    <td style="padding:4px 3px; font-size:11px; text-align:center;">
-                        ${sale.created_at ? new Date(sale.created_at).toLocaleTimeString('si-LK', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                            hour12: false
-                        }) : '-'}
-                    </td>
-                    <td style="padding:4px 3px; font-size:11px; text-align:center;">${sale.Date || '-'}</td>
+                    <td style="padding:4px 3px; font-size:11px; text-align:center;">${sale.created_at ? new Date(sale.created_at).toLocaleTimeString('si-LK', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                    }) : '-'}</td>
                     ${showUserTransactions ? `<td style="padding:4px 3px; font-size:11px; text-align:center;">${sale.UniqueCode || sale.user_id || '-'}</td>` : ''}
                 </tr>
             `;
@@ -425,9 +422,6 @@ const SalesReportView = ({ reportData, onClose }) => {
 
         const grandTotalWeightSum = filteredData.reduce((sum, sale) => sum + ((Number(sale.weight) || 0) * (Number(sale.price_per_kg) || 0)), 0);
         const grandTotalPackCost = filteredData.reduce((sum, sale) => sum + ((Number(sale.packs) || 0) * (Number(sale.CustomerPackCost) || 0)), 0);
-
-        // Calculate columns for tfoot
-        const colSpan = showUserTransactions ? 6 : 6;
 
         printWindow.document.write(`
             <html>
@@ -532,6 +526,7 @@ const SalesReportView = ({ reportData, onClose }) => {
                             ${localFilters.bill_no ? `Bill No: ${localFilters.bill_no} | ` : ''}
                             ${localFilters.item_code ? `Item Code: ${localFilters.item_code} | ` : ''}
                             ${localFilters.item_name ? `Item Name: ${localFilters.item_name} | ` : ''}
+                            ${localFilters.supplier_code ? `Supplier: ${localFilters.supplier_code} | ` : ''}
                             ${localFilters.min_total || localFilters.max_total ? `Total Range: ${localFilters.min_total || '0'} - ${localFilters.max_total || '∞'}` : ''}
                         </div>
                     ` : ''}
@@ -540,7 +535,6 @@ const SalesReportView = ({ reportData, onClose }) => {
                     </div>
                 </div>
 
-                <!-- EXACT SAME TABLE STRUCTURE AS DETAILED VIEW -->
                 <table>
                     <thead>
                         <tr style="background:#4CAF50; color:white;">
@@ -549,13 +543,8 @@ const SalesReportView = ({ reportData, onClose }) => {
                             <th style="padding:4px 3px; font-size:10px;">වර්ගය</th>
                             <th style="padding:4px 3px; font-size:10px;">ප්‍රමාණය</th>
                             <th style="padding:4px 3px; font-size:10px;">බැගින්</th>
-                            <th style="padding:4px 3px; font-size:10px;">මලු කුලිය</th>
                             <th style="padding:4px 3px; font-size:10px;">එකතුව</th>
-                            <th style="padding:4px 3px; font-size:10px;">කුලි</th>
-                            <th style="padding:4px 3px; font-size:10px;">අයිතිය</th>
-                            <th style="padding:4px 3px; font-size:10px;">විලා</th>
                             <th style="padding:4px 3px; font-size:10px;">වේලාව</th>
-                            <th style="padding:4px 3px; font-size:10px;">දිනය</th>
                             ${showUserTransactions ? '<th style="padding:4px 3px; font-size:10px;">User ID</th>' : ''}
                         </tr>
                     </thead>
@@ -567,9 +556,8 @@ const SalesReportView = ({ reportData, onClose }) => {
                             <td colspan="3" style="padding:6px 3px; text-align:right; font-size:11px;">GRAND TOTAL:</td>
                             <td style="padding:6px 3px; text-align:right; font-size:11px;">${totalWeightKg.toFixed(2)}</td>
                             <td style="padding:6px 3px; text-align:right; font-size:11px;">${grandTotalWeightSum.toFixed(2)}</td>
-                            <td style="padding:6px 3px; text-align:right; font-size:11px;">${grandTotalPackCost.toFixed(2)}</td>
                             <td style="padding:6px 3px; text-align:right; font-size:11px; font-weight:bold; color:#4CAF50;">${grandTotal.toFixed(2)}</td>
-                            <td colspan="${showUserTransactions ? '6' : '6'}" style="padding:6px 3px; text-align:center; font-size:11px;">
+                            <td style="padding:6px 3px; text-align:center; font-size:11px;">
                                 Total Weight: ${totalWeightKg.toFixed(2)} kg
                             </td>
                         </tr>
@@ -778,6 +766,19 @@ const SalesReportView = ({ reportData, onClose }) => {
                                 ))}
                             </select>
                         </div>
+                        {/* Supplier Code Search - Simple Text Input (No Dropdown) */}
+                        <div>
+                            <label style={{ ...labelStyle, fontSize: '12px' }}>සැපයුම්කරු</label>
+                            <input 
+                                type="text"
+                                name="supplier_code"
+                                value={localFilters.supplier_code}
+                                onChange={handleFilterChange}
+                                placeholder="සැපයුම්කරු කේතය..."
+                                style={{ ...inputStyle, padding: '6px 10px', fontSize: '13px' }}
+                            />
+                        </div>
+                        {/* Item Search with Dropdown - STARTS WITH filter */}
                         <div style={{ position: 'relative' }}>
                             <label style={{ ...labelStyle, fontSize: '12px' }}>අයිතමය</label>
                             <input 
@@ -786,7 +787,7 @@ const SalesReportView = ({ reportData, onClose }) => {
                                 onChange={handleItemSearchChange}
                                 onFocus={() => setShowItemDropdown(true)}
                                 onBlur={handleItemSearchBlur}
-                                placeholder="අයිතමයේ නම හෝ කේතය සොයන්න..."
+                                placeholder="අයිතමයේ නම හෝ කේතය..."
                                 style={{ ...inputStyle, padding: '6px 10px', fontSize: '13px' }}
                             />
                             {loadingItems && (
@@ -921,6 +922,9 @@ const SalesReportView = ({ reportData, onClose }) => {
                             )}
                             {selectedItem && (
                                 <> | <strong style={{ color: '#4CAF50' }}>Item: {selectedItem.no || selectedItem.item_code || 'N/A'} - {selectedItem.name || selectedItem.item_name || selectedItem.type || selectedItem.item_type || 'Unnamed'}</strong></>
+                            )}
+                            {localFilters.supplier_code && (
+                                <> | <strong style={{ color: '#4CAF50' }}>Supplier: {localFilters.supplier_code}</strong></>
                             )}
                         </div>
                         <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#4CAF50' }}>
@@ -1153,7 +1157,7 @@ const SalesReportView = ({ reportData, onClose }) => {
                                         {filteredData.reduce((sum, sale) => sum + ((Number(sale.packs) || 0) * (Number(sale.CustomerPackCost) || 0)), 0).toFixed(2)}
                                     </td>
                                     <td style={{ padding: '8px 3px', textAlign: 'right', fontSize: '11px', fontWeight: 'bold', color: '#4CAF50' }}>{grandTotal.toFixed(2)}</td>
-                                    <td colSpan={showUserTransactions ? "6" : "6"} style={{ padding: '8px 3px', textAlign: 'center', fontSize: '11px' }}>
+                                    <td colSpan="6" style={{ padding: '8px 3px', textAlign: 'center', fontSize: '11px' }}>
                                         Total Weight: {totalWeightAll.toFixed(2)} kg
                                     </td>
                                 </tr>

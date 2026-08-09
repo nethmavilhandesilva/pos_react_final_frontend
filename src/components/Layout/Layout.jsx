@@ -137,11 +137,11 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
             <nav className="navbar navbar-expand-lg navbar-dark fixed-top" style={{ backgroundColor: '#004d00', width: '100%' }}>
                 <div className="container-fluid d-flex align-items-center justify-content-between">
                     <div className="d-flex align-items-center">
-                        <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to={basePath || "/"}>
+                        {/* AFTER */}
+                        <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to={`${basePath}/sales`}>
                             <i className="material-icons align-middle me-2">warehouse</i>
                             මුල් පිටුව
                         </Link>
-
                         <div className="navbar-nav d-flex flex-row align-items-center">
                             <div className="nav-item dropdown mx-1">
                                 <button className="btn btn-outline-light btn-sm dropdown-toggle" id="masterDropdown" data-bs-toggle="dropdown" aria-expanded="false">

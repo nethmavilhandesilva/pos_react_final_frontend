@@ -17,7 +17,7 @@ const SupplierReport = () => {
     const [selectedItem, setSelectedItem] = useState(null);
     const [loadingItems, setLoadingItems] = useState(false);
 
-    // Local filter states - Only what's needed for Supplier Report
+    // Local filter states
     const [localFilters, setLocalFilters] = useState({
         start_date: '',
         end_date: '',
@@ -41,7 +41,6 @@ const SupplierReport = () => {
         { value: 'price_item_code_asc', label: 'මිල, එළවළු පිළිවෙලට' },
     ];
 
-    // Fetch items from backend
     const fetchItems = async () => {
         setLoadingItems(true);
         try {
@@ -65,7 +64,6 @@ const SupplierReport = () => {
         }
     };
 
-    // Filter items based on search term
     const filteredItems = items.filter(item => {
         const searchLower = itemSearchTerm.toLowerCase().trim();
         if (!searchLower) return true;
@@ -74,12 +72,11 @@ const SupplierReport = () => {
         const itemName = (item.name || item.item_name || item.type || item.item_type || '').toLowerCase();
 
         return (
-            itemName.includes(searchLower) ||
-            itemNo.includes(searchLower)
+            itemName.startsWith(searchLower) ||
+            itemNo.startsWith(searchLower)
         );
     });
 
-    // Handle item selection from dropdown
     const handleItemSelect = (item) => {
         setSelectedItem(item);
         const itemCode = item.no || item.item_code || item.code || '';
@@ -99,7 +96,6 @@ const SupplierReport = () => {
         }, 100);
     };
 
-    // Handle item search input change
     const handleItemSearchChange = (e) => {
         const value = e.target.value;
         setItemSearchTerm(value);
@@ -118,14 +114,12 @@ const SupplierReport = () => {
         }
     };
 
-    // Handle blur on item search input
     const handleItemSearchBlur = () => {
         setTimeout(() => {
             setShowItemDropdown(false);
         }, 300);
     };
 
-    // Fetch Report
     const fetchReport = async () => {
         try {
             setLoading(true);
@@ -144,7 +138,6 @@ const SupplierReport = () => {
         }
     };
 
-    // Convert grouped data to flat array for filtering/sorting
     const flattenData = (data) => {
         const flatArray = [];
 
@@ -173,7 +166,6 @@ const SupplierReport = () => {
         return flatArray;
     };
 
-    // Sort data function
     const sortData = (data, sortBy) => {
         if (!data || data.length === 0) return data;
 
@@ -209,11 +201,9 @@ const SupplierReport = () => {
         }
     };
 
-    // Apply all filters
     const applyFilters = (data) => {
         let flat = flattenData(data);
 
-        // EXACT MATCH for supplier_code
         if (localFilters.supplier_code) {
             flat = flat.filter(item =>
                 item.supplier_code && item.supplier_code === localFilters.supplier_code
@@ -248,7 +238,6 @@ const SupplierReport = () => {
         setFilteredData(flat);
     };
 
-    // Handle filter changes
     const handleFilterChange = (e) => {
         const { name, value } = e.target;
         setLocalFilters(prev => ({ ...prev, [name]: value }));
@@ -275,7 +264,6 @@ const SupplierReport = () => {
         fetchReport();
     };
 
-    // Group data by supplier for grouped view
     const groupedData = filteredData.reduce((acc, sale) => {
         const supplier = sale.supplier_code || 'Unknown';
         const billNo = sale.supplier_bill_no || 'No Bill';
@@ -296,7 +284,6 @@ const SupplierReport = () => {
     const grandTotal = Object.values(groupedData).reduce((total, bills) =>
         total + calculateSupplierTotal(bills), 0);
 
-    // Calculate total weight for detailed view
     const totalWeight = filteredData.reduce((sum, sale) => sum + (Number(sale.SupplierWeight) || 0), 0);
 
     const activeFilterCount = Object.values(localFilters).filter(v => v !== '' && v !== 'supplier_code_asc').length;
@@ -306,154 +293,114 @@ const SupplierReport = () => {
         fetchReport();
     }, [localFilters.start_date, localFilters.end_date]);
 
-    // Generate detailed HTML for printing with proper table structure
-    const generateDetailedPrintHTML = () => {
-        if (filteredData.length === 0) return '<p>No records found</p>';
-
-        return `
-            <div style="width:100%; overflow-x:auto;">
-                <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                    <thead>
-                        <tr style="background:#4CAF50; color:white;">
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:left;">Date</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:left;">Supplier Code</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:left;">Supplier Bill No</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:left;">Customer</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:left;">Item Code</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:left;">Item Name</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:right;">Weight</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:right;">Price/kg</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:right;">Total</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:right;">Profit</th>
-                            <th style="border:1px solid #ddd; padding:10px 8px; text-align:center;">Bill Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${filteredData.map(item => `
-                            <tr style="border-bottom:1px solid #eee;">
-                                <td style="border:1px solid #ddd; padding:8px;">${item.Date || '-'}</td>
-                                <td style="border:1px solid #ddd; padding:8px;">${item.supplier_code || '-'}</td>
-                                <td style="border:1px solid #ddd; padding:8px;">${item.supplier_bill_no || '-'}</td>
-                                <td style="border:1px solid #ddd; padding:8px;">${item.customer_code || '-'}</td>
-                                <td style="border:1px solid #ddd; padding:8px;">${item.item_code || '-'}</td>
-                                <td style="border:1px solid #ddd; padding:8px;">${item.item_name || '-'}</td>
-                                <td style="border:1px solid #ddd; padding:8px; text-align:right;">${Number(item.SupplierWeight || 0).toFixed(2)}</td>
-                                <td style="border:1px solid #ddd; padding:8px; text-align:right;">${Number(item.SupplierPricePerKg || 0).toFixed(2)}</td>
-                                <td style="border:1px solid #ddd; padding:8px; text-align:right; font-weight:bold;">${(Number(item.SupplierTotal) || 0).toFixed(2)}</td>
-                                <td style="border:1px solid #ddd; padding:8px; text-align:right; color:#4CAF50;">${(Number(item.profit) || 0).toFixed(2)}</td>
-                                <td style="border:1px solid #ddd; padding:8px; text-align:center;">
-                                    <span style="background: ${item.bill_status === 'Printed' ? '#2196F3' : '#f44336'}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
-                                        ${item.bill_status || 'Not Printed'}
-                                    </span>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                    <tfoot>
-                        <tr style="background:#f0f2f5; font-weight:bold;">
-                            <td colspan="6" style="border:1px solid #ddd; padding:12px; text-align:right;">GRAND TOTAL:</td>
-                            <td style="border:1px solid #ddd; padding:12px; text-align:right;">${totalWeight.toFixed(2)}</td>
-                            <td style="border:1px solid #ddd; padding:12px; text-align:right;"></td>
-                            <td style="border:1px solid #ddd; padding:12px; text-align:right; color:#4CAF50;">${grandTotal.toFixed(2)}</td>
-                            <td colspan="2" style="border:1px solid #ddd; padding:12px;"></td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-        `;
-    };
-
+    // ===== UPDATED PRINT FUNCTION - Clean table with no scrollbars =====
     const handlePrint = () => {
         const printWindow = window.open('', '_blank');
-        const printHTML = generateDetailedPrintHTML();
+
+        // Calculate totals for print
+        let totalWeightKg = 0;
+        let totalAmount = 0;
+
+        // Generate table rows
+        const tableRows = filteredData.map((item) => {
+            const packCost = (Number(item.packs) || 0) * (Number(item.Kuliya) || 0);
+            const SupplierTotal = (Number(item.SupplierWeight) || 0) * (Number(item.SupplierPricePerKg) || 0) + packCost;
+            totalWeightKg += Number(item.SupplierWeight) || 0;
+            totalAmount += SupplierTotal;
+
+            return `
+                <tr>
+                    <td style="padding:4px 3px; font-size:10px; text-align:center; border:1px solid #ddd;">${item.supplier_bill_no || '-'}</td>
+                    <td style="padding:4px 3px; font-size:10px; text-align:center; border:1px solid #ddd;">${item.packs || 0}</td>
+                    <td style="padding:4px 3px; font-size:10px; text-align:left; border:1px solid #ddd;">${item.item_name || '-'}</td>
+                    <td style="padding:4px 3px; font-size:10px; text-align:right; border:1px solid #ddd;">${Number(item.SupplierWeight || 0).toFixed(2)}</td>
+                    <td style="padding:4px 3px; font-size:10px; text-align:right; border:1px solid #ddd;">${Number(item.SupplierPricePerKg || 0).toFixed(2)}</td>
+                    <td style="padding:4px 3px; font-size:10px; text-align:right; border:1px solid #ddd; font-weight:bold;">${SupplierTotal.toFixed(2)}</td>
+                    <td style="padding:4px 3px; font-size:10px; text-align:center; border:1px solid #ddd;">${formatTime(item.created_at)}</td>
+                </tr>
+            `;
+        }).join('');
 
         printWindow.document.write(`
-            <!DOCTYPE html>
             <html>
             <head>
-                <title>Supplier Report</title>
-                <meta charset="UTF-8">
+                <title>Supplier Report - Print</title>
                 <style>
-                    * {
-                        margin: 0;
-                        padding: 0;
-                        box-sizing: border-box;
-                    }
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
                     body { 
                         font-family: Arial, sans-serif; 
-                        padding: 20px; 
+                        padding: 12px;
                         background: white;
-                        font-size: 12px;
                     }
                     .header { 
                         text-align: center; 
-                        margin-bottom: 30px; 
-                        padding-bottom: 20px; 
+                        margin-bottom: 15px;
+                        padding-bottom: 10px;
                         border-bottom: 2px solid #4CAF50;
                     }
-                    .company-name { 
-                        font-size: 24px; 
-                        font-weight: bold; 
+                    .company-name {
+                        font-size: 20px;
+                        font-weight: bold;
                         color: #2c3e50;
                     }
-                    .report-title { 
-                        font-size: 18px; 
-                        color: #4CAF50; 
-                        margin: 5px 0;
+                    .report-title {
+                        font-size: 16px;
+                        color: #4CAF50;
+                        margin: 3px 0;
                     }
-                    .report-date { 
-                        color: #666; 
-                        font-size: 12px;
-                        margin: 5px 0;
-                    }
-                    .sort-info { 
-                        background: #e3f2fd; 
-                        padding: 8px 15px; 
-                        border-radius: 5px; 
-                        margin: 15px 0; 
-                        font-size: 12px; 
-                        text-align: center;
+                    .report-date {
+                        color: #666;
+                        font-size: 11px;
                     }
                     .filter-info {
                         background: #f5f5f5;
-                        padding: 8px 15px;
-                        border-radius: 5px;
-                        margin: 10px 0;
-                        font-size: 12px;
+                        padding: 5px 12px;
+                        border-radius: 4px;
+                        margin: 8px 0;
+                        font-size: 11px;
                         text-align: center;
                         color: #666;
                     }
                     table { 
                         width: 100%; 
                         border-collapse: collapse; 
-                        margin-top: 10px;
-                        page-break-inside: avoid;
+                        margin-top: 8px;
+                        font-size: 10px;
                     }
                     th { 
                         background: #4CAF50; 
                         color: white; 
                         font-weight: bold;
-                        padding: 10px 8px;
+                        padding: 5px 3px;
+                        text-align: center;
+                        font-size: 10px;
+                        border: 1px solid #388E3C;
                     }
-                    th, td { 
+                    td { 
                         border: 1px solid #ddd; 
-                        padding: 8px; 
+                        padding: 4px 3px;
                     }
                     .grand-total { 
                         text-align: right; 
                         font-size: 16px; 
                         font-weight: bold; 
-                        margin-top: 20px; 
-                        padding: 15px 20px;
+                        margin-top: 15px; 
+                        padding: 10px 15px;
                         background: #f0f2f5;
-                        border-radius: 8px;
+                        border-radius: 6px;
+                    }
+                    .subtotal-row {
+                        background: #f0f2f5;
+                        font-weight: bold;
+                    }
+                    .subtotal-row td {
+                        padding: 6px 3px;
+                        font-size: 11px;
                     }
                     @media print {
-                        body { padding: 10px; }
-                        th { background: #4CAF50 !important; }
+                        body { padding: 8px; }
                         .no-print { display: none; }
-                        table { page-break-inside: avoid; }
-                        tr { page-break-inside: avoid; }
+                        th { background: #4CAF50 !important; }
                     }
                 </style>
             </head>
@@ -462,9 +409,6 @@ const SupplierReport = () => {
                     <div class="company-name">මංජු සහ සහෝදරයෝ</div>
                     <div class="report-title">Supplier Report - Detailed View</div>
                     <div class="report-date">Date: ${new Date().toLocaleDateString()}</div>
-                    <div class="sort-info">
-                        📊 Sorted By: ${sortOptions.find(opt => opt.value === localFilters.sort_by)?.label || 'Supplier Code'}
-                    </div>
                     ${activeFilterCount > 0 ? `
                         <div class="filter-info">
                             🔍 Active Filters: 
@@ -476,12 +420,43 @@ const SupplierReport = () => {
                             ${localFilters.item_code ? `Item Code: ${localFilters.item_code}` : ''}
                         </div>
                     ` : ''}
+                    <div style="font-size:11px; color:#666; margin-top:4px;">
+                        Total Records: ${filteredData.length} | Total Weight: ${totalWeightKg.toFixed(2)} kg
+                    </div>
                 </div>
-                ${printHTML}
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="padding:4px 3px; font-size:10px;">බිල් අං</th>
+                            <th style="padding:4px 3px; font-size:10px;">මලු</th>
+                            <th style="padding:4px 3px; font-size:10px;">වර්ගය</th>
+                            <th style="padding:4px 3px; font-size:10px;">ප්‍රමාණය</th>
+                            <th style="padding:4px 3px; font-size:10px;">බැගින්</th>
+                            <th style="padding:4px 3px; font-size:10px;">එකතුව</th>
+                            <th style="padding:4px 3px; font-size:10px;">වේලාව</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                    <tfoot>
+                        <tr style="background:#f0f2f5; font-weight:bold;">
+                            <td colspan="3" style="padding:6px 3px; text-align:right; font-size:11px; border:1px solid #ddd;">GRAND TOTAL:</td>
+                            <td style="padding:6px 3px; text-align:right; font-size:11px; border:1px solid #ddd; font-weight:bold;">${totalWeightKg.toFixed(2)}</td>
+                            <td style="padding:6px 3px; text-align:right; font-size:11px; border:1px solid #ddd;"></td>
+                            <td style="padding:6px 3px; text-align:right; font-size:11px; border:1px solid #ddd; font-weight:bold; color:#4CAF50;">${totalAmount.toFixed(2)}</td>
+                            <td style="padding:6px 3px; text-align:center; font-size:11px; border:1px solid #ddd; font-weight:bold;">
+                                Total Weight: ${totalWeightKg.toFixed(2)} kg
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+
                 <div class="grand-total">
-                    GRAND TOTAL: Rs. ${grandTotal.toFixed(2)}
+                    Total Weight: ${totalWeightKg.toFixed(2)} kg | GRAND TOTAL: Rs. ${totalAmount.toFixed(2)}
                 </div>
-                <div style="text-align: center; margin-top: 30px; font-size: 10px; color: #999;">
+                <div style="text-align: center; margin-top: 20px; font-size: 9px; color: #999;">
                     Generated on ${new Date().toLocaleString()}
                 </div>
             </body>
@@ -536,24 +511,19 @@ const SupplierReport = () => {
     const thStyle = { padding: '10px 8px', textAlign: 'left', fontSize: '12px', fontWeight: '600' };
     const tdStyle = { padding: '8px', fontSize: '12px' };
 
-    // Helper function to format time - FIXED to handle various date formats
     const formatTime = (dateString) => {
         if (!dateString) return '-';
         try {
-            // Try to parse the date - handles both ISO strings and timestamp objects
             let date;
             if (typeof dateString === 'string') {
                 date = new Date(dateString);
             } else if (typeof dateString === 'object' && dateString instanceof Date) {
                 date = dateString;
             } else {
-                // If it's a timestamp or other format
                 date = new Date(dateString);
             }
             
-            // Check if date is valid
             if (isNaN(date.getTime())) {
-                console.warn('Invalid date format:', dateString);
                 return '-';
             }
             
@@ -564,7 +534,6 @@ const SupplierReport = () => {
                 hour12: false
             });
         } catch (error) {
-            console.error('Error formatting date:', error);
             return '-';
         }
     };
@@ -608,7 +577,7 @@ const SupplierReport = () => {
                             {viewMode === 'grouped' ? '📋 Switch to Detailed View' : '📊 Switch to Grouped View'}
                         </button>
                         <button onClick={handleExportExcel} style={buttonStyle.success}>📊 Export Excel</button>
-                        <button onClick={handlePrint} style={buttonStyle.primary}>🖨️ Print (Detailed)</button>
+                        <button onClick={handlePrint} style={buttonStyle.primary}>🖨️ Print</button>
                     </div>
                 </div>
 
@@ -627,7 +596,7 @@ const SupplierReport = () => {
                     <span style={{ color: '#1976d2' }}>{sortOptions.find(opt => opt.value === localFilters.sort_by)?.label || 'Supplier Code'}</span>
                 </div>
 
-                {/* Filter Panel - Always Visible - NOW IN ONE LINE */}
+                {/* Filter Panel */}
                 <div style={{
                     background: 'white',
                     borderRadius: '12px',
@@ -659,10 +628,7 @@ const SupplierReport = () => {
                             <label style={labelStyle}>සැපයුම් බිල් අංකය</label>
                             <input type="text" name="supplier_bill_no" value={localFilters.supplier_bill_no} onChange={handleFilterChange} placeholder="අංකය" style={inputStyle} />
                         </div>
-                        <div style={{ flex: '1 1 140px', minWidth: '120px' }}>
-                            <label style={labelStyle}>ගනුදෙනුකරු</label>
-                            <input type="text" name="customer_code" value={localFilters.customer_code} onChange={handleFilterChange} placeholder="කේතය" style={inputStyle} />
-                        </div>
+                       
                         <div style={{ flex: '1 1 140px', minWidth: '120px' }}>
                             <label style={labelStyle}>වර්ගීකරණය</label>
                             <select name="sort_by" value={localFilters.sort_by} onChange={handleFilterChange} style={inputStyle}>
@@ -671,6 +637,18 @@ const SupplierReport = () => {
                                 ))}
                             </select>
                         </div>
+                        {/* Supplier Code Filter */}
+                        <div style={{ flex: '1 1 140px', minWidth: '120px' }}>
+                            <label style={labelStyle}>පාරිභෝගික කේතය</label>
+                            <input 
+                                type="text" 
+                                name="customer_code" 
+                                value={localFilters.customer_code} 
+                                onChange={handleFilterChange} 
+                                placeholder="පාරිභෝගික කේතය..." 
+                                style={inputStyle} 
+                            />
+                        </div>
                         {/* Item Filter with Search Dropdown */}
                         <div style={{ flex: '1 1 180px', minWidth: '150px', position: 'relative' }}>
                             <label style={labelStyle}>අයිතමය</label>
@@ -678,9 +656,7 @@ const SupplierReport = () => {
                                 type="text"
                                 value={itemSearchTerm}
                                 onChange={handleItemSearchChange}
-                                onFocus={() => {
-                                    setShowItemDropdown(true);
-                                }}
+                                onFocus={() => setShowItemDropdown(true)}
                                 onBlur={handleItemSearchBlur}
                                 placeholder="අයිතමයේ නම හෝ කේතය..."
                                 style={inputStyle}
@@ -812,6 +788,9 @@ const SupplierReport = () => {
                             <strong> Total Bills:</strong> {Object.values(groupedData).reduce((sum, bills) => sum + Object.keys(bills).length, 0)}
                             {selectedItem && (
                                 <> | <strong style={{ color: '#4CAF50' }}>Item: {selectedItem.no || selectedItem.item_code || 'N/A'} - {selectedItem.name || selectedItem.item_name || 'Unnamed'}</strong></>
+                            )}
+                            {localFilters.customer_code && (
+                                <> | <strong style={{ color: '#4CAF50' }}>Customer: {localFilters.customer_code}</strong></>
                             )}
                         </div>
                         <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#4CAF50' }}>

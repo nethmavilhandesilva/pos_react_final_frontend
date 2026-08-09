@@ -1036,15 +1036,20 @@ export default function SalesEntry() {
         }
         if (!activeCustomerCode) return [];
 
-        const matchesScope = (s) => {
-            const sameCustomer = normalizeCode(s.customer_code) === activeCustomerCode;
-            if (!sameCustomer) return false;
-            if (printedBillNo && printedCustomer && printedCustomer === activeCustomerCode) {
-                const sameBill = String(s.bill_no ?? '').trim() === printedBillNo;
-                return sameBill || isPendingSale(s);
-            }
-            return isPendingSale(s);
-        };
+       const matchesScope = (s) => {
+    const sameCustomer = normalizeCode(s.customer_code) === activeCustomerCode;
+    if (!sameCustomer) return false;
+
+    // When a printed bill is explicitly selected from the sidebar
+    if (printedBillNo && printedCustomer && printedCustomer === activeCustomerCode) {
+        const saleBillNo = String(s.bill_no ?? '').trim();
+        // Ensure the bill_no is NOT empty and matches the selected bill_no exactly
+        const sameBill = saleBillNo !== '' && saleBillNo === printedBillNo;
+        return sameBill;
+    }
+
+    return isPendingSale(s);
+};
 
         // Local overlay first — survives refresh races. Then allSales.
         // Dedupe by id ONLY. Never collapse by product line — same item/weight
@@ -1061,13 +1066,30 @@ export default function SalesEntry() {
             if (!byId.has(key)) byId.set(key, sale);
         });
 
-        const rows = Array.from(byId.values()).sort((a, b) => {
-            const aTmp = isTempSale(a) ? 0 : 1;
-            const bTmp = isTempSale(b) ? 0 : 1;
-            if (aTmp !== bTmp) return aTmp - bTmp;
-            return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
-        });
-
+       const rows = Array.from(byId.values()).sort((a, b) => {
+    const aTmp = isTempSale(a) ? 0 : 1;
+    const bTmp = isTempSale(b) ? 0 : 1;
+    if (aTmp !== bTmp) return aTmp - bTmp;
+    
+    // Sort by created_at first (most reliable)
+    const aTime = a.created_at || a.updated_at || a.timestamp || a.date || 0;
+    const bTime = b.created_at || b.updated_at || b.timestamp || b.date || 0;
+    
+    // If both have timestamps, compare them
+    if (aTime && bTime) {
+        return new Date(bTime) - new Date(aTime);
+    }
+    
+    // Fallback to numeric ID comparison (parse as number)
+    const aId = parseInt(a.id, 10);
+    const bId = parseInt(b.id, 10);
+    if (!isNaN(aId) && !isNaN(bId)) {
+        return bId - aId;
+    }
+    
+    // Last resort: string comparison
+    return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+});
         return rows;
     }, [allSales, localTableSales, selectedUnprintedCustomer, selectedPrintedCustomer, formData.customer_code, isManualClear]);
 
