@@ -5,20 +5,24 @@ import { useNavigate } from 'react-router-dom';
 
 // --- CONSTANTS for the background refresh loop ---
 // Tuned so clicks / F4 always win the browser connection pool over background work.
-const REFRESH_DELAY_MS = 4000;   // keep sidebars close to DB all day
+const SIDEBAR_POLL_MS = 1500;    // printed/unprinted lists stay near DB (unprinted priority)
+const REFRESH_DELAY_MS = 2500;   // open-bill details refresh cadence
 const POLL_TIMEOUT_MS = 7000;    // abort hung polling requests
-const CLICK_TIMEOUT_MS = 5000;   // abort hung bill-detail requests so UI never sticks on loading
+const CLICK_TIMEOUT_MS = 4500;   // abort hung bill-detail requests so UI never sticks on loading
 const PREFETCH_TIMEOUT_MS = 3500;
-const DETAILS_REFRESH_EVERY = 4; // refresh open bill every Nth poll (summary still every tick)
-const USER_BUSY_MS = 1200;       // pause polling/prefetch after click / print (keeps F4 hot)
+const DETAILS_REFRESH_EVERY = 1; // refresh the open bill's middle table every tick (near real-time DB sync)
+const USER_BUSY_MS = 900;        // pause prefetch/details after click / print (keeps F4 hot)
 const MUTATION_SAFETY_MS = 30000;// auto-clear stuck mutation lock
 const CACHE_MAX = 300;           // max cached bills / suppliers (keeps day-long use snappy)
-const PREFETCH_MAX_CONCURRENT = 3; // warm several bills so sidebar clicks paint instantly
-const PREFETCH_BATCH = 60;       // warm enough of both lists that clicks rarely miss cache
+const PREFETCH_MAX_CONCURRENT = 3; // warm several bills so sidebar clicks paint instantly (kept low so clicks/F4 always win the connection pool)
+const PREFETCH_BATCH = 200;      // warm nearly the whole printed list so quick clicks almost always hit cache
 const BILL_HTML_CACHE_MAX = 16;
 const MUTATION_TIMEOUT_MS = 10000; // never wait forever on POST/PUT
+const PRINT_LOCK_MAX_MS = 700;   // ignore duplicate F4 only briefly (never soft-lock all day)
 const PRINT_LOCK_SAFETY_MS = 8000; // auto-clear stuck print lock (never block F4 long)
 const PRINT_WAIT_DETAILS_MS = 8000; // F4 right after click: wait for details before giving up
+const POS_WATCHDOG_MS = 2000;    // clear hung locks + force sidebar sync all day
+const UNPRINTED_CACHE_MAX_AGE_MS = 8000; // prefer fresh DB rows on unprinted bill clicks
 
 // Module-level print entry — survives remount gaps so F4 never finds a null ref mid-day
 let latestSupplierPrintHandler = null;
@@ -50,6 +54,7 @@ const mutateWithTimeout = (method, url, data, timeoutMs = MUTATION_TIMEOUT_MS) =
 
 // --- Instant-paint caches (module scope: survive remounts, shared across the day) ---
 const detailsCache = new Map();   // key -> details array
+const detailsCacheAt = new Map(); // key -> Date.now() when cached (unprinted freshness)
 const supplierCache = new Map();  // code -> supplier profile object
 const billContentCache = new Map(); // key -> HTML (must be module-scope or cache is useless)
 const prefetchInFlight = new Map(); // key -> Promise
@@ -68,8 +73,24 @@ const cachePut = (map, key, value) => {
 
 // Never poison the cache with empty results (causes slow clicks / failed F4 later)
 const cachePutDetails = (key, rows) => {
-    if (Array.isArray(rows) && rows.length > 0) cachePut(detailsCache, key, rows);
-    else detailsCache.delete(key);
+    if (Array.isArray(rows) && rows.length > 0) {
+        cachePut(detailsCache, key, rows);
+        detailsCacheAt.set(key, Date.now());
+        while (detailsCacheAt.size > CACHE_MAX) {
+            detailsCacheAt.delete(detailsCacheAt.keys().next().value);
+        }
+    } else {
+        detailsCache.delete(key);
+        detailsCacheAt.delete(key);
+    }
+};
+
+const getFreshCachedDetails = (key, maxAgeMs = Infinity) => {
+    const rows = detailsCache.get(key);
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const at = detailsCacheAt.get(key) || 0;
+    if (Date.now() - at > maxAgeMs) return null;
+    return rows;
 };
 
 const detailsCacheKey = (isUnprinted, supplierCode, billNo) =>
@@ -107,11 +128,13 @@ const sameSummaryList = (a, b) => {
     if (a === b) return true;
     if (!a || !b || a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-        if (a[i].supplier_code !== b[i].supplier_code) return false;
+        if (String(a[i].supplier_code || '') !== String(b[i].supplier_code || '')) return false;
         if (String(a[i].supplier_bill_no ?? '') !== String(b[i].supplier_bill_no ?? '')) return false;
         // Catch status / amount updates so sidebars never look stale all day
         if (String(a[i].updated_at ?? a[i].timestamp ?? '') !== String(b[i].updated_at ?? b[i].timestamp ?? '')) return false;
         if (String(a[i].total ?? a[i].SupplierTotal ?? '') !== String(b[i].total ?? b[i].SupplierTotal ?? '')) return false;
+        if (String(a[i].bill_printed ?? '') !== String(b[i].bill_printed ?? '')) return false;
+        if (String(a[i].item_count ?? a[i].count ?? '') !== String(b[i].item_count ?? b[i].count ?? '')) return false;
     }
     return true;
 };
@@ -421,21 +444,28 @@ const SupplierReport = () => {
     }, []);
 
     const printInFlightRef = useRef(false);
+    const printStartedAtRef = useRef(0);
     const printLockSafetyTimerRef = useRef(null);
     const handlePrintRef = useRef(null);
     const printGenRef = useRef(0); // newer F4 supersedes an in-flight wait/print
     const pollTickRef = useRef(0);
+    const summaryAbortRef = useRef(null);
+    const summaryInFlightRef = useRef(false);
+    const lastSummaryAtRef = useRef(0);
 
     const clearPrintLock = useCallback(() => {
         printInFlightRef.current = false;
+        printStartedAtRef.current = 0;
         clearTimeout(printLockSafetyTimerRef.current);
     }, []);
 
     const armPrintLock = useCallback(() => {
         printInFlightRef.current = true;
+        printStartedAtRef.current = Date.now();
         clearTimeout(printLockSafetyTimerRef.current);
         printLockSafetyTimerRef.current = setTimeout(() => {
             printInFlightRef.current = false;
+            printStartedAtRef.current = 0;
             resumePrefetchSoon(0);
         }, PRINT_LOCK_SAFETY_MS);
     }, []);
@@ -521,15 +551,39 @@ const SupplierReport = () => {
     const [newFarmerCode, setNewFarmerCode] = useState('');
     const [newCustomerCode, setNewCustomerCode] = useState('');
 
-    // --- Silent refresh callback (doesn't show loading, skips render if nothing changed) ---
-    const silentFetchSummary = useCallback(async () => {
+    // --- Silent sidebar refresh (printed + unprinted). Not blocked by clicks so lists stay live all day. ---
+    const silentFetchSummary = useCallback(async (force = false) => {
+        if (!force && summaryInFlightRef.current) return;
+        const now = Date.now();
+        if (!force && now - lastSummaryAtRef.current < 900) return;
+
+        if (summaryAbortRef.current) {
+            try { summaryAbortRef.current.abort(); } catch { /* ignore */ }
+        }
+        const controller = new AbortController();
+        summaryAbortRef.current = controller;
+        summaryInFlightRef.current = true;
+        lastSummaryAtRef.current = now;
+
         try {
-            const response = await getWithTimeout('/suppliers/bill-status-summary');
+            const response = await getWithTimeout('/suppliers/bill-status-summary', controller.signal, POLL_TIMEOUT_MS);
+            if (controller.signal.aborted) return;
             if (response.data) {
                 const next = {
                     printed: response.data.printed || [],
                     unprinted: response.data.unprinted || [],
                 };
+                // Drop unprinted detail caches for suppliers that left the unprinted list
+                // so the next click always pulls fresh DB rows.
+                const unprintedCodes = new Set(next.unprinted.map((i) => String(i.supplier_code || '')));
+                for (const key of [...detailsCache.keys()]) {
+                    if (!key.startsWith('u:')) continue;
+                    const code = key.slice(2);
+                    if (!unprintedCodes.has(code)) {
+                        detailsCache.delete(key);
+                        detailsCacheAt.delete(key);
+                    }
+                }
                 setSummary(prev =>
                     (sameSummaryList(prev.printed, next.printed) && sameSummaryList(prev.unprinted, next.unprinted))
                         ? prev
@@ -538,6 +592,9 @@ const SupplierReport = () => {
             }
         } catch (error) {
             // Silent: a failed background refresh must never disturb the page.
+        } finally {
+            if (summaryAbortRef.current === controller) summaryAbortRef.current = null;
+            summaryInFlightRef.current = false;
         }
     }, []);
 
@@ -696,49 +753,38 @@ const SupplierReport = () => {
         }
     }, []);
 
-    // --- Background refresh loop ---
-    // Self-scheduling setTimeout: next tick only after previous finishes. Skips work while
-    // the user is clicking/printing so the UI stays responsive all day without a refresh.
+    // --- Sidebar poll: always keep printed/unprinted lists near DB (not blocked by clicks) ---
     useEffect(() => {
         let cancelled = false;
         let timerId = null;
 
         const tick = async () => {
             if (cancelled) return;
-            pollTickRef.current += 1;
-            if (!document.hidden && mutationCountRef.current === 0 && !userBusyRef.current && !printInFlightRef.current) {
-                try {
-                    const jobs = [silentFetchSummary()];
-                    // Details less often than sidebar lists — keeps middle panel smooth
-                    if (pollTickRef.current % DETAILS_REFRESH_EVERY === 0) {
-                        jobs.push(refreshCurrentDetails());
+            if (!document.hidden) {
+                // Only skip while a print dialog path just started — never pause all day for clicks.
+                const printAge = printStartedAtRef.current
+                    ? Date.now() - printStartedAtRef.current
+                    : Infinity;
+                if (!(printInFlightRef.current && printAge < PRINT_LOCK_MAX_MS)) {
+                    try {
+                        await silentFetchSummary(false);
+                    } catch {
+                        // never let an unexpected error kill the loop
                     }
-                    await Promise.allSettled(jobs);
-                } catch {
-                    // never let an unexpected error kill the loop
                 }
             }
-            if (!cancelled) timerId = setTimeout(tick, REFRESH_DELAY_MS);
+            if (!cancelled) timerId = setTimeout(tick, SIDEBAR_POLL_MS);
         };
 
-        timerId = setTimeout(tick, REFRESH_DELAY_MS);
+        timerId = setTimeout(tick, 400);
 
         const onVisibilityChange = () => {
-            if (!document.hidden && !cancelled && !userBusyRef.current) {
-                silentFetchSummary();
-                refreshCurrentDetails();
-            }
+            if (!document.hidden && !cancelled) silentFetchSummary(true);
+        };
+        const onWindowFocus = () => {
+            if (!cancelled) silentFetchSummary(true);
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
-        // Warm print iframe once so first F4 does not pay creation cost
-        try { ensurePrintIframe(); } catch { /* ignore */ }
-
-        // Extra sidebar pull on focus — keeps printed/unprinted lists fresh all day
-        const onWindowFocus = () => {
-            if (!cancelled && !userBusyRef.current && mutationCountRef.current === 0) {
-                silentFetchSummary();
-            }
-        };
         window.addEventListener('focus', onWindowFocus);
 
         return () => {
@@ -746,12 +792,68 @@ const SupplierReport = () => {
             if (timerId) clearTimeout(timerId);
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.removeEventListener('focus', onWindowFocus);
+            try { summaryAbortRef.current?.abort(); } catch { /* ignore */ }
+        };
+    }, [silentFetchSummary]);
+
+    // --- Open-bill details refresh (paused briefly while user is clicking/printing) ---
+    useEffect(() => {
+        let cancelled = false;
+        let timerId = null;
+
+        const tick = async () => {
+            if (cancelled) return;
+            pollTickRef.current += 1;
+            if (
+                !document.hidden
+                && mutationCountRef.current === 0
+                && !userBusyRef.current
+                && !printInFlightRef.current
+                && pollTickRef.current % DETAILS_REFRESH_EVERY === 0
+            ) {
+                try {
+                    await refreshCurrentDetails();
+                } catch {
+                    // ignore
+                }
+            }
+            if (!cancelled) timerId = setTimeout(tick, REFRESH_DELAY_MS);
+        };
+
+        timerId = setTimeout(tick, REFRESH_DELAY_MS);
+
+        // Warm print iframe once so first F4 does not pay creation cost
+        try { ensurePrintIframe(); } catch { /* ignore */ }
+
+        return () => {
+            cancelled = true;
+            if (timerId) clearTimeout(timerId);
             clearTimeout(userBusyTimerRef.current);
             clearTimeout(mutationSafetyTimerRef.current);
             clearTimeout(printLockSafetyTimerRef.current);
             if (detailsAbortRef.current) detailsAbortRef.current.abort();
         };
-    }, [silentFetchSummary, refreshCurrentDetails]);
+    }, [refreshCurrentDetails]);
+
+    // --- All-day watchdog: expire hung print locks and force sidebar sync ---
+    useEffect(() => {
+        const timerId = setInterval(() => {
+            if (document.visibilityState !== 'visible') return;
+            const now = Date.now();
+
+            if (printInFlightRef.current && printStartedAtRef.current
+                && now - printStartedAtRef.current > PRINT_LOCK_SAFETY_MS) {
+                printInFlightRef.current = false;
+                printStartedAtRef.current = 0;
+                resumePrefetchSoon(0);
+            }
+
+            // Keep unprinted/printed sidebars tied to backend even during heavy use
+            silentFetchSummary(true);
+        }, POS_WATCHDOG_MS);
+
+        return () => clearInterval(timerId);
+    }, [silentFetchSummary]);
 
     // --- Initial Fetch ---
     useEffect(() => {
@@ -832,9 +934,15 @@ const SupplierReport = () => {
         const controller = new AbortController();
         detailsAbortRef.current = controller;
 
-        const cachedDetails = detailsCache.get(key);
+        // Unprinted bills change all day — only paint from cache if it is still fresh.
+        const cachedDetails = isUnprinted
+            ? (getFreshCachedDetails(key, UNPRINTED_CACHE_MAX_AGE_MS) || detailsCache.get(key) || null)
+            : (detailsCache.get(key) || null);
+        const useCacheForPaint = isUnprinted
+            ? !!getFreshCachedDetails(key, UNPRINTED_CACHE_MAX_AGE_MS)
+            : (Array.isArray(cachedDetails) && cachedDetails.length > 0);
         const cachedSupplier = supplierCache.get(supplierCode);
-        const hasCache = Array.isArray(cachedDetails) && cachedDetails.length > 0;
+        const hasCache = useCacheForPaint && Array.isArray(cachedDetails) && cachedDetails.length > 0;
 
         // Unblock any F4 waiting on a superseded click
         const prevLoad = detailsLoadRef.current;
@@ -969,131 +1077,135 @@ const SupplierReport = () => {
     const handlePrefetchUnprinted = useCallback((supplierCode) => {
         prefetchUnprinted(supplierCode);
     }, [prefetchUnprinted]);
-    // --- Update supplier/customer on a line — paint table instantly, sync API in background ---
-    const handleUpdateFarmer = async () => {
-        if (!editingRecord?.id) return;
+// --- Update supplier/customer on a line — paint table instantly, sync API in background ---
+const handleUpdateFarmer = async () => {
+    if (!editingRecord?.id) return;
 
-        const recordId = editingRecord.id;
-        const previousDetails = Array.isArray(supplierDetails) ? supplierDetails.slice() : [];
-        const previousLive = { ...liveBillRef.current };
-        const previousBillNo = selectedBillNo;
-        const previousSelectedState = { ...selectedStateRef.current };
+    const recordId = editingRecord.id;
+    const previousDetails = Array.isArray(supplierDetails) ? supplierDetails.slice() : [];
+    const previousLive = { ...liveBillRef.current };
+    const previousBillNo = selectedBillNo;
+    const previousSelectedState = { ...selectedStateRef.current };
 
-        const finalSupplierCode = String(newFarmerCode || editingRecord.supplier_code || '').trim().toUpperCase();
-        const finalCustomerCode = String(newCustomerCode || editingRecord.customer_code || '').trim().toUpperCase();
-        const currentSupplier = String(selectedSupplier || '').trim().toUpperCase();
-        const supplierMovedAway = !!finalSupplierCode && !!currentSupplier && finalSupplierCode !== currentSupplier;
+    const finalSupplierCode = String(newFarmerCode || editingRecord.supplier_code || '').trim().toUpperCase();
+    const finalCustomerCode = String(newCustomerCode || editingRecord.customer_code || '').trim().toUpperCase();
+    const currentSupplier = String(selectedSupplier || '').trim().toUpperCase();
+    const supplierMovedAway = !!finalSupplierCode && !!currentSupplier && finalSupplierCode !== currentSupplier;
 
-        const syncDetailsCaches = (rows, billNo = selectedBillNo) => {
-            liveBillRef.current = {
-                ...liveBillRef.current,
-                details: rows,
-                selectedSupplier: selectedStateRef.current.selectedSupplier,
-                selectedBillNo: billNo,
-                isUnprintedBill: selectedStateRef.current.isUnprintedBill,
-            };
-            const key = detailsCacheKey(
-                selectedStateRef.current.isUnprintedBill,
-                selectedStateRef.current.selectedSupplier,
-                billNo
-            );
-            if (rows.length > 0) cachePutDetails(key, rows);
-            else detailsCache.delete(key);
-
-            // Force F4 to rebuild HTML from the updated rows (never print stale codes)
-            const supplierKey = selectedStateRef.current.selectedSupplier;
-            for (const cacheKey of [...billContentCache.keys()]) {
-                if (supplierKey && cacheKey.startsWith(`${supplierKey}-`)) billContentCache.delete(cacheKey);
-                if (billNo && String(cacheKey).includes(String(billNo))) billContentCache.delete(cacheKey);
-            }
+    const syncDetailsCaches = (rows, billNo = selectedBillNo) => {
+        liveBillRef.current = {
+            ...liveBillRef.current,
+            details: rows,
+            selectedSupplier: selectedStateRef.current.selectedSupplier,
+            selectedBillNo: billNo,
+            isUnprintedBill: selectedStateRef.current.isUnprintedBill,
         };
+        const key = detailsCacheKey(
+            selectedStateRef.current.isUnprintedBill,
+            selectedStateRef.current.selectedSupplier,
+            billNo
+        );
+        if (rows.length > 0) cachePutDetails(key, rows);
+        else detailsCache.delete(key);
 
-        // 1) Instant UI: close modal + update/remove the row in the details table now
-        let nextRows = previousDetails;
-        flushSync(() => {
-            setSupplierDetails((prev) => {
-                if (supplierMovedAway) {
-                    nextRows = prev.filter((r) => String(r.id) !== String(recordId));
-                } else {
-                    nextRows = prev.map((r) =>
-                        String(r.id) === String(recordId)
-                            ? {
-                                ...r,
-                                supplier_code: finalSupplierCode || r.supplier_code,
-                                customer_code: finalCustomerCode || r.customer_code,
-                            }
-                            : r
-                    );
-                }
-                return nextRows;
-            });
-            setEditingRecord(null);
-            setNewFarmerCode('');
-            setNewCustomerCode('');
-            setIsDetailsLoading(false);
-        });
-        syncDetailsCaches(nextRows);
-
-        // 2) Persist to DB — do not block the table on a full bill reload
-        beginMutation();
-        markUserBusy();
-        try {
-            const response = await mutateWithTimeout('put', `/sales/${recordId}/update-supplier`, {
-                supplier_code: finalSupplierCode,
-                customer_code: finalCustomerCode,
-            });
-
-            if (response.status === 200 || response.status === 201) {
-                let nextBillNo = selectedBillNo;
-                if (response.data?.bill_updated && response.data?.new_bill_no) {
-                    nextBillNo = String(response.data.new_bill_no);
-                    setSelectedBillNo(nextBillNo);
-                    selectedStateRef.current = {
-                        ...selectedStateRef.current,
-                        selectedBillNo: nextBillNo,
-                    };
-                }
-
-                const updatedSale = response.data?.sale || response.data?.data || null;
-                if (updatedSale && !supplierMovedAway) {
-                    flushSync(() => {
-                        setSupplierDetails((prev) => {
-                            nextRows = prev.map((r) =>
-                                String(r.id) === String(recordId) ? { ...r, ...updatedSale } : r
-                            );
-                            return nextRows;
-                        });
-                    });
-                    syncDetailsCaches(nextRows, nextBillNo);
-                } else {
-                    syncDetailsCaches(nextRows, nextBillNo);
-                }
-
-                // Sidebars stay fresh without wiping the middle panel
-                silentFetchSummary();
-            } else {
-                throw new Error('Update failed');
-            }
-        } catch (error) {
-            console.error('Update failed:', error);
-            // Rollback table to pre-edit snapshot
-            flushSync(() => {
-                setSupplierDetails(previousDetails);
-                setSelectedBillNo(previousBillNo);
-            });
-            selectedStateRef.current = previousSelectedState;
-            liveBillRef.current = previousLive;
-            const key = detailsCacheKey(
-                previousSelectedState.isUnprintedBill,
-                previousSelectedState.selectedSupplier,
-                previousSelectedState.selectedBillNo
-            );
-            if (previousDetails.length > 0) cachePutDetails(key, previousDetails);
-            alert('Failed to update records. Please try again.');
-        } finally {
-            endMutation();
+        // Force F4 to rebuild HTML from the updated rows
+        const supplierKey = selectedStateRef.current.selectedSupplier;
+        for (const cacheKey of [...billContentCache.keys()]) {
+            if (supplierKey && cacheKey.startsWith(`${supplierKey}-`)) billContentCache.delete(cacheKey);
+            if (billNo && String(cacheKey).includes(String(billNo))) billContentCache.delete(cacheKey);
         }
     };
+
+    // 1) Instant UI feedback: close modal & update row locally
+    let nextRows = previousDetails;
+    flushSync(() => {
+        setSupplierDetails((prev) => {
+            if (supplierMovedAway) {
+                nextRows = prev.filter((r) => String(r.id) !== String(recordId));
+            } else {
+                nextRows = prev.map((r) =>
+                    String(r.id) === String(recordId)
+                        ? {
+                            ...r,
+                            supplier_code: finalSupplierCode || r.supplier_code,
+                            customer_code: finalCustomerCode || r.customer_code,
+                        }
+                        : r
+                );
+            }
+            return nextRows;
+        });
+        setEditingRecord(null);
+        setNewFarmerCode('');
+        setNewCustomerCode('');
+        setIsDetailsLoading(false);
+    });
+    syncDetailsCaches(nextRows);
+
+    // 2) Persist to DB & fetch real updated records from backend
+    beginMutation();
+    markUserBusy();
+    try {
+        const response = await mutateWithTimeout('put', `/sales/${recordId}/update-supplier`, {
+            supplier_code: finalSupplierCode,
+            customer_code: finalCustomerCode,
+        });
+
+        if (response.status === 200 || response.status === 201) {
+            let activeBillNo = selectedBillNo;
+            if (response.data?.bill_updated && response.data?.new_bill_no) {
+                activeBillNo = String(response.data.new_bill_no);
+                setSelectedBillNo(activeBillNo);
+                selectedStateRef.current = {
+                    ...selectedStateRef.current,
+                    selectedBillNo: activeBillNo,
+                };
+            }
+
+            // 🚀 CRITICAL FIX: Direct backend refetch of the bill details to get calculated fields
+            const currentSupplierCode = selectedStateRef.current.selectedSupplier;
+            const isUnprinted = selectedStateRef.current.isUnprintedBill;
+
+            const fetchUrl = isUnprinted
+                ? `/suppliers/${currentSupplierCode}/unprinted-details`
+                : (activeBillNo ? `/suppliers/bill/${activeBillNo}/details` : null);
+
+            if (fetchUrl) {
+                const freshRes = await getWithTimeout(fetchUrl);
+                if (freshRes?.data) {
+                    const freshRows = Array.isArray(freshRes.data) ? freshRes.data : (freshRes.data.data || []);
+                    flushSync(() => {
+                        setSupplierDetails(freshRows);
+                    });
+                    syncDetailsCaches(freshRows, activeBillNo);
+                }
+            }
+
+            // Sync sidebar counts/summaries from DB immediately
+            silentFetchSummary(true);
+        } else {
+            throw new Error('Update failed');
+        }
+    } catch (error) {
+        console.error('Update failed:', error);
+        // Rollback on error
+        flushSync(() => {
+            setSupplierDetails(previousDetails);
+            setSelectedBillNo(previousBillNo);
+        });
+        selectedStateRef.current = previousSelectedState;
+        liveBillRef.current = previousLive;
+        const key = detailsCacheKey(
+            previousSelectedState.isUnprintedBill,
+            previousSelectedState.selectedSupplier,
+            previousSelectedState.selectedBillNo
+        );
+        if (previousDetails.length > 0) cachePutDetails(key, previousDetails);
+        alert('Failed to update records. Please try again.');
+    } finally {
+        endMutation();
+    }
+};
 
     // --- CALCULATIONS ---
     const {
@@ -1764,16 +1876,20 @@ const handlePrint = useCallback(async () => {
         return;
     }
 
-    // If a print dialog path is already running for this same selection, ignore duplicate F4
+    // Never soft-lock F4 all day — expire hung waits, only dedupe rapid duplicate presses.
     if (printInFlightRef.current) {
+        const age = printStartedAtRef.current ? Date.now() - printStartedAtRef.current : Infinity;
         const cur = liveBillRef.current || {};
-        if (
+        const sameSelection =
             String(cur.selectedSupplier || '') === String(snap.selectedSupplier || '')
             && String(cur.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
-            && !!cur.isUnprintedBill === !!snap.isUnprintedBill
-        ) {
+            && !!cur.isUnprintedBill === !!snap.isUnprintedBill;
+        if (sameSelection && age < PRINT_LOCK_MAX_MS) return;
+        if (sameSelection && age < PRINT_LOCK_SAFETY_MS && snap.isUnprintedBill) {
+            // Still finalizing mark-as-printed — ignore duplicate F4 briefly
             return;
         }
+        clearPrintLock();
     }
 
     markUserBusy();
@@ -1811,8 +1927,10 @@ const handlePrint = useCallback(async () => {
         }
         clearPrintLock();
         clearCenterPanel();
-        silentFetchSummary();
-        setTimeout(() => silentFetchSummary(), 800);
+        // Sidebars must reflect DB immediately after print (unprinted → printed)
+        silentFetchSummary(true);
+        setTimeout(() => silentFetchSummary(true), 500);
+        setTimeout(() => silentFetchSummary(true), 1500);
         return true;
     };
 
@@ -1908,11 +2026,32 @@ const handlePrint = useCallback(async () => {
                 }
 
                 detailsCache.delete(detailsCacheKey(true, supplierForPrint, null));
+                detailsCacheAt.delete(detailsCacheKey(true, supplierForPrint, null));
                 cachePutDetails(detailsCacheKey(false, supplierForPrint, printBillNo), rows);
 
                 for (const cacheKey of [...billContentCache.keys()]) {
                     if (cacheKey.startsWith(`${supplierForPrint}-`)) billContentCache.delete(cacheKey);
                 }
+
+                // Optimistic sidebar move so unprinted list updates before the next poll
+                setSummary((prev) => {
+                    const code = String(supplierForPrint || '');
+                    const remainingUnprinted = (prev.unprinted || []).filter(
+                        (i) => String(i.supplier_code || '') !== code
+                    );
+                    const alreadyPrinted = (prev.printed || []).some(
+                        (i) => String(i.supplier_bill_no ?? '') === String(printBillNo)
+                    );
+                    const printedEntry = {
+                        supplier_code: supplierForPrint,
+                        supplier_bill_no: printBillNo,
+                        updated_at: Date.now(),
+                    };
+                    return {
+                        printed: alreadyPrinted ? prev.printed : [printedEntry, ...(prev.printed || [])],
+                        unprinted: remainingUnprinted,
+                    };
+                });
 
                 liveBillRef.current = {
                     ...liveBillRef.current,
@@ -1988,16 +2127,16 @@ const handlePrint = useCallback(async () => {
             return;
         }
 
-        // If a print dialog path is already running for this same selection, ignore duplicate
         if (printInFlightRef.current) {
+            const age = printStartedAtRef.current ? Date.now() - printStartedAtRef.current : Infinity;
             const cur = liveBillRef.current || {};
-            if (
+            const sameSelection =
                 String(cur.selectedSupplier || '') === String(snap.selectedSupplier || '')
                 && String(cur.selectedBillNo ?? '') === String(snap.selectedBillNo ?? '')
-                && !!cur.isUnprintedBill === !!snap.isUnprintedBill
-            ) {
-                return;
-            }
+                && !!cur.isUnprintedBill === !!snap.isUnprintedBill;
+            if (sameSelection && age < PRINT_LOCK_MAX_MS) return;
+            if (sameSelection && age < PRINT_LOCK_SAFETY_MS && snap.isUnprintedBill) return;
+            clearPrintLock();
         }
 
         markUserBusy();
@@ -2030,8 +2169,9 @@ const handlePrint = useCallback(async () => {
             }
             clearPrintLock();
             clearCenterPanel();
-            silentFetchSummary();
-            setTimeout(() => silentFetchSummary(), 800);
+            silentFetchSummary(true);
+            setTimeout(() => silentFetchSummary(true), 500);
+            setTimeout(() => silentFetchSummary(true), 1500);
             return true;
         };
 
@@ -2239,7 +2379,9 @@ const handlePrint = useCallback(async () => {
         const onAfterPrint = () => {
             try { window.focus(); } catch { /* ignore */ }
             printInFlightRef.current = false;
+            printStartedAtRef.current = 0;
             lastF4At = 0;
+            resumePrefetchSoon(0);
         };
         window.addEventListener('afterprint', onAfterPrint);
 
@@ -2247,6 +2389,7 @@ const handlePrint = useCallback(async () => {
             if (document.visibilityState === 'visible') {
                 handlePrintRef.current = latestSupplierPrintHandler;
                 printInFlightRef.current = false;
+                printStartedAtRef.current = 0;
                 lastF4At = 0;
                 try { window.focus(); } catch { /* ignore */ }
             }

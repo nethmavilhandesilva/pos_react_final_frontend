@@ -160,6 +160,17 @@ const bankService = {
         }
     },
 
+    // NEW: Get bank cheques from Sales and SalesHistory tables
+    async getBankCheques(bankAccountId) {
+        try {
+            const response = await api.get(`/cheque-report/bank-cheques/${bankAccountId}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching bank cheques:', error);
+            throw error;
+        }
+    },
+
     // Get cheque report
     async getChequeReport(params = {}) {
         try {

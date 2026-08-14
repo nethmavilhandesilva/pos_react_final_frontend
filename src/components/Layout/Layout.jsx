@@ -138,7 +138,7 @@ const Layout = ({ children, currentView, billSize, handleBillSizeChange }) => {
                 <div className="container-fluid d-flex align-items-center justify-content-between">
                     <div className="d-flex align-items-center">
                         {/* AFTER */}
-                        <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to={`${basePath}/sales`}>
+                       <Link className="navbar-brand fw-bold d-flex align-items-center me-3" to="/sales">
                             <i className="material-icons align-middle me-2">warehouse</i>
                             මුල් පිටුව
                         </Link>

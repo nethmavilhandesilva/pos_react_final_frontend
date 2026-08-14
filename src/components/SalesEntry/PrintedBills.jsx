@@ -1671,7 +1671,6 @@ const SupplierSettlementModal = ({
                     isDebtorBill: true,
                     debtor_no: debtorBill.Debtor_no || debtorBill.debtor_no || null,
                     credit_amount: debtorBill.credit_amount || 0,
-                    remaining_amount: debtorBill.remaining_amount || debtorBill.credit_amount || 0,
                     customerName: debtorBill.customer_name || '',
                     date: debtorBill.date || new Date().toISOString().split('T')[0],
                     source: 'debtor'

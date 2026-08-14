@@ -7,10 +7,42 @@ const SalesAdjustmentReportView = ({ reportData, onClose }) => {
     const [isClient, setIsClient] = useState(false);
     const [companyName, setCompanyName] = useState('???');
     const [reportDate, setReportDate] = useState('N/A');
-
-    const { entries, filters } = reportData;
+    const [data, setData] = useState(reportData || null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => setIsClient(true), []);
+
+    // Listen for data from the filter modal
+    useEffect(() => {
+        const handleDataLoaded = (event) => {
+            if (event.detail) {
+                setData(event.detail);
+                setLoading(false);
+            }
+        };
+
+        window.addEventListener('salesAdjustmentDataLoaded', handleDataLoaded);
+
+        // Check if there's data in localStorage
+        const storedData = localStorage.getItem('salesAdjustmentReportData');
+        if (storedData && !data) {
+            try {
+                const parsedData = JSON.parse(storedData);
+                setData(parsedData);
+                setLoading(false);
+                localStorage.removeItem('salesAdjustmentReportData');
+            } catch (error) {
+                console.error('Error parsing stored data:', error);
+                setLoading(false);
+            }
+        } else {
+            setLoading(false);
+        }
+
+        return () => {
+            window.removeEventListener('salesAdjustmentDataLoaded', handleDataLoaded);
+        };
+    }, []);
 
     // Fetch company settings
     useEffect(() => {
@@ -97,28 +129,31 @@ const SalesAdjustmentReportView = ({ reportData, onClose }) => {
 
     // ================= EXCEL EXPORT =================
     const handleExportExcel = () => {
+        if (!data || !data.entries || !data.entries.data) {
+            alert('No data to export');
+            return;
+        }
+
         const excelData = [];
         excelData.push([
             'විකුණුම්කරු', 'වර්ගය', 'බර', 'මිල', 'මලු', 'මුළු මුදල', 
             'බිල්පත් අංකය', 'පාරිභෝගික කේතය', 'වර්ගය (type)', 'දිනය සහ වේලාව'
         ]);
 
-        if (entries.data && entries.data.length > 0) {
-            entries.data.forEach(entry => {
-                excelData.push([
-                    entry.code,
-                    entry.item_name,
-                    entry.weight,
-                    Number(entry.price_per_kg).toFixed(2),
-                    entry.packs,
-                    Number(entry.total).toFixed(2),
-                    entry.bill_no,
-                    entry.customer_code?.toUpperCase() || '-',
-                    getTypeDisplay(entry.type),
-                    entry.type === 'original' ? formatDate(entry.original_created_at, true) : formatDate(entry.Date)
-                ]);
-            });
-        }
+        data.entries.data.forEach(entry => {
+            excelData.push([
+                entry.code,
+                entry.item_name,
+                entry.weight,
+                Number(entry.price_per_kg).toFixed(2),
+                entry.packs,
+                Number(entry.total).toFixed(2),
+                entry.bill_no,
+                entry.customer_code?.toUpperCase() || '-',
+                getTypeDisplay(entry.type),
+                entry.type === 'original' ? formatDate(entry.original_created_at, true) : formatDate(entry.Date)
+            ]);
+        });
 
         const ws = XLSX.utils.aoa_to_sheet(excelData);
         const wb = XLSX.utils.book_new();
@@ -127,6 +162,33 @@ const SalesAdjustmentReportView = ({ reportData, onClose }) => {
     };
 
     const handleQuickPrint = () => window.print();
+
+    if (loading) {
+        return (
+            <div className="card shadow-sm border-0 rounded-3 p-4" style={{ backgroundColor: '#f0f4f8' }}>
+                <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <div style={{ fontSize: '48px', marginBottom: '20px' }}>📊</div>
+                    <h4 style={{ color: '#4b5563' }}>Loading report data...</h4>
+                    <p style={{ color: '#6b7280' }}>Please wait while we prepare your report.</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!data || !data.entries) {
+        return (
+            <div className="card shadow-sm border-0 rounded-3 p-4" style={{ backgroundColor: '#f0f4f8' }}>
+                <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <div style={{ fontSize: '48px', marginBottom: '20px' }}>📭</div>
+                    <h4 style={{ color: '#4b5563' }}>No report data available</h4>
+                    <p style={{ color: '#6b7280' }}>Please try generating the report again.</p>
+                    <button onClick={onClose} className="btn btn-primary">Close</button>
+                </div>
+            </div>
+        );
+    }
+
+    const { entries, filters } = data;
 
     return (
         <div ref={printRef} className="card shadow-sm border-0 rounded-3 p-4" style={{ backgroundColor: '#f0f4f8' }}>
@@ -147,15 +209,34 @@ const SalesAdjustmentReportView = ({ reportData, onClose }) => {
                 <p style={{ fontSize: '0.9rem', margin: 0 }}>{reportDate}</p>
             </div>
 
-            {/* Filters */}
-            {(filters.code || filters.start_date || filters.end_date) && (
+            {/* Filters - Updated to show customer_code */}
+            {(filters?.customer_code || filters?.start_date || filters?.end_date || filters?.show_deleted) && (
                 <div className="meta-info" style={{ marginBottom:'15px', fontSize:'0.95rem' }}>
-                    {filters.code && <span><strong>කේතය:</strong> {filters.code}</span>}
+                    {filters.customer_code && (
+                        <span>
+                            <strong>🔍 පාරිභෝගික කේතය:</strong> 
+                            <span style={{ 
+                                backgroundColor: '#2563eb', 
+                                color: 'white', 
+                                padding: '2px 10px', 
+                                borderRadius: '12px',
+                                marginLeft: '5px',
+                                fontWeight: 'bold'
+                            }}>
+                                {filters.customer_code}
+                            </span>
+                        </span>
+                    )}
                     {(filters.start_date || filters.end_date) && (
                         <span className="ms-3">
-                            <strong>දිනයන්:</strong>
+                            <strong>📅 දිනයන්:</strong>
                             {filters.start_date && ` ${filters.start_date}`}
                             {filters.end_date && ` සිට ${filters.end_date} දක්වා`}
+                        </span>
+                    )}
+                    {filters.show_deleted && (
+                        <span className="ms-3" style={{ color: '#dc3545' }}>
+                            <strong>🗑️ මකා දැමූ වාර්තා පමණක්</strong>
                         </span>
                     )}
                 </div>
@@ -209,7 +290,9 @@ const SalesAdjustmentReportView = ({ reportData, onClose }) => {
                                     <td style={entry.type==='updated'?{color:'orange', fontWeight:'bold'}:{}}>{entry.packs}</td>
                                     <td style={entry.type==='updated'?{color:'orange', fontWeight:'bold'}:{}}>{Number(entry.total).toFixed(2)}</td>
                                     <td>{entry.bill_no}</td>
-                                    <td>{entry.customer_code?.toUpperCase()}</td>
+                                    <td style={{ fontWeight: 'bold', color: '#2563eb' }}>
+                                        {entry.customer_code?.toUpperCase() || '-'}
+                                    </td>
                                     <td style={{color:getTypeColor(entry.type), fontWeight:'bold'}}>{getTypeDisplay(entry.type)}</td>
                                     <td>{entry.type==='original'?formatDate(entry.original_created_at,true):formatDate(entry.Date)}</td>
                                 </tr>

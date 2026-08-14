@@ -23,13 +23,68 @@ const routes = {
 // stuck waiting forever during an all-day session.
 const API_TIMEOUT_MS = 15000;
 // POS submit must fail/recover fast — operators press Enter hundreds of times a day.
-const SUBMIT_TIMEOUT_MS = 8000;
+const SUBMIT_TIMEOUT_MS = 20000;
 // Only ignore key-repeat / accidental double-tap (same physical Enter bounce).
 // Must stay short — same item entered twice in a row is a normal POS pattern.
 const SUBMIT_DEDUP_MS = 180;
-// Print dialog / popup can hang; unlock UI well before an all-day session feels frozen.
-const PRINT_LOCK_MAX_MS = 30000;
+// Only debounce accidental double-F1 taps. Never block a later intentional F1 press.
+const PRINT_LOCK_MAX_MS = 400;
+// Hard ceiling for "waiting on markPrinted" — after this, F1 must work again.
+const PRINT_AWAIT_MAX_MS = 6000;
+// Print dialog opens immediately. Background markPrinted waits this long for POSTs to yield real ids.
+const PRINT_SAVE_WAIT_MS = 120;
+const PRINT_SAVE_POLL_MS = 20;
+const MARK_IDS_WAIT_MS = 8000;
+const MARK_IDS_POLL_MS = 40;
+// Module-level F1 entry so remount gaps never leave F1 unbound mid-day.
+let latestSalesEntryF1Handler = null;
+// Sidebar / lock watchdog tick for all-day sessions without refresh.
+const POS_WATCHDOG_MS = 2000;
+const SIDEBAR_POLL_MS = 750;
+// Prefer just-submitted local rows over a stale GET for this window.
+const RECENT_SALE_TRUST_MS = 8000;
+// After F1 print, block these sale ids from reappearing in the middle unprinted table.
+const PRINTED_ID_BLOCK_MS = 120000;
 const sameSaleId = (a, b) => a != null && b != null && String(a) === String(b);
+const isDeletedSaleId = (deletedSet, id) => {
+    if (id == null || !deletedSet) return false;
+    return deletedSet.has(id) || deletedSet.has(String(id));
+};
+const isTempOrOptimisticSale = (sale) =>
+    !!(sale?._optimistic || String(sale?.id || '').startsWith('tmp-'));
+// Collapse tmp + real copies of the same physical line (stops duplicate rows).
+const saleContentKey = (s) => {
+    if (!s) return '';
+    return [
+        String(s.customer_code || '').trim().toUpperCase(),
+        String(s.supplier_code || '').trim().toUpperCase(),
+        String(s.item_code || ''),
+        String(parseFloat(s.weight) || 0),
+        String(parseFloat(s.packs) || 0),
+        String(parseFloat(s.price_per_kg) || 0),
+        String(s.bill_no || ''),
+    ].join('|');
+};
+const enteredAtOf = (sale) => {
+    if (!sale) return 0;
+    if (sale._enteredAt) return Number(sale._enteredAt) || 0;
+    const idStr = String(sale.id || '');
+    if (idStr.startsWith('tmp-')) {
+        const ts = parseInt(idStr.split('-')[1], 10);
+        if (!Number.isNaN(ts)) return ts;
+    }
+    const ts = new Date(sale.created_at || sale.timestamp || sale.date || 0).getTime();
+    return Number.isNaN(ts) ? 0 : ts;
+};
+const withEnteredAt = (sale, fallback) => {
+    if (!sale) return sale;
+    const fromFallback = fallback && typeof fallback === 'object' ? fallback : null;
+    return {
+        ...sale,
+        _enteredAt: sale._enteredAt || fromFallback?._enteredAt || enteredAtOf(sale) || Date.now(),
+        _entrySeq: sale._entrySeq ?? fromFallback?._entrySeq ?? 0,
+    };
+};
 
 // Hidden iframe printer: opens ONLY the system print dialog (no blank popup window).
 const PRINT_FRAME_ID = 'touromni-pos-print-frame';
@@ -44,22 +99,36 @@ const getPrintFrame = () => {
     }
     return iframe;
 };
+// Opens ONLY the browser/OS print dialog via a hidden iframe — no preview popup/window.
+// Recreate the iframe often — reused iframes stop showing the dialog after many all-day prints.
 const writeAndPrintBill = (fullHtmlDocument) => {
-    const iframe = getPrintFrame();
-    const win = iframe.contentWindow;
-    const doc = win?.document;
-    if (!win || !doc) return false;
-    doc.open();
-    doc.write(fullHtmlDocument);
-    doc.close();
-    // Print in the same user-gesture turn whenever possible so the dialog
-    // opens with content already in the document (no white flash).
-    try {
+    const tryPrint = (forceNew) => {
+        if (forceNew) {
+            const old = document.getElementById(PRINT_FRAME_ID);
+            if (old) {
+                try { old.remove(); } catch (_) { /* ignore */ }
+            }
+        }
+        const iframe = getPrintFrame();
+        const win = iframe?.contentWindow;
+        const doc = win?.document;
+        if (!win || !doc) return false;
+        doc.open();
+        doc.write(fullHtmlDocument);
+        doc.close();
         win.focus();
         win.print();
+        try { window.focus(); } catch (_) { /* ignore */ }
         return true;
+    };
+    try {
+        return tryPrint(true);
     } catch (_) {
-        return false;
+        try {
+            return tryPrint(true);
+        } catch (_) {
+            return false;
+        }
     }
 };
 const buildPrintDocumentShell = (title, receiptHtml) =>
@@ -77,6 +146,19 @@ const buildSalesSignature = (sales) => {
         sig += `|${s.id ?? ''}:${s.weight ?? ''}:${s.price_per_kg ?? ''}:${s.packs ?? ''}:${s.bill_printed ?? ''}:${s.given_amount ?? ''}:${s.updated_at ?? s.timestamp ?? ''}`;
     }
     return sig;
+};
+
+// Sidebar list identity only — ignore weight/price noise so printed/unprinted lists do not flicker.
+const buildSidebarListSignature = (sales) => {
+    if (!Array.isArray(sales) || sales.length === 0) return '0';
+    const parts = [];
+    for (let i = 0; i < sales.length; i++) {
+        const s = sales[i];
+        if (!s?.id) continue;
+        parts.push(`${s.id}:${String(s.customer_code || '').toUpperCase()}:${String(s.bill_printed ?? '').trim().toUpperCase()}:${s.bill_no || ''}`);
+    }
+    parts.sort();
+    return `${parts.length}|${parts.join('|')}`;
 };
 
 // Hoisted formatter: creating Intl.NumberFormat per call is expensive inside render loops.
@@ -618,7 +700,14 @@ const CustomerList = React.memo(({ type, searchQuery, onSearchChange, selectedPr
                             return (
                                 <li key={type === "printed" ? `${item.customerCode}-${item.billNo}` : item.customerCode} className="flex">
                                     <button
-                                        onClick={() => handleCustomerClick(type, customerCode, item.billNo || null, billSales)}
+                                        type="button"
+                                        onMouseDown={(e) => {
+                                            // Only real primary clicks — ignore keyboard/synthetic activation.
+                                            if (e.button != null && e.button !== 0) return;
+                                            e.preventDefault();
+                                            handleCustomerClick(type, customerCode, item.billNo || null, billSales, e);
+                                        }}
+                                        onClick={(e) => { e.preventDefault(); }}
                                         className={`py-1 mb-2 rounded-xl border ${isItemSelected ? "border-blue-600" : "bg-gray-50 hover:bg-gray-100 border-gray-200"}`}
                                         style={isItemSelected ? { backgroundColor: '#93C5FD', paddingLeft: '05px', width: '280px', textAlign: 'left', fontSize: '12px' } : { paddingLeft: '1px', width: '280px', textAlign: 'left', fontSize: '12px' }}
                                     >
@@ -792,23 +881,49 @@ export default function SalesEntry() {
     const submitGenerationRef = useRef(0);
     // Each packs-Enter gets its own controller — concurrent lines must never abort each other.
     const pendingSubmitsRef = useRef(new Map());
+    const pendingSubmitStartedAtRef = useRef(new Map());
     const refreshInFlightRef = useRef(false);
     const pendingForceRefreshRef = useRef(false);
     const lastRefreshAtRef = useRef(0);
     const recentSubmittedSalesRef = useRef(new Map());
     // Overlay rows for the sales table — refresh/poll must never wipe these.
     const localTableSalesRef = useRef(new Map());
+    // tmp-* → real id (and reverse) so rapid POST confirm never blanks a painted row.
+    const tempToRealIdRef = useRef(new Map());
+    const realToTempIdRef = useRef(new Map());
+    // Stable React row keys across optimistic → confirmed id swaps (stops remount flicker).
+    const stableRowKeyRef = useRef(new Map());
+    // Sticky center-table rows: once painted for a customer, never drop until delete/print.
+    // This is the hard guard against disappear → reappear during rapid packs-Enter.
+    const stickyTableSalesRef = useRef(new Map());
+    // Every packs-Enter / confirmed row for the ACTIVE customer bill (id → sale).
+    // Content-similar lines must NOT collapse — operators often enter the same item/weight repeatedly.
+    const pinnedBillSalesRef = useRef(new Map());
+    // saleId -> printedAt — stops just-printed rows from repopulating the middle on next bill.
+    const recentlyPrintedIdsRef = useRef(new Map());
     const deletedSaleIdsRef = useRef(new Set());
     // Last customer code used to scope the sales table. Survives brief formData
     // flicker when react-select remounts/re-renders on item Enter.
     const tableCustomerScopeRef = useRef('');
+    // Middle panel may show a bill ONLY after an explicit user action
+    // (sidebar click / typing customer code / customer dropdown). Never from refresh/submit.
+    const middleBillArmedRef = useRef(false);
+    // What owns the middle table: 'typed' | 'unprinted' | 'printed' | null
+    // 'typed' = only rows entered in this session (never mix in backend unprinted leftovers).
+    const middleTableSourceRef = useRef(null);
+    // Ignore react-select onChange when packs-Enter / clear sets value programmatically.
+    const ignoreCustomerSelectRef = useRef(false);
     const refreshAbortRef = useRef(null);
     const initAbortRef = useRef(null);
     const loanAbortRef = useRef(null);
     const printInFlightRef = useRef(false);
     const printStartedAtRef = useRef(0);
+    const printAwaitingBillRef = useRef(false);
+    const lastF1AtRef = useRef(0);
     const givenAmountInFlightRef = useRef(false);
     const customerClickGenerationRef = useRef(0);
+    // Invalidates delayed post-print clears so they cannot wipe the next bill mid-entry.
+    const printClearGenerationRef = useRef(0);
     // Survives optimistic editingSaleId clear so a second Enter cannot POST a duplicate row.
     const editingSaleIdRef = useRef(null);
     const lastContentSubmitSigRef = useRef('');
@@ -817,6 +932,22 @@ export default function SalesEntry() {
     const activeIntervalsRef = useRef(new Set());
     const activeTimeoutsRef = useRef(new Set());
     const referenceRefreshStartedAtRef = useRef(0);
+    // Sync mirrors so F1 / + / print never wait a React render frame.
+    const selectedPrintedCustomerRef = useRef(null);
+    const printedBillClickRef = useRef(false);
+    const selectedUnprintedCustomerRef = useRef(null);
+    const allSalesRef = useRef([]);
+    const displayedSalesRef = useRef([]);
+    const sidebarSalesRef = useRef([]);
+    const formDataRef = useRef(initialFormData);
+    const billSizeRef = useRef('3inch');
+    const loanAmountRef = useRef(0);
+    const lastEnteredItemRef = useRef(null);
+    const ignoreRowEditUntilRef = useRef(0);
+    const sidebarRefreshInFlightRef = useRef(false);
+    const sidebarRefreshAbortRef = useRef(null);
+    const lastSidebarRefreshAtRef = useRef(0);
+    const lastSidebarSignatureRef = useRef('');
 
     // Blocks late/stale focus() calls that yank the cursor back to supplier
     // after the operator has already moved on to the item select (Enter).
@@ -894,8 +1025,9 @@ export default function SalesEntry() {
     }, []);
 
     const [state, setState] = useState({
-        allSales: [], localTableSales: [], selectedPrintedCustomer: null, selectedUnprintedCustomer: null, editingSaleId: null,
+        allSales: [], sidebarSales: [], localTableSales: [], selectedPrintedCustomer: null, selectedUnprintedCustomer: null, editingSaleId: null,
         searchQueries: { printed: "", unprinted: "", farmerPrinted: "", farmerUnprinted: "" }, errors: {}, loanAmount: 0, isManualClear: false,
+        middleBillArmed: false,
         isSubmitting: false, formData: initialFormData, packCost: 0, customerSearchInput: "", itemSearchInput: "",
         supplierSearchInput: "", currentBillNo: null, isLoading: false, customers: [], items: [], suppliers: [],
         isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
@@ -946,19 +1078,92 @@ export default function SalesEntry() {
         activeIntervalsRef.current.delete(id);
     }, []);
 
-    const { allSales, localTableSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId,
-        searchQueries, errors, loanAmount, isManualClear, formData, packCost, isLoading, customers,
+    const { allSales, sidebarSales, localTableSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId,
+        searchQueries, errors, loanAmount, isManualClear, middleBillArmed, formData, packCost, isLoading, customers,
         items, suppliers, isPrinting, billSize, gridPricePerKg, selectedSaleForBreakdown, currentUser,
         isAdminModalOpen, modalTitle, modalData, modalType } = state;
 
+    const markIdsRecentlyPrinted = useCallback((ids) => {
+        const at = Date.now();
+        (ids || []).forEach((id) => {
+            if (id == null) return;
+            const idStr = String(id);
+            recentlyPrintedIdsRef.current.set(idStr, at);
+            const mappedReal = tempToRealIdRef.current.get(idStr);
+            if (mappedReal != null) recentlyPrintedIdsRef.current.set(String(mappedReal), at);
+            const mappedTemp = realToTempIdRef.current.get(idStr);
+            if (mappedTemp != null) recentlyPrintedIdsRef.current.set(String(mappedTemp), at);
+        });
+    }, []);
+    const isRecentlyPrintedId = useCallback((id) => {
+        if (id == null) return false;
+        const idStr = String(id);
+        const at = recentlyPrintedIdsRef.current.get(idStr);
+        if (!at) return false;
+        if (Date.now() - at > PRINTED_ID_BLOCK_MS) {
+            recentlyPrintedIdsRef.current.delete(idStr);
+            return false;
+        }
+        return true;
+    }, []);
+
+    const armMiddleBill = useCallback(() => {
+        middleBillArmedRef.current = true;
+        updateState({ middleBillArmed: true, isManualClear: false });
+    }, [updateState]);
+
+    const disarmMiddleBill = useCallback(() => {
+        middleBillArmedRef.current = false;
+        middleTableSourceRef.current = null;
+        customerClickGenerationRef.current += 1; // cancel late sidebar-click async paints
+        tableCustomerScopeRef.current = '';
+        selectedPrintedCustomerRef.current = null;
+        selectedUnprintedCustomerRef.current = null;
+        pinnedBillSalesRef.current.clear();
+        updateState({
+            middleBillArmed: false,
+            isManualClear: true,
+            selectedPrintedCustomer: null,
+            selectedUnprintedCustomer: null,
+            currentBillNo: null,
+            customerProfilePic: null,
+            customerNameDisplay: "",
+            loanAmount: 0,
+        });
+    }, [updateState]);
+
+    const pinBillSale = useCallback((sale) => {
+        if (!sale?.id || isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return;
+        const idStr = String(sale.id);
+        const prev = pinnedBillSalesRef.current.get(idStr)
+            || stickyTableSalesRef.current.get(idStr)
+            || localTableSalesRef.current.get(idStr);
+        const next = withEnteredAt(sale, prev);
+        pinnedBillSalesRef.current.set(idStr, next);
+        stickyTableSalesRef.current.set(idStr, next);
+        localTableSalesRef.current.set(idStr, next);
+    }, []);
+
     const upsertLocalTableSale = useCallback((sale) => {
         if (!sale?.id) return;
-        localTableSalesRef.current.set(String(sale.id), sale);
+        const idStr = String(sale.id);
+        const prev = pinnedBillSalesRef.current.get(idStr)
+            || stickyTableSalesRef.current.get(idStr)
+            || localTableSalesRef.current.get(idStr);
+        const next = withEnteredAt(sale, prev);
+        localTableSalesRef.current.set(idStr, next);
+        if (!isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) {
+            stickyTableSalesRef.current.set(idStr, next);
+            pinnedBillSalesRef.current.set(idStr, next);
+        }
     }, []);
 
     const removeLocalTableSale = useCallback((id) => {
         if (id == null) return;
-        localTableSalesRef.current.delete(String(id));
+        const idStr = String(id);
+        localTableSalesRef.current.delete(idStr);
+        stickyTableSalesRef.current.delete(idStr);
+        pinnedBillSalesRef.current.delete(idStr);
     }, []);
 
     // --- Logic for Farmer Lists (Admin View) ---
@@ -1012,9 +1217,15 @@ export default function SalesEntry() {
         const normalizedStatus = (sale) => String(sale?.bill_printed ?? '').trim().toUpperCase();
         const isPrintedSale = (sale) => normalizedStatus(sale) === 'Y';
         const isPendingSale = (sale) => !isPrintedSale(sale);
-        const isTempSale = (sale) => !!(sale?._optimistic || String(sale?.id || '').startsWith('tmp-'));
 
-        // Customer-code INPUT is the source of truth for the table (never show all sales).
+        const hasPins = pinnedBillSalesRef.current.size > 0 || stickyTableSalesRef.current.size > 0;
+        // Never blank the table while pins exist (rapid Enter / refresh / one-frame unarmed).
+        // F1/F5 clear pins — that is the only full wipe.
+        if (!middleBillArmed && !middleBillArmedRef.current && !hasPins) {
+            return [];
+        }
+
+        const tableSource = middleTableSourceRef.current;
         const inputCustomer = normalizeCode(formData.customer_code);
         const sidebarUnprinted = normalizeCode(selectedUnprintedCustomer);
         let printedCustomer = '';
@@ -1029,76 +1240,276 @@ export default function SalesEntry() {
             }
         }
 
-        const activeCustomerCode = inputCustomer || sidebarUnprinted || printedCustomer
-            || (!isManualClear ? normalizeCode(tableCustomerScopeRef.current) : '');
-        if (inputCustomer || sidebarUnprinted || printedCustomer) {
+        const scopedFallback = normalizeCode(tableCustomerScopeRef.current);
+        let activeCustomerCode = inputCustomer || sidebarUnprinted || printedCustomer || scopedFallback;
+        if (!activeCustomerCode && hasPins) {
+            const firstPin = pinnedBillSalesRef.current.values().next().value
+                || stickyTableSalesRef.current.values().next().value;
+            activeCustomerCode = normalizeCode(firstPin?.customer_code);
+        }
+        if (activeCustomerCode) {
             tableCustomerScopeRef.current = activeCustomerCode;
         }
         if (!activeCustomerCode) return [];
 
-       const matchesScope = (s) => {
-    const sameCustomer = normalizeCode(s.customer_code) === activeCustomerCode;
-    if (!sameCustomer) return false;
+        // Printed view ONLY when the operator clicked a printed sidebar bill.
+        // Inferring it from leftover selectedPrintedCustomer (same customer code)
+        // was filtering out new Enter rows (no bill_no) and emptying the table.
+        const isPrintedView = tableSource === 'printed';
+        const isTypedEntryView = !isPrintedView && tableSource !== 'unprinted';
 
-    // When a printed bill is explicitly selected from the sidebar
-    if (printedBillNo && printedCustomer && printedCustomer === activeCustomerCode) {
-        const saleBillNo = String(s.bill_no ?? '').trim();
-        // Ensure the bill_no is NOT empty and matches the selected bill_no exactly
-        const sameBill = saleBillNo !== '' && saleBillNo === printedBillNo;
-        return sameBill;
-    }
+        const isRowDeleted = (id) => {
+            if (id == null) return true;
+            if (isDeletedSaleId(deletedSaleIdsRef.current, id)) return true;
+            const idStr = String(id);
+            const mappedReal = tempToRealIdRef.current.get(idStr);
+            const mappedTemp = realToTempIdRef.current.get(idStr);
+            if (mappedReal != null && isDeletedSaleId(deletedSaleIdsRef.current, mappedReal)) return true;
+            if (mappedTemp != null && isDeletedSaleId(deletedSaleIdsRef.current, mappedTemp)) return true;
+            return false;
+        };
 
-    return isPendingSale(s);
-};
+        const isPinnedId = (id) => {
+            if (id == null) return false;
+            const idStr = String(id);
+            return pinnedBillSalesRef.current.has(idStr) || stickyTableSalesRef.current.has(idStr);
+        };
 
-        // Local overlay first — survives refresh races. Then allSales.
-        // Dedupe by id ONLY. Never collapse by product line — same item/weight
-        // entered twice in a row is normal POS behavior and must both stay visible.
-        const candidates = [
-            ...(localTableSales || []).filter(matchesScope),
-            ...(allSales || []).filter(matchesScope),
-        ];
+        const matchesScope = (s) => {
+            if (!s?.id || isRowDeleted(s.id)) return false;
+            const sameCustomer = normalizeCode(s.customer_code) === activeCustomerCode;
+            if (!sameCustomer) return false;
+
+            // Printed sidebar bill — exact bill_no only.
+            if (isPrintedView) {
+                const saleBillNo = String(s.bill_no ?? '').trim();
+                return saleBillNo !== '' && saleBillNo === printedBillNo;
+            }
+
+            const idStr = String(s.id);
+            // After F1 only — drop just-printed ids.
+            if (isRecentlyPrintedId(s.id) || isRecentlyPrintedId(idStr)) return false;
+
+            // Never drop a tmp here. tmp + real share one stable slot below so the
+            // line cannot vanish for a frame while the POST id swap happens.
+
+            // Typed new-bill entry: ONLY pinned/sticky/local rows the operator entered.
+            if (isTypedEntryView) {
+                return isPinnedId(s.id) || isPinnedId(idStr)
+                    || localTableSalesRef.current.has(idStr)
+                    || !!(s._optimistic || String(s.id).startsWith('tmp-'));
+            }
+
+            // Pinned/sticky rows for this customer stay until F1 / F5 / customer change / delete.
+            if (isPinnedId(s.id) || isPinnedId(idStr)) return true;
+
+            // Unprinted sidebar selection: include live unprinted backend rows for that customer.
+            if (!isPendingSale(s)) return false;
+            const livePrinted = (allSales || []).find((x) => String(x?.id) === idStr && isPrintedSale(x))
+                || (sidebarSales || []).find((x) => String(x?.id) === idStr && isPrintedSale(x));
+            if (livePrinted) return false;
+            return true;
+        };
+
+        // Soft-prune sticky/pins: wrong customer, deleted, or F1-printed — never refresh blinks.
+        const shouldDropPinned = (sale, idStr) => {
+            if (isRowDeleted(idStr) || isRowDeleted(sale?.id)) return true;
+            if (!sale?.id) return true;
+            if (!activeCustomerCode) return false;
+            if (normalizeCode(sale.customer_code) !== activeCustomerCode) return true;
+            if (isPrintedView) {
+                const saleBillNo = String(sale.bill_no ?? '').trim();
+                return !saleBillNo || saleBillNo !== printedBillNo;
+            }
+            return isRecentlyPrintedId(idStr) || isRecentlyPrintedId(sale?.id);
+        };
+        stickyTableSalesRef.current.forEach((sale, idStr) => {
+            if (shouldDropPinned(sale, idStr)) stickyTableSalesRef.current.delete(idStr);
+        });
+        pinnedBillSalesRef.current.forEach((sale, idStr) => {
+            if (shouldDropPinned(sale, idStr)) pinnedBillSalesRef.current.delete(idStr);
+        });
+
+        // Local overlay + refs first — React state can lag one frame behind packs-Enter / POST.
+        const candidates = [];
+        const pushCandidate = (sale) => {
+            if (!sale?.id || isRowDeleted(sale.id)) return;
+            if (!matchesScope(sale)) return;
+            candidates.push(sale);
+        };
+        // Pinned bill rows ALWAYS contribute (every packs-Enter line for this customer).
+        pinnedBillSalesRef.current.forEach((sale) => pushCandidate(sale));
+        stickyTableSalesRef.current.forEach((sale) => pushCandidate(sale));
+        (localTableSales || []).forEach(pushCandidate);
+        localTableSalesRef.current.forEach((sale) => pushCandidate(sale));
+        recentSubmittedSalesRef.current.forEach((entry) => {
+            if (entry?.sale && (Date.now() - (entry.at || 0)) < RECENT_SALE_TRUST_MS) {
+                pushCandidate(entry.sale);
+            }
+        });
+        // Middle table is pin/local overlay only until F1/F5.
+        // Never merge GET/sidebar into the bill — that is what made rows vanish mid-Enter.
+
+        const slotKeyFor = (id) => {
+            if (id == null) return '';
+            const idStr = String(id);
+            return stableRowKeyRef.current.get(idStr) || idStr;
+        };
+        const putRow = (sale) => {
+            if (!sale?.id || isRowDeleted(sale.id)) return;
+            const key = slotKeyFor(sale.id);
+            if (!key) return;
+            const incoming = withEnteredAt(sale);
+            const prev = byId.get(key);
+            if (!prev) {
+                byId.set(key, incoming);
+                return;
+            }
+            // Same physical line (tmp + real): merge in place — never remove then re-add.
+            byId.set(key, {
+                ...prev,
+                ...incoming,
+                _enteredAt: prev._enteredAt || incoming._enteredAt,
+                _entrySeq: prev._entrySeq ?? incoming._entrySeq,
+                _pendingRealId: incoming._pendingRealId
+                    || prev._pendingRealId
+                    || (!String(incoming.id).startsWith('tmp-') ? incoming.id : null),
+            });
+        };
 
         const byId = new Map();
         candidates.forEach((sale) => {
-            if (!sale?.id) return;
-            const key = String(sale.id);
-            if (!byId.has(key)) byId.set(key, sale);
+            if (!sale?.id || isRowDeleted(sale.id)) return;
+            const pinned = pinnedBillSalesRef.current.get(String(sale.id))
+                || stickyTableSalesRef.current.get(String(sale.id));
+            const recent = recentSubmittedSalesRef.current.get(String(sale.id))
+                || recentSubmittedSalesRef.current.get(sale.id);
+            if (recent?.sale && (Date.now() - recent.at) < RECENT_SALE_TRUST_MS) {
+                if (isRowDeleted(recent.sale.id)) return;
+                const base = pinned || sale;
+                const mergedRecent = withEnteredAt({
+                    ...base,
+                    ...recent.sale,
+                    customer_code: recent.sale.customer_code || base.customer_code,
+                    bill_printed: recent.sale.bill_printed ?? base.bill_printed ?? 'N',
+                    bill_no: recent.sale.bill_no ?? base.bill_no,
+                    item_name: recent.sale.item_name || base.item_name,
+                    ...(isPrintedView ? {} : { bill_printed: 'N' }),
+                }, base);
+                if (matchesScope(mergedRecent)) putRow(mergedRecent);
+                return;
+            }
+            if (pinned && matchesScope(pinned)) {
+                putRow({ ...pinned, bill_printed: isPrintedView ? pinned.bill_printed : 'N' });
+                return;
+            }
+            putRow(sale);
         });
 
-       const rows = Array.from(byId.values()).sort((a, b) => {
-    const aTmp = isTempSale(a) ? 0 : 1;
-    const bTmp = isTempSale(b) ? 0 : 1;
-    if (aTmp !== bTmp) return aTmp - bTmp;
-    
-    // Sort by created_at first (most reliable)
-    const aTime = a.created_at || a.updated_at || a.timestamp || a.date || 0;
-    const bTime = b.created_at || b.updated_at || b.timestamp || b.date || 0;
-    
-    // If both have timestamps, compare them
-    if (aTime && bTime) {
-        return new Date(bTime) - new Date(aTime);
-    }
-    
-    // Fallback to numeric ID comparison (parse as number)
-    const aId = parseInt(a.id, 10);
-    const bId = parseInt(b.id, 10);
-    if (!isNaN(aId) && !isNaN(bId)) {
-        return bId - aId;
-    }
-    
-    // Last resort: string comparison
-    return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
-});
-        return rows;
-    }, [allSales, localTableSales, selectedUnprintedCustomer, selectedPrintedCustomer, formData.customer_code, isManualClear]);
+        // Collapse mapped tmp + real into ONE stable slot (never delete-then-add).
+        tempToRealIdRef.current.forEach((realId, tempId) => {
+            const tKey = String(tempId);
+            const rKey = String(realId);
+            const sKey = slotKeyFor(tKey) || slotKeyFor(rKey) || tKey;
+            if (isRowDeleted(tKey) || isRowDeleted(rKey)) {
+                byId.delete(tKey);
+                byId.delete(rKey);
+                byId.delete(sKey);
+                stickyTableSalesRef.current.delete(tKey);
+                pinnedBillSalesRef.current.delete(tKey);
+                if (isRowDeleted(rKey)) {
+                    stickyTableSalesRef.current.delete(rKey);
+                    pinnedBillSalesRef.current.delete(rKey);
+                }
+                return;
+            }
+            const keep = byId.get(sKey) || byId.get(tKey) || byId.get(rKey);
+            const realSale = recentSubmittedSalesRef.current.get(rKey)?.sale
+                || stickyTableSalesRef.current.get(rKey)
+                || pinnedBillSalesRef.current.get(rKey)
+                || byId.get(rKey);
+            if (keep && realSale && rKey !== sKey) {
+                putRow(withEnteredAt({
+                    ...keep,
+                    ...realSale,
+                    bill_printed: isPrintedView ? realSale.bill_printed : 'N',
+                }, keep));
+                byId.delete(rKey);
+            } else if (keep) {
+                putRow(keep);
+            }
+        });
 
-    const autoCustomerCode = useMemo(() => displayedSales.length > 0 && !isManualClear ? displayedSales[0].customer_code || "" : "", [displayedSales, isManualClear]);
+        // Hard stick: re-add every surviving pin into its stable slot (never a second row).
+        const rePin = (sale, idStr) => {
+            if (shouldDropPinned(sale, idStr)) {
+                stickyTableSalesRef.current.delete(idStr);
+                pinnedBillSalesRef.current.delete(idStr);
+                byId.delete(slotKeyFor(idStr));
+                byId.delete(idStr);
+                return;
+            }
+            putRow(isPrintedView ? sale : { ...sale, bill_printed: sale.bill_printed || 'N' });
+        };
+        stickyTableSalesRef.current.forEach(rePin);
+        pinnedBillSalesRef.current.forEach(rePin);
+
+        const sortNewestFirst = (a, b) => {
+            const byTime = enteredAtOf(b) - enteredAtOf(a);
+            if (byTime !== 0) return byTime;
+            return (Number(b._entrySeq) || 0) - (Number(a._entrySeq) || 0);
+        };
+        const rows = Array.from(byId.values()).sort(sortNewestFirst);
+        // Pin floor: never paint an empty table while this bill still has pinned lines.
+        if (rows.length === 0 && hasPins && activeCustomerCode) {
+            const pinRows = [];
+            pinnedBillSalesRef.current.forEach((sale) => {
+                if (!sale?.id || isRowDeleted(sale.id)) return;
+                if (normalizeCode(sale.customer_code) !== activeCustomerCode) return;
+                pinRows.push(withEnteredAt(isPrintedView ? sale : { ...sale, bill_printed: sale.bill_printed || 'N' }));
+            });
+            if (pinRows.length > 0) return pinRows.sort(sortNewestFirst);
+        }
+        return rows;
+    }, [localTableSales, selectedUnprintedCustomer, selectedPrintedCustomer, formData.customer_code, middleBillArmed]);
+
+  const autoCustomerCode = useMemo(() => {
+    if (!middleBillArmed || isManualClear) return "";
+
+    // STRICT: Never pull customer code into entry inputs from printed bills/sources
+    if (middleTableSourceRef.current === 'printed' || selectedPrintedCustomer || selectedPrintedCustomerRef.current) {
+        return "";
+    }
+
+    if (selectedUnprintedCustomer && middleTableSourceRef.current === 'unprinted') {
+        return String(selectedUnprintedCustomer).trim().toUpperCase();
+    }
+
+    return String(formData.customer_code || '').trim().toUpperCase();
+}, [middleBillArmed, isManualClear, selectedPrintedCustomer, selectedUnprintedCustomer, formData.customer_code]);
     const currentBillNo = useMemo(() => {
+        // Bill number only when user explicitly clicked a printed sidebar bill.
+        if (!middleBillArmed || middleTableSourceRef.current !== 'printed') return "";
         if (selectedPrintedCustomer && selectedPrintedCustomer.includes('-')) return selectedPrintedCustomer.split('-')[1] || "N/A";
         if (selectedPrintedCustomer) return printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no || "N/A";
         return "";
-    }, [selectedPrintedCustomer, printedSales]);
+    }, [middleBillArmed, selectedPrintedCustomer, printedSales]);
+
+    // Keep imperative mirrors current every render (F1/+ must not wait for effects).
+    selectedPrintedCustomerRef.current = selectedPrintedCustomer;
+    selectedUnprintedCustomerRef.current = selectedUnprintedCustomer;
+    allSalesRef.current = allSales || [];
+    if ((displayedSales || []).length > 0) {
+        displayedSalesRef.current = displayedSales;
+    } else if (pinnedBillSalesRef.current.size > 0 && (middleBillArmed || middleBillArmedRef.current)) {
+        displayedSalesRef.current = Array.from(pinnedBillSalesRef.current.values());
+    } else {
+        displayedSalesRef.current = displayedSales || [];
+    }
+    sidebarSalesRef.current = sidebarSales || [];
+    formDataRef.current = formData || initialFormData;
+    billSizeRef.current = billSize || '3inch';
+    loanAmountRef.current = parseFloat(loanAmount) || 0;
 
     useEffect(() => {
         isMountedRef.current = true;
@@ -1106,6 +1517,7 @@ export default function SalesEntry() {
         try { getPrintFrame(); } catch (_) { /* ignore */ }
         return () => {
             if (refreshAbortRef.current) refreshAbortRef.current.abort();
+            if (sidebarRefreshAbortRef.current) sidebarRefreshAbortRef.current.abort();
             if (initAbortRef.current) initAbortRef.current.abort();
             if (loanAbortRef.current) loanAbortRef.current.abort();
             pendingSubmitsRef.current.forEach((controller) => {
@@ -1121,78 +1533,59 @@ export default function SalesEntry() {
             isMountedRef.current = false;
         };
     }, []);
-    // Add this useEffect after the existing keyboard shortcut useEffect
+    // F6: clear middle bill selection completely (single handler — duplicate was re-arming ghosts).
     useEffect(() => {
         const handleF6Clear = (e) => {
-            if (e.key === "F6") {
-                e.preventDefault();
+            if (e.key !== "F6") return;
+            e.preventDefault();
 
-                // Clear all form data
-                setFormData({
-                    ...initialFormData,
-                    telephone_no: "",
-                    customer_code: "",
-                    customer_name: "",
-                    supplier_code: "",
-                    item_code: "",
-                    item_name: "",
-                    weight: "",
-                    price_per_kg: "",
-                    pack_due: "",
-                    total: "",
-                    packs: "",
-                    given_amount: ""
-                });
+            middleBillArmedRef.current = false;
+            middleTableSourceRef.current = null;
+            customerClickGenerationRef.current += 1;
+            tableCustomerScopeRef.current = '';
+            selectedPrintedCustomerRef.current = null;
+            printedBillClickRef.current = false;
+            selectedUnprintedCustomerRef.current = null;
 
-                // CRITICAL: Clear selected printed and unprinted customers
-                tableCustomerScopeRef.current = '';
-                updateState({
-                    editingSaleId: null,
-                    isManualClear: false,
-                    priceManuallyChanged: false,
-                    gridPricePerKg: "",
-                    selectedSaleForBreakdown: null,
-                    isGivenAmountManuallyTouched: false,
-                    // Clear sidebar selections
-                    selectedPrintedCustomer: null,
-                    selectedUnprintedCustomer: null,
-                    currentBillNo: null,
-                    // Clear search queries if needed
-                    searchQueries: {
-                        printed: "",
-                        unprinted: "",
-                        farmerPrinted: "",
-                        farmerUnprinted: ""
-                    },
-                    // Clear loan amount
-                    loanAmount: 0,
-                    // Clear any errors
-                    errors: {},
-                    // Clear customer/supplier profile pics
-                    customerProfilePic: null,
-                    supplierProfilePic: null,
-                    customerNameDisplay: "",
-                    supplierNameDisplay: ""
-                });
+            setFormData({ ...initialFormData });
 
-                // Clear the loan cache for this customer
-                loanCacheRef.current.clear();
+            updateState({
+                editingSaleId: null,
+                isManualClear: true,
+                middleBillArmed: false,
+                priceManuallyChanged: false,
+                gridPricePerKg: "",
+                selectedSaleForBreakdown: null,
+                isGivenAmountManuallyTouched: false,
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                currentBillNo: null,
+                searchQueries: {
+                    printed: "",
+                    unprinted: "",
+                    farmerPrinted: "",
+                    farmerUnprinted: ""
+                },
+                loanAmount: 0,
+                errors: {},
+                customerProfilePic: null,
+                supplierProfilePic: null,
+                customerNameDisplay: "",
+                supplierNameDisplay: ""
+            });
 
-                // Focus on customer_code_input with a small delay to ensure state updates
-                setManagedTimeout(() => {
-                    if (refs.customer_code_input.current) {
-                        refs.customer_code_input.current.focus();
-                        refs.customer_code_input.current.select();
-                    }
-                }, 50);
-            }
+            loanCacheRef.current.clear();
+
+            setManagedTimeout(() => {
+                if (refs.customer_code_input.current) {
+                    refs.customer_code_input.current.focus();
+                    refs.customer_code_input.current.select();
+                }
+            }, 50);
         };
 
         window.addEventListener("keydown", handleF6Clear);
-
-        return () => {
-            window.removeEventListener("keydown", handleF6Clear);
-        };
+        return () => window.removeEventListener("keydown", handleF6Clear);
     }, [setFormData, updateState, setManagedTimeout, refs]);
 
     // Clear loan cache after long inactivity to avoid stale/accumulated entries in all-day sessions.
@@ -1221,66 +1614,132 @@ export default function SalesEntry() {
             clearManagedInterval(inactivityInterval);
         };
     }, [setManagedInterval, clearManagedInterval]);
-    // Add this useEffect after the existing keyboard shortcut useEffect
-    useEffect(() => {
-        const handleF6Clear = (e) => {
-            if (e.key === "F6") {
-                e.preventDefault();
-
-                // Clear all form data
-                setFormData({
-                    ...initialFormData,
-                    // Preserve telephone number if you want, or clear it too
-                    telephone_no: "",
-                    customer_code: "",
-                    customer_name: "",
-                    supplier_code: "",
-                    item_code: "",
-                    item_name: "",
-                    weight: "",
-                    price_per_kg: "",
-                    pack_due: "",
-                    total: "",
-                    packs: "",
-                    given_amount: ""
-                });
-
-                // Reset other state variables
-                updateState({
-                    editingSaleId: null,
-                    isManualClear: false,
-                    priceManuallyChanged: false,
-                    gridPricePerKg: "",
-                    selectedSaleForBreakdown: null,
-                    isGivenAmountManuallyTouched: false,
-                    // Optionally clear sidebar selections
-                    // selectedPrintedCustomer: null,
-                    // selectedUnprintedCustomer: null,
-                    // currentBillNo: null
-                });
-
-                // Focus on customer_code_input with a small delay to ensure state updates
-                setManagedTimeout(() => {
-                    if (refs.customer_code_input.current) {
-                        refs.customer_code_input.current.focus();
-                        refs.customer_code_input.current.select();
-                    }
-                }, 50);
-            }
-        };
-
-        window.addEventListener("keydown", handleF6Clear);
-
-        return () => {
-            window.removeEventListener("keydown", handleF6Clear);
-        };
-    }, [setFormData, updateState, setManagedTimeout, refs]);
 
     const refreshStartedAtRef = useRef(0);
     const lastSalesSignatureRef = useRef('');
     // Last known non-temp sales count — used to reject empty/truncated GET payloads
     // that would wipe the table during rapid POS entry.
     const lastKnownSaleCountRef = useRef(0);
+
+    const normalizeBackendSalesForSidebar = useCallback((rawList) => {
+        if (!Array.isArray(rawList)) return null;
+        return rawList.filter((sale) => {
+            if (!sale || sale.id == null) return false;
+            if (isTempOrOptimisticSale(sale)) return false;
+            if (isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return false;
+            return true;
+        });
+    }, []);
+
+    const applySidebarSales = useCallback((rawList) => {
+        let next = normalizeBackendSalesForSidebar(rawList);
+        if (!next) return false;
+        // Empty payload guard — never wipe a populated sidebar from a bad GET.
+        if (next.length === 0 && (sidebarSalesRef.current || []).length > 0) {
+            return false;
+        }
+
+        const nowTs = Date.now();
+        const isBlockedPrinted = (id) => {
+            if (id == null) return false;
+            const at = recentlyPrintedIdsRef.current.get(String(id));
+            return !!(at && (nowTs - at) < PRINTED_ID_BLOCK_MS);
+        };
+
+        // Just-printed rows must stay Y so unprinted list does not bounce them back in.
+        next = next.map((s) => (
+            isBlockedPrinted(s?.id)
+                ? { ...s, bill_printed: 'Y', _optimistic: false }
+                : s
+        ));
+
+        // GET is the sidebar source of truth. Overlay only just-POSTed real ids
+        // that this response has not caught yet (never keep stale local sidebar rows).
+        const nextById = new Map(next.map((s) => [String(s.id), s]));
+        recentSubmittedSalesRef.current.forEach((entry, id) => {
+            const sale = entry?.sale;
+            if (!sale?.id || isTempOrOptimisticSale(sale)) return;
+            if (isDeletedSaleId(deletedSaleIdsRef.current, sale.id) || isDeletedSaleId(deletedSaleIdsRef.current, id)) return;
+            if (isBlockedPrinted(sale.id) || isBlockedPrinted(id)) return;
+            if (String(sale.bill_printed ?? '').trim().toUpperCase() === 'Y') return;
+            if ((nowTs - (entry.at || 0)) > RECENT_SALE_TRUST_MS) return;
+            const idStr = String(sale.id);
+            if (!nextById.has(idStr)) {
+                nextById.set(idStr, {
+                    ...sale,
+                    bill_printed: sale.bill_printed || 'N',
+                    _optimistic: false,
+                });
+            }
+        });
+        nextById.forEach((_, idStr) => {
+            if (isDeletedSaleId(deletedSaleIdsRef.current, idStr)) {
+                nextById.delete(idStr);
+                return;
+            }
+            const mappedReal = tempToRealIdRef.current.get(idStr);
+            const mappedTemp = realToTempIdRef.current.get(idStr);
+            if (
+                (mappedReal != null && isDeletedSaleId(deletedSaleIdsRef.current, mappedReal))
+                || (mappedTemp != null && isDeletedSaleId(deletedSaleIdsRef.current, mappedTemp))
+            ) {
+                nextById.delete(idStr);
+            }
+        });
+        next = Array.from(nextById.values());
+
+        const signature = buildSidebarListSignature(next);
+        if (signature === lastSidebarSignatureRef.current) return true;
+        lastSidebarSignatureRef.current = signature;
+        sidebarSalesRef.current = next;
+        if (isMountedRef.current) {
+            setState((prev) => (
+                prev.sidebarSales === next ? prev : { ...prev, sidebarSales: next }
+            ));
+        }
+        return true;
+    }, [normalizeBackendSalesForSidebar]);
+
+    // Sidebars must stay on live backend sales even while the main table is mid-submit.
+    const refreshSidebarSales = useCallback(async (force = false) => {
+        if (!isMountedRef.current) return;
+        const now = Date.now();
+        if (!force && now - lastSidebarRefreshAtRef.current < 800) return;
+        if (sidebarRefreshInFlightRef.current) {
+            // Never abort a healthy in-flight sidebar GET. Aborting every poll under load
+            // prevented printed/unprinted lists from ever receiving fresh backend data.
+            if (now - lastSidebarRefreshAtRef.current < API_TIMEOUT_MS) return;
+            try { sidebarRefreshAbortRef.current?.abort(); } catch (_) { /* ignore */ }
+        }
+
+        if (sidebarRefreshAbortRef.current) {
+            try { sidebarRefreshAbortRef.current.abort(); } catch (_) { /* ignore */ }
+        }
+        const controller = new AbortController();
+        sidebarRefreshAbortRef.current = controller;
+        sidebarRefreshInFlightRef.current = true;
+        lastSidebarRefreshAtRef.current = now;
+
+        try {
+            const response = await api.get(routes.sales, {
+                signal: controller.signal,
+                timeout: API_TIMEOUT_MS,
+            });
+            if (!isMountedRef.current) return;
+            const salesData = response.data.data || response.data.sales || response.data || [];
+            applySidebarSales(salesData);
+        } catch (error) {
+            if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+                return;
+            }
+            console.error("Failed to refresh sidebar sales:", error);
+        } finally {
+            if (sidebarRefreshAbortRef.current === controller) {
+                sidebarRefreshAbortRef.current = null;
+            }
+            sidebarRefreshInFlightRef.current = false;
+        }
+    }, [applySidebarSales]);
 
     const refreshSalesData = useCallback(async (force = false) => {
         if (!isMountedRef.current) return;
@@ -1312,11 +1771,6 @@ export default function SalesEntry() {
         try {
             const response = await api.get(routes.sales, { signal: controller.signal, timeout: API_TIMEOUT_MS });
             if (!isMountedRef.current) return;
-            // A submit started while we were fetching — keep local overlay, retry later.
-            if (pendingSubmitsRef.current.size > 0) {
-                pendingForceRefreshRef.current = true;
-                return;
-            }
 
             const salesData = response.data.data || response.data.sales || response.data || [];
             const nowTs = Date.now();
@@ -1327,6 +1781,16 @@ export default function SalesEntry() {
                 return;
             }
             const rawList = salesData;
+
+            // Sidebars always take the latest backend snapshot (never blocked by submits).
+            applySidebarSales(rawList);
+
+            // A submit started while we were fetching — keep local overlay, retry later.
+            // Sidebar already updated above.
+            if (pendingSubmitsRef.current.size > 0) {
+                pendingForceRefreshRef.current = true;
+                return;
+            }
 
             // Empty GET while we already have rows = almost always a bad/partial response.
             // Keep UI as-is and retry; a true empty day starts with lastKnownSaleCountRef=0.
@@ -1341,12 +1805,11 @@ export default function SalesEntry() {
                 deletedSaleIdsRef.current = new Set(trimmed);
             }
 
+            // CRITICAL FIX: Filter out deleted records from server sales
             const serverSales = rawList.filter((sale) => {
                 const saleId = sale?.id;
                 if (saleId == null) return false;
-                if (deletedSaleIdsRef.current.has(saleId) || deletedSaleIdsRef.current.has(String(saleId))) {
-                    return false;
-                }
+                if (isDeletedSaleId(deletedSaleIdsRef.current, saleId)) return false;
                 return true;
             });
 
@@ -1359,11 +1822,25 @@ export default function SalesEntry() {
 
             const baseIds = new Set(serverSales.map((s) => s?.id).filter((id) => id != null).map(String));
 
+            // CRITICAL FIX: Remove deleted records from recentSubmittedSalesRef
+            const deletedIdsToRemove = [];
+            recentSubmittedSalesRef.current.forEach((entry, id) => {
+                if (deletedSaleIdsRef.current.has(id) || deletedSaleIdsRef.current.has(String(id))) {
+                    deletedIdsToRemove.push(id);
+                }
+            });
+            deletedIdsToRemove.forEach(id => recentSubmittedSalesRef.current.delete(id));
+
             // Keep just-submitted rows for a short window (covers stale GET after POST)
             recentSubmittedSalesRef.current.forEach((entry, id) => {
                 if (!entry || !id) return;
                 const ageMs = nowTs - entry.at;
                 if (ageMs > 60000) {
+                    recentSubmittedSalesRef.current.delete(id);
+                    return;
+                }
+                // CRITICAL FIX: Double-check this ID wasn't deleted
+                if (deletedSaleIdsRef.current.has(id) || deletedSaleIdsRef.current.has(String(id))) {
                     recentSubmittedSalesRef.current.delete(id);
                     return;
                 }
@@ -1377,35 +1854,90 @@ export default function SalesEntry() {
             lastRefreshAtRef.current = Date.now();
 
             setState((prev) => {
-                // Snapshot ref overlay FIRST so concurrent packs-Enter upserts are not lost
-                // when we later sync the ref (never clear()-wipe mid-flight rows).
+                // CRITICAL FIX: Filter deleted records from overlay
                 const overlayById = new Map();
                 (prev.localTableSales || []).forEach((sale) => {
-                    if (sale?.id != null) overlayById.set(String(sale.id), sale);
+                    if (sale?.id == null) return;
+                    const idStr = String(sale.id);
+                    // Skip if deleted
+                    if (deletedSaleIdsRef.current.has(sale.id) || deletedSaleIdsRef.current.has(idStr)) {
+                        return;
+                    }
+                    overlayById.set(idStr, sale);
                 });
+
+                // CRITICAL FIX: Also filter from localTableSalesRef
                 localTableSalesRef.current.forEach((sale, id) => {
+                    // Skip if this id is marked as deleted
+                    if (deletedSaleIdsRef.current.has(id) || deletedSaleIdsRef.current.has(String(id))) {
+                        localTableSalesRef.current.delete(id);
+                        return;
+                    }
                     if (!overlayById.has(id)) overlayById.set(id, sale);
                 });
 
                 const mergedById = new Map();
                 // Seed with ALL previous rows, then let the server overwrite.
-                // Replacing from GET alone was wiping the table when a stale/partial
-                // response arrived in the middle of rapid submits.
                 (prev.allSales || []).forEach((sale) => {
                     if (sale?.id == null) return;
                     const idStr = String(sale.id);
-                    if (deletedSaleIdsRef.current.has(sale.id) || deletedSaleIdsRef.current.has(idStr)) return;
+                    // Skip if deleted
+                    if (deletedSaleIdsRef.current.has(sale.id) || deletedSaleIdsRef.current.has(idStr)) {
+                        return;
+                    }
                     mergedById.set(idStr, sale);
                 });
-                // Server is authoritative for ids it returns.
+
+                // Server is authoritative UNLESS we have a fresher local submit for that id.
+                // Stale GETs were overwriting optimistic price/create paints and causing flicker.
+                // Exception: once the backend marks a row printed (bill_no / bill_printed=Y),
+                // that print status always wins — otherwise just-printed bills vanish from the table.
                 serverSales.forEach((sale) => {
                     if (sale?.id == null) return;
-                    mergedById.set(String(sale.id), sale);
+                    const idStr = String(sale.id);
+                    if (isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return;
+                    // Stale GET can still say bill_printed=N right after F1 — keep it printed locally.
+                    if (isRecentlyPrintedId(sale.id) || isRecentlyPrintedId(idStr)) {
+                        mergedById.set(idStr, {
+                            ...sale,
+                            bill_printed: 'Y',
+                            _optimistic: false,
+                        });
+                        return;
+                    }
+                    const recent = recentSubmittedSalesRef.current.get(idStr)
+                        || recentSubmittedSalesRef.current.get(sale.id);
+                    if (recent?.sale && (nowTs - recent.at) < RECENT_SALE_TRUST_MS) {
+                        const serverPrinted = String(sale.bill_printed ?? '').trim().toUpperCase() === 'Y';
+                        const recentPrinted = String(recent.sale.bill_printed ?? '').trim().toUpperCase() === 'Y';
+                        if (serverPrinted && (!recentPrinted || (sale.bill_no && !recent.sale.bill_no))) {
+                            const mergedPrinted = {
+                                ...recent.sale,
+                                ...sale,
+                                bill_printed: sale.bill_printed || 'Y',
+                                bill_no: sale.bill_no || recent.sale.bill_no,
+                            };
+                            mergedById.set(idStr, mergedPrinted);
+                            recentSubmittedSalesRef.current.set(idStr, { sale: mergedPrinted, at: nowTs });
+                            return;
+                        }
+                        mergedById.set(idStr, {
+                            ...sale,
+                            ...recent.sale,
+                            // Never lose a server-assigned bill number under a fresher local edit.
+                            bill_no: recent.sale.bill_no || sale.bill_no,
+                            bill_printed: recentPrinted ? recent.sale.bill_printed : (sale.bill_printed ?? recent.sale.bill_printed),
+                        });
+                        return;
+                    }
+                    mergedById.set(idStr, sale);
                 });
+
                 // Overlay / in-flight temps always win for visibility.
-                // Recently submitted/edited rows also win over a stale GET that still
-                // has pre-edit values (or briefly omits the row).
                 overlayById.forEach((sale, idStr) => {
+                    if (isDeletedSaleId(deletedSaleIdsRef.current, idStr) || isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) {
+                        return;
+                    }
                     const recent = recentSubmittedSalesRef.current.get(idStr)
                         || recentSubmittedSalesRef.current.get(sale.id);
                     if (recent?.sale) {
@@ -1414,27 +1946,47 @@ export default function SalesEntry() {
                     }
                     if (!mergedById.has(idStr)) mergedById.set(idStr, sale);
                 });
+
                 recentSubmittedSalesRef.current.forEach((entry, id) => {
                     if (!entry?.sale || entry.sale.id == null) return;
+                    if (isDeletedSaleId(deletedSaleIdsRef.current, id) || isDeletedSaleId(deletedSaleIdsRef.current, entry.sale.id)) {
+                        return;
+                    }
                     const idStr = String(entry.sale.id);
-                    if (!mergedById.has(idStr)) mergedById.set(idStr, entry.sale);
+                    if (isDeletedSaleId(deletedSaleIdsRef.current, idStr)) return;
+                    const existing = mergedById.get(idStr);
+                    if (!existing || (nowTs - entry.at) < RECENT_SALE_TRUST_MS) {
+                        mergedById.set(idStr, entry.sale);
+                    }
                 });
 
                 const mergedSalesData = Array.from(mergedById.values());
 
-                // Prune local overlay carefully:
-                // - temps stay until API success removes them (or they age out of recentSubmitted)
-                // - confirmed real ids drop once the server list contains them
+                // Prune local overlay carefully — NEVER drop a just-entered row during rapid entry.
                 const nextLocal = [];
                 const nextLocalIds = new Set();
                 overlayById.forEach((sale) => {
                     if (!sale?.id) return;
                     const idStr = String(sale.id);
+                    // Skip if deleted
+                    if (deletedSaleIdsRef.current.has(idStr) || deletedSaleIdsRef.current.has(sale.id)) {
+                        return;
+                    }
+                    const recent = recentSubmittedSalesRef.current.get(idStr)
+                        || recentSubmittedSalesRef.current.get(sale.id);
+                    const isFreshRecent = !!(recent && (nowTs - recent.at) < RECENT_SALE_TRUST_MS);
                     const isTemp = !!(sale._optimistic || idStr.startsWith('tmp-'));
                     if (isTemp) {
+                        // If this temp already resolved to a real id that is present, drop the temp copy.
+                        const mappedReal = tempToRealIdRef.current.get(idStr);
+                        if (mappedReal && (baseIds.has(String(mappedReal)) || mergedById.has(String(mappedReal)))) {
+                            return;
+                        }
                         // Still in-flight or waiting for POST response mapping.
-                        if (recentSubmittedSalesRef.current.has(idStr) || recentSubmittedSalesRef.current.has(sale.id)) {
-                            nextLocal.push(sale);
+                        if (recent || isFreshRecent) {
+                            nextLocal.push(recent?.sale && !String(recent.sale.id).startsWith('tmp-')
+                                ? { ...sale } // keep temp id in overlay until React swap
+                                : sale);
                             nextLocalIds.add(idStr);
                             return;
                         }
@@ -1449,22 +2001,59 @@ export default function SalesEntry() {
                         }
                         return;
                     }
+                    // Keep confirmed local rows for the trust window even when GET also has them.
+                    // Dropping them immediately was a common "disappear then reappear" flicker.
                     if (baseIds.has(idStr)) {
+                        if (isFreshRecent && recent?.sale) {
+                            nextLocal.push(recent.sale);
+                            nextLocalIds.add(idStr);
+                        }
                         return;
                     }
-                    nextLocal.push(sale);
+                    nextLocal.push(isFreshRecent && recent?.sale ? recent.sale : sale);
                     nextLocalIds.add(idStr);
                 });
 
-                // Sync ref without clear(): keep mid-flight upserts that appeared during this updater.
+                // Also pin every fresh recent submit into the overlay (covers state lag).
+                recentSubmittedSalesRef.current.forEach((entry, id) => {
+                    if (!entry?.sale?.id) return;
+                    if ((nowTs - entry.at) >= RECENT_SALE_TRUST_MS) return;
+                    if (isDeletedSaleId(deletedSaleIdsRef.current, id) || isDeletedSaleId(deletedSaleIdsRef.current, entry.sale.id)) return;
+                    // Never re-pin just-printed rows into the middle overlay after F1 clear.
+                    if (isRecentlyPrintedId(id) || isRecentlyPrintedId(entry.sale.id)) return;
+                    if (String(entry.sale.bill_printed ?? '').trim().toUpperCase() === 'Y') return;
+                    const idStr = String(entry.sale.id);
+                    if (nextLocalIds.has(idStr)) return;
+                    // Prefer real id; skip dangling temp if mapped real is already listed.
+                    if (String(id).startsWith('tmp-') && tempToRealIdRef.current.has(String(id))) {
+                        const realId = String(tempToRealIdRef.current.get(String(id)));
+                        if (nextLocalIds.has(realId) || mergedById.has(realId)) return;
+                    }
+                    nextLocal.push(entry.sale);
+                    nextLocalIds.add(idStr);
+                    if (!mergedById.has(idStr)) mergedById.set(idStr, entry.sale);
+                });
+
+                // Sync ref without clear()
                 const prevLocalIds = new Set(
                     (prev.localTableSales || []).map((s) => (s?.id != null ? String(s.id) : null)).filter(Boolean)
                 );
-                nextLocal.forEach((sale) => localTableSalesRef.current.set(String(sale.id), sale));
-                prevLocalIds.forEach((id) => {
-                    if (!nextLocalIds.has(id) && !recentSubmittedSalesRef.current.has(id)) {
-                        localTableSalesRef.current.delete(id);
+                nextLocal.forEach((sale) => {
+                    // Skip if deleted
+                    if (deletedSaleIdsRef.current.has(sale.id) || deletedSaleIdsRef.current.has(String(sale.id))) {
+                        return;
                     }
+                    localTableSalesRef.current.set(String(sale.id), sale);
+                });
+                prevLocalIds.forEach((id) => {
+                    if (nextLocalIds.has(id)) return;
+                    if (recentSubmittedSalesRef.current.has(id)) return;
+                    // Never delete a temp that still maps to an unresolved/recent real row.
+                    if (String(id).startsWith('tmp-') && tempToRealIdRef.current.has(String(id))) {
+                        const realId = String(tempToRealIdRef.current.get(String(id)));
+                        if (recentSubmittedSalesRef.current.has(realId) || nextLocalIds.has(realId)) return;
+                    }
+                    localTableSalesRef.current.delete(id);
                 });
 
                 const confirmedCount = mergedSalesData.filter(
@@ -1504,26 +2093,43 @@ export default function SalesEntry() {
             }
             refreshInFlightRef.current = false;
             if (pendingForceRefreshRef.current && isMountedRef.current && pendingSubmitsRef.current.size === 0) {
-                pendingForceRefreshRef.current = false;
-                setManagedTimeout(() => refreshSalesData(true), 250);
+                let freshLocal = false;
+                recentSubmittedSalesRef.current.forEach((entry) => {
+                    if (entry && (Date.now() - entry.at) < 2500) freshLocal = true;
+                });
+                if (freshLocal) {
+                    // Keep rows glued — retry after the trust burst, do not wipe mid-entry.
+                    setManagedTimeout(() => {
+                        if (pendingSubmitsRef.current.size === 0) {
+                            pendingForceRefreshRef.current = false;
+                            refreshSalesData(true);
+                        }
+                    }, 2500);
+                } else {
+                    pendingForceRefreshRef.current = false;
+                    setManagedTimeout(() => refreshSalesData(true), 250);
+                }
             }
         }
-    }, [setManagedTimeout]);
+    }, [setManagedTimeout, applySidebarSales]);
     // Listen for updates from PrintedBills page and cross-tab storage updates.
     useEffect(() => {
         const handleSalesUpdate = () => {
             refreshSalesData(true);
+            refreshSidebarSales(true);
         };
 
         const handleStorageChange = (event) => {
             if (event.key === 'salesDataUpdated') {
                 refreshSalesData(true);
+                refreshSidebarSales(true);
             }
         };
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
                 refreshSalesData();
+                refreshSidebarSales(true);
             }
         };
 
@@ -1536,9 +2142,9 @@ export default function SalesEntry() {
             window.removeEventListener('storage', handleStorageChange);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [refreshSalesData]);
+    }, [refreshSalesData, refreshSidebarSales]);
 
-    // Keep sidebars close to DB truth during active POS use.
+    // Keep main table synced periodically.
     useEffect(() => {
         const interval = setManagedInterval(() => {
             if (document.visibilityState === 'visible') {
@@ -1548,6 +2154,65 @@ export default function SalesEntry() {
 
         return () => clearManagedInterval(interval);
     }, [refreshSalesData, setManagedInterval, clearManagedInterval]);
+
+    // Sidebars poll backend more often and are never blocked by in-flight POS submits.
+    useEffect(() => {
+        refreshSidebarSales(true);
+        const interval = setManagedInterval(() => {
+            if (document.visibilityState === 'visible') {
+                refreshSidebarSales(true);
+            }
+        }, SIDEBAR_POLL_MS);
+
+        return () => clearManagedInterval(interval);
+    }, [refreshSidebarSales, setManagedInterval, clearManagedInterval]);
+
+    // All-day anti-stuck watchdog: clear hung print/submit/refresh locks and keep sidebars live.
+    useEffect(() => {
+        const interval = setManagedInterval(() => {
+            if (document.visibilityState !== 'visible') return;
+            const now = Date.now();
+
+            if (printAwaitingBillRef.current && printStartedAtRef.current
+                && now - printStartedAtRef.current > PRINT_AWAIT_MAX_MS) {
+                printAwaitingBillRef.current = false;
+                printInFlightRef.current = false;
+                printStartedAtRef.current = 0;
+            }
+            if (printInFlightRef.current && printStartedAtRef.current
+                && now - printStartedAtRef.current > PRINT_LOCK_MAX_MS) {
+                // Keep F1 hot all day — do not leave printInFlight stuck after the dialog.
+                printInFlightRef.current = false;
+                printAwaitingBillRef.current = false;
+                printStartedAtRef.current = 0;
+            }
+
+            // Drop abandoned submit controllers so refresh is never blocked all day.
+            pendingSubmitStartedAtRef.current.forEach((startedAt, generation) => {
+                if (now - startedAt <= SUBMIT_TIMEOUT_MS + 3000) return;
+                const controller = pendingSubmitsRef.current.get(generation);
+                try { controller?.abort(); } catch (_) { /* ignore */ }
+                pendingSubmitsRef.current.delete(generation);
+                pendingSubmitStartedAtRef.current.delete(generation);
+            });
+
+            if (refreshInFlightRef.current
+                && now - refreshStartedAtRef.current > API_TIMEOUT_MS + 5000) {
+                refreshInFlightRef.current = false;
+            }
+            if (sidebarRefreshInFlightRef.current
+                && now - lastSidebarRefreshAtRef.current > API_TIMEOUT_MS + 5000) {
+                sidebarRefreshInFlightRef.current = false;
+            }
+
+            // Soft sidebar sync only if the last poll is stale (avoid flicker from double fetches).
+            if (now - lastSidebarRefreshAtRef.current > SIDEBAR_POLL_MS + 500) {
+                refreshSidebarSales(false);
+            }
+        }, POS_WATCHDOG_MS);
+
+        return () => clearManagedInterval(interval);
+    }, [refreshSidebarSales, setManagedInterval, clearManagedInterval]);
 
     // Reference data (customers/items/suppliers) also goes stale over an all-day session;
     // refresh it quietly every 10 minutes without touching the sales list or the form.
@@ -1656,8 +2321,12 @@ export default function SalesEntry() {
             lastKnownSaleCountRef.current = normalizedSales.filter(
                 (s) => s?.id != null && !String(s.id).startsWith('tmp-')
             ).length;
+            const sidebarNormalized = normalizedSales.filter((sale) => !isTempOrOptimisticSale(sale));
+            lastSidebarSignatureRef.current = buildSidebarListSignature(sidebarNormalized);
+            sidebarSalesRef.current = sidebarNormalized;
             updateState({
                 allSales: normalizedSales,
+                sidebarSales: sidebarNormalized,
                 customers: customersData,
                 items: itemsData,
                 suppliers: suppliersData,
@@ -1690,7 +2359,11 @@ export default function SalesEntry() {
         }
     }, [formData.customer_code, autoCustomerCode, selectedUnprintedCustomer, selectedPrintedCustomer, setFormData]);
     useEffect(() => {
-        // Determine the code to search for: manually entered, phone-matched, or sidebar-selected
+        // Photos only when middle bill was explicitly armed (click / typed code).
+        if (!middleBillArmed) {
+            updateState({ customerProfilePic: null, customerNameDisplay: "" });
+            return;
+        }
         const code = formData.customer_code || autoCustomerCode;
 
         if (code && customers.length > 0) {
@@ -1726,7 +2399,7 @@ export default function SalesEntry() {
         } else {
             updateState({ customerProfilePic: null, customerNameDisplay: "" });
         }
-    }, [formData.customer_code, autoCustomerCode, customers]);
+    }, [middleBillArmed, formData.customer_code, autoCustomerCode, customers, updateState]);
     // useEffect to fetch Supplier profile pic
     useEffect(() => {
         const code = formData.supplier_code;
@@ -1775,7 +2448,8 @@ export default function SalesEntry() {
         // Bail when the value is already correct so this effect doesn't trigger an extra
         // render for every keystroke in unrelated fields.
         setFormData(prev => (prev.total === total ? prev : { ...prev, total }));
-        if (!state.priceManuallyChanged) updateState({ gridPricePerKg: formData.price_per_kg });
+        // Only mirror into the grid price when the operator typed a bulk price.
+        // Copying formData.price_per_kg here re-filled the price field from leftover sales.
     }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
 
     useEffect(() => {
@@ -1822,7 +2496,7 @@ export default function SalesEntry() {
             if (e.repeat) return;
 
             if (currentFieldName === "price_per_kg") {
-                // Quick validation to ensure required fields are filled
+                // 1. Validation
                 if (!formData.item_code) {
                     refs.item_code_select.current?.focus();
                     updateState({ errors: { form: 'Please select an item first' } });
@@ -1839,32 +2513,196 @@ export default function SalesEntry() {
                     return;
                 }
 
-                // Store the current item data before submitting
+                // 2. Extract active form values
                 const currentItemCode = formData.item_code;
                 const currentItemName = formData.item_name;
                 const currentPackDue = formData.pack_due;
+                const rawWeightVal = refs.weight.current?.value ?? formData.weight;
+                const rawPacksVal = refs.packs.current?.value ?? formData.packs;
+                const rawPriceVal = refs.price_per_kg.current?.value ?? formData.price_per_kg;
+                const bulkPrice = parseFloat(rawPriceVal) || 0;
+                const bulkCustomer = String(
+                    formData.customer_code
+                    || selectedUnprintedCustomer
+                    || selectedUnprintedCustomerRef.current
+                    || tableCustomerScopeRef.current
+                    || ''
+                ).trim().toUpperCase();
+                const bulkItem = String(currentItemCode || '').trim().toUpperCase();
+                const paintAt = Date.now();
 
-                // Submit the sale
-                await handleSubmit(e, {}, { bypassSignatureThrottle: true });
+                // 3. Instant UI Table Paint (flushSync)
+                if (bulkPrice > 0 && bulkCustomer && bulkItem) {
+                    const matchesBulk = (sale) => {
+                        if (!sale?.id || isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return false;
+                        if (String(sale.customer_code || '').trim().toUpperCase() !== bulkCustomer) return false;
+                        if (String(sale.item_code || '').trim().toUpperCase() !== bulkItem) return false;
+                        const printedSel = selectedPrintedCustomerRef.current;
+                        if (printedSel && String(printedSel).includes('-')) {
+                            const billNo = String(printedSel).split('-').pop();
+                            return String(sale.bill_no || '') === String(billNo || '');
+                        }
+                        return String(sale.bill_printed || '').trim().toUpperCase() !== 'Y';
+                    };
 
-                // After submit, restore the item selection
-                setManagedTimeout(() => {
-                    setFormData(prev => ({
-                        ...prev,
-                        item_code: currentItemCode,
-                        item_name: currentItemName,
-                        pack_due: currentPackDue,
-                        // Clear only the weight, price, packs, total fields
-                        weight: "",
-                        price_per_kg: "",
-                        packs: "",
-                        total: "",
-                    }));
+                    const withBulkPrice = (sale) => {
+                        const weight = parseFloat(sale.weight) || 0;
+                        return {
+                            ...sale,
+                            price_per_kg: bulkPrice,
+                            total: Number((weight * bulkPrice).toFixed(2)),
+                        };
+                    };
 
-                    // Focus on weight field for next entry
-                    refs.weight.current?.focus();
-                    refs.weight.current?.select();
-                }, 50);
+                    flushSync(() => {
+                        setState((prev) => {
+                            const sourceById = new Map();
+                            const collect = (list) => {
+                                (list || []).forEach((sale) => {
+                                    if (!sale?.id) return;
+                                    sourceById.set(String(sale.id), sale);
+                                });
+                            };
+                            collect(prev.allSales);
+                            collect(prev.sidebarSales);
+                            collect(prev.localTableSales);
+                            collect(displayedSales);
+                            collect(Array.from(localTableSalesRef.current.values()));
+
+                            const pricedById = new Map();
+                            sourceById.forEach((sale, idStr) => {
+                                if (!matchesBulk(sale)) return;
+                                const next = withBulkPrice(sale);
+                                pricedById.set(idStr, next);
+                                recentSubmittedSalesRef.current.set(idStr, { sale: next, at: paintAt });
+                                recentSubmittedSalesRef.current.set(sale.id, { sale: next, at: paintAt });
+                                upsertLocalTableSale(next);
+                            });
+
+                            const mapList = (list) => (list || []).map((sale) => {
+                                if (!sale?.id) return sale;
+                                return pricedById.get(String(sale.id)) || sale;
+                            });
+
+                            const nextAll = mapList(prev.allSales);
+                            const nextSidebar = mapList(prev.sidebarSales);
+                            const nextLocalBase = mapList(prev.localTableSales);
+                            const localIds = new Set(nextLocalBase.map((s) => String(s?.id)).filter(Boolean));
+                            pricedById.forEach((sale, idStr) => {
+                                if (!localIds.has(idStr)) {
+                                    nextLocalBase.push(sale);
+                                    localIds.add(idStr);
+                                }
+                                if (!nextAll.some((s) => String(s?.id) === idStr)) nextAll.push(sale);
+                                if (!nextSidebar.some((s) => String(s?.id) === idStr)) nextSidebar.push(sale);
+                            });
+
+                            sidebarSalesRef.current = nextSidebar;
+                            allSalesRef.current = nextAll;
+                            lastSidebarSignatureRef.current = buildSidebarListSignature(nextSidebar);
+
+                            return {
+                                ...prev,
+                                allSales: nextAll,
+                                localTableSales: nextLocalBase,
+                                sidebarSales: nextSidebar,
+                                priceManuallyChanged: true,
+                                gridPricePerKg: rawPriceVal,
+                                errors: {},
+                            };
+                        });
+                    });
+                }
+
+                // 4. Preserve Form Data in State & DOM
+                setFormData(prev => ({
+                    ...prev,
+                    customer_code: prev.customer_code || bulkCustomer,
+                    item_code: currentItemCode,
+                    item_name: currentItemName,
+                    pack_due: currentPackDue,
+                    weight: rawWeightVal,
+                    price_per_kg: rawPriceVal,
+                    packs: rawPacksVal,
+                }));
+
+                updateState({
+                    gridPricePerKg: rawPriceVal,
+                    priceManuallyChanged: true,
+                    errors: {},
+                });
+
+                // 5. Move Cursor Immediately to price_per_kg_grid_item
+                if (refs.price_per_kg_grid_item.current) {
+                    refs.price_per_kg_grid_item.current.value = rawPriceVal;
+                    refs.price_per_kg_grid_item.current.focus({ preventScroll: true });
+                    refs.price_per_kg_grid_item.current.select();
+                }
+
+                // 6. 🌐 Sequential/Single API Request to prevent Deadlocks
+                (async () => {
+                    try {
+                        const targetSales = (displayedSales || []).filter(s =>
+                            s.id &&
+                            !isTempOrOptimisticSale(s) &&
+                            String(s.customer_code || '').trim().toUpperCase() === bulkCustomer &&
+                            String(s.item_code || '').trim().toUpperCase() === bulkItem
+                        );
+
+                        if (targetSales.length > 0) {
+                            // SEQUENTIAL EXECUTION: Run updates one by one to avoid concurrent row locks
+                            for (const sale of targetSales) {
+                                const w = parseFloat(sale.weight) || 0;
+                                const cleanPayload = {
+                                    supplier_code: (sale.supplier_code || formData.supplier_code || '').toUpperCase(),
+                                    customer_code: bulkCustomer,
+                                    customer_name: sale.customer_name || formData.customer_name || '',
+                                    item_code: currentItemCode,
+                                    item_name: currentItemName,
+                                    weight: w,
+                                    price_per_kg: bulkPrice,
+                                    pack_due: parseFloat(sale.pack_due || currentPackDue) || 0,
+                                    total: Number((w * bulkPrice).toFixed(2)),
+                                    packs: parseFloat(sale.packs) || 0,
+                                    given_amount: sale.given_amount ? parseFloat(sale.given_amount) : null,
+                                    update_related_price: true
+                                };
+                                await api.put(`${routes.sales}/${sale.id}`, cleanPayload, { timeout: SUBMIT_TIMEOUT_MS });
+                            }
+                        } else {
+                            await handleSubmit(e, {
+                                price_per_kg: rawPriceVal
+                            }, {
+                                bypassSignatureThrottle: true,
+                                preserveItem: true
+                            });
+                        }
+
+                        // Restore inputs after sync
+                        setFormData(prev => ({
+                            ...prev,
+                            customer_code: bulkCustomer,
+                            item_code: currentItemCode,
+                            item_name: currentItemName,
+                            pack_due: currentPackDue,
+                            weight: rawWeightVal,
+                            price_per_kg: rawPriceVal,
+                            packs: rawPacksVal,
+                        }));
+
+                        if (refs.weight.current) refs.weight.current.value = rawWeightVal;
+                        if (refs.packs.current) refs.packs.current.value = rawPacksVal;
+                        if (refs.price_per_kg_grid_item.current) refs.price_per_kg_grid_item.current.value = rawPriceVal;
+
+                    } catch (err) {
+                        console.error("Background sync error:", err);
+                        // Handle deadlock error specifically by retrying once or suppressing if succeeded on backend
+                        if (err.response?.status === 500 && String(err.response?.data?.message || '').includes('1213')) {
+                            // Retry once or allow background polling to sync the price
+                            return;
+                        }
+                    }
+                })();
 
                 return;
             }
@@ -1910,6 +2748,8 @@ export default function SalesEntry() {
 
                 // Editing an existing row: reuse handleSubmit optimistic update (no new temp row).
                 if (editingSaleIdRef.current ?? editingSaleId) {
+                    middleBillArmedRef.current = true;
+                    if (customerForTable) tableCustomerScopeRef.current = customerForTable;
                     void handleSubmit(e, { ...submitFormData, customer_code: customerForTable }, {
                         bypassSignatureThrottle: true,
                     });
@@ -1935,9 +2775,11 @@ export default function SalesEntry() {
                 lastSubmitAtRef.current = packsNow;
 
                 // Instant table paint (same keydown frame) — only this customer_code.
-                // Only treat as printed when a printed bill is actually selected.
-                // A leftover currentBillNo must NOT mark rows as printed (they vanish from the table).
-                const stayOnPrinted = !!selectedPrintedCustomer;
+                // Only stay on printed when the operator explicitly opened a printed bill
+                // (middleTableSource === 'printed'). Leftover selectedPrintedCustomer must NOT
+                // refill the form from the printed sidebar during a new typed bill.
+                const stayOnPrinted = middleTableSourceRef.current === 'printed'
+                    && !!(selectedPrintedCustomerRef.current || selectedPrintedCustomer);
                 const instantTempId = `tmp-${packsNow}-${++submitGenerationRef.current}`;
                 const weightNum = parseFloat(submitFormData.weight) || 0;
                 const priceNum = parseFloat(submitFormData.price_per_kg) || 0;
@@ -1962,40 +2804,94 @@ export default function SalesEntry() {
                         : null,
                     CustomerPackCost: packCost || 0,
                     _optimistic: true,
+                    _enteredAt: packsNow,
+                    _entrySeq: submitGenerationRef.current,
                 };
 
+                // Invalidate late post-print clears so they cannot erase this new line.
+                printClearGenerationRef.current += 1;
                 // Register BEFORE paint so any concurrent refresh cannot drop this row.
                 recentSubmittedSalesRef.current.set(instantTempId, { sale: instantSale, at: packsNow });
+                pinBillSale(instantSale);
                 upsertLocalTableSale(instantSale);
+                stableRowKeyRef.current.set(String(instantTempId), String(instantTempId));
+                lastEnteredItemRef.current = {
+                    item_code: instantSale.item_code,
+                    item_name: instantSale.item_name || '',
+                    customer_code: customerForTable,
+                    at: packsNow,
+                    saleId: instantTempId,
+                };
+                if (customerForTable) tableCustomerScopeRef.current = customerForTable;
+                // Packs-Enter MUST arm the middle table immediately — otherwise the row
+                // is stored but displayedSales stays [] (looks like disappear/missing).
+                middleBillArmedRef.current = true;
+                if (stayOnPrinted) {
+                    middleTableSourceRef.current = 'printed';
+                } else {
+                    selectedPrintedCustomerRef.current = null;
+                    selectedUnprintedCustomerRef.current = customerForTable;
+                    // Keep unprinted scope if the operator typed/clicked that customer —
+                    // flipping to 'typed' was wiping already-painted rows on the next render.
+                    if (middleTableSourceRef.current !== 'unprinted') {
+                        middleTableSourceRef.current = 'typed';
+                    }
+                }
 
+                ignoreCustomerSelectRef.current = true;
+                ignoreRowEditUntilRef.current = Date.now() + 800;
                 flushSync(() => {
-                    setState((prev) => ({
-                        ...prev,
-                        allSales: [instantSale, ...(prev.allSales || [])],
-                        localTableSales: [instantSale, ...(prev.localTableSales || []).filter((s) => String(s?.id) !== String(instantTempId))],
-                        formData: {
-                            ...initialFormData,
-                            customer_code: customerForTable,
-                            customer_name: instantSale.customer_name || prev.formData.customer_name,
-                            telephone_no: prev.formData.telephone_no || formData.telephone_no || '',
-                            supplier_code: instantSale.supplier_code || '',
-                        },
-                        editingSaleId: null,
-                        isManualClear: false,
-                        errors: {},
-                        priceManuallyChanged: false,
-                        gridPricePerKg: '',
-                        selectedSaleForBreakdown: null,
-                        selectedUnprintedCustomer: stayOnPrinted ? null : customerForTable,
-                        selectedPrintedCustomer: stayOnPrinted ? prev.selectedPrintedCustomer : null,
-                    }));
+                    setState((prev) => {
+                        // Do not write temps into sidebars — those stay on live GET /sales.
+                        const nextLocal = [instantSale, ...(prev.localTableSales || []).filter((s) => String(s?.id) !== String(instantTempId))];
+                        displayedSalesRef.current = [
+                            instantSale,
+                            ...(displayedSalesRef.current || []).filter((s) => {
+                                if (!s?.id) return false;
+                                if (String(s.id) === String(instantTempId)) return false;
+                                return String(s.customer_code || '').trim().toUpperCase() === customerForTable;
+                            }),
+                        ];
+                        return {
+                            ...prev,
+                            localTableSales: nextLocal,
+                            formData: {
+                                ...initialFormData,
+                                customer_code: customerForTable,
+                                customer_name: instantSale.customer_name || prev.formData.customer_name,
+                                telephone_no: prev.formData.telephone_no || formData.telephone_no || '',
+                                supplier_code: instantSale.supplier_code || '',
+                                given_amount: stayOnPrinted ? "" : (prev.isGivenAmountManuallyTouched ? (prev.formData.given_amount || "") : ""),
+                            },
+                            itemSearchInput: "",
+                            customerSearchInput: "",
+                            editingSaleId: null,
+                            isManualClear: false,
+                            middleBillArmed: true,
+                            currentBillNo: stayOnPrinted ? prev.currentBillNo : null,
+                            errors: {},
+                            priceManuallyChanged: false,
+                            gridPricePerKg: '',
+                            selectedSaleForBreakdown: null,
+                            selectedUnprintedCustomer: stayOnPrinted
+                                ? null
+                                : (prev.selectedUnprintedCustomer || customerForTable),
+                            // Hard-clear printed selection during typed entry so form cannot refill.
+                            selectedPrintedCustomer: stayOnPrinted ? prev.selectedPrintedCustomer : null,
+                        };
+                    });
                 });
+                setManagedTimeout(() => { ignoreCustomerSelectRef.current = false; }, 800);
                 if (refs.weight.current) refs.weight.current.value = '';
                 if (refs.packs.current) refs.packs.current.value = '';
                 if (refs.price_per_kg_grid_item.current) refs.price_per_kg_grid_item.current.value = '';
                 if (refs.price_per_kg.current) refs.price_per_kg.current.value = '';
                 if (refs.total.current) refs.total.current.value = '';
                 suppressSupplierFocusUntilRef.current = 0;
+                try {
+                    const active = document.activeElement;
+                    if (active && active.tagName === 'TR') active.blur();
+                } catch (_) { /* ignore */ }
                 focusSupplierCode();
 
                 void handleSubmit(e, { ...submitFormData, customer_code: customerForTable }, {
@@ -2030,14 +2926,16 @@ export default function SalesEntry() {
                         }));
                         fetchLoanAmount(code);
 
-                        // ✅ Auto-select on Enter
-                        const hasUnprintedSales = unprintedCustomers.some(c => c.toUpperCase() === code);
-                        if (hasUnprintedSales) {
-                            updateState({
-                                selectedUnprintedCustomer: code,
-                                selectedPrintedCustomer: null,
-                            });
-                        }
+                        // Enter on customer code arms middle + may select unprinted sidebar.
+                        selectedUnprintedCustomerRef.current = code;
+                        selectedPrintedCustomerRef.current = null;
+                        middleBillArmedRef.current = true;
+                        updateState({
+                            selectedUnprintedCustomer: code,
+                            selectedPrintedCustomer: null,
+                            middleBillArmed: true,
+                            isManualClear: false,
+                        });
                     } else {
                         console.log("Customer not found in local data");
                     }
@@ -2104,61 +3002,232 @@ export default function SalesEntry() {
     }, [displayedSales]);
 
     const handleInputChange = (field, value) => {
+        const startsNewEntryFromPrinted = middleTableSourceRef.current === 'printed'
+            && !editingSaleIdRef.current
+            && !['customer_code', 'telephone_no'].includes(field);
+
+        if (startsNewEntryFromPrinted) {
+            printedBillClickRef.current = false;
+            middleTableSourceRef.current = 'typed';
+            selectedPrintedCustomerRef.current = null;
+            selectedUnprintedCustomerRef.current = null;
+            tableCustomerScopeRef.current = '';
+            stickyTableSalesRef.current.clear();
+            localTableSalesRef.current.clear();
+            pinnedBillSalesRef.current.clear();
+            displayedSalesRef.current = [];
+            editingSaleIdRef.current = null;
+            updateState({
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                currentBillNo: null,
+                middleBillArmed: false,
+                isManualClear: true,
+                priceManuallyChanged: false,
+                gridPricePerKg: '',
+                packCost: 0,
+            });
+        }
+
         if (field === 'price_per_kg') {
-            setFormData(prev => ({ ...prev, [field]: value }));
+            setFormData(startsNewEntryFromPrinted
+                ? { ...initialFormData, [field]: value }
+                : prev => ({ ...prev, [field]: value }));
             updateState({ priceManuallyChanged: true, gridPricePerKg: value });
         } else if (field === 'price_per_kg_grid_item') {
-            setFormData(prev => ({ ...prev, 'price_per_kg': value }));
+            setFormData(startsNewEntryFromPrinted
+                ? { ...initialFormData, price_per_kg: value }
+                : prev => ({ ...prev, 'price_per_kg': value }));
             updateState({ gridPricePerKg: value, priceManuallyChanged: false });
         } else if (field === 'telephone_no') {
             // Only allow numbers and limit to 10 digits
             const cleaned = value.replace(/\D/g, '').slice(0, 10);
             setFormData(prev => ({ ...prev, telephone_no: cleaned }));
         } else {
-            setFormData(prev => ({ ...prev, [field]: value }));
+            setFormData(field === 'customer_code'
+                ? { ...initialFormData, customer_code: value }
+                : startsNewEntryFromPrinted
+                ? { ...initialFormData, [field]: value }
+                : prev => ({ ...prev, [field]: value }));
         }
 
         if (field === 'customer_code') {
             const trimmedValue = value.trim();
+            const leavingPrintedBill = middleTableSourceRef.current === 'printed'
+                || !!selectedPrintedCustomerRef.current
+                || !!selectedPrintedCustomer;
+            printedBillClickRef.current = false;
 
-            // Scope the sales table to whatever is typed — do not require the code to already
-            // exist in the unprinted sidebar list (new customers still need their lines visible).
-            if (trimmedValue) {
-                tableCustomerScopeRef.current = trimmedValue.toUpperCase();
-                updateState({
-                    selectedUnprintedCustomer: trimmedValue.toUpperCase(),
-                    selectedPrintedCustomer: null,
-                    isManualClear: false,
-                });
-            } else {
-                updateState({
-                    selectedUnprintedCustomer: null,
-                    selectedPrintedCustomer: null,
-                    isManualClear: true,
-                });
-                tableCustomerScopeRef.current = '';
+            if (leavingPrintedBill) {
+                editingSaleIdRef.current = null;
+                middleTableSourceRef.current = 'unprinted';
+                stickyTableSalesRef.current.clear();
+                localTableSalesRef.current.clear();
+                pinnedBillSalesRef.current.clear();
+                displayedSalesRef.current = [];
             }
 
-            const customer = customers.find(c =>
-                String(c.short_name || '').toUpperCase() === trimmedValue.toUpperCase()
-            );
-            const customerSales = allSales.filter(s =>
-                String(s.customer_code || '').toUpperCase() === trimmedValue.toUpperCase()
-            );
-            const firstSale = customerSales[0];
-            const givenAmount = firstSale?.given_amount || "";
-            setFormData(prev => ({
-                ...prev,
-                customer_name: customer?.name || "",
-                given_amount: givenAmount,
-                customer_code: trimmedValue.toUpperCase(),
-            }));
-
+            // Typing customer code = instantly match unprinted sidebar bill and paint table/fields.
             if (trimmedValue) {
-                fetchLoanAmount(trimmedValue);
+                const code = trimmedValue.toUpperCase();
+                const prevScope = String(tableCustomerScopeRef.current || '').trim().toUpperCase();
+                // Same code mid-entry must NEVER wipe the table (source flipping typed↔unprinted used to).
+                const customerChanged = prevScope !== code;
+                const enteringInProgress = !leavingPrintedBill && !customerChanged && (
+                    pinnedBillSalesRef.current.size > 0
+                    || (displayedSalesRef.current || []).length > 0
+                );
+                printClearGenerationRef.current += 1;
+                customerClickGenerationRef.current += 1;
+                tableCustomerScopeRef.current = code;
+                selectedUnprintedCustomerRef.current = code;
+                selectedPrintedCustomerRef.current = null;
+                middleBillArmedRef.current = true;
+                // Never flip an in-progress new bill onto a printed sidebar bill.
+                if (middleTableSourceRef.current === 'printed') {
+                    middleTableSourceRef.current = 'unprinted';
+                } else if (middleTableSourceRef.current !== 'typed') {
+                    middleTableSourceRef.current = 'unprinted';
+                }
+
+                if (enteringInProgress) {
+                    const customer = customers.find(c =>
+                        String(c.short_name || '').toUpperCase() === code
+                    );
+                    selectedPrintedCustomerRef.current = null;
+                    flushSync(() => {
+                        setFormData((prev) => ({
+                            ...prev,
+                            customer_code: code,
+                            customer_name: customer?.name || prev.customer_name,
+                        }));
+                        setState((prev) => ({
+                            ...prev,
+                            selectedUnprintedCustomer: code,
+                            selectedPrintedCustomer: null,
+                            currentBillNo: null,
+                            isManualClear: false,
+                            middleBillArmed: true,
+                        }));
+                    });
+                    return;
+                }
+
+                // Match ONLY unprinted sidebar/backend rows for this code (never printed sidebar).
+                const isUnprintedRow = (s) => {
+                    if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return false;
+                    if (String(s.customer_code || '').trim().toUpperCase() !== code) return false;
+                    if (String(s.bill_printed ?? '').trim().toUpperCase() === 'Y') return false;
+                    if (isRecentlyPrintedId(s.id)) return false;
+                    if (isTempOrOptimisticSale(s)) return false;
+                    return true;
+                };
+                const matchedUnprinted = [];
+                const seenIds = new Set();
+                const collectMatch = (list) => {
+                    (list || []).forEach((s) => {
+                        if (!isUnprintedRow(s)) return;
+                        const idStr = String(s.id);
+                        if (seenIds.has(idStr)) return;
+                        seenIds.add(idStr);
+                        matchedUnprinted.push({
+                            ...s,
+                            bill_printed: s.bill_printed || 'N',
+                            _optimistic: false,
+                        });
+                    });
+                };
+                // Sidebar first (fastest live list), then caches.
+                collectMatch(sidebarSalesRef.current);
+                collectMatch(sidebarSales);
+                collectMatch(allSalesRef.current);
+                collectMatch(allSales);
+
+                const totals = matchedUnprinted.reduce((acc, s) => {
+                    const weight = parseFloat(s.weight) || 0;
+                    const price = parseFloat(s.price_per_kg) || 0;
+                    const packs = parseFloat(s.packs) || 0;
+                    const pCost = parseFloat(s.CustomerPackCost) || 0;
+                    acc.billTotal += (weight * price);
+                    acc.totalBagPrice += (packs * pCost);
+                    return acc;
+                }, { billTotal: 0, totalBagPrice: 0 });
+                const givenAmount = matchedUnprinted.length
+                    ? (matchedUnprinted.find((s) => parseFloat(s.given_amount) > 0)?.given_amount
+                        || (totals.billTotal + totals.totalBagPrice).toFixed(2))
+                    : "";
+
+                if (customerChanged || leavingPrintedBill) {
+                    stickyTableSalesRef.current.clear();
+                    localTableSalesRef.current.clear();
+                    pinnedBillSalesRef.current.clear();
+                    const paintAt = Date.now();
+                    matchedUnprinted.forEach((sale) => {
+                        const idStr = String(sale.id);
+                        localTableSalesRef.current.set(idStr, sale);
+                        stickyTableSalesRef.current.set(idStr, sale);
+                        pinnedBillSalesRef.current.set(idStr, sale);
+                        recentSubmittedSalesRef.current.set(idStr, { sale, at: paintAt });
+                    });
+                    displayedSalesRef.current = matchedUnprinted.slice();
+                }
+
+                const customer = customers.find(c =>
+                    String(c.short_name || '').toUpperCase() === code
+                );
+
+                try {
+                    ['supplier_code', 'weight', 'packs', 'price_per_kg', 'price_per_kg_grid_item', 'total'].forEach((key) => {
+                        const el = refs[key]?.current;
+                        if (el && 'value' in el) el.value = '';
+                    });
+                } catch (_) { /* ignore */ }
+
+                flushSync(() => {
+                    setFormData((prev) => leavingPrintedBill
+                        ? {
+                            ...initialFormData,
+                            telephone_no: customer?.telephone_no || "",
+                            customer_code: code,
+                            customer_name: customer?.name || "",
+                        }
+                        : {
+                            ...prev,
+                            telephone_no: customer?.telephone_no || "",
+                            customer_code: code,
+                            customer_name: customer?.name || prev.customer_name || "",
+                        });
+                    setState((prev) => ({
+                        ...prev,
+                        selectedUnprintedCustomer: code,
+                        selectedPrintedCustomer: null,
+                        currentBillNo: null,
+                        isManualClear: false,
+                        middleBillArmed: true,
+                        localTableSales: customerChanged ? matchedUnprinted.slice() : (prev.localTableSales || []),
+                        editingSaleId: null,
+                        selectedSaleForBreakdown: null,
+                        priceManuallyChanged: false,
+                        gridPricePerKg: "",
+                        packCost: 0,
+                        errors: {},
+                    }));
+                });
+                editingSaleIdRef.current = null;
+                fetchLoanAmount(code);
             } else {
-                updateState({ loanAmount: 0 });
-                setFormData(prev => ({ ...prev, given_amount: "" }));
+                middleTableSourceRef.current = null;
+                disarmMiddleBill();
+                try {
+                    ['supplier_code', 'weight', 'packs', 'price_per_kg', 'price_per_kg_grid_item', 'total', 'given_amount'].forEach((key) => {
+                        const el = refs[key]?.current;
+                        if (el && 'value' in el) el.value = '';
+                    });
+                } catch (_) { /* ignore */ }
+                setFormData(prev => ({
+                    ...initialFormData,
+                    telephone_no: prev.telephone_no || "",
+                }));
             }
         }
 
@@ -2209,11 +3278,9 @@ export default function SalesEntry() {
                 itemSearchInput: "",
                 gridPricePerKg: formData.price_per_kg || "",
                 isManualClear: false,
-                // Re-assert sidebar scope so the table cannot drop during select re-render.
-                ...(customerForScope && !selectedPrintedCustomer
-                    ? { selectedUnprintedCustomer: customerForScope }
-                    : {}),
+                // Do not auto-select sidebar here — table scope uses customer_code / tableCustomerScopeRef.
             });
+            if (customerForScope) tableCustomerScopeRef.current = customerForScope;
 
             // Focus on weight field
             setManagedTimeout(() => refs.weight.current?.focus(), 100);
@@ -2235,14 +3302,138 @@ export default function SalesEntry() {
     };
 
     const handleCustomerSelect = (selectedOption) => {
+        // Programmatic value changes from packs-Enter must never arm/select a sidebar bill.
+        if (ignoreCustomerSelectRef.current) return;
         const short = selectedOption ? selectedOption.value : "";
+        if (!short) {
+            // React-select isClearable often fires null while the value is being set
+            // during rapid Enter. Never wipe an in-progress bill from that.
+            if (pinnedBillSalesRef.current.size > 0
+                || (displayedSalesRef.current || []).length > 0
+                || middleBillArmedRef.current) {
+                return;
+            }
+            setFormData(prev => ({ ...prev, customer_code: "", customer_name: "", given_amount: "" }));
+            disarmMiddleBill();
+            updateState({ customerSearchInput: "" });
+            return;
+        }
         const customer = customers.find(x => String(x.short_name) === String(short));
-        updateState({ selectedUnprintedCustomer: unprintedCustomers.includes(short) ? short : null, selectedPrintedCustomer: null, customerSearchInput: "" });
-        const existingGivenAmount = allSales.find(s => s.customer_code === short)?.given_amount || "";
-        setFormData(prev => ({ ...prev, customer_code: short || "", customer_name: customer?.name || "", given_amount: existingGivenAmount }));
+        const code = String(short).trim().toUpperCase();
+        // Same customer already on screen — do not wipe in-progress Enter rows.
+        if (
+            String(tableCustomerScopeRef.current || '').trim().toUpperCase() === code
+            && (pinnedBillSalesRef.current.size > 0 || (displayedSalesRef.current || []).length > 0)
+        ) {
+            selectedUnprintedCustomerRef.current = code;
+            selectedPrintedCustomerRef.current = null;
+            middleBillArmedRef.current = true;
+            updateState({
+                selectedUnprintedCustomer: code,
+                selectedPrintedCustomer: null,
+                customerSearchInput: "",
+                middleBillArmed: true,
+                isManualClear: false,
+            });
+            setFormData((prev) => ({
+                ...prev,
+                customer_code: code,
+                customer_name: customer?.name || prev.customer_name,
+            }));
+            fetchLoanAmount(short);
+            return;
+        }
+        selectedUnprintedCustomerRef.current = code;
+        selectedPrintedCustomerRef.current = null;
+        middleBillArmedRef.current = true;
+        tableCustomerScopeRef.current = code;
+        // Dropdown = same as typing: load matching unprinted sidebar bill instantly.
+        middleTableSourceRef.current = 'unprinted';
+        printClearGenerationRef.current += 1;
+        customerClickGenerationRef.current += 1;
+
+        const isUnprintedRow = (s) => {
+            if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return false;
+            if (String(s.customer_code || '').trim().toUpperCase() !== code) return false;
+            if (String(s.bill_printed ?? '').trim().toUpperCase() === 'Y') return false;
+            if (isRecentlyPrintedId(s.id) || isTempOrOptimisticSale(s)) return false;
+            return true;
+        };
+        const matchedUnprinted = [];
+        const seenIds = new Set();
+        const collectMatch = (list) => {
+            (list || []).forEach((s) => {
+                if (!isUnprintedRow(s)) return;
+                const idStr = String(s.id);
+                if (seenIds.has(idStr)) return;
+                seenIds.add(idStr);
+                matchedUnprinted.push({ ...s, bill_printed: s.bill_printed || 'N', _optimistic: false });
+            });
+        };
+        collectMatch(sidebarSalesRef.current);
+        collectMatch(sidebarSales);
+        collectMatch(allSalesRef.current);
+        collectMatch(allSales);
+
+        const totals = matchedUnprinted.reduce((acc, s) => {
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const packs = parseFloat(s.packs) || 0;
+            const pCost = parseFloat(s.CustomerPackCost) || 0;
+            acc.billTotal += (weight * price);
+            acc.totalBagPrice += (packs * pCost);
+            return acc;
+        }, { billTotal: 0, totalBagPrice: 0 });
+        const givenAmount = matchedUnprinted.length
+            ? (matchedUnprinted.find((s) => parseFloat(s.given_amount) > 0)?.given_amount
+                || (totals.billTotal + totals.totalBagPrice).toFixed(2))
+            : "";
+
+        stickyTableSalesRef.current.clear();
+        localTableSalesRef.current.clear();
+        pinnedBillSalesRef.current.clear();
+        const paintAt = Date.now();
+        matchedUnprinted.forEach((sale) => {
+            const idStr = String(sale.id);
+            localTableSalesRef.current.set(idStr, sale);
+            stickyTableSalesRef.current.set(idStr, sale);
+            pinnedBillSalesRef.current.set(idStr, sale);
+            recentSubmittedSalesRef.current.set(idStr, { sale, at: paintAt });
+        });
+        displayedSalesRef.current = matchedUnprinted.slice();
+
+        try {
+            ['supplier_code', 'weight', 'packs', 'price_per_kg', 'price_per_kg_grid_item', 'total'].forEach((key) => {
+                const el = refs[key]?.current;
+                if (el && 'value' in el) el.value = '';
+            });
+        } catch (_) { /* ignore */ }
+
+        flushSync(() => {
+            setFormData((prev) => ({
+                ...prev,
+                customer_code: code,
+                customer_name: customer?.name || prev.customer_name || "",
+                telephone_no: customer?.telephone_no || "",
+            }));
+            setState((prev) => ({
+                ...prev,
+                selectedUnprintedCustomer: code,
+                selectedPrintedCustomer: null,
+                currentBillNo: null,
+                customerSearchInput: "",
+                isManualClear: false,
+                middleBillArmed: true,
+                localTableSales: matchedUnprinted.slice(),
+                editingSaleId: null,
+                selectedSaleForBreakdown: null,
+                priceManuallyChanged: false,
+                gridPricePerKg: "",
+                packCost: 0,
+                errors: {},
+            }));
+        });
         fetchLoanAmount(short);
-        updateState({ isManualClear: false });
-        setManagedTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100);
     };
     //function to display customer image
     const handleImageClick = (entityType) => {
@@ -2283,6 +3474,13 @@ export default function SalesEntry() {
     }, [formData.telephone_no, formData.customer_code, autoCustomerCode, selectedPrintedCustomer]);
 
     const handleEditClick = (sale) => {
+        // Rapid packs-Enter can land focus on a table row; ignore edit for a short
+        // window so the next Enter cannot dump that row into the form.
+        if (Date.now() < (ignoreRowEditUntilRef.current || 0)) return;
+        // Printed rows may hydrate the form only after an explicit printed-sidebar click.
+        if (String(sale?.bill_printed ?? '').trim().toUpperCase() === 'Y'
+            && !printedBillClickRef.current) return;
+
         // If same record clicked again → clear fields EXCEPT customer/contact fields
         if (sameSaleId(state.editingSaleId, sale.id)) {
             setFormData((prev) => ({
@@ -2328,20 +3526,18 @@ export default function SalesEntry() {
         editingSaleIdRef.current = sale.id;
 
         setFormData((prev) => ({
-            ...sale,
-            // Ensure we explicitly map these so they don't get lost
+            ...prev,
             item_name: sale.item_name || "",
-            customer_code: sale.customer_code || "",
-            customer_name: sale.customer_name || "",
-            // PRESERVE TELEPHONE from the current form state or the sale object
-            telephone_no: sale.telephone_no || prev.telephone_no || "",
+            customer_code: sale.customer_code || prev.customer_code || "",
+            customer_name: sale.customer_name || prev.customer_name || "",
+            telephone_no: prev.telephone_no || sale.telephone_no || "",
             supplier_code: sale.supplier_code || "",
             item_code: sale.item_code || "",
             weight: sale.weight || "",
             price_per_kg: sale.price_per_kg || "",
             pack_due: fetchedPackDue,
             total: sale.total || "",
-            packs: sale.packs || ""
+            packs: sale.packs || "",
         }));
 
         updateState({
@@ -2359,16 +3555,35 @@ export default function SalesEntry() {
         }, 0);
     };
 
-    const handleTableRowKeyDown = (e, sale) => { if (e.key === "Enter") { e.preventDefault(); handleEditClick(sale); } };
+    const handleTableRowKeyDown = (e, sale) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        e.stopPropagation();
+        // Enter is for the entry form. Click a row to edit — never load a row on Enter.
+    };
 
     const handleClearForm = (clearBillNo = false) => {
         editingSaleIdRef.current = null;
         tableCustomerScopeRef.current = '';
+        middleBillArmedRef.current = false;
+        middleTableSourceRef.current = null;
+        printedBillClickRef.current = false;
+        customerClickGenerationRef.current += 1;
+        selectedPrintedCustomerRef.current = null;
+        selectedUnprintedCustomerRef.current = null;
+        stickyTableSalesRef.current.clear();
+        localTableSalesRef.current.clear();
+        pinnedBillSalesRef.current.clear();
+        displayedSalesRef.current = [];
         setFormData(initialFormData);
         updateState({
             editingSaleId: null,
             loanAmount: 0,
-            isManualClear: false,
+            // Clearing the form must block auto-resurrect of sidebar bills into the middle.
+            isManualClear: true,
+            middleBillArmed: false,
+            selectedPrintedCustomer: null,
+            selectedUnprintedCustomer: null,
             packCost: 0,
             customerSearchInput: "",
             itemSearchInput: "",
@@ -2377,6 +3592,8 @@ export default function SalesEntry() {
             gridPricePerKg: "",
             isGivenAmountManuallyTouched: false,
             selectedSaleForBreakdown: null,
+            customerProfilePic: null,
+            customerNameDisplay: "",
             ...(clearBillNo && { currentBillNo: null })
         });
         // REMOVED: setTimeout(() => { refs.supplier_code?.current?.focus(); }, 0);
@@ -2392,7 +3609,11 @@ export default function SalesEntry() {
             return;
         }
 
-        const removedSale = allSales.find((sale) => sale.id === saleId) || null;
+        const removedSale =
+            allSales.find((sale) => sameSaleId(sale.id, saleId))
+            || (localTableSales || []).find((sale) => sameSaleId(sale.id, saleId))
+            || localTableSalesRef.current.get(String(saleId))
+            || null;
 
         if (!removedSale) {
             updateState({ errors: { form: "Record not found" } });
@@ -2400,63 +3621,98 @@ export default function SalesEntry() {
         }
 
         const idStr = String(saleId);
+        const mappedReal = tempToRealIdRef.current.get(idStr);
+        const mappedTemp = realToTempIdRef.current.get(idStr);
+        const tombstoneIds = [saleId, idStr, mappedReal, mappedTemp, removedSale?.id]
+            .filter((id) => id != null)
+            .flatMap((id) => {
+                const out = [id, String(id)];
+                if (typeof id === 'string' && /^\d+$/.test(id)) out.push(Number(id));
+                return out;
+            });
 
-        // 1. Add to tombstones / deleted sets
-        deletedSaleIdsRef.current.add(saleId);
-        deletedSaleIdsRef.current.add(idStr);
+        // 1. Tombstone ALL related ids immediately — refresh must never resurrect this line.
+        tombstoneIds.forEach((id) => deletedSaleIdsRef.current.add(id));
 
-        // 2. CRITICAL: Instantly remove from internal overlay references to prevent background refresh from restoring it
-        localTableSalesRef.current.delete(saleId);
-        localTableSalesRef.current.delete(idStr);
-        recentSubmittedSalesRef.current.delete(saleId);
-        recentSubmittedSalesRef.current.delete(idStr);
+        // 2. Instantly remove from every overlay/cache.
+        const purgeId = (id) => {
+            if (id == null) return;
+            const s = String(id);
+            localTableSalesRef.current.delete(id);
+            localTableSalesRef.current.delete(s);
+            stickyTableSalesRef.current.delete(id);
+            stickyTableSalesRef.current.delete(s);
+            recentSubmittedSalesRef.current.delete(id);
+            recentSubmittedSalesRef.current.delete(s);
+        };
+        tombstoneIds.forEach(purgeId);
+        if (lastEnteredItemRef.current && sameSaleId(lastEnteredItemRef.current.saleId, saleId)) {
+            lastEnteredItemRef.current = null;
+        }
 
         // 3. Store in localStorage with timestamp for cleanup/cross-tab persistence
         try {
             const deletedIds = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
-            deletedIds.push({
-                id: saleId,
-                timestamp: Date.now()
+            const nowDel = Date.now();
+            const seen = new Set(deletedIds.map((item) => String(item.id)));
+            tombstoneIds.forEach((id) => {
+                const s = String(id);
+                if (seen.has(s)) return;
+                seen.add(s);
+                deletedIds.push({ id, timestamp: nowDel });
             });
-            if (deletedIds.length > 100) {
-                deletedIds.splice(0, deletedIds.length - 100);
+            if (deletedIds.length > 200) {
+                deletedIds.splice(0, deletedIds.length - 200);
             }
             localStorage.setItem('deletedSaleIds', JSON.stringify(deletedIds));
         } catch (e) {
             // Ignore localStorage errors
         }
 
-        // 4. Immediately purge from UI state (both allSales AND localTableSales)
+        // 4. Immediately purge from UI state (all mirrors).
+        const keepSale = (sale) => sale?.id != null && !isDeletedSaleId(deletedSaleIdsRef.current, sale.id);
         flushSync(() => {
             setState((prev) => ({
                 ...prev,
-                allSales: prev.allSales.filter((sale) => !sameSaleId(sale.id, saleId)),
-                localTableSales: (prev.localTableSales || []).filter((sale) => !sameSaleId(sale.id, saleId)),
+                allSales: prev.allSales.filter(keepSale),
+                sidebarSales: (prev.sidebarSales || []).filter(keepSale),
+                localTableSales: (prev.localTableSales || []).filter(keepSale),
             }));
         });
+        allSalesRef.current = (allSalesRef.current || []).filter(keepSale);
+        displayedSalesRef.current = (displayedSalesRef.current || []).filter(keepSale);
+        sidebarSalesRef.current = (sidebarSalesRef.current || []).filter(keepSale);
+        lastSidebarSignatureRef.current = buildSidebarListSignature(sidebarSalesRef.current);
 
         // Clear form if currently editing the deleted record
-        if (sameSaleId(editingSaleId, saleId)) {
+        if (sameSaleId(editingSaleId, saleId) || sameSaleId(editingSaleIdRef.current, saleId)) {
+            editingSaleIdRef.current = null;
             handleClearForm();
         }
 
         try {
-            // 5. Call API to delete from backend
-            await api.delete(`${routes.sales}/${saleId}`, { timeout: API_TIMEOUT_MS });
+            // 5. Call API with real backend id when temp id was painted.
+            const apiDeleteId = (mappedReal && !String(mappedReal).startsWith('tmp-'))
+                ? mappedReal
+                : ((!String(saleId).startsWith('tmp-')) ? saleId : null);
+            if (apiDeleteId != null) {
+                await api.delete(`${routes.sales}/${apiDeleteId}`, { timeout: API_TIMEOUT_MS });
+            }
 
-            // Trigger background refresh to sync DB state
+            // Delay refresh so a lagging GET cannot resurrect the row before DB delete settles.
             setManagedTimeout(() => {
+                refreshSidebarSales(true);
                 refreshSalesData(true);
-            }, 200);
+            }, 800);
 
         } catch (error) {
-            // If delete fails, revert tombstones and restore the record
-            deletedSaleIdsRef.current.delete(saleId);
-            deletedSaleIdsRef.current.delete(idStr);
+            // If delete fails, revert ALL tombstones and restore the record
+            tombstoneIds.forEach((id) => deletedSaleIdsRef.current.delete(id));
 
             try {
                 const deletedIds = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
-                const updated = deletedIds.filter(item => item.id !== saleId && item.id !== idStr);
+                const tombSet = new Set(tombstoneIds.map(String));
+                const updated = deletedIds.filter((item) => !tombSet.has(String(item.id)));
                 localStorage.setItem('deletedSaleIds', JSON.stringify(updated));
             } catch (e) {
                 // Ignore localStorage errors
@@ -2464,11 +3720,20 @@ export default function SalesEntry() {
 
             if (removedSale) {
                 localTableSalesRef.current.set(idStr, removedSale);
-                setState((prev) => ({
-                    ...prev,
-                    allSales: [...prev.allSales, removedSale],
-                    localTableSales: [...(prev.localTableSales || []), removedSale]
-                }));
+                setState((prev) => {
+                    const nextSidebar = [
+                        removedSale,
+                        ...(prev.sidebarSales || []).filter((sale) => !sameSaleId(sale.id, saleId)),
+                    ];
+                    sidebarSalesRef.current = nextSidebar;
+                    lastSidebarSignatureRef.current = buildSidebarListSignature(nextSidebar);
+                    return {
+                        ...prev,
+                        allSales: [...prev.allSales, removedSale],
+                        sidebarSales: nextSidebar,
+                        localTableSales: [...(prev.localTableSales || []), removedSale],
+                    };
+                });
             }
 
             updateState({
@@ -2614,6 +3879,29 @@ export default function SalesEntry() {
         const normalizedPricePerKg = parseFloat(effectiveFormData.price_per_kg) || 0;
         const normalizedPacks = parseFloat(effectiveFormData.packs) || 0;
         const computedTotal = Number((normalizedWeight * normalizedPricePerKg).toFixed(2));
+        const applyRelatedPriceLocally = (sale) => {
+            if (!shouldUpdateRelatedPrice || !sale || isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return sale;
+            if (String(sale.customer_code || '').trim().toUpperCase() !== String(customerCode || '').trim().toUpperCase()) {
+                return sale;
+            }
+            if (String(sale.item_code || '').trim().toUpperCase() !== String(effectiveFormData.item_code || '').trim().toUpperCase()) {
+                return sale;
+            }
+            // Only touch the active bill scope (pending vs selected printed bill).
+            const printedSel = selectedPrintedCustomerRef.current;
+            if (printedSel && String(printedSel).includes('-')) {
+                const billNo = String(printedSel).split('-').pop();
+                if (String(sale.bill_no || '') !== String(billNo || '')) return sale;
+            } else if (String(sale.bill_printed || '').trim().toUpperCase() === 'Y') {
+                return sale;
+            }
+            const weight = parseFloat(sale.weight) || 0;
+            return {
+                ...sale,
+                price_per_kg: normalizedPricePerKg,
+                total: Number((weight * normalizedPricePerKg).toFixed(2)),
+            };
+        };
         const previousEditedSale = editingIdAtStart !== null
             ? (
                 allSales.find((sale) => sameSaleId(sale.id, editingIdAtStart))
@@ -2647,14 +3935,16 @@ export default function SalesEntry() {
             // --- 3. BILLING LOGIC (sync, no await) ---
             let billPrintedStatus = undefined, billNoToUse = null;
             if (!isEditing) {
-                // Require an explicit printed-bill selection. Do not infer from currentBillNo alone —
-                // that leftover flag was tagging new lines as printed and filtering them out of the table.
-                if (selectedPrintedCustomer) {
+                // Only tag a line as printed when the operator is actually on a printed sidebar bill.
+                const onPrintedBill = middleTableSourceRef.current === 'printed'
+                    && !!(selectedPrintedCustomerRef.current || selectedPrintedCustomer);
+                if (onPrintedBill) {
+                    const printedSel = selectedPrintedCustomerRef.current || selectedPrintedCustomer;
                     billPrintedStatus = 'Y';
-                    billNoToUse = selectedPrintedCustomer.includes('-')
-                        ? selectedPrintedCustomer.split('-')[1]
+                    billNoToUse = String(printedSel).includes('-')
+                        ? String(printedSel).split('-').pop()
                         : (state.currentBillNo
-                            || printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no);
+                            || printedSales.find(s => s.customer_code === printedSel)?.bill_no);
                 } else {
                     billPrintedStatus = 'N';
                     billNoToUse = null;
@@ -2703,20 +3993,21 @@ export default function SalesEntry() {
             const resolveTableScope = (prev) => {
                 if (isEditing) {
                     const keepPrinted = prev.selectedPrintedCustomer || null;
-                    const keepUnprinted = keepPrinted
-                        ? null
-                        : (prev.selectedUnprintedCustomer || customerCode || null);
+                    // Do not auto-select unprinted from customerCode — only click / typed code may select.
+                    const keepUnprinted = keepPrinted ? null : (prev.selectedUnprintedCustomer || null);
                     return { keepPrinted, keepUnprinted };
                 }
-                const stayOnPrinted = !!(prev.selectedPrintedCustomer && billPrintedStatus === 'Y');
+                // Only keep printed selection when actively viewing a printed bill.
+                const stayOnPrinted = middleTableSourceRef.current === 'printed'
+                    && !!(prev.selectedPrintedCustomer && billPrintedStatus === 'Y');
                 if (preserveItem) {
                     return {
-                        keepUnprinted: prev.selectedUnprintedCustomer,
-                        keepPrinted: prev.selectedPrintedCustomer,
+                        keepUnprinted: stayOnPrinted ? null : prev.selectedUnprintedCustomer,
+                        keepPrinted: stayOnPrinted ? prev.selectedPrintedCustomer : null,
                     };
                 }
                 return {
-                    keepUnprinted: stayOnPrinted ? null : customerCode,
+                    keepUnprinted: stayOnPrinted ? null : (prev.selectedUnprintedCustomer || null),
                     keepPrinted: stayOnPrinted ? prev.selectedPrintedCustomer : null,
                 };
             };
@@ -2742,20 +4033,38 @@ export default function SalesEntry() {
                     setState((prev) => {
                         const { keepPrinted, keepUnprinted } = resolveTableScope(prev);
                         const hadEditedSale = prev.allSales.some((sale) => sameSaleId(sale.id, editingIdAtStart));
+                        const mapWithRelated = (sale) => {
+                            if (sameSaleId(sale.id, editingIdAtStart)) return optimisticSale;
+                            return applyRelatedPriceLocally(sale);
+                        };
                         const updatedAllSales = hadEditedSale
-                            ? prev.allSales.map((sale) =>
-                                sameSaleId(sale.id, editingIdAtStart) ? optimisticSale : sale
-                            )
-                            : [optimisticSale, ...(prev.allSales || [])];
+                            ? prev.allSales.map(mapWithRelated)
+                            : [optimisticSale, ...(prev.allSales || []).map(applyRelatedPriceLocally)];
                         const updatedLocalSales = [
                             optimisticSale,
-                            ...(prev.localTableSales || []).filter((s) => !sameSaleId(s.id, editingIdAtStart)),
+                            ...(prev.localTableSales || [])
+                                .filter((s) => !sameSaleId(s.id, editingIdAtStart))
+                                .map(applyRelatedPriceLocally),
                         ];
+                        const updatedSidebarSales = (prev.sidebarSales || []).map(applyRelatedPriceLocally);
+                        if (shouldUpdateRelatedPrice) {
+                            const trackAt = Date.now();
+                            [...updatedAllSales, ...updatedSidebarSales].forEach((s) => {
+                                if (!s?.id || sameSaleId(s.id, editingIdAtStart)) return;
+                                const next = applyRelatedPriceLocally(s);
+                                if (next !== s || parseFloat(s.price_per_kg) === normalizedPricePerKg) {
+                                    recentSubmittedSalesRef.current.set(s.id, { sale: s, at: trackAt });
+                                    upsertLocalTableSale(s);
+                                }
+                            });
+                            sidebarSalesRef.current = updatedSidebarSales;
+                        }
 
                         return {
                             ...prev,
                             allSales: updatedAllSales,
                             localTableSales: updatedLocalSales,
+                            sidebarSales: shouldUpdateRelatedPrice ? updatedSidebarSales : prev.sidebarSales,
                             formData: preserveItem ? {
                                 customer_code: customerCode,
                                 customer_name: currentCustomerName || prev.formData.customer_name,
@@ -2802,15 +4111,45 @@ export default function SalesEntry() {
                 if (customerCode) tableCustomerScopeRef.current = customerCode;
                 recentSubmittedSalesRef.current.set(tempId, { sale: optimisticSale, at: Date.now() });
                 upsertLocalTableSale(optimisticSale);
+                lastEnteredItemRef.current = {
+                    item_code: optimisticSale.item_code,
+                    item_name: optimisticSale.item_name || '',
+                    customer_code: customerCode,
+                    at: Date.now(),
+                    saleId: tempId,
+                };
 
                 flushSync(() => {
                     setState((prev) => {
                         const { keepPrinted, keepUnprinted } = resolveTableScope(prev);
+                        const nextAll = [
+                            optimisticSale,
+                            ...(prev.allSales || []).map(applyRelatedPriceLocally),
+                        ];
+                        const nextLocal = [
+                            optimisticSale,
+                            ...(prev.localTableSales || [])
+                                .filter((s) => !sameSaleId(s.id, tempId))
+                                .map(applyRelatedPriceLocally),
+                        ];
+                        const nextSidebar = (prev.sidebarSales || []).map(applyRelatedPriceLocally);
+                        if (shouldUpdateRelatedPrice) {
+                            const trackAt = Date.now();
+                            [...nextAll, ...nextSidebar].forEach((s) => {
+                                if (!s?.id || sameSaleId(s.id, tempId)) return;
+                                if (parseFloat(s.price_per_kg) === normalizedPricePerKg) {
+                                    recentSubmittedSalesRef.current.set(s.id, { sale: s, at: trackAt });
+                                    upsertLocalTableSale(s);
+                                }
+                            });
+                            sidebarSalesRef.current = nextSidebar;
+                        }
 
                         return {
                             ...prev,
-                            allSales: [optimisticSale, ...(prev.allSales || [])],
-                            localTableSales: [optimisticSale, ...(prev.localTableSales || []).filter((s) => !sameSaleId(s.id, tempId))],
+                            allSales: nextAll,
+                            localTableSales: nextLocal,
+                            sidebarSales: shouldUpdateRelatedPrice ? nextSidebar : prev.sidebarSales,
                             formData: preserveItem ? {
                                 customer_code: customerCode,
                                 customer_name: currentCustomerName || prev.formData.customer_name,
@@ -2845,7 +4184,43 @@ export default function SalesEntry() {
                 clearLineEntryDom();
             } else if (skipOptimistic) {
                 // Row already painted on packs Enter — only mark submitting.
-                updateState({ errors: {}, isSubmitting: true, isManualClear: false });
+                // Still paint related price changes instantly when bulk price was used.
+                if (shouldUpdateRelatedPrice) {
+                    flushSync(() => {
+                        setState((prev) => {
+                            const trackAt = Date.now();
+                            const nextAll = (prev.allSales || []).map((sale) => {
+                                const priced = applyRelatedPriceLocally(sale);
+                                if (priced !== sale && priced?.id) {
+                                    recentSubmittedSalesRef.current.set(priced.id, { sale: priced, at: trackAt });
+                                    upsertLocalTableSale(priced);
+                                }
+                                return priced;
+                            });
+                            const nextLocal = (prev.localTableSales || []).map(applyRelatedPriceLocally);
+                            const nextSidebar = (prev.sidebarSales || []).map((sale) => {
+                                const priced = applyRelatedPriceLocally(sale);
+                                if (priced !== sale && priced?.id) {
+                                    recentSubmittedSalesRef.current.set(priced.id, { sale: priced, at: trackAt });
+                                    upsertLocalTableSale(priced);
+                                }
+                                return priced;
+                            });
+                            sidebarSalesRef.current = nextSidebar;
+                            return {
+                                ...prev,
+                                allSales: nextAll,
+                                localTableSales: nextLocal,
+                                sidebarSales: nextSidebar,
+                                errors: {},
+                                isSubmitting: true,
+                                isManualClear: false,
+                            };
+                        });
+                    });
+                } else {
+                    updateState({ errors: {}, isSubmitting: true, isManualClear: false });
+                }
             } else if (isEditing) {
                 // Edit without a prior snapshot — still keep customer scope so the table does not blank.
                 if (customerCode) tableCustomerScopeRef.current = customerCode;
@@ -2853,7 +4228,8 @@ export default function SalesEntry() {
                     errors: {},
                     isSubmitting: true,
                     isManualClear: false,
-                    selectedUnprintedCustomer: selectedPrintedCustomer ? null : (selectedUnprintedCustomer || customerCode),
+                    // Keep existing click/typed sidebar selection only — never auto-select from customerCode.
+                    selectedUnprintedCustomer: selectedPrintedCustomer ? null : (selectedUnprintedCustomer || null),
                     selectedPrintedCustomer: selectedPrintedCustomer || null,
                     formData: {
                         ...initialFormData,
@@ -2878,6 +4254,7 @@ export default function SalesEntry() {
             // Own controller per submit — never abort a previous in-flight save.
             submitController = new AbortController();
             pendingSubmitsRef.current.set(myGeneration, submitController);
+            pendingSubmitStartedAtRef.current.set(myGeneration, Date.now());
             submitTimeoutId = window.setTimeout(() => {
                 submitController.abort();
             }, SUBMIT_TIMEOUT_MS);
@@ -2895,8 +4272,14 @@ export default function SalesEntry() {
             const updatedSalesRaw = (Array.isArray(rawSalesList) && rawSalesList.length > 0)
                 ? rawSalesList
                 : [response.data?.sale || response.data?.data || response.data];
+            const preTempSnapshot = tempId
+                ? (localTableSalesRef.current.get(String(tempId))
+                    || allSales.find((s) => sameSaleId(s.id, tempId))
+                    || null)
+                : null;
             const updatedSales = (Array.isArray(updatedSalesRaw) ? updatedSalesRaw : [updatedSalesRaw])
                 .filter((sale) => sale && sale.id != null && typeof sale === 'object' && !Array.isArray(sale))
+                .filter((sale) => !isDeletedSaleId(deletedSaleIdsRef.current, sale.id))
                 .map((sale) => {
                     // If the API omits print flags on PUT, keep the pre-edit values so the
                     // row does not fall out of the printed/unprinted table filter.
@@ -2907,22 +4290,85 @@ export default function SalesEntry() {
                             bill_no: sale.bill_no ?? previousEditedSale.bill_no,
                         };
                     }
+                    // Preserve scope fields from the optimistic create so the row never
+                    // vanishes from displayedSales while a refresh catches up.
+                    if (preTempSnapshot && !isEditing) {
+                        return {
+                            ...preTempSnapshot,
+                            ...sale,
+                            bill_printed: sale.bill_printed ?? preTempSnapshot.bill_printed ?? 'N',
+                            bill_no: sale.bill_no ?? preTempSnapshot.bill_no ?? null,
+                            customer_code: sale.customer_code || preTempSnapshot.customer_code,
+                            item_name: sale.item_name || preTempSnapshot.item_name,
+                            _optimistic: false,
+                            _enteredAt: preTempSnapshot._enteredAt || sale._enteredAt,
+                            _entrySeq: preTempSnapshot._entrySeq ?? sale._entrySeq ?? 0,
+                        };
+                    }
                     return sale;
                 });
             const trackAt = Date.now();
             const canRetireTemp = !tempId || updatedSales.length > 0;
-            if (tempId && canRetireTemp) {
-                recentSubmittedSalesRef.current.delete(tempId);
-                removeLocalTableSale(tempId);
-            }
+            // Register confirmed rows FIRST. Never delete the temp from recent/local
+            // before the real id is tracked — that gap made rows blink out on rapid entry.
             updatedSales.forEach((sale) => {
+                if (isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return;
                 recentSubmittedSalesRef.current.set(sale.id, { sale, at: trackAt });
+                recentSubmittedSalesRef.current.set(String(sale.id), { sale, at: trackAt });
                 upsertLocalTableSale(sale);
+                if (tempId) {
+                    const tKey = String(tempId);
+                    const rKey = String(sale.id);
+                    tempToRealIdRef.current.set(tKey, rKey);
+                    realToTempIdRef.current.set(rKey, tKey);
+                    const stable = stableRowKeyRef.current.get(tKey) || tKey;
+                    stableRowKeyRef.current.set(tKey, stable);
+                    stableRowKeyRef.current.set(rKey, stable);
+                    const prevTemp = stickyTableSalesRef.current.get(tKey)
+                        || pinnedBillSalesRef.current.get(tKey)
+                        || localTableSalesRef.current.get(tKey);
+                    const merged = withEnteredAt(sale, prevTemp);
+                    // Pin real FIRST, then drop tmp — never a gap with neither row pinned.
+                    stickyTableSalesRef.current.set(rKey, merged);
+                    pinnedBillSalesRef.current.set(rKey, merged);
+                    localTableSalesRef.current.set(rKey, merged);
+                    stickyTableSalesRef.current.delete(tKey);
+                    pinnedBillSalesRef.current.delete(tKey);
+                    localTableSalesRef.current.delete(tKey);
+                    recentSubmittedSalesRef.current.set(rKey, { sale: merged, at: trackAt });
+                    recentSubmittedSalesRef.current.set(sale.id, { sale: merged, at: trackAt });
+                    recentSubmittedSalesRef.current.set(tKey, {
+                        sale: {
+                            ...merged,
+                            id: tempId,
+                            _optimistic: false,
+                            _pendingRealId: sale.id,
+                        },
+                        at: trackAt,
+                    });
+                }
                 if (recentSubmittedSalesRef.current.size > 250) {
                     const oldest = recentSubmittedSalesRef.current.keys().next().value;
-                    recentSubmittedSalesRef.current.delete(oldest);
+                    if (oldest != null && String(oldest) !== String(tempId) && String(oldest) !== String(sale.id)) {
+                        recentSubmittedSalesRef.current.delete(oldest);
+                    }
                 }
             });
+            if (updatedSales[0]?.item_code) {
+                lastEnteredItemRef.current = {
+                    item_code: updatedSales[0].item_code,
+                    item_name: updatedSales[0].item_name || lastEnteredItemRef.current?.item_name || '',
+                    customer_code: String(updatedSales[0].customer_code || customerCode || '').trim().toUpperCase(),
+                    at: trackAt,
+                    saleId: updatedSales[0].id,
+                };
+            } else if (lastEnteredItemRef.current && tempId && canRetireTemp && updatedSales[0]?.id) {
+                lastEnteredItemRef.current = {
+                    ...lastEnteredItemRef.current,
+                    saleId: updatedSales[0].id,
+                    at: trackAt,
+                };
+            }
 
             if (isMountedRef.current) {
                 setState(prev => {
@@ -2932,6 +4378,7 @@ export default function SalesEntry() {
 
                     let uniqueMergedSales = prev.allSales
                         .filter((sale) => {
+                            if (isDeletedSaleId(deletedSaleIdsRef.current, sale?.id)) return false;
                             if (canRetireTemp && tempId && sameSaleId(sale.id, tempId)) {
                                 return false;
                             }
@@ -2971,34 +4418,43 @@ export default function SalesEntry() {
                     const existingIds = new Set(uniqueMergedSales.map((sale) => String(sale?.id)).filter(Boolean));
                     updatedSales.forEach((sale) => {
                         if (!sale?.id || existingIds.has(String(sale.id))) return;
+                        if (isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return;
                         uniqueMergedSales.push(sale);
                         existingIds.add(String(sale.id));
                     });
 
                     const currentCustomerCode = prev.formData.customer_code || customerCode;
-                    let keepUnprinted = prev.selectedUnprintedCustomer;
-                    let keepPrinted = prev.selectedPrintedCustomer;
+                    const armed = !!(prev.middleBillArmed || middleBillArmedRef.current);
+                    let keepUnprinted = null;
+                    let keepPrinted = null;
 
-                    // Preserve table scope after edit/create — never clear a printed bill selection
-                    // just because the PUT response arrived.
-                    if (prev.selectedPrintedCustomer) {
-                        keepPrinted = prev.selectedPrintedCustomer;
+                    // Never restore a printed-sidebar selection during typed/unprinted entry.
+                    // That flipped the table into printed-bill mode and wiped new Enter rows.
+                    const stayOnPrinted = middleTableSourceRef.current === 'printed'
+                        && !!(prev.selectedPrintedCustomer || selectedPrintedCustomerRef.current);
+                    if (armed && stayOnPrinted) {
+                        keepPrinted = prev.selectedPrintedCustomer || selectedPrintedCustomerRef.current;
                         keepUnprinted = null;
-                    } else if (currentCustomerCode) {
-                        keepUnprinted = currentCustomerCode;
+                    } else if (armed) {
+                        keepUnprinted = prev.selectedUnprintedCustomer || selectedUnprintedCustomerRef.current || customerCode || null;
                         keepPrinted = null;
+                        selectedPrintedCustomerRef.current = null;
                     }
 
-                    if (currentCustomerCode) {
+                    if (armed && currentCustomerCode) {
                         tableCustomerScopeRef.current = String(currentCustomerCode).trim().toUpperCase();
                     }
 
                     const updatedIdSet = new Set(updatedSales.map((s) => String(s.id)));
                     const nextLocal = [
-                        ...updatedSales,
+                        ...updatedSales.filter((s) => !isDeletedSaleId(deletedSaleIdsRef.current, s?.id)),
                         ...(prev.localTableSales || []).filter((s) => {
                             if (!s?.id) return false;
-                            if (canRetireTemp && tempId && sameSaleId(s.id, tempId)) return false;
+                            if (isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return false;
+                            // Retire temp only in this same paint as the confirmed row is added.
+                            if (canRetireTemp && tempId && sameSaleId(s.id, tempId) && updatedSales.length > 0) {
+                                return false;
+                            }
                             if (updatedIdSet.has(String(s.id))) return false;
                             return true;
                         }),
@@ -3014,16 +4470,51 @@ export default function SalesEntry() {
                         }
                     }
 
+                    // Sync overlay ref AFTER building nextLocal (atomic with React state).
+                    nextLocal.forEach((sale) => upsertLocalTableSale(sale));
+                    // Retire temp from local list state only — keep sticky/recent until
+                    // displayedSales collapses tmp→real (prevents one-frame blank).
+                    if (canRetireTemp && tempId && updatedSales.length > 0) {
+                        localTableSalesRef.current.delete(String(tempId));
+                    }
+
                     lastKnownSaleCountRef.current = uniqueMergedSales.filter(
                         (s) => s?.id != null && !String(s.id).startsWith('tmp-') && !s._optimistic
                     ).length;
 
+                    // Mirror confirmed backend rows into sidebars immediately (no temp/optimistic).
+                    const sidebarById = new Map(
+                        (prev.sidebarSales || [])
+                            .filter((s) => s?.id != null && !isDeletedSaleId(deletedSaleIdsRef.current, s.id))
+                            .map((s) => [String(s.id), s])
+                    );
+                    updatedSales.forEach((sale) => {
+                        if (!sale?.id || isTempOrOptimisticSale(sale)) return;
+                        if (isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return;
+                        sidebarById.set(String(sale.id), sale);
+                    });
+                    const nextSidebarSales = Array.from(sidebarById.values());
+                    sidebarSalesRef.current = nextSidebarSales;
+                    lastSidebarSignatureRef.current = buildSidebarListSignature(nextSidebarSales);
+
+                    // Keep table armed after packs-Enter confirm (never blank mid-bill).
+                    if (!armed && customerCode) {
+                        middleBillArmedRef.current = true;
+                    }
+                    if (!keepPrinted && !keepUnprinted && customerCode) {
+                        keepUnprinted = customerCode;
+                        selectedUnprintedCustomerRef.current = customerCode;
+                        middleTableSourceRef.current = middleTableSourceRef.current || 'typed';
+                    }
+
                     return {
                         ...prev,
                         allSales: uniqueMergedSales,
+                        sidebarSales: nextSidebarSales,
                         localTableSales: nextLocal,
                         editingSaleId: sameSaleId(prev.editingSaleId, editingIdAtStart) ? null : prev.editingSaleId,
                         isManualClear: false,
+                        middleBillArmed: armed || !!customerCode,
                         isSubmitting: pendingSubmitsRef.current.size > 1,
                         selectedUnprintedCustomer: keepUnprinted,
                         selectedPrintedCustomer: keepPrinted,
@@ -3032,14 +4523,25 @@ export default function SalesEntry() {
                 });
             }
 
-            // Defer DB refresh so it never fights the next packs-Enter paint.
+            // Defer sidebar GET so local confirmed rows are not wiped before the backend has them.
+            setManagedTimeout(() => refreshSidebarSales(true), 250);
+            // Defer full table refresh so it never fights rapid packs-Enter paints.
             setManagedTimeout(() => {
                 if (pendingSubmitsRef.current.size > 0) {
                     pendingForceRefreshRef.current = true;
                     return;
                 }
+                // Skip while just-submitted rows are still in the trust window.
+                let freshLocal = false;
+                recentSubmittedSalesRef.current.forEach((entry) => {
+                    if (entry && (Date.now() - entry.at) < 2500) freshLocal = true;
+                });
+                if (freshLocal) {
+                    pendingForceRefreshRef.current = true;
+                    return;
+                }
                 refreshSalesData(true);
-            }, 3000);
+            }, 4500);
 
             if (!isFocusInItemEntryFields()) {
                 const active = document.activeElement;
@@ -3050,19 +4552,25 @@ export default function SalesEntry() {
 
         } catch (error) {
             const isAbort = error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError';
+            const isTimeoutOrNetwork = error?.code === 'ECONNABORTED'
+                || error?.code === 'ETIMEDOUT'
+                || error?.code === 'ERR_NETWORK'
+                || /timeout/i.test(String(error?.message || ''));
 
-            // Timeouts/aborts during rapid entry often mean the POST already reached the server.
-            // Keep the optimistic row and reconcile via refresh — rolling back here is what made
-            // table lines "disappear" while working quickly.
-            if (isAbort) {
+            // Timeouts/aborts/network drops during rapid entry often mean the POST already
+            // reached the server. Keep the optimistic row — rolling it back is what made
+            // table lines disappear while working quickly.
+            if (isAbort || isTimeoutOrNetwork) {
                 pendingForceRefreshRef.current = true;
                 if (isMountedRef.current) {
                     updateState({
-                        errors: {
-                            form: "Request timed out — rows kept on screen, syncing…"
-                        },
+                        errors: {},
                         isSubmitting: pendingSubmitsRef.current.size > 1
                     });
+                    // Quiet reconcile — never block F1 with a timeout banner.
+                    pendingForceRefreshRef.current = true;
+                    setManagedTimeout(() => refreshSalesData(true), 300);
+                    setManagedTimeout(() => refreshSidebarSales(true), 300);
                 }
             } else if (tempId) {
                 // Definitive failure — roll back ONLY this submit's optimistic create
@@ -3113,16 +4621,31 @@ export default function SalesEntry() {
                 window.clearTimeout(submitTimeoutId);
             }
             pendingSubmitsRef.current.delete(myGeneration);
+            pendingSubmitStartedAtRef.current.delete(myGeneration);
             if (isMountedRef.current && pendingSubmitsRef.current.size === 0) {
                 updateState({ isSubmitting: false });
                 if (pendingForceRefreshRef.current) {
-                    pendingForceRefreshRef.current = false;
-                    setManagedTimeout(() => refreshSalesData(true), 0);
+                    let freshLocal = false;
+                    recentSubmittedSalesRef.current.forEach((entry) => {
+                        if (entry && (Date.now() - entry.at) < 2500) freshLocal = true;
+                    });
+                    if (freshLocal) {
+                        setManagedTimeout(() => {
+                            if (pendingSubmitsRef.current.size > 0) return;
+                            pendingForceRefreshRef.current = false;
+                            refreshSalesData(true);
+                        }, 2500);
+                    } else {
+                        pendingForceRefreshRef.current = false;
+                        setManagedTimeout(() => refreshSalesData(true), 400);
+                    }
                 }
+                // Keep sidebars on DB truth after a burst of rapid submits (deferred to avoid flicker).
+                setManagedTimeout(() => refreshSidebarSales(true), 700);
             }
         }
     };
-    const handleCustomerClick = useStableCallback(async (type, customerCode, billNo = null, salesRecords = []) => {
+    const handleCustomerClick = useStableCallback(async (type, customerCode, billNo = null, salesRecords = [], sourceEvent = null) => {
         // Do not block sidebar selection while a print dialog is open — that made the
         // page feel frozen for up to PRINT_LOCK_MAX_MS after F1.
 
@@ -3138,33 +4661,60 @@ export default function SalesEntry() {
         }
 
         const isPrinted = type === 'printed';
+        const allowPrintedFormHydration = !isPrinted || sourceEvent?.isTrusted === true;
         let selectionKey = customerCode;
         if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
-        const isCurrentlySelected = isPrinted ? selectedPrintedCustomer === selectionKey : selectedUnprintedCustomer === selectionKey;
+        const isCurrentlySelected = isPrinted
+            ? selectedPrintedCustomerRef.current === selectionKey
+            : selectedUnprintedCustomerRef.current === selectionKey;
 
-        // Always pull latest sales for sidebars/table when a bill is selected.
-        void refreshSalesData(true);
-
+        // Sync refs BEFORE any await/setState so F1 right after click always sees the selection.
         if (isPrinted) {
-            updateState({
-                selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
-                selectedUnprintedCustomer: null,
-                currentBillNo: isCurrentlySelected ? null : billNo
-            });
+            printedBillClickRef.current = !isCurrentlySelected;
+            selectedPrintedCustomerRef.current = isCurrentlySelected ? null : selectionKey;
+            selectedUnprintedCustomerRef.current = null;
         } else {
-            updateState({
-                selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey,
-                selectedPrintedCustomer: null,
-                currentBillNo: null
-            });
+            printedBillClickRef.current = false;
+            selectedUnprintedCustomerRef.current = isCurrentlySelected ? null : selectionKey;
+            selectedPrintedCustomerRef.current = null;
+        }
+        if (!isCurrentlySelected && customerCode) {
+            tableCustomerScopeRef.current = String(customerCode).trim().toUpperCase();
+            middleBillArmedRef.current = true;
+            middleTableSourceRef.current = isPrinted ? 'printed' : 'unprinted';
+        } else if (isCurrentlySelected) {
+            middleTableSourceRef.current = null;
         }
 
         const customer = customers.find(x => String(x.short_name).toUpperCase() === String(customerCode).toUpperCase());
 
         if (!isCurrentlySelected) {
+            // Prefer rows passed from the sidebar; fall back to live sidebar cache.
+            const normCode = String(customerCode || '').trim().toUpperCase();
+            const isPrintedStatus = (s) => String(s?.bill_printed ?? '').trim().toUpperCase() === 'Y';
+            let rowsForTable = Array.isArray(salesRecords) ? salesRecords.slice() : [];
+            if (rowsForTable.length === 0) {
+                rowsForTable = (sidebarSalesRef.current || []).filter((s) => {
+                    if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return false;
+                    if (String(s.customer_code || '').trim().toUpperCase() !== normCode) return false;
+                    if (isPrinted && billNo) return String(s.bill_no || '') === String(billNo);
+                    if (!isPrinted) return !isPrintedStatus(s);
+                    return true;
+                });
+            }
+            // After F1 print, sidebar billSales can still carry stale pre-print rows.
+            // Never paint those into an unprinted selection.
+            if (!isPrinted) {
+                rowsForTable = rowsForTable.filter((s) => s?.id && !isPrintedStatus(s));
+            } else if (billNo) {
+                rowsForTable = rowsForTable.filter(
+                    (s) => s?.id && String(s.bill_no || '') === String(billNo)
+                );
+            }
+
             // --- NEW CALCULATION LOGIC FOR GIVEN AMOUNT ---
             // We calculate the sum of the records that are about to be displayed
-            const totals = salesRecords.reduce((acc, s) => {
+            const totals = rowsForTable.reduce((acc, s) => {
                 const weight = parseFloat(s.weight) || 0;
                 const price = parseFloat(s.price_per_kg) || 0;
                 const packs = parseFloat(s.packs) || 0;
@@ -3178,105 +4728,235 @@ export default function SalesEntry() {
 
             const calculatedFinal = totals.billTotal + totals.totalBagPrice;
             const clickGeneration = ++customerClickGenerationRef.current;
+            const paintAt = Date.now();
 
-            // Apply form immediately so a slow given-amount API cannot leave the UI blank.
-            setFormData({
-                ...initialFormData,
-                customer_code: customerCode,
-                customer_name: customer?.name || "",
-                telephone_no: customer?.telephone_no || "",
-                given_amount: isPrinted ? "" : calculatedFinal.toFixed(2),
-            });
-            fetchLoanAmount(customerCode);
-            setManagedTimeout(() => focusSupplierCode(), 50);
-
-            try {
-                let fetchedGivenAmount = calculatedFinal.toFixed(2);
-
-                // If it's a printed bill, try to fetch the amount already stored
-                if (isPrinted) {
-                    try {
-                        let response;
-                        if (billNo) {
-                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}/${billNo}`, { timeout: API_TIMEOUT_MS });
-                            fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
-                        } else {
-                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`, { timeout: API_TIMEOUT_MS });
-
-                            if (response.data?.by_bill_no && billNo) {
-                                fetchedGivenAmount = response.data.by_bill_no[billNo] ?? calculatedFinal.toFixed(2);
-                            } else if (response.data?.all_entries) {
-                                const matchingEntry = response.data.all_entries.find(entry => entry.bill_no === billNo);
-                                fetchedGivenAmount = matchingEntry?.given_amount ?? calculatedFinal.toFixed(2);
-                            } else {
-                                fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Error fetching given amount:', error);
-                        const matchingRecord = salesRecords.find(record => record.bill_no === billNo);
-                        fetchedGivenAmount = matchingRecord?.given_amount || calculatedFinal.toFixed(2);
+            // Drop sticky/recent leftovers from the previously printed bill so they cannot
+            // reappear when opening another (or the same) unprinted customer.
+            if (!isPrinted) {
+                stickyTableSalesRef.current.forEach((sale, idStr) => {
+                    if (!sale?.id) return;
+                    const sameCust = String(sale.customer_code || '').trim().toUpperCase() === normCode;
+                    if (isPrintedStatus(sale) || !sameCust) {
+                        stickyTableSalesRef.current.delete(idStr);
                     }
-                }
-
-                // Ignore late responses if the operator already clicked another customer
-                // or started typing a different sale.
-                if (
-                    clickGeneration !== customerClickGenerationRef.current ||
-                    !isMountedRef.current
-                ) {
-                    return;
-                }
-
-                setFormData(prev => {
-                    const stillSameCustomer =
-                        String(prev.customer_code || '').toUpperCase() === String(customerCode).toUpperCase();
-                    if (!stillSameCustomer) return prev;
-                    return {
-                        ...prev,
-                        customer_name: customer?.name || prev.customer_name,
-                        telephone_no: customer?.telephone_no || prev.telephone_no,
-                        given_amount: fetchedGivenAmount,
-                    };
                 });
-
-            } catch (error) {
-                console.error('Error in customer selection:', error);
-                if (clickGeneration !== customerClickGenerationRef.current || !isMountedRef.current) {
-                    return;
-                }
-                setFormData(prev => {
-                    const stillSameCustomer =
-                        String(prev.customer_code || '').toUpperCase() === String(customerCode).toUpperCase();
-                    if (!stillSameCustomer) return prev;
-                    return {
-                        ...prev,
-                        given_amount: calculatedFinal.toFixed(2),
-                    };
+                recentSubmittedSalesRef.current.forEach((entry, id) => {
+                    const sale = entry?.sale;
+                    if (!sale?.id) return;
+                    if (isPrintedStatus(sale)) {
+                        recentSubmittedSalesRef.current.delete(id);
+                    }
                 });
             }
-        } else {
-            handleClearForm();
-        }
 
-        updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
+            // INSTANT table paint from the sidebar's live bill rows (same click tick).
+            // After a fresh print, allSales can still hold pre-print rows without bill_no —
+            // injecting salesRecords here is what makes the center table show without reload.
+            flushSync(() => {
+                setState((prev) => {
+                    const allById = new Map(
+                        (prev.allSales || [])
+                            .filter((s) => s?.id != null && !isDeletedSaleId(deletedSaleIdsRef.current, s.id))
+                            .map((s) => [String(s.id), s])
+                    );
+                    // Unprinted click: rebuild local overlay from THIS selection only.
+                    // Keeping prior local rows was re-showing the just-printed bill.
+                    const localById = new Map();
+                    if (isPrinted) {
+                        (prev.localTableSales || []).forEach((s) => {
+                            if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return;
+                            if (String(s.customer_code || '').trim().toUpperCase() !== normCode) return;
+                            if (billNo && String(s.bill_no || '') !== String(billNo)) return;
+                            localById.set(String(s.id), s);
+                        });
+                    }
+
+                    rowsForTable.forEach((sale) => {
+                        if (!sale?.id || isTempOrOptimisticSale(sale)) return;
+                        if (isDeletedSaleId(deletedSaleIdsRef.current, sale.id)) return;
+                        if (!isPrinted && isPrintedStatus(sale)) return;
+                        const idStr = String(sale.id);
+                        // Ensure printed-bill rows carry the selected bill_no/status for table filters.
+                        const normalizedSale = (isPrinted && billNo)
+                            ? {
+                                ...sale,
+                                bill_printed: 'Y',
+                                bill_no: sale.bill_no || billNo,
+                                _optimistic: false,
+                            }
+                            : {
+                                ...sale,
+                                bill_printed: sale.bill_printed || 'N',
+                                bill_no: sale.bill_no || null,
+                                _optimistic: false,
+                            };
+                        // If allSales already knows this id is printed, never put it in unprinted local.
+                        const existingAll = allById.get(idStr);
+                        if (!isPrinted && existingAll && isPrintedStatus(existingAll)) return;
+
+                        allById.set(idStr, normalizedSale);
+                        localById.set(idStr, normalizedSale);
+                        recentSubmittedSalesRef.current.set(idStr, { sale: normalizedSale, at: paintAt });
+                        recentSubmittedSalesRef.current.set(sale.id, { sale: normalizedSale, at: paintAt });
+                        upsertLocalTableSale(normalizedSale);
+                    });
+
+                    // Sync localTableSalesRef to the rebuilt overlay (drop prior printed leftovers).
+                    localTableSalesRef.current.clear();
+                    stickyTableSalesRef.current.clear();
+                    pinnedBillSalesRef.current.clear();
+                    localById.forEach((sale, idStr) => {
+                        localTableSalesRef.current.set(idStr, sale);
+                        stickyTableSalesRef.current.set(idStr, sale);
+                        pinnedBillSalesRef.current.set(idStr, sale);
+                    });
+
+                    const nextAll = Array.from(allById.values());
+                    const nextLocal = Array.from(localById.values());
+                    allSalesRef.current = nextAll;
+
+                    return {
+                        ...prev,
+                        allSales: nextAll,
+                        localTableSales: nextLocal,
+                        // A printed bill loads into the entry fields only from this explicit
+                        // sidebar click. Refreshes and background polls never write sale data
+                        // into formData.
+                        formData: isPrinted && allowPrintedFormHydration
+                            ? {
+                                ...initialFormData,
+                                customer_code: rowsForTable[0]?.customer_code || customerCode,
+                                customer_name: rowsForTable[0]?.customer_name || customer?.name || '',
+                                telephone_no: rowsForTable[0]?.telephone_no || customer?.telephone_no || '',
+                                supplier_code: rowsForTable[0]?.supplier_code || '',
+                                item_code: rowsForTable[0]?.item_code || '',
+                                item_name: rowsForTable[0]?.item_name || '',
+                                weight: rowsForTable[0]?.weight || '',
+                                price_per_kg: rowsForTable[0]?.price_per_kg || '',
+                                pack_due: rowsForTable[0]?.pack_due || '',
+                                total: rowsForTable[0]?.total || '',
+                                packs: rowsForTable[0]?.packs || '',
+                                given_amount: rowsForTable[0]?.given_amount || '',
+                            }
+                            : {
+                                ...initialFormData,
+                                customer_code: customerCode,
+                                customer_name: customer?.name || "",
+                                telephone_no: customer?.telephone_no || "",
+                                supplier_code: "",
+                                item_code: "",
+                                item_name: "",
+                                weight: "",
+                                price_per_kg: "",
+                                packs: "",
+                            },
+                        selectedPrintedCustomer: isPrinted ? selectionKey : null,
+                        selectedUnprintedCustomer: isPrinted ? null : selectionKey,
+                        currentBillNo: isPrinted ? billNo : null,
+                        editingSaleId: null,
+                        isManualClear: false,
+                        middleBillArmed: true,
+                        customerSearchInput: "",
+                        priceManuallyChanged: false,
+                        gridPricePerKg: "",
+                        selectedSaleForBreakdown: null,
+                        errors: {},
+                    };
+                });
+            });
+
+            if (!isPrinted) {
+                fetchLoanAmount(customerCode);
+                setManagedTimeout(() => focusSupplierCode(), 50);
+            }
+
+            // Background sync only — never block the table/F1 on this refresh.
+            void refreshSidebarSales(true);
+            void refreshSalesData(true);
+
+            // Never async-fill the entry form after click. Late name / phone / given_amount
+            // writes were suddenly populating the fields while the operator was typing.
+            return;
+        } else {
+            // Toggle off — clear selection + form (keep sales caches intact).
+            middleBillArmedRef.current = false;
+            customerClickGenerationRef.current += 1;
+            selectedPrintedCustomerRef.current = null;
+            selectedUnprintedCustomerRef.current = null;
+            tableCustomerScopeRef.current = '';
+            handleClearForm(true);
+            updateState({
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                currentBillNo: null,
+                editingSaleId: null,
+                isManualClear: true,
+                middleBillArmed: false,
+                customerSearchInput: "",
+                priceManuallyChanged: false,
+                gridPricePerKg: "",
+                customerProfilePic: null,
+                customerNameDisplay: "",
+                loanAmount: 0,
+            });
+            // After deselect, blink cursor in customer code field.
+            setManagedTimeout(() => {
+                const el = refs.customer_code_input.current;
+                if (!el) return;
+                el.focus({ preventScroll: true });
+                try { el.select(); } catch (_) { /* ignore */ }
+            }, 0);
+            return;
+        }
     });
     // Helper function for normalizing codes
     const normalizeCode = useCallback((value) => {
         return String(value || '').trim().toUpperCase();
     }, []);
     const handleMarkAllProcessed = useStableCallback(async () => {
-        // Get sales to process - but do it synchronously without heavy filtering
-        const salesToProcess = [...newSales, ...unprintedSales];
+        // Strictly the rows currently shown in the middle table (plus their backend ids).
+        const snapshotRows = [];
+        const seen = new Set();
+        const add = (list) => {
+            (list || []).forEach((s) => {
+                if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return;
+                const key = String(s.id);
+                if (seen.has(key)) return;
+                seen.add(key);
+                snapshotRows.push(s);
+            });
+        };
+        add(displayedSalesRef.current);
+        add(displayedSales);
+        add(Array.from(pinnedBillSalesRef.current.values()));
+        add(Array.from(localTableSalesRef.current.values()));
+        add(Array.from(stickyTableSalesRef.current.values()));
+
+        const customerCode = String(
+            formDataRef.current?.customer_code
+            || selectedUnprintedCustomerRef.current
+            || tableCustomerScopeRef.current
+            || ''
+        ).trim().toUpperCase();
 
         // Clear form + focus customer code WITHOUT selecting text (select() made typing feel stuck).
         editingSaleIdRef.current = null;
         tableCustomerScopeRef.current = '';
+        middleTableSourceRef.current = null;
+        stickyTableSalesRef.current.clear();
+        localTableSalesRef.current.clear();
+        pinnedBillSalesRef.current.clear();
+        displayedSalesRef.current = [];
         setFormData(initialFormData);
+        middleBillArmedRef.current = false;
+        customerClickGenerationRef.current += 1;
+        selectedPrintedCustomerRef.current = null;
+        selectedUnprintedCustomerRef.current = null;
         updateState({
             editingSaleId: null,
             loanAmount: 0,
             isManualClear: true, // block autoCustomerCode from filling the input after F5
+            middleBillArmed: false,
             packCost: 0,
             customerSearchInput: "",
             itemSearchInput: "",
@@ -3288,7 +4968,10 @@ export default function SalesEntry() {
             selectedUnprintedCustomer: null,
             selectedPrintedCustomer: null,
             currentBillNo: null,
-            isSubmitting: salesToProcess.length > 0,
+            customerProfilePic: null,
+            customerNameDisplay: "",
+            isSubmitting: snapshotRows.length > 0,
+            localTableSales: [],
         });
 
         const focusCustomerCodeNoSelect = () => {
@@ -3302,23 +4985,30 @@ export default function SalesEntry() {
         };
         focusCustomerCodeNoSelect();
 
-        if (salesToProcess.length === 0) {
+        if (snapshotRows.length === 0) {
             return;
         }
 
         try {
-            const saleIds = salesToProcess.map(s => s.id);
+            const saleIds = await waitForDisplayedBackendIds(snapshotRows, customerCode);
+            if (!saleIds.length) {
+                updateState({ isSubmitting: false, isManualClear: true });
+                return;
+            }
             const response = await api.post(routes.markAllProcessed,
                 { sales_ids: saleIds },
-                { timeout: 5000 }
+                { timeout: 15000 }
             );
 
             if (response.data.success) {
-                const processedIds = new Set(saleIds);
+                const processedIds = new Set(saleIds.map(String));
                 setState(prev => ({
                     ...prev,
                     allSales: prev.allSales.map(s =>
-                        processedIds.has(s.id) ? { ...s, bill_printed: "N" } : s
+                        processedIds.has(String(s.id)) ? { ...s, bill_printed: "N" } : s
+                    ),
+                    sidebarSales: (prev.sidebarSales || []).map(s =>
+                        processedIds.has(String(s.id)) ? { ...s, bill_printed: "N" } : s
                     ),
                     isSubmitting: false,
                     isManualClear: true,
@@ -3815,61 +5505,345 @@ export default function SalesEntry() {
         return num.toFixed(2);
     };
 
-    const handlePrintAndClear = useStableCallback(async (preOpenedPrintWindow = null, prefetch = null) => {
-        // ---------------------------------------------------------------------
-        // INSTANT UI CLEAR & FOCUS (Fires synchronously before network/print delays)
-        // ---------------------------------------------------------------------
+    // Map painted tmp-* / optimistic rows to real DB ids for markPrinted + receipt.
+    // After POST, the table often still shows tmp-* with `_pendingRealId` — that is printable.
+    const lookupConfirmedSaleById = useStableCallback((realId) => {
+        if (realId == null) return null;
+        const idStr = String(realId);
+        const fromLocal = localTableSalesRef.current.get(idStr) || localTableSalesRef.current.get(realId);
+        if (fromLocal && !isTempOrOptimisticSale(fromLocal) && !String(fromLocal.id).startsWith('tmp-')) {
+            return fromLocal;
+        }
+        const fromRecent = recentSubmittedSalesRef.current.get(idStr)?.sale
+            || recentSubmittedSalesRef.current.get(realId)?.sale;
+        if (fromRecent && !String(fromRecent.id).startsWith('tmp-') && !fromRecent._optimistic) {
+            return { ...fromRecent, id: fromRecent.id, _optimistic: false };
+        }
+        const fromAll = (allSalesRef.current || []).find((s) => String(s?.id) === idStr);
+        if (fromAll && !String(fromAll.id).startsWith('tmp-')) return fromAll;
+        const fromSidebar = (sidebarSalesRef.current || []).find((s) => String(s?.id) === idStr);
+        if (fromSidebar && !String(fromSidebar.id).startsWith('tmp-')) return fromSidebar;
+        const fromSticky = stickyTableSalesRef.current.get(idStr);
+        if (fromSticky && !String(fromSticky.id).startsWith('tmp-') && !fromSticky._optimistic) return fromSticky;
+        return null;
+    });
+
+    const resolveSaleRowForPrint = useStableCallback((s) => {
+        if (!s || s.id == null || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return null;
+        const idStr = String(s.id);
+        if (!idStr.startsWith('tmp-') && !s._optimistic) return s;
+
+        const realId = s._pendingRealId ?? tempToRealIdRef.current.get(idStr);
+        if (realId != null) {
+            const confirmed = lookupConfirmedSaleById(realId);
+            if (confirmed) return confirmed;
+            return {
+                ...s,
+                id: realId,
+                _optimistic: false,
+                _pendingRealId: undefined,
+            };
+        }
+
+        // Content match against just-confirmed rows (race: map not written yet).
+        const cust = String(s.customer_code || '').trim().toUpperCase();
+        const item = String(s.item_code || '');
+        const weight = parseFloat(s.weight);
+        const packs = parseFloat(s.packs || 0);
+        let recentMatch = null;
+        recentSubmittedSalesRef.current.forEach((entry) => {
+            if (recentMatch) return;
+            const r = entry?.sale;
+            if (!r || r._optimistic || String(r.id || '').startsWith('tmp-')) return;
+            if (String(r.customer_code || '').trim().toUpperCase() !== cust) return;
+            if (String(r.item_code || '') !== item) return;
+            if (parseFloat(r.weight) !== weight) return;
+            if (parseFloat(r.packs || 0) !== packs) return;
+            recentMatch = r;
+        });
+        return recentMatch || null;
+    });
+
+    const resolveSalesListForPrint = useStableCallback((list) => {
+        const out = [];
+        const seen = new Set();
+        let pendingCount = 0;
+        (list || []).forEach((s) => {
+            if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return;
+            const resolved = resolveSaleRowForPrint(s);
+            if (!resolved) {
+                if (isTempOrOptimisticSale(s) || String(s.id).startsWith('tmp-')) pendingCount += 1;
+                return;
+            }
+            const key = String(resolved.id);
+            if (seen.has(key) || String(key).startsWith('tmp-') || resolved._optimistic) {
+                if (String(key).startsWith('tmp-') || resolved._optimistic) pendingCount += 1;
+                return;
+            }
+            seen.add(key);
+            out.push(resolved);
+        });
+        return { sales: out, pendingCount };
+    });
+
+    const collectBackendIdsFromRows = useStableCallback((rows) => {
+        const ids = new Set();
+        (rows || []).forEach((s) => {
+            if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return;
+            const resolved = resolveSaleRowForPrint(s);
+            const mapped = resolved?.id ?? s._pendingRealId ?? tempToRealIdRef.current.get(String(s.id));
+            if (mapped != null && !String(mapped).startsWith('tmp-')) ids.add(String(mapped));
+            const idStr = String(s.id);
+            if (!idStr.startsWith('tmp-') && !s._optimistic) ids.add(idStr);
+        });
+        return ids;
+    });
+
+    const waitForDisplayedBackendIds = useStableCallback(async (snapshotRows, customerCode) => {
+        const deadline = Date.now() + MARK_IDS_WAIT_MS;
+        let ids = collectBackendIdsFromRows(snapshotRows);
+        while (Date.now() < deadline) {
+            ids = collectBackendIdsFromRows(snapshotRows);
+            const stillPending = (snapshotRows || []).some((s) => {
+                const idStr = String(s?.id || '');
+                if (!idStr.startsWith('tmp-') && !s?._optimistic) return false;
+                const real = s?._pendingRealId ?? tempToRealIdRef.current.get(idStr);
+                return real == null || String(real).startsWith('tmp-');
+            });
+            if (pendingSubmitsRef.current.size === 0 && !stillPending) break;
+            await new Promise((r) => setTimeout(r, MARK_IDS_POLL_MS));
+        }
+        ids = collectBackendIdsFromRows(snapshotRows);
+        const code = String(customerCode || '').trim().toUpperCase();
+        const contentKeys = new Set((snapshotRows || []).map((s) => saleContentKey(s)).filter(Boolean));
+        if (code) {
+            try {
+                const response = await api.get(routes.sales, { timeout: API_TIMEOUT_MS });
+                const list = response.data?.data || response.data?.sales || response.data || [];
+                (Array.isArray(list) ? list : []).forEach((s) => {
+                    if (!s?.id) return;
+                    if (String(s.customer_code || '').trim().toUpperCase() !== code) return;
+                    if (String(s.bill_printed ?? '').trim().toUpperCase() === 'Y') return;
+                    const idStr = String(s.id);
+                    if (ids.has(idStr) || contentKeys.has(saleContentKey(s))) ids.add(idStr);
+                });
+            } catch (_) { /* keep locally resolved ids */ }
+        }
+        return [...ids].filter((id) => id && !String(id).startsWith('tmp-'));
+    });
+
+    const clearUiAfterPrint = useStableCallback((expectedGen = null) => {
+        // Ignore stale delayed clears — they were wiping the next bill and restoring old fields.
+        if (expectedGen != null && expectedGen !== printClearGenerationRef.current) return;
+
+        // Full post-print wipe: inputs + middle table + caches (no auto-populate).
+        // Sidebars keep backend data; just-printed ids stay marked Y.
         tableCustomerScopeRef.current = '';
         editingSaleIdRef.current = null;
+        middleBillArmedRef.current = false;
+        middleTableSourceRef.current = null;
+        customerClickGenerationRef.current += 1;
+        selectedPrintedCustomerRef.current = null;
+        selectedUnprintedCustomerRef.current = null;
+        ignoreCustomerSelectRef.current = true;
+        lastEnteredItemRef.current = null;
+        lastSubmitSignatureRef.current = '';
+        lastSubmitAtRef.current = 0;
+        lastContentSubmitSigRef.current = '';
+        loanAmountRef.current = 0;
+        loanCacheRef.current.clear();
+        stickyTableSalesRef.current.clear();
+        localTableSalesRef.current.clear();
+        pinnedBillSalesRef.current.clear();
+        displayedSalesRef.current = [];
+        // Keep temp↔real maps until markPrinted/F5 resolve finishes — clearing them here
+        // left just-saved lines unmarked on the backend.
+        formDataRef.current = { ...initialFormData };
+        printInFlightRef.current = false;
+        printAwaitingBillRef.current = false;
+        printStartedAtRef.current = 0;
 
-        // Force immediate UI reset
+        // Clear every controlled/uncontrolled input DOM node used on the form.
+        try {
+            Object.keys(refs).forEach((key) => {
+                const el = refs[key]?.current;
+                if (!el) return;
+                if ('value' in el) el.value = '';
+                // react-select instances expose clearValue when available.
+                if (typeof el.clearValue === 'function') {
+                    try { el.clearValue(); } catch (_) { /* ignore */ }
+                }
+            });
+        } catch (_) { /* ignore */ }
+
         flushSync(() => {
-            handleClearForm(true);
-            setState(prev => ({
-                ...prev,
-                selectedPrintedCustomer: null,
-                selectedUnprintedCustomer: null,
-                currentBillNo: null,
-                isPrinting: false
-            }));
+            setFormData({ ...initialFormData });
+            setState((prev) => {
+                const markPrinted = (s) => (
+                    isRecentlyPrintedId(s?.id)
+                        ? { ...s, bill_printed: 'Y', _optimistic: false }
+                        : s
+                );
+                const nextAll = (prev.allSales || []).map(markPrinted);
+                const nextSidebar = (prev.sidebarSales || []).map(markPrinted);
+                allSalesRef.current = nextAll;
+                sidebarSalesRef.current = nextSidebar;
+                lastSidebarSignatureRef.current = buildSidebarListSignature(nextSidebar);
+                return {
+                    ...prev,
+                    formData: { ...initialFormData },
+                    selectedPrintedCustomer: null,
+                    selectedUnprintedCustomer: null,
+                    currentBillNo: null,
+                    isPrinting: false,
+                    isManualClear: true,
+                    middleBillArmed: false,
+                    localTableSales: [],
+                    allSales: nextAll,
+                    sidebarSales: nextSidebar,
+                    editingSaleId: null,
+                    selectedSaleForBreakdown: null,
+                    priceManuallyChanged: false,
+                    gridPricePerKg: "",
+                    itemSearchInput: "",
+                    customerSearchInput: "",
+                    supplierSearchInput: "",
+                    searchQueries: {
+                        printed: "",
+                        unprinted: "",
+                        farmerPrinted: "",
+                        farmerUnprinted: "",
+                    },
+                    packCost: 0,
+                    loanAmount: 0,
+                    customerProfilePic: null,
+                    supplierProfilePic: null,
+                    customerNameDisplay: "",
+                    supplierNameDisplay: "",
+                    showSavePhoneButton: false,
+                    errors: {},
+                    isGivenAmountManuallyTouched: false,
+                };
+            });
         });
+        setManagedTimeout(() => { ignoreCustomerSelectRef.current = false; }, 100);
+        setManagedTimeout(() => {
+            const el = refs.customer_code_input.current;
+            if (!el) return;
+            el.focus({ preventScroll: true });
+            try {
+                const end = el.value?.length ?? 0;
+                el.setSelectionRange(end, end);
+            } catch (_) { /* ignore */ }
+        }, 0);
+    });
 
-        // Move focus to customer_code_input instantly
-        if (refs.customer_code_input.current) {
-            refs.customer_code_input.current.focus();
-            refs.customer_code_input.current.select();
-        }
-        // ---------------------------------------------------------------------
-
-        // When F1 already opened the system print dialog, only finish DB work
+    const handlePrintAndClear = useStableCallback(async (preOpenedPrintWindow = null, prefetch = null) => {
+        // When F1 already opened the system print dialog, never flushSync-clear first —
+        // that steals focus/CPU from the print dialog and feels slow.
         if (prefetch?.printAlreadyTriggered) {
             printInFlightRef.current = true;
             printStartedAtRef.current = Date.now();
 
-            const freshSalesData = await refreshSalesData(true);
-            let salesToProcess = (Array.isArray(prefetch?.salesToProcess) ? prefetch.salesToProcess : [])
-                .filter((s) => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic);
+            let salesToProcess = resolveSalesListForPrint(Array.isArray(prefetch?.salesToProcess) ? prefetch.salesToProcess : []).sales;
             let billNo = prefetch?.billNo || "";
 
             const finishPrintFlow = () => {
                 printInFlightRef.current = false;
                 printStartedAtRef.current = 0;
+                printAwaitingBillRef.current = false;
                 updateState({ isPrinting: false });
             };
 
+            const uiAlreadyCleared = !!prefetch?.uiAlreadyCleared;
+
             const finalizeUiAfterPrint = (finalBillNo) => {
-                const printedIds = new Set(salesToProcess.map((s) => s.id).filter(Boolean));
-                setState((prev) => ({
-                    ...prev,
-                    allSales: prev.allSales.map((s) =>
-                        printedIds.has(s.id)
-                            ? { ...s, bill_printed: 'Y', bill_no: finalBillNo || s.bill_no }
-                            : s
-                    ),
-                }));
+                const printedIds = new Set(salesToProcess.map((s) => String(s.id)).filter(Boolean));
+                markIdsRecentlyPrinted([...printedIds]);
+                const markPrintedRow = (s) =>
+                    printedIds.has(String(s.id)) || isRecentlyPrintedId(s?.id)
+                        ? { ...s, bill_printed: 'Y', bill_no: finalBillNo || s.bill_no, _optimistic: false }
+                        : s;
+                const trackAt = Date.now();
+                // Update recent-submit cache so a following GET cannot restore pre-print rows.
+                printedIds.forEach((idStr) => {
+                    const fromProcess = salesToProcess.find((s) => String(s.id) === idStr);
+                    const base = fromProcess
+                        || recentSubmittedSalesRef.current.get(idStr)?.sale
+                        || localTableSalesRef.current.get(idStr);
+                    if (!base) return;
+                    const printedSale = markPrintedRow(base);
+                    recentSubmittedSalesRef.current.set(idStr, { sale: printedSale, at: trackAt });
+                    if (base.id != null) recentSubmittedSalesRef.current.set(base.id, { sale: printedSale, at: trackAt });
+                    stickyTableSalesRef.current.delete(idStr);
+                    localTableSalesRef.current.delete(idStr);
+                    pinnedBillSalesRef.current.delete(idStr);
+                });
                 printInFlightRef.current = false;
+                printAwaitingBillRef.current = false;
                 printStartedAtRef.current = 0;
-                setManagedTimeout(() => refreshSalesData(true), 400);
+
+                // F1 already cleared the form/table instantly — only sync printed flags to sidebars.
+                // Do NOT clear again (that can wipe the next bill mid-entry).
+                if (uiAlreadyCleared) {
+                    flushSync(() => {
+                        setState((prev) => {
+                            const nextAll = (prev.allSales || []).map(markPrintedRow);
+                            const nextLocal = (prev.localTableSales || [])
+                                .map(markPrintedRow)
+                                .filter((s) => !printedIds.has(String(s?.id)) && !isRecentlyPrintedId(s?.id));
+                            const nextSidebar = (prev.sidebarSales || []).map(markPrintedRow);
+                            allSalesRef.current = nextAll;
+                            sidebarSalesRef.current = nextSidebar;
+                            lastSidebarSignatureRef.current = buildSidebarListSignature(nextSidebar);
+                            return {
+                                ...prev,
+                                allSales: nextAll,
+                                localTableSales: nextLocal,
+                                sidebarSales: nextSidebar,
+                            };
+                        });
+                    });
+                    setManagedTimeout(() => refreshSidebarSales(true), 400);
+                    return;
+                }
+
+                const clearGen = ++printClearGenerationRef.current;
+                flushSync(() => {
+                    setState((prev) => {
+                        const nextAll = prev.allSales.map(markPrintedRow);
+                        const nextLocal = (prev.localTableSales || [])
+                            .map(markPrintedRow)
+                            .filter((s) => !printedIds.has(String(s?.id)) && !isRecentlyPrintedId(s?.id));
+                        const nextSidebar = (prev.sidebarSales || []).map(markPrintedRow);
+                        allSalesRef.current = nextAll;
+                        sidebarSalesRef.current = nextSidebar;
+                        lastSidebarSignatureRef.current = buildSidebarListSignature(nextSidebar);
+                        return {
+                            ...prev,
+                            allSales: nextAll,
+                            localTableSales: nextLocal,
+                            sidebarSales: nextSidebar,
+                            formData: { ...initialFormData },
+                            selectedPrintedCustomer: null,
+                            selectedUnprintedCustomer: null,
+                            currentBillNo: null,
+                            middleBillArmed: false,
+                            isManualClear: true,
+                            editingSaleId: null,
+                            selectedSaleForBreakdown: null,
+                            gridPricePerKg: "",
+                            itemSearchInput: "",
+                            customerSearchInput: "",
+                            loanAmount: 0,
+                        };
+                    });
+                    setFormData({ ...initialFormData });
+                });
+                clearUiAfterPrint(clearGen);
+                setManagedTimeout(() => {
+                    refreshSidebarSales(true);
+                }, 400);
             };
 
             try {
@@ -3887,6 +5861,31 @@ export default function SalesEntry() {
             return;
         }
 
+        // ---------------------------------------------------------------------
+        // Non-prefetch path (e.g. given-amount → print): clear UI, then print.
+        // ---------------------------------------------------------------------
+        tableCustomerScopeRef.current = '';
+        editingSaleIdRef.current = null;
+        selectedPrintedCustomerRef.current = null;
+        selectedUnprintedCustomerRef.current = null;
+
+        flushSync(() => {
+            handleClearForm(true);
+            setState(prev => ({
+                ...prev,
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                currentBillNo: null,
+                isPrinting: false
+            }));
+        });
+
+        if (refs.customer_code_input.current) {
+            refs.customer_code_input.current.focus();
+            refs.customer_code_input.current.select();
+        }
+        // ---------------------------------------------------------------------
+
         // Ref-based guard prevents duplicate prints
         if (printInFlightRef.current) {
             if (Date.now() - printStartedAtRef.current < PRINT_LOCK_MAX_MS) {
@@ -3901,6 +5900,7 @@ export default function SalesEntry() {
         const finishPrintFlow = () => {
             printInFlightRef.current = false;
             printStartedAtRef.current = 0;
+            printAwaitingBillRef.current = false;
             updateState({ isPrinting: false });
         };
 
@@ -4012,9 +6012,26 @@ export default function SalesEntry() {
             return;
         }
 
-        salesToProcess = salesToProcess.filter((s) => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic);
+        {
+            const resolvedList = resolveSalesListForPrint(salesToProcess);
+            salesToProcess = resolvedList.sales;
+        }
         if (!salesToProcess.length) {
-            alert("වාර්තා සුරැකෙමින් පවතී. කරුණාකර නැවත F1 ඔබන්න.");
+            // Saves may still be in flight — wait briefly, then print automatically.
+            const waitDeadline = Date.now() + PRINT_SAVE_WAIT_MS;
+            while (Date.now() < waitDeadline && (!salesToProcess.length || pendingSubmitsRef.current.size > 0)) {
+                await new Promise((r) => setTimeout(r, PRINT_SAVE_POLL_MS));
+                const candidates = [
+                    ...(displayedSalesRef.current || []),
+                    ...Array.from(localTableSalesRef.current.values()),
+                    ...Array.from(stickyTableSalesRef.current.values()),
+                ];
+                salesToProcess = resolveSalesListForPrint(candidates).sales;
+                if (pendingSubmitsRef.current.size === 0 && salesToProcess.length > 0) break;
+            }
+        }
+        if (!salesToProcess.length) {
+            alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
             finishPrintFlow();
             return;
         }
@@ -4055,18 +6072,64 @@ export default function SalesEntry() {
         };
 
         const finalizeUiAfterPrint = (finalBillNo) => {
-            const printedIds = new Set(salesToProcess.map((s) => s.id).filter(Boolean));
-            setState((prev) => ({
-                ...prev,
-                allSales: prev.allSales.map((s) =>
-                    printedIds.has(s.id)
-                        ? { ...s, bill_printed: 'Y', bill_no: finalBillNo || s.bill_no }
-                        : s
-                ),
-            }));
+            const printedIds = new Set(salesToProcess.map((s) => String(s.id)).filter(Boolean));
+            markIdsRecentlyPrinted([...printedIds]);
+            const markPrintedRow = (s) =>
+                printedIds.has(String(s.id)) || isRecentlyPrintedId(s?.id)
+                    ? { ...s, bill_printed: 'Y', bill_no: finalBillNo || s.bill_no, _optimistic: false }
+                    : s;
+            const trackAt = Date.now();
+            printedIds.forEach((idStr) => {
+                const fromProcess = salesToProcess.find((s) => String(s.id) === idStr);
+                const base = fromProcess
+                    || recentSubmittedSalesRef.current.get(idStr)?.sale
+                    || localTableSalesRef.current.get(idStr);
+                if (!base) return;
+                const printedSale = markPrintedRow(base);
+                recentSubmittedSalesRef.current.set(idStr, { sale: printedSale, at: trackAt });
+                if (base.id != null) recentSubmittedSalesRef.current.set(base.id, { sale: printedSale, at: trackAt });
+                stickyTableSalesRef.current.delete(idStr);
+                localTableSalesRef.current.delete(idStr);
+            });
             printInFlightRef.current = false;
+            printAwaitingBillRef.current = false;
             printStartedAtRef.current = 0;
-            setManagedTimeout(() => refreshSalesData(true), 400);
+            const clearGen = ++printClearGenerationRef.current;
+            flushSync(() => {
+                setState((prev) => {
+                    const nextAll = prev.allSales.map(markPrintedRow);
+                    const nextLocal = (prev.localTableSales || [])
+                        .map(markPrintedRow)
+                        .filter((s) => !printedIds.has(String(s?.id)) && !isRecentlyPrintedId(s?.id));
+                    const nextSidebar = (prev.sidebarSales || []).map(markPrintedRow);
+                    allSalesRef.current = nextAll;
+                    sidebarSalesRef.current = nextSidebar;
+                    lastSidebarSignatureRef.current = buildSidebarListSignature(nextSidebar);
+                    return {
+                        ...prev,
+                        allSales: nextAll,
+                        localTableSales: nextLocal,
+                        sidebarSales: nextSidebar,
+                        formData: { ...initialFormData },
+                        selectedPrintedCustomer: null,
+                        selectedUnprintedCustomer: null,
+                        currentBillNo: null,
+                        middleBillArmed: false,
+                        isManualClear: true,
+                        editingSaleId: null,
+                        selectedSaleForBreakdown: null,
+                        gridPricePerKg: "",
+                        itemSearchInput: "",
+                        customerSearchInput: "",
+                        loanAmount: 0,
+                    };
+                });
+                setFormData({ ...initialFormData });
+            });
+            clearUiAfterPrint(clearGen);
+            setManagedTimeout(() => {
+                refreshSidebarSales(true);
+            }, 400);
         };
 
         try {
@@ -4118,182 +6181,267 @@ export default function SalesEntry() {
             window.location.reload();
         }
 
-        if (e.key === "F1") {
-            e.preventDefault();
+        const isF1 = e.key === "F1" || e.code === "F1" || e.keyCode === 112 || e.which === 112;
+        if (isF1) {
+            try {
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+            } catch (_) { /* ignore */ }
             if (e.repeat) return;
-            if (printInFlightRef.current) {
-                if (Date.now() - printStartedAtRef.current < PRINT_LOCK_MAX_MS) return;
+
+            // Dedup window+document capture listeners for the same physical F1 press.
+            const now = Date.now();
+            if (now - lastF1AtRef.current < 120) return;
+            lastF1AtRef.current = now;
+
+            // Never soft-lock F1 all day. Only ignore an identical press for PRINT_LOCK_MAX_MS.
+            if (printAwaitingBillRef.current || printInFlightRef.current) {
+                const age = printStartedAtRef.current ? now - printStartedAtRef.current : Infinity;
+                if (age < PRINT_LOCK_MAX_MS) return;
+                printAwaitingBillRef.current = false;
                 printInFlightRef.current = false;
+                printStartedAtRef.current = 0;
                 updateState({ isPrinting: false });
             }
 
-            // --- GATHER SALES DATA FOR VALIDATION (local memory only — no network) ---
-            let salesDataToValidate = [];
+            // Abort main-table poll only — keep sidebar sync alive for live printed/unprinted lists.
+            try { refreshAbortRef.current?.abort(); } catch (_) { /* ignore */ }
+            try { getPrintFrame(); } catch (_) { /* ignore */ }
+
+            // --- WHAT YOU SEE IN THE TABLE IS WHAT WE PRINT ---
+            // Prefer live displayedSales first (same rows as the center table), then refs/cache.
             let billNo = "";
-
-            // FIX: First check if we have any displayedSales, then determine which customer is selected
-            const customerCodeFromForm = formData.customer_code?.trim().toUpperCase();
-            const unprintedCustomer = selectedUnprintedCustomer?.trim().toUpperCase();
-            const printedCustomer = selectedPrintedCustomer;
-
-            // Determine which customer context to use
-            let activeCustomerCode = null;
-            let activeBillNo = null;
-
-            if (printedCustomer) {
-                if (printedCustomer.includes('-')) {
-                    const [cCode, bNo] = printedCustomer.split('-');
-                    activeCustomerCode = cCode;
-                    activeBillNo = bNo || "";
-                } else {
-                    activeCustomerCode = printedCustomer;
-                }
-            } else if (unprintedCustomer) {
-                activeCustomerCode = unprintedCustomer;
-            } else if (customerCodeFromForm) {
-                activeCustomerCode = customerCodeFromForm;
+            const liveForm = formDataRef.current || formData;
+            const printedCustomer = selectedPrintedCustomerRef.current || selectedPrintedCustomer;
+            if (printedCustomer && String(printedCustomer).includes('-')) {
+                billNo = String(printedCustomer).slice(String(printedCustomer).lastIndexOf('-') + 1).trim();
             }
 
-            // If we have an active customer, filter displayedSales by that customer
-            if (activeCustomerCode) {
-                salesDataToValidate = displayedSales.filter(s =>
-                    String(s.customer_code || '').toUpperCase() === activeCustomerCode
-                );
+            const poolById = new Map();
+            const addPool = (list) => {
+                (list || []).forEach((s) => {
+                    if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return;
+                    const idStr = String(s.id);
+                    if (!poolById.has(idStr)) poolById.set(idStr, s);
+                });
+            };
+            // Table rows first — never miss what the operator is looking at.
+            addPool(displayedSales);
+            addPool(displayedSalesRef.current);
+            addPool(Array.from(pinnedBillSalesRef.current.values()));
+            addPool(Array.from(stickyTableSalesRef.current.values()));
+            addPool(Array.from(localTableSalesRef.current.values()));
+            addPool(sidebarSalesRef.current);
+            addPool(allSalesRef.current);
+            recentSubmittedSalesRef.current.forEach((entry) => {
+                if (entry?.sale) addPool([entry.sale]);
+            });
 
-                // If we have a specific bill number (printed bill), filter further
-                if (activeBillNo) {
-                    salesDataToValidate = salesDataToValidate.filter(s =>
-                        String(s.bill_no || '') === activeBillNo
-                    );
+            // Start from currently displayed / pinned table rows whenever present.
+            let salesDataToValidate = (displayedSales && displayedSales.length > 0)
+                ? displayedSales.slice()
+                : (displayedSalesRef.current || []).slice();
+            if (salesDataToValidate.length === 0 && pinnedBillSalesRef.current.size > 0) {
+                salesDataToValidate = Array.from(pinnedBillSalesRef.current.values());
+            }
+
+            if (salesDataToValidate.length === 0) {
+                // Fallback: selected bill/customer from sidebar refs.
+                const norm = (v) => String(v || '').trim().toUpperCase();
+                const customerCodeFromForm = String(liveForm.customer_code || '').trim().toUpperCase();
+                const unprintedCustomer = String(selectedUnprintedCustomerRef.current || selectedUnprintedCustomer || '').trim().toUpperCase();
+                let activeCustomerCode = null;
+                let activeBillNo = billNo || null;
+
+                if (printedCustomer) {
+                    if (String(printedCustomer).includes('-')) {
+                        const separatorIndex = String(printedCustomer).lastIndexOf('-');
+                        activeCustomerCode = String(printedCustomer).slice(0, separatorIndex).trim().toUpperCase();
+                        activeBillNo = String(printedCustomer).slice(separatorIndex + 1).trim();
+                    } else {
+                        activeCustomerCode = String(printedCustomer).trim().toUpperCase();
+                    }
+                } else if (unprintedCustomer) {
+                    activeCustomerCode = unprintedCustomer;
+                } else if (customerCodeFromForm) {
+                    activeCustomerCode = customerCodeFromForm;
+                } else if (tableCustomerScopeRef.current) {
+                    activeCustomerCode = String(tableCustomerScopeRef.current).trim().toUpperCase();
                 }
 
-                // If we found sales, try to get the bill number
-                if (salesDataToValidate.length > 0) {
-                    const saleWithBillNo = salesDataToValidate.find(s => s.bill_no);
-                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
-
-                    // If it's a printed customer but billNo not found, use the one from selection
-                    if (!billNo && printedCustomer && printedCustomer.includes('-')) {
-                        billNo = printedCustomer.split('-')[1] || "";
+                const pool = Array.from(poolById.values());
+                if (activeCustomerCode) {
+                    salesDataToValidate = pool.filter((s) => norm(s.customer_code) === activeCustomerCode);
+                    if (activeBillNo) {
+                        salesDataToValidate = salesDataToValidate.filter(
+                            (s) => String(s.bill_no || '') === String(activeBillNo)
+                        );
+                        billNo = activeBillNo;
+                    } else {
+                        salesDataToValidate = salesDataToValidate.filter(
+                            (s) => String(s.bill_printed || '').trim().toUpperCase() !== 'Y'
+                        );
                     }
                 }
             }
 
-            // If still no sales, try to get ANY displayed sales (fallback)
-            if (salesDataToValidate.length === 0) {
-                salesDataToValidate = displayedSales.filter(s => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic);
-                if (salesDataToValidate.length > 0) {
-                    const saleWithBillNo = salesDataToValidate.find(s => s.bill_no);
-                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
-                }
+            if (!billNo) {
+                const saleWithBillNo = salesDataToValidate.find((s) => s.bill_no);
+                if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
             }
 
-            // Clean up: remove temp/optimistic rows
-            salesDataToValidate = salesDataToValidate.filter(
-                (s) => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic
-            );
+            try { updateState({ errors: {} }); } catch (_) { /* ignore */ }
 
-            if (salesDataToValidate.length === 0) {
+            const unlockPrintSoon = () => {
+                printInFlightRef.current = false;
+                printAwaitingBillRef.current = false;
+                printStartedAtRef.current = 0;
+            };
+
+            // Receipt = on-screen rows (temps OK). markPrinted uses real DB ids only.
+            const receiptRows = (salesDataToValidate || []).filter(
+                (s) => s && !isDeletedSaleId(deletedSaleIdsRef.current, s.id)
+            );
+            if (receiptRows.length === 0) {
                 alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
                 return;
             }
 
-            const hasZeroOrOnePrice = salesDataToValidate.some(s =>
+            const hasZeroOrOnePrice = receiptRows.some((s) =>
                 parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1
             );
-
             if (hasZeroOrOnePrice) {
                 alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
                 return;
             }
-
-            for (const s of salesDataToValidate) {
+            for (const s of receiptRows) {
                 if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
                     alert(`කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`);
                     return;
                 }
             }
 
-            const customerCode = salesDataToValidate[0].customer_code;
-            const customerName = salesDataToValidate[0].customer_name || customerCode;
-            const mobile = salesDataToValidate[0].mobile || "0777672838 / 071437115";
+            const customerCode = receiptRows[0].customer_code;
+            const customerName = receiptRows[0].customer_name || customerCode;
+            const mobile = receiptRows[0].mobile || "0777672838 / 071437115";
             const normalizedCustomerCode = String(customerCode || '').trim().toUpperCase();
             const currentLoan = loanCacheRef.current.has(normalizedCustomerCode)
                 ? loanCacheRef.current.get(normalizedCustomerCode)
-                : (parseFloat(loanAmount) || 0);
+                : (loanAmountRef.current || parseFloat(loanAmount) || 0);
+            const activeBillSize = billSizeRef.current || billSize;
 
-            // Fire markPrinted in parallel (does not block the print dialog).
-            let markPrintedPromise = null;
-            if (!billNo) {
-                markPrintedPromise = api.post(routes.markPrinted, {
-                    sales_ids: salesDataToValidate.map(s => s.id),
-                    telephone_no: formData.telephone_no,
-                    customer_code: customerCode,
-                    customer_name: customerName,
-                    loan_amount: 0
-                }, { timeout: API_TIMEOUT_MS });
-            }
-
-            // FAST PATH: bill already known → open ONLY the system print dialog now.
-            // Hidden iframe = no blank popup window, content is already written before print().
-            if (billNo) {
-                printInFlightRef.current = true;
-                printStartedAtRef.current = Date.now();
+            const openPrintDialogNow = (rows, activeBillNo) => {
                 const receiptHtml = buildFullReceiptHTML(
-                    salesDataToValidate,
-                    billNo,
+                    rows,
+                    activeBillNo || '—',
                     customerName,
                     mobile,
                     currentLoan,
-                    billSize
+                    activeBillSize
                 );
-                writeAndPrintBill(buildPrintDocumentShell('Print Bill', receiptHtml));
+                return writeAndPrintBill(buildPrintDocumentShell('Print Bill', receiptHtml));
+            };
+
+            const collectLatestRows = () => {
+                const byId = new Map();
+                const add = (list) => (list || []).forEach((s) => {
+                    if (!s?.id || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return;
+                    byId.set(String(s.id), s);
+                });
+                add(displayedSalesRef.current);
+                add(displayedSales);
+                add(Array.from(pinnedBillSalesRef.current.values()));
+                add(Array.from(localTableSalesRef.current.values()));
+                add(Array.from(stickyTableSalesRef.current.values()));
+                add(receiptRows);
+                return Array.from(byId.values());
+            };
+
+            try { getPrintFrame(); } catch (_) { /* ignore */ }
+
+            // Collect print ids (incl. temp→real) so clear can block them from reappearing.
+            const collectPrintBlockIds = (rows) => {
+                const ids = [];
+                (rows || []).forEach((s) => {
+                    if (!s?.id) return;
+                    ids.push(s.id);
+                    const idStr = String(s.id);
+                    const mappedReal = tempToRealIdRef.current.get(idStr) || s._pendingRealId;
+                    if (mappedReal != null) ids.push(mappedReal);
+                    const mappedTemp = realToTempIdRef.current.get(idStr);
+                    if (mappedTemp != null) ids.push(mappedTemp);
+                });
+                return ids;
+            };
+
+            const runMarkPrintedForTable = async (snapshot, existingBillNo) => {
+                const saleIds = await waitForDisplayedBackendIds(snapshot, customerCode);
+                if (!saleIds.length) {
+                    setManagedTimeout(() => refreshSidebarSales(true), 0);
+                    return;
+                }
+                markIdsRecentlyPrinted(saleIds);
+                const printResponse = await api.post(routes.markPrinted, {
+                    sales_ids: saleIds,
+                    telephone_no: liveForm.telephone_no,
+                    customer_code: customerCode,
+                    customer_name: customerName,
+                    loan_amount: 0
+                }, { timeout: 15000 });
+                if (!printResponse || printResponse.data.status !== "success") {
+                    throw new Error("මුද්‍රණය අසාර්ථකයි");
+                }
+                const newBillNo = printResponse.data.customer_bill_no || existingBillNo || "";
                 handlePrintAndClear(null, {
-                    salesToProcess: salesDataToValidate,
-                    billNo,
-                    markPrintedPromise: null,
+                    salesToProcess: saleIds.map((id) => ({ id })),
+                    billNo: newBillNo || existingBillNo || '—',
+                    markPrintedPromise: Promise.resolve(printResponse),
                     printAlreadyTriggered: true,
+                    uiAlreadyCleared: true,
+                });
+                recentSubmittedSalesRef.current.clear();
+                tempToRealIdRef.current.clear();
+                realToTempIdRef.current.clear();
+                stableRowKeyRef.current.clear();
+            };
+
+            // Known bill: open print dialog + clear form/table in THIS keydown turn (instant).
+            if (billNo) {
+                printInFlightRef.current = true;
+                printStartedAtRef.current = Date.now();
+                const printedOk = openPrintDialogNow(receiptRows, billNo);
+                setTimeout(unlockPrintSoon, printedOk ? 300 : 0);
+                markIdsRecentlyPrinted(collectPrintBlockIds(receiptRows));
+                clearUiAfterPrint(++printClearGenerationRef.current);
+                void runMarkPrintedForTable(receiptRows, billNo).catch((error) => {
+                    console.error("Printing error:", error);
+                    setManagedTimeout(() => refreshSidebarSales(true), 0);
+                    unlockPrintSoon();
+                    updateState({ isPrinting: false });
                 });
                 return;
             }
 
-            // First print: wait for bill_no, then print immediately via iframe (still no blank window).
+            // First print: OPEN DIALOG + CLEAR FORM/TABLE in THIS keydown turn (instant).
+            // markPrinted waits for real backend ids in background — never leave table rows unmarked.
             printInFlightRef.current = true;
+            printAwaitingBillRef.current = true;
             printStartedAtRef.current = Date.now();
-            (async () => {
+            const snapshotRows = receiptRows.slice();
+            const printedOkNow = openPrintDialogNow(snapshotRows, '—');
+            setTimeout(unlockPrintSoon, printedOkNow ? 300 : 0);
+            markIdsRecentlyPrinted(collectPrintBlockIds(snapshotRows));
+            clearUiAfterPrint(++printClearGenerationRef.current);
+
+            void runMarkPrintedForTable(snapshotRows, '').catch((error) => {
+                console.error("Printing error:", error);
                 try {
-                    const printResponse = await markPrintedPromise;
-                    if (!printResponse || printResponse.data.status !== "success") {
-                        throw new Error("මුද්‍රණය අසාර්ථකයි");
-                    }
-                    const newBillNo = printResponse.data.customer_bill_no || "";
-                    if (!newBillNo) {
-                        alert("බිල්පත් අංකය උත්පාදනය කිරීමට නොහැකි විය");
-                        printInFlightRef.current = false;
-                        return;
-                    }
-                    const receiptHtml = buildFullReceiptHTML(
-                        salesDataToValidate,
-                        newBillNo,
-                        customerName,
-                        mobile,
-                        currentLoan,
-                        billSize
-                    );
-                    writeAndPrintBill(buildPrintDocumentShell('Print Bill', receiptHtml));
-                    handlePrintAndClear(null, {
-                        salesToProcess: salesDataToValidate,
-                        billNo: newBillNo,
-                        markPrintedPromise: Promise.resolve(printResponse),
-                        printAlreadyTriggered: true,
-                    });
-                } catch (error) {
-                    console.error("Printing error:", error);
-                    alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + (error.message || error));
-                    printInFlightRef.current = false;
-                    updateState({ isPrinting: false });
-                }
-            })();
+                    setManagedTimeout(() => refreshSidebarSales(true), 0);
+                } catch (_) { /* ignore */ }
+                unlockPrintSoon();
+                updateState({ isPrinting: false });
+            });
             return;
         }
 
@@ -4311,9 +6459,47 @@ export default function SalesEntry() {
         }
     });
 
+    // Keep module handler fresh so F1 never finds a null mid-day.
+    latestSalesEntryF1Handler = handleShortcut;
+
     useEffect(() => {
-        window.addEventListener("keydown", handleShortcut);
-        return () => window.removeEventListener("keydown", handleShortcut);
+        // Capture on both window + document so F1 always reaches print all day.
+        const onKeyDown = (event) => {
+            const fn = latestSalesEntryF1Handler || handleShortcut;
+            if (typeof fn === 'function') fn(event);
+        };
+        const opts = { capture: true, passive: false };
+        window.addEventListener("keydown", onKeyDown, opts);
+        document.addEventListener("keydown", onKeyDown, opts);
+
+        const onAfterPrint = () => {
+            printInFlightRef.current = false;
+            printAwaitingBillRef.current = false;
+            printStartedAtRef.current = 0;
+            lastF1AtRef.current = 0;
+            try { window.focus(); } catch (_) { /* ignore */ }
+        };
+        window.addEventListener('afterprint', onAfterPrint);
+
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') {
+                printInFlightRef.current = false;
+                printAwaitingBillRef.current = false;
+                printStartedAtRef.current = 0;
+                lastF1AtRef.current = 0;
+                latestSalesEntryF1Handler = handleShortcut;
+                try { window.focus(); } catch (_) { /* ignore */ }
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+            window.removeEventListener("keydown", onKeyDown, opts);
+            document.removeEventListener("keydown", onKeyDown, opts);
+            window.removeEventListener('afterprint', onAfterPrint);
+            document.removeEventListener('visibilitychange', onVisible);
+            if (latestSalesEntryF1Handler === handleShortcut) latestSalesEntryF1Handler = null;
+        };
     }, [handleShortcut]);
 
     //new function to save phone no 
@@ -4355,7 +6541,7 @@ export default function SalesEntry() {
         }
     };
 
-    const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
+    const hasData = allSales.length > 0 || sidebarSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
 
     // Stable props for the memoized sidebar lists; inline arrows here would defeat
     // React.memo and re-render both full lists on every keystroke in the form.
@@ -4407,21 +6593,7 @@ export default function SalesEntry() {
 
                 <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1, display: 'grid', gridTemplateColumns: '200px 1fr 200px', gap: '16px', padding: '10px', marginTop: '-149px' }}>
                     <div className="left-sidebar" style={{ backgroundColor: '#1ec139ff', borderRadius: '0.75rem', maxHeight: '80.5vh', overflowY: 'auto' }}>
-
-                        {hasData ? (
-                            <CustomerList type="printed" searchQuery={searchQueries.printed} onSearchChange={handlePrintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={allSales} isCashFilterActive={state.isCashFilterActive} toggleCashFilter={toggleCashFilter} />
-                        ) : (
-                            <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
-                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
-                                    <h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>
-                                        මුද්‍රණය කළ
-                                    </h2>
-                                </div>
-                                <div className="py-4">
-                                    <p className="text-gray-700">මුද්‍රණය කළ ගනුදෙනු දත්ත නොමැත.</p>
-                                </div>
-                            </div>
-                        )}
+                        <CustomerList type="printed" searchQuery={searchQueries.printed} onSearchChange={handlePrintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={sidebarSales} isCashFilterActive={state.isCashFilterActive} toggleCashFilter={toggleCashFilter} />
                     </div>
 
 
@@ -4617,7 +6789,7 @@ export default function SalesEntry() {
                                                 </div>
                                                 {/* CUSTOMER CODE FIELD - Stays in its original position */}
                                                 <div className="flex-1 min-w-0" style={{ marginTop: '-40px' }}>
-                                                    <input id="customer_code_input" ref={refs.customer_code_input} name="customer_code" value={formData.customer_code || (!isManualClear ? autoCustomerCode : "")} onChange={(e) => handleInputChange("customer_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "customer_code_input")} type="text" placeholder="පාරිභෝගික කේතය" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
+                                                    <input id="customer_code_input" ref={refs.customer_code_input} name="customer_code" value={formData.customer_code || ""} onChange={(e) => handleInputChange("customer_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "customer_code_input")} type="text" placeholder="පාරිභෝගික කේතය" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
                                                 </div>
                                             </div>
                                             <div style={{ flex: '0 0 150px', minWidth: '120px', marginLeft: '-100px' }}>
@@ -4740,68 +6912,166 @@ export default function SalesEntry() {
                                                                         : null
                                                                 }
 
-                                                                onInputChange={(value, meta) => {
-                                                                    if (meta.action === "input-change") {
-                                                                        updateState({ itemSearchInput: value.toUpperCase() });
-                                                                    }
-                                                                    // Ignore "menu-close" / "set-value" / "input-blur" —
-                                                                    // those must not wipe typing or customer table scope.
-                                                                }}
-
                                                                 onKeyDown={(e) => {
-                                                                    if (e.key === "Enter" && state.itemSearchInput === "+") {
+                                                                    // BETTER CHECK FOR '+' - use the current input value directly
+                                                                    const currentValue = e.target?.value || state.itemSearchInput || '';
+                                                                    const isPlusTyped = currentValue === '+';
+
+                                                                    if (e.key === "Enter" && isPlusTyped) {
                                                                         e.preventDefault();
                                                                         e.stopPropagation();
 
-                                                                        // 1. Filter out temporary rows and sort strictly by latest ID / Timestamp
-                                                                        const validSales = displayedSales.filter(
-                                                                            s => s && s.id && !String(s.id).startsWith('tmp-')
-                                                                        );
+                                                                        // IMMEDIATELY clear the input value
+                                                                        const select = refs.item_code_select.current;
+                                                                        if (e.target) {
+                                                                            e.target.value = "";
+                                                                        }
 
-                                                                        const latestSale = validSales.sort((a, b) => {
-                                                                            const timeA = new Date(a.created_at || a.updated_at || a.timestamp || 0).getTime() || Number(a.id) || 0;
-                                                                            const timeB = new Date(b.created_at || b.updated_at || b.timestamp || 0).getTime() || Number(b.id) || 0;
-                                                                            return timeB - timeA;
-                                                                        })[0];
+                                                                        // Clear state immediately
+                                                                        updateState({
+                                                                            itemSearchInput: "",
+                                                                            isManualClear: false
+                                                                        });
 
-                                                                        if (latestSale && latestSale.item_code) {
-                                                                            // 2. Fetch strictly the item_code and item_name
-                                                                            const targetItemCode = latestSale.item_code;
-                                                                            const targetItemName = latestSale.item_name || "";
+                                                                        // Force clear react-select internal state
+                                                                        if (select) {
+                                                                            try {
+                                                                                if (select.inputRef) {
+                                                                                    select.inputRef.value = '';
+                                                                                }
+                                                                                if (typeof select.setState === 'function') {
+                                                                                    select.setState({
+                                                                                        inputValue: '',
+                                                                                        menuIsOpen: false
+                                                                                    });
+                                                                                }
+                                                                                if (typeof select.blur === 'function') {
+                                                                                    select.blur();
+                                                                                }
+                                                                            } catch (_) { /* ignore */ }
+                                                                        }
 
-                                                                            setFormData(prev => {
-                                                                                const keptCustomer = String(
-                                                                                    prev.customer_code ||
-                                                                                    selectedUnprintedCustomer ||
-                                                                                    tableCustomerScopeRef.current ||
-                                                                                    ''
-                                                                                ).trim().toUpperCase();
+                                                                        // Latest item: table top row (newest) → lastEnteredItemRef → caches.
+                                                                        // Never get stuck: always resolve from what is currently on screen.
+                                                                        const isPrintedBillView = middleTableSourceRef.current === 'printed'
+                                                                            || !!selectedPrintedCustomerRef.current
+                                                                            || !!selectedPrintedCustomer;
+                                                                        const keptCustomer = isPrintedBillView ? '' : String(
+                                                                            formDataRef.current?.customer_code ||
+                                                                            selectedUnprintedCustomerRef.current ||
+                                                                            selectedUnprintedCustomer ||
+                                                                            tableCustomerScopeRef.current ||
+                                                                            ''
+                                                                        ).trim().toUpperCase();
 
-                                                                                if (keptCustomer) tableCustomerScopeRef.current = keptCustomer;
+                                                                        let targetItemCode = '';
+                                                                        let targetItemName = '';
 
-                                                                                return {
+                                                                        const tableRows = isPrintedBillView
+                                                                            ? []
+                                                                            : ((displayedSalesRef.current && displayedSalesRef.current.length > 0)
+                                                                                ? displayedSalesRef.current
+                                                                                : (displayedSales || []));
+                                                                        const topRow = tableRows.find((s) => {
+                                                                            if (!s?.item_code || isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return false;
+                                                                            if (!keptCustomer) return true;
+                                                                            return String(s.customer_code || '').trim().toUpperCase() === keptCustomer;
+                                                                        }) || tableRows[0];
+
+                                                                        if (topRow?.item_code) {
+                                                                            targetItemCode = topRow.item_code;
+                                                                            targetItemName = topRow.item_name || '';
+                                                                            lastEnteredItemRef.current = {
+                                                                                item_code: targetItemCode,
+                                                                                item_name: targetItemName,
+                                                                                customer_code: keptCustomer || String(topRow.customer_code || '').trim().toUpperCase(),
+                                                                                at: Date.now(),
+                                                                                saleId: topRow.id,
+                                                                            };
+                                                                        } else {
+                                                                            const remembered = isPrintedBillView ? null : lastEnteredItemRef.current;
+                                                                            if (
+                                                                                remembered?.item_code &&
+                                                                                (!keptCustomer || !remembered.customer_code || remembered.customer_code === keptCustomer)
+                                                                            ) {
+                                                                                targetItemCode = remembered.item_code;
+                                                                                targetItemName = remembered.item_name || '';
+                                                                            } else {
+                                                                                const uniqueSalesMap = new Map();
+                                                                                const consider = (s) => {
+                                                                                    if (!s?.id || !s.item_code) return;
+                                                                                    if (isDeletedSaleId(deletedSaleIdsRef.current, s.id)) return;
+                                                                                    // Never pull item from printed-sidebar bills into the entry form.
+                                                                                    if (String(s.bill_printed ?? '').trim().toUpperCase() === 'Y') return;
+                                                                                    if (isRecentlyPrintedId(s.id)) return;
+                                                                                    if (keptCustomer && String(s.customer_code || '').trim().toUpperCase() !== keptCustomer) return;
+                                                                                    const idStr = String(s.id);
+                                                                                    if (!uniqueSalesMap.has(idStr)) uniqueSalesMap.set(idStr, s);
+                                                                                };
+                                                                                Array.from(pinnedBillSalesRef.current.values()).forEach(consider);
+                                                                                Array.from(localTableSalesRef.current.values()).forEach(consider);
+                                                                                Array.from(stickyTableSalesRef.current.values()).forEach(consider);
+                                                                                const sortedSales = Array.from(uniqueSalesMap.values()).sort((a, b) => {
+                                                                                    const getSortTime = (sale) => {
+                                                                                        if (isTempOrOptimisticSale(sale)) {
+                                                                                            const ts = parseInt(String(sale.id).split('-')[1], 10);
+                                                                                            if (!isNaN(ts)) return ts;
+                                                                                        }
+                                                                                        const timestamps = [sale.created_at, sale.updated_at, sale.timestamp, sale.date];
+                                                                                        for (const ts of timestamps) {
+                                                                                            if (!ts) continue;
+                                                                                            const parsed = new Date(ts).getTime();
+                                                                                            if (!isNaN(parsed)) return parsed;
+                                                                                        }
+                                                                                        const idNum = parseInt(sale.id, 10);
+                                                                                        return isNaN(idNum) ? 0 : idNum;
+                                                                                    };
+                                                                                    return getSortTime(b) - getSortTime(a);
+                                                                                });
+                                                                                const latestSale = sortedSales[0];
+                                                                                if (latestSale?.item_code) {
+                                                                                    targetItemCode = latestSale.item_code;
+                                                                                    targetItemName = latestSale.item_name || '';
+                                                                                }
+                                                                            }
+                                                                        }
+
+                                                                        if (targetItemCode) {
+                                                                            if (keptCustomer) tableCustomerScopeRef.current = keptCustomer;
+
+                                                                            flushSync(() => {
+                                                                                setFormData(prev => ({
                                                                                     ...prev,
                                                                                     customer_code: keptCustomer || prev.customer_code,
                                                                                     item_code: targetItemCode,
                                                                                     item_name: targetItemName,
-                                                                                    // Keep existing weight/price/packs empty or untouched
                                                                                     weight: "",
                                                                                     price_per_kg: "",
                                                                                     packs: "",
                                                                                     total: ""
-                                                                                };
+                                                                                }));
                                                                             });
 
-                                                                            // 3. Clear the '+' input and focus the weight input immediately
-                                                                            updateState({
-                                                                                itemSearchInput: "",
-                                                                                isManualClear: false,
-                                                                            });
+                                                                            if (refs.item_code_select.current) {
+                                                                                const selectEl = refs.item_code_select.current;
+                                                                                try {
+                                                                                    if (typeof selectEl.selectOption === 'function') {
+                                                                                        selectEl.selectOption({
+                                                                                            value: targetItemCode,
+                                                                                            label: `${targetItemCode} - ${targetItemName}`,
+                                                                                            item: { no: targetItemCode, type: targetItemName }
+                                                                                        });
+                                                                                    }
+                                                                                } catch (_) { /* ignore */ }
+                                                                            }
 
-                                                                            setManagedTimeout(() => {
-                                                                                refs.weight.current?.focus();
-                                                                                refs.weight.current?.select();
-                                                                            }, 50);
+                                                                            // Focus weight immediately — no long delay that feels stuck.
+                                                                            requestAnimationFrame(() => {
+                                                                                if (refs.weight.current) {
+                                                                                    refs.weight.current.focus();
+                                                                                    refs.weight.current.select();
+                                                                                }
+                                                                            });
                                                                         }
                                                                         return;
                                                                     }
@@ -4810,6 +7080,23 @@ export default function SalesEntry() {
                                                                         e.preventDefault();
                                                                     }
                                                                 }}
+
+                                                                // IMPROVED onInputChange - ensure '+' is handled correctly
+                                                                onInputChange={(value, meta) => {
+                                                                    if (meta.action === "input-change") {
+                                                                        // If the user types '+', keep it exactly as is
+                                                                        if (value === '+') {
+                                                                            updateState({ itemSearchInput: '+' });
+                                                                        } else {
+                                                                            // For other values, trim and convert to uppercase
+                                                                            const cleanValue = value.trim() === "" ? "" : value.toUpperCase();
+                                                                            updateState({ itemSearchInput: cleanValue });
+                                                                        }
+                                                                    }
+                                                                    // When menu closes or value is set, don't wipe the input
+                                                                }}
+
+
                                                                 className="react-select-container font-bold text-sm w-full"
 
                                                                 styles={{
@@ -4896,10 +7183,18 @@ export default function SalesEntry() {
                                                             // Remove backgroundColor or set it to transparent
                                                             backgroundColor: 'transparent'
                                                         };
+                                                        const idKey = s?.id != null ? String(s.id) : '';
+                                                        const rowKey = (idKey && (
+                                                            stableRowKeyRef.current.get(idKey)
+                                                            || (realToTempIdRef.current.has(idKey)
+                                                                ? stableRowKeyRef.current.get(realToTempIdRef.current.get(idKey))
+                                                                : null)
+                                                            || idKey
+                                                        )) || `${s.customer_code || 'sale'}-${s.item_code || 'item'}-${idx}`;
                                                         return (
-                                                            <tr key={s.id || `${s.customer_code || 'sale'}-${s.item_code || 'item'}-${idx}`}
-                                                                tabIndex={0}
-                                                                className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                            <tr key={rowKey}
+                                                                tabIndex={-1}
+                                                                className="text-center cursor-pointer focus:outline-none"
                                                                 onClick={() => handleEditClick(s)}
                                                                 onKeyDown={(e) => handleTableRowKeyDown(e, s)}>
                                                                 <td className="border" style={cellStyle}>{s.supplier_code}</td>
@@ -4948,11 +7243,7 @@ export default function SalesEntry() {
                     </div>
 
                     <div className="right-sidebar" style={{ backgroundColor: '#1ec139ff', borderRadius: '0.75rem', maxHeight: '80.5vh', overflowY: 'auto', gridColumnStart: 3, gridColumnEnd: 4 }}>
-                        {hasData ? (<CustomerList type="unprinted" searchQuery={searchQueries.unprinted} onSearchChange={handleUnprintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={allSales} />) : (
-                            <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
-                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl"><h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>මුද්‍රණය නොකළ</h2></div><div className="py-4"><p className="text-gray-700">මුද්‍රණය නොකළ විකුණුම් කිසිවක් සොයාගත නොහැක</p></div>
-                            </div>
-                        )}
+                        <CustomerList type="unprinted" searchQuery={searchQueries.unprinted} onSearchChange={handleUnprintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={sidebarSales} />
                     </div>
                 </div>
             </div>

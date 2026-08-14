@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import SalesAdjustmentReportView from './SalesAdjustmentReportView';
-import api from "../../api";  // <<<<<< IMPORT AXIOS API WRAPPER
+import api from "../../api";
 
 const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
   const [filters, setFilters] = useState({
     code: '',
     start_date: '',
     end_date: '',
+    show_deleted_only: false  // Added this field
   });
   const [password, setPassword] = useState('');
   const [showDateRange, setShowDateRange] = useState(false);
@@ -16,7 +17,12 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     if (isOpen) {
-      setFilters({ code: '', start_date: '', end_date: '' });
+      setFilters({ 
+        code: '', 
+        start_date: '', 
+        end_date: '',
+        show_deleted_only: false 
+      });
       setPassword('');
       setShowDateRange(false);
       setReportData(null);
@@ -42,8 +48,8 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
       if (filters.code) requestBody.code = filters.code;
       if (filters.start_date) requestBody.start_date = filters.start_date;
       if (filters.end_date) requestBody.end_date = filters.end_date;
+      if (filters.show_deleted_only) requestBody.show_deleted = 'true';
 
-      // 🟢 Now using axios instead of fetch
       const response = await api.post('/reports/salesadjustment/filter', requestBody);
 
       const data = response.data;
@@ -132,13 +138,30 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
                   onChange={handlePasswordChange}
                   disabled={loading}
                 />
+                <small className="text-muted">* පැරණි වාර්තා බැලීමට පස්වර්ඩ් ඇතුල් කරන්න</small>
+              </div>
+
+              {/* Customer Code Field - Always visible */}
+              <div className="mb-3">
+                <label className="form-label" style={{ fontWeight: 'bold', color: 'black' }}>
+                  🔍 පාරිභෝගික කේතය (විකල්ප)
+                </label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="උදා: CUST001"
+                  value={filters.code}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                  disabled={loading}
+                />
+                <small className="text-muted">* නිශ්චිත පාරිභෝගිකයෙකුගේ වාර්තා පමණක් බැලීමට</small>
               </div>
 
               {showDateRange && (
                 <>
                   <div className="mb-3">
                     <label className="form-label" style={{ fontWeight: 'bold', color: 'black' }}>
-                      ආරම්භ දිනය
+                      📅 ආරම්භ දිනය
                     </label>
                     <input
                       type="date"
@@ -151,7 +174,7 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
 
                   <div className="mb-3">
                     <label className="form-label" style={{ fontWeight: 'bold', color: 'black' }}>
-                      අවසන් දිනය
+                      📅 අවසන් දිනය
                     </label>
                     <input
                       type="date"
@@ -164,6 +187,44 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
                 </>
               )}
 
+              {/* Show Deleted Only Checkbox - Always visible */}
+              <div className="mb-3 form-check">
+                <input
+                  type="checkbox"
+                  className="form-check-input"
+                  id="showDeletedOnly"
+                  checked={filters.show_deleted_only}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, show_deleted_only: e.target.checked }))}
+                  disabled={loading}
+                  style={{ 
+                    width: '18px', 
+                    height: '18px',
+                    cursor: 'pointer'
+                  }}
+                />
+                <label className="form-check-label" htmlFor="showDeletedOnly" style={{ 
+                  fontWeight: 'bold', 
+                  color: '#dc3545',
+                  fontSize: '15px',
+                  cursor: 'pointer'
+                }}>
+                  🗑️ මකා දැමූ වාර්තා පමණක් පෙන්වන්න
+                </label>
+                <br />
+                <small className="text-muted">* මකා දැමූ වාර්තා පමණක් බැලීමට මෙය තෝරන්න</small>
+              </div>
+
+              {/* Show current filters summary */}
+              {(filters.code || filters.start_date || filters.end_date || filters.show_deleted_only) && (
+                <div className="alert alert-info alert-sm" style={{ fontSize: '13px' }}>
+                  <strong>වත්මන් පෙරහන්:</strong>
+                  {filters.code && <span className="badge bg-primary ms-1 me-1">{filters.code}</span>}
+                  {filters.start_date && <span className="badge bg-success ms-1 me-1">සිට: {filters.start_date}</span>}
+                  {filters.end_date && <span className="badge bg-success ms-1 me-1">දක්වා: {filters.end_date}</span>}
+                  {filters.show_deleted_only && <span className="badge bg-danger ms-1">🗑️ මකා දැමූ පමණක්</span>}
+                </div>
+              )}
+
             </div>
 
             <div className="modal-footer">
@@ -171,10 +232,10 @@ const SalesAdjustmentReportModal = ({ isOpen, onClose }) => {
                 {loading ? (
                   <>
                     <span className="spinner-border spinner-border-sm me-2"></span>
-                    Generating Report...
+                    වාර්තාව සකස් වෙමින්...
                   </>
                 ) : (
-                  'වාර්තාව ලබාගන්න'
+                  '📊 වාර්තාව ලබාගන්න'
                 )}
               </button>
             </div>

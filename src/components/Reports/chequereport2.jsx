@@ -169,7 +169,8 @@ const AmountInWords = styled(Typography)({
 
 // Card view component for Sales Cheques
 const ChequeCard = ({ transaction, index, isSelected, onSelect, onViewDetails, onToggleExpand, isExpanded, isFavorite, onToggleFavorite, onRealize, onUnrealize }) => {
-  const isRealized = transaction.realized === 'Y';
+  // Use bank_realized for status
+  const isRealized = transaction.bank_realized === 'Y';
   
   return (
     <motion.div
@@ -219,7 +220,7 @@ const ChequeCard = ({ transaction, index, isSelected, onSelect, onViewDetails, o
                 <Grid item xs={12} md={3}>
                   <Typography variant="subtitle2" color="textSecondary">Status</Typography>
                   <Chip
-                    label={isRealized ? 'Realized' : 'Unrealized'}
+                    label={isRealized ? 'Bank Realized' : 'Unrealized'}
                     size="small"
                     color={isRealized ? 'success' : 'warning'}
                     icon={isRealized ? <CheckCircleIcon /> : <CancelIcon />}
@@ -270,7 +271,7 @@ const ChequeCard = ({ transaction, index, isSelected, onSelect, onViewDetails, o
                   </Grid>
                   {isRealized && (
                     <Grid item xs={12}>
-                      <Typography variant="caption" color="textSecondary">Realized Date</Typography>
+                      <Typography variant="caption" color="textSecondary">Bank Realized Date</Typography>
                       <Typography variant="body2">
                         {transaction.realized_date ? format(parseISO(transaction.realized_date), 'dd/MM/yyyy') : 'N/A'}
                       </Typography>
@@ -545,12 +546,12 @@ const ChequeReport2 = () => {
       filtered = filtered.filter(t => t.amount <= max);
     }
     
-    // Realized status filter
+    // Realized status filter - using bank_realized
     if (filters.realizedStatus !== 'all') {
       if (filters.realizedStatus === 'realized') {
-        filtered = filtered.filter(t => t.realized === 'Y');
+        filtered = filtered.filter(t => t.bank_realized === 'Y');
       } else if (filters.realizedStatus === 'unrealized') {
-        filtered = filtered.filter(t => !t.realized || t.realized !== 'Y');
+        filtered = filtered.filter(t => !t.bank_realized || t.bank_realized !== 'Y');
       }
     }
     
@@ -763,13 +764,17 @@ const ChequeReport2 = () => {
     setRealizeDialogOpen(true);
   }, [selectedCheques]);
 
-  // Confirm realize/unrealize
+  // Confirm realize/unrealize - UPDATED to use new bank realize endpoints
   const confirmRealize = useCallback(async () => {
     setRealizeDialogOpen(false);
     setLoading(true);
     
     try {
-      const endpoint = realizeAction === 'realize' ? '/cheque-report/sales-realize' : '/cheque-report/sales-unrealize';
+      // NEW: Use bank realize endpoints
+      const endpoint = realizeAction === 'realize' 
+        ? '/cheque-report/sales-bank-realize' 
+        : '/cheque-report/sales-bank-unrealize';
+      
       const payload = {
         cheques: selectedForRealization,
       };
@@ -777,14 +782,33 @@ const ChequeReport2 = () => {
       const response = await api.post(endpoint, payload);
       
       if (response.data.success) {
-        setSnackbar({ open: true, message: response.data.message, severity: 'success' });
+        setSnackbar({ 
+          open: true, 
+          message: response.data.message, 
+          severity: 'success' 
+        });
+        
+        // Show errors if any
+        if (response.data.errors && response.data.errors.length > 0) {
+          console.warn('Errors:', response.data.errors);
+          setSnackbar({ 
+            open: true, 
+            message: `Success with warnings: ${response.data.errors.join(', ')}`, 
+            severity: 'warning' 
+          });
+        }
+        
         fetchChequeTransactions();
       } else {
         throw new Error(response.data.message || 'Operation failed');
       }
     } catch (err) {
       console.error('Error:', err);
-      setSnackbar({ open: true, message: err.message || 'Operation failed. Please try again.', severity: 'error' });
+      setSnackbar({ 
+        open: true, 
+        message: err.message || 'Operation failed. Please try again.', 
+        severity: 'error' 
+      });
     } finally {
       setLoading(false);
       setSelectedCheques([]);
@@ -828,7 +852,7 @@ const ChequeReport2 = () => {
         'Source': t.source || 'N/A',
         'Bank': t.bank_name || 'N/A',
         'Is Fully Paid': t.is_fully_paid ? 'Yes' : 'No',
-        'Realized': t.realized === 'Y' ? 'Yes' : 'No',
+        'Bank Realized': t.bank_realized === 'Y' ? 'Yes' : 'No',
         'Created At': t.created_at ? format(parseISO(t.created_at), 'yyyy-MM-dd HH:mm') : 'N/A',
       }));
       
@@ -903,11 +927,11 @@ const ChequeReport2 = () => {
         t.bill_no || 'N/A',
         t.customer_name || 'N/A',
         t.source || 'N/A',
-        t.realized === 'Y' ? '✓' : '✗',
+        t.bank_realized === 'Y' ? '✓' : '✗',
       ]);
       
       autoTable(doc, {
-        head: [['Cheque No', 'Amount', 'Date', 'Reference', 'Bill No', 'Customer', 'Source', 'Realized']],
+        head: [['Cheque No', 'Amount', 'Date', 'Reference', 'Bill No', 'Customer', 'Source', 'Bank Realized']],
         body: tableData,
         startY: yPos,
         styles: {
@@ -1158,8 +1182,8 @@ const ChequeReport2 = () => {
                 variant="outlined"
               />
               <Chip
-                label={transaction.realized === 'Y' ? 'Realized ✅' : 'Pending ⏳'}
-                color={transaction.realized === 'Y' ? 'success' : 'warning'}
+                label={transaction.bank_realized === 'Y' ? 'Bank Realized ✅' : 'Pending ⏳'}
+                color={transaction.bank_realized === 'Y' ? 'success' : 'warning'}
                 size="small"
               />
             </Box>
@@ -1277,7 +1301,7 @@ const ChequeReport2 = () => {
                 />
                 <Chip
                   icon={<CheckCircleIcon />}
-                  label={`${summary?.realized_cheques || 0} Realized`}
+                  label={`${summary?.realized_cheques || 0} Bank Realized`}
                   sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
                 />
               </Box>
@@ -1292,7 +1316,7 @@ const ChequeReport2 = () => {
               { label: 'Total Cheques', value: summary.total_cheques, icon: <ReceiptIcon />, color: colors.primary },
               { label: 'Total Amount', value: `LKR ${summary.total_amount.toFixed(2)}`, icon: <MoneyIcon />, color: colors.success },
               { label: 'Average Amount', value: `LKR ${summary.average_amount?.toFixed(2) || '0.00'}`, icon: <TrendingUpIcon />, color: colors.info },
-              { label: 'Realized', value: summary.realized_cheques || 0, icon: <CheckCircleIcon />, color: colors.realized },
+              { label: 'Bank Realized', value: summary.realized_cheques || 0, icon: <CheckCircleIcon />, color: colors.realized },
               { label: 'Unrealized', value: summary.unrealized_cheques || 0, icon: <CancelIcon />, color: colors.unrealized },
             ].map((item, index) => (
               <Grid item xs={12} sm={6} md={2.4} key={index}>
@@ -1647,7 +1671,7 @@ const ChequeReport2 = () => {
                       }}
                     />
                   }
-                  label="Show Realized Only"
+                  label="Show Bank Realized Only"
                 />
               </Grid>
               <Grid item xs={12} md={9}>
@@ -1715,7 +1739,8 @@ const ChequeReport2 = () => {
                   ) : (
                     filteredTransactions.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((transaction, index) => {
                       const isSelected = isChequeSelected(transaction);
-                      const isRealized = transaction.realized === 'Y';
+                      // Use bank_realized for status
+                      const isRealized = transaction.bank_realized === 'Y';
                       return (
                         <TableRow
                           key={transaction.id || index}
@@ -1758,7 +1783,7 @@ const ChequeReport2 = () => {
                           </TableCell>
                           <TableCell>
                             <Chip
-                              label={isRealized ? 'Realized' : 'Unrealized'}
+                              label={isRealized ? 'Bank Realized' : 'Unrealized'}
                               size="small"
                               color={isRealized ? 'success' : 'warning'}
                               icon={isRealized ? <CheckCircleIcon /> : <CancelIcon />}
@@ -1872,8 +1897,8 @@ const ChequeReport2 = () => {
                   sx={{ mr: 1 }}
                 />
                 <Chip
-                  label={selectedTransaction?.realized === 'Y' ? 'Realized ✅' : 'Pending ⏳'}
-                  color={selectedTransaction?.realized === 'Y' ? 'success' : 'warning'}
+                  label={selectedTransaction?.bank_realized === 'Y' ? 'Bank Realized ✅' : 'Pending ⏳'}
+                  color={selectedTransaction?.bank_realized === 'Y' ? 'success' : 'warning'}
                   size="small"
                 />
               </Box>
@@ -1906,8 +1931,8 @@ const ChequeReport2 = () => {
           <DialogContent>
             <DialogContentText>
               {realizeAction === 'realize'
-                ? `You are about to realize ${selectedForRealization.length} sales cheque(s). This action will mark them as realized.`
-                : `You are about to unrealize ${selectedForRealization.length} sales cheque(s). This will remove the realization status.`
+                ? `You are about to realize ${selectedForRealization.length} sales cheque(s). This will update the bank_realized status to 'Y'.`
+                : `You are about to unrealize ${selectedForRealization.length} sales cheque(s). This will update the bank_realized status to 'N'.`
               }
             </DialogContentText>
             <Box sx={{ mt: 2 }}>
@@ -1987,7 +2012,7 @@ const ChequeReport2 = () => {
           </MenuItem>
           <MenuItem onClick={() => { setShowRealizedOnly(!showRealizedOnly); handleMenuClose(); }}>
             <ListItemIcon><CheckCircleIcon fontSize="small" /></ListItemIcon>
-            <ListItemText>{showRealizedOnly ? 'Show All' : 'Realized Only'}</ListItemText>
+            <ListItemText>{showRealizedOnly ? 'Show All' : 'Bank Realized Only'}</ListItemText>
           </MenuItem>
         </Menu>
       </Box>

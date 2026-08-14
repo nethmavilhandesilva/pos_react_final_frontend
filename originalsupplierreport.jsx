@@ -1,2847 +1,369 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { flushSync } from "react-dom";
+import Select from "react-select";
+import Layout from "../Layout/Layout";
+import '../../App.css';
 import api from "../../api";
-import ReactDOM from 'react-dom';
-import FundAllocationModal from './FundAllocationModal';
+
 
 const routes = {
-    getSuppliers: "/suppliers/supplierloans",
-    getSupplierBillDetails: "/suppliers/bill",
-    getUnprintedDetails: "/suppliers/unprinted-details",
-    getBanks: "/banks",
-    paymentHistory: "/supplier-loan/payment-history",
-    deleteSupplierLoan: "/suppliers/delete-loan-record",
-    updateGivenAmountApplied: "/suppliers/update-loan-payment",
-    pendingCustomerBills: "/pending-customer-bills",
-    pendingFarmerBills: "/pending-farmer-bills",
-    printBill: "/suppliers/print-bill",
-    checkOrCreateCreditor: "/suppliers/check-or-create-creditor",
-    getSupplierByCode: "/suppliers/check-creditor",
-    getSupplierDetailedReport: "/supplier-detailed-report",
-    getOldBillsSummary: "/suppliers/old-bills-summary",
-    getBanksList: "/banks-list",
+    markPrinted: "/sales/mark-printed",
+    getLoanAmount: "/get-loan-amount",
+    markAllProcessed: "/sales/mark-all-processed",
+    givenAmount: "/sales",
+    sales: "/sales",
+    customers: "/customers",
+    items: "/items",
+    suppliers: "/suppliers",
+    getCustomerGivenAmount: "/sales/customer/given-amount",
+    getSalesByBillNo: "/sales/by-bill",
 };
 
-// ==================== BANK ACCOUNT SELECTOR COMPONENT ====================
-const BankAccountSelector = ({ selectedAccountId, onSelect, disabled = false, id = "bank-select", onEnterPress = null }) => {
-    const [banks, setBanks] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const selectRef = useRef(null);
+// Hard cap on every API request so a hung network call can never leave the page
+// stuck waiting forever during an all-day session.
+const API_TIMEOUT_MS = 15000;
+// POS submit must fail/recover fast — operators press Enter hundreds of times a day.
+const SUBMIT_TIMEOUT_MS = 8000;
+// Only ignore key-repeat / accidental double-tap (same physical Enter bounce).
+// Must stay short — same item entered twice in a row is a normal POS pattern.
+const SUBMIT_DEDUP_MS = 180;
+// Print dialog / popup can hang; unlock UI well before an all-day session feels frozen.
+const PRINT_LOCK_MAX_MS = 30000;
+const sameSaleId = (a, b) => a != null && b != null && String(a) === String(b);
 
-    useEffect(() => {
-        fetchBanks();
-    }, []);
-
-    const fetchBanks = async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(routes.getBanks);
-            if (response.data.success) {
-                setBanks(response.data.data);
-            } else {
-                setError('Failed to load bank accounts');
-            }
-        } catch (error) {
-            setError('Unable to load bank accounts');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleKeyPress = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            if (onEnterPress) {
-                onEnterPress();
-            }
-        }
-    };
-
-    if (loading) {
-        return <div style={{ padding: '10px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>Loading bank accounts...</div>;
+// Hidden iframe printer: opens ONLY the system print dialog (no blank popup window).
+const PRINT_FRAME_ID = 'touromni-pos-print-frame';
+const getPrintFrame = () => {
+    let iframe = document.getElementById(PRINT_FRAME_ID);
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = PRINT_FRAME_ID;
+        iframe.setAttribute('title', 'print');
+        iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(iframe);
     }
-
-    if (error) {
-        return <div style={{ padding: '10px', textAlign: 'center', color: '#ef4444', fontSize: '12px' }}>{error}</div>;
-    }
-
-    return (
-        <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '13px', color: '#334155' }}>
-                Select Bank Account <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <select
-                ref={selectRef}
-                id={id}
-                value={selectedAccountId || ''}
-                onChange={(e) => onSelect(e.target.value ? parseInt(e.target.value) : null)}
-                onKeyPress={handleKeyPress}
-                style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    background: 'white',
-                    cursor: 'pointer'
-                }}
-                disabled={disabled}
-            >
-                <option value="">-- Select Bank Account --</option>
-                {banks.map(bank => (
-                    <option key={bank.id} value={bank.id}>
-                        {bank.bank_name} - {bank.branch} (Acc: {bank.account_no})
-                    </option>
-                ))}
-            </select>
-        </div>
-    );
+    return iframe;
 };
-// ==================== PAYMENT HISTORY MODAL ====================
-const PaymentHistoryModal = ({ isOpen, onClose, payments, totalPaid, totalBill, remaining }) => {
-    if (!isOpen) return null;
-
-    const getPaymentMethodStyle = (method) => {
-        switch (method) {
-            case 'Cash': return { backgroundColor: '#10b981', color: 'white' };
-            case 'Cheque': return { backgroundColor: '#8b5cf6', color: 'white' };
-            case 'Bank Transfer': return { backgroundColor: '#ec489a', color: 'white' };
-            case 'bag_to_box': return { backgroundColor: '#f59e0b', color: 'white' };
-            case 'bill_to_bill': return { backgroundColor: '#3b82f6', color: 'white' };
-            case 'bad_debt': return { backgroundColor: '#ef4444', color: 'white' };
-            default: return { backgroundColor: '#6b7280', color: 'white' };
-        }
-    };
-
-    const formatCurrency = (amount) => {
-        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    };
-
-    const getPaymentIcon = (method) => {
-        switch (method) {
-            case 'Cash': return '💰';
-            case 'Cheque': return '💳';
-            case 'Bank Transfer': return '🏦';
-            case 'bag_to_box': return '📦';
-            case 'bill_to_bill': return '📄';
-            case 'bad_debt': return '⚠️';
-            default: return '💵';
-        }
-    };
-
-    const getMethodDisplayName = (method) => {
-        switch (method) {
-            case 'bag_to_box': return 'Bag to Box';
-            case 'bill_to_bill': return 'Bill to Bill';
-            case 'bad_debt': return 'Bad Debt';
-            default: return method;
-        }
-    };
-
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 10001,
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '12px',
-                width: '550px',
-                maxWidth: '90%',
-                maxHeight: '80vh',
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
-            }} onClick={(e) => e.stopPropagation()}>
-                <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '16px 20px',
-                    borderBottom: '1px solid #e2e8f0',
-                }}>
-                    <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#0f172a' }}>Payment History</h3>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#94a3b8' }}>×</button>
-                </div>
-
-                <div style={{
-                    padding: '16px 20px',
-                    background: '#f8fafc',
-                    borderBottom: '1px solid #e2e8f0',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '12px',
-                }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Total Bill</div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#ef4444' }}>{formatCurrency(totalBill)}</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Total Paid</div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#10b981' }}>{formatCurrency(totalPaid)}</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Remaining</div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#f59e0b' }}>{formatCurrency(remaining)}</div>
-                    </div>
-                </div>
-
-                <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-                    {payments && payments.length > 0 ? (
-                        payments.map((payment, index) => (
-                            <div key={index} style={{ padding: '12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <div style={{ fontWeight: '600', fontSize: '14px' }}>Payment #{index + 1}</div>
-                                    <div style={{ fontSize: '12px', color: '#64748b' }}>
-                                        {new Date(payment.date).toLocaleString()}
-                                    </div>
-                                    {payment.reference && (
-                                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                                            Ref: {payment.reference}
-                                        </div>
-                                    )}
-                                    {payment.running_balance && (
-                                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                                            Balance after: {formatCurrency(payment.running_balance)}
-                                        </div>
-                                    )}
-                                </div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <span style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        padding: '4px 12px',
-                                        borderRadius: '20px',
-                                        fontSize: '12px',
-                                        fontWeight: '500',
-                                        ...getPaymentMethodStyle(payment.method)
-                                    }}>
-                                        {getPaymentIcon(payment.method)} {getMethodDisplayName(payment.method)}
-                                    </span>
-                                    <div style={{ fontWeight: 'bold', marginTop: '8px', fontSize: '14px' }}>
-                                        {formatCurrency(payment.amount)}
-                                    </div>
-                                </div>
-                            </div>
-                        ))
-                    ) : (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                            No payment history available
-                        </div>
-                    )}
-                </div>
-
-                <div style={{ padding: '16px 20px', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
-                    <button onClick={onClose} style={{ padding: '8px 20px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Close</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ==================== CHEQUE MODAL ====================
-const ChequeModal = ({ isOpen, onClose, onConfirm, amount }) => {
-    const [chequeDetails, setChequeDetails] = useState({
-        cheq_date: '',
-        cheq_no: '',
-        bank_account_id: null
-    });
-    const [banks, setBanks] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    // Refs for input fields
-    const dateRef = useRef(null);
-    const chequeNoRef = useRef(null);
-    const cancelButtonRef = useRef(null);
-    const confirmButtonRef = useRef(null);
-
-    // Fetch banks when modal opens
-    useEffect(() => {
-        if (isOpen) {
-            fetchBanks();
-            // Auto-focus date field when modal opens
-            setTimeout(() => {
-                if (dateRef.current) {
-                    dateRef.current.focus();
-                }
-            }, 100);
-        }
-    }, [isOpen]);
-
-    const fetchBanks = async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(routes.getBanks);
-            if (response.data.success) {
-                setBanks(response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching banks:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    if (!isOpen) return null;
-
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setChequeDetails(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleBankSelect = (bankId) => {
-        setChequeDetails(prev => ({ ...prev, bank_account_id: bankId }));
-    };
-
-    const handleSubmit = () => {
-        if (!chequeDetails.cheq_date || !chequeDetails.cheq_no || !chequeDetails.bank_account_id) {
-            alert("Please fill all cheque details and select a bank account");
-            return;
-        }
-
-        const selectedBankObj = banks.find(bank => bank.id === chequeDetails.bank_account_id);
-        const chequeDataWithBank = {
-            ...chequeDetails,
-            bank_name: selectedBankObj ? selectedBankObj.bank_name : null
-        };
-
-        onConfirm(chequeDataWithBank);
-        setChequeDetails({ cheq_date: '', cheq_no: '', bank_account_id: null });
-    };
-
-    // Handle Enter key navigation using onKeyDown instead of onKeyPress
-    const handleChequeDateKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            // Use setTimeout to ensure the date picker closes before moving focus
-            setTimeout(() => {
-                if (chequeNoRef.current) {
-                    chequeNoRef.current.focus();
-                }
-            }, 50);
-        }
-    };
-
-    // Handle Enter key from cheque number to focus bank select
-    const handleChequeNoKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            // Focus the bank select element by its ID
-            const bankSelect = document.getElementById('cheque-bank-select');
-            if (bankSelect) {
-                bankSelect.focus();
-            }
-        }
-    };
-
-    // Handle Enter key on bank select - move to confirm button
-    const handleBankSelectEnter = () => {
-        setTimeout(() => {
-            if (confirmButtonRef.current) {
-                confirmButtonRef.current.focus();
-            }
-        }, 50);
-    };
-
-    // Handle Enter key on confirm button to submit
-    const handleConfirmKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            handleSubmit();
-        }
-    };
-
-    // Handle Enter key on cancel button to close
-    const handleCancelKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            onClose();
-        }
-    };
-
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 9999,
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '16px',
-                padding: '20px',
-                width: '380px',
-                maxWidth: '90%',
-                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
-            }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '24px' }}>💳</span>
-                    <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '700' }}>Cheque Payment</h3>
-                </div>
-
-                <div style={{ background: '#dbeafe', padding: '10px', borderRadius: '10px', marginBottom: '16px', textAlign: 'center' }}>
-                    <label style={{ display: 'block', fontWeight: '600', fontSize: '12px', color: '#1e40af', marginBottom: '4px' }}>Payment Amount</label>
-                    <div style={{ fontSize: '22px', fontWeight: '800', color: '#1e3a8a', fontFamily: 'monospace' }}>Rs. {amount?.toFixed(2) || '0.00'}</div>
-                </div>
-
-                <div style={{ marginBottom: '14px' }}>
-                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>📅 Cheque Date <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input
-                        ref={dateRef}
-                        type="date"
-                        name="cheq_date"
-                        value={chequeDetails.cheq_date}
-                        onChange={handleChange}
-                        onKeyDown={handleChequeDateKeyDown}
-                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }}
-                    />
-                </div>
-
-                <div style={{ marginBottom: '14px' }}>
-                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>🔢 Cheque Number <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input
-                        ref={chequeNoRef}
-                        type="text"
-                        name="cheq_no"
-                        value={chequeDetails.cheq_no}
-                        onChange={handleChange}
-                        placeholder="Enter cheque number"
-                        onKeyDown={handleChequeNoKeyDown}
-                        style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: '10px', fontSize: '13px', outline: 'none' }}
-                    />
-                </div>
-
-                <div style={{ marginBottom: '18px' }}>
-                    <BankAccountSelector
-                        id="cheque-bank-select"
-                        selectedAccountId={chequeDetails.bank_account_id}
-                        onSelect={handleBankSelect}
-                        disabled={loading}
-                        onEnterPress={handleBankSelectEnter}
-                    />
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
-                    <button
-                        ref={cancelButtonRef}
-                        onClick={onClose}
-                        onKeyDown={handleCancelKeyDown}
-                        style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        ref={confirmButtonRef}
-                        onClick={handleSubmit}
-                        onKeyDown={handleConfirmKeyDown}
-                        style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flex: 1 }}
-                    >
-                        Confirm Payment
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-// ==================== BANK TO BANK MODAL ====================
-const BankToBankModal = ({ isOpen, onClose, onConfirm, amount, supplierCode }) => {
-    const [transferDetails, setTransferDetails] = useState({
-        bank_account_id: null,
-        reference_no: '',
-        transfer_date: new Date().toISOString().split('T')[0],
-        notes: ''
-    });
-    const [banks, setBanks] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-
-    // Create refs for all input fields
-    const bankSelectRef = useRef(null);
-    const referenceNoRef = useRef(null);
-    const transferDateRef = useRef(null);
-    const notesRef = useRef(null);
-    const cancelButtonRef = useRef(null);
-    const confirmButtonRef = useRef(null);
-
-    useEffect(() => {
-        if (isOpen) {
-            fetchBanks();
-            // Auto-focus the bank select dropdown when modal opens
-            setTimeout(() => {
-                if (bankSelectRef.current) {
-                    bankSelectRef.current.focus();
-                }
-            }, 100);
-        }
-    }, [isOpen]);
-
-    const fetchBanks = async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(routes.getBanks);
-            if (response.data.success) {
-                setBanks(response.data.data);
-            } else {
-                setError('Failed to load bank accounts');
-            }
-        } catch (error) {
-            setError('Unable to load bank accounts');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    if (!isOpen) return null;
-
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setTransferDetails(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleBankSelect = (bankId) => {
-        setTransferDetails(prev => ({ ...prev, bank_account_id: bankId ? parseInt(bankId) : null }));
-    };
-
-    const handleSubmit = () => {
-        if (!transferDetails.bank_account_id) {
-            alert("Please select a bank account");
-            return;
-        }
-        if (!transferDetails.reference_no) {
-            alert("Please enter transaction reference number");
-            return;
-        }
-
-        // Get bank name from selected bank
-        const selectedBankObj = banks.find(bank => bank.id === transferDetails.bank_account_id);
-        const transferDataWithBank = {
-            ...transferDetails,
-            bank_name: selectedBankObj ? selectedBankObj.bank_name : null
-        };
-
-        onConfirm(transferDataWithBank);
-        // Reset form after submit
-        setTransferDetails({
-            bank_account_id: null,
-            reference_no: '',
-            transfer_date: new Date().toISOString().split('T')[0],
-            notes: ''
-        });
-    };
-
-    // Handle Enter key navigation
-    const handleKeyPress = (e, nextRef) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (nextRef && nextRef.current) {
-                setTimeout(() => {
-                    nextRef.current.focus();
-                }, 50);
-            }
-        }
-    };
-
-    // Handle Enter key for select element
-    const handleSelectKeyDown = (e, nextRef) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (nextRef && nextRef.current) {
-                setTimeout(() => {
-                    nextRef.current.focus();
-                }, 50);
-            } else {
-                // If no next field, submit
-                handleSubmit();
-            }
-        }
-    };
-
-    // Handle Enter key on last field (notes) - submits the form
-    const handleLastFieldKeyPress = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit();
-        }
-    };
-
-    // Handle Enter key on buttons
-    const handleButtonKeyPress = (e, action) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            action();
-        }
-    };
-
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 9999,
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                width: '500px',
-                maxWidth: '90%',
-                maxHeight: '85vh',
-                overflowY: 'auto',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
-            }} onClick={(e) => e.stopPropagation()}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '20px 24px',
-                    background: 'linear-gradient(135deg, #ec489a, #db2777)',
-                    borderRadius: '20px 20px 0 0',
-                }}>
-                    <span style={{ fontSize: '28px' }}>🏦</span>
-                    <h3 style={{ margin: 0, color: 'white', fontSize: '20px', fontWeight: '700' }}>Bank to Bank Transfer</h3>
-                </div>
-
-                <div style={{ padding: '24px' }}>
-                    <div style={{ background: '#fdf2f8', padding: '16px', borderRadius: '14px', marginBottom: '24px', border: '1px solid #fbcfe8' }}>
-                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#be185d', marginBottom: '10px' }}>💰 Payment Details</div>
-                        <div style={{ fontSize: '13px', color: '#9d174d', lineHeight: '1.6' }}>
-                            <strong>Amount:</strong> Rs. {amount?.toFixed(2) || '0.00'}<br />
-                            <strong>Supplier:</strong> {supplierCode}
-                        </div>
-                    </div>
-
-                    {/* Bank Account Selector Field */}
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>🏦 Select Bank Account <span style={{ color: '#ef4444' }}>*</span></label>
-                        {loading ? (
-                            <div style={{ padding: '12px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>Loading banks...</div>
-                        ) : (
-                            <select
-                                ref={bankSelectRef}
-                                value={transferDetails.bank_account_id || ''}
-                                onChange={(e) => handleBankSelect(e.target.value)}
-                                onKeyDown={(e) => handleSelectKeyDown(e, referenceNoRef)}
-                                disabled={loading}
-                                style={{
-                                    width: '100%',
-                                    padding: '12px 14px',
-                                    border: '2px solid #e2e8f0',
-                                    borderRadius: '12px',
-                                    fontSize: '14px',
-                                    background: 'white',
-                                    cursor: 'pointer',
-                                    outline: 'none'
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = '#ec489a'}
-                                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                            >
-                                <option value="">-- Select Bank Account --</option>
-                                {banks.map(bank => (
-                                    <option key={bank.id} value={bank.id}>
-                                        {bank.bank_name} - {bank.branch} (Acc: {bank.account_no})
-                                    </option>
-                                ))}
-                            </select>
-                        )}
-                    </div>
-
-                    {/* Transaction Reference Number Field */}
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>🔢 Transaction Reference Number <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input
-                            ref={referenceNoRef}
-                            type="text"
-                            name="reference_no"
-                            value={transferDetails.reference_no}
-                            onChange={handleChange}
-                            onKeyPress={(e) => handleKeyPress(e, transferDateRef)}
-                            placeholder="Enter transaction ID / Reference"
-                            style={{
-                                width: '100%',
-                                padding: '12px 14px',
-                                border: '2px solid #e2e8f0',
-                                borderRadius: '12px',
-                                fontSize: '14px',
-                                outline: 'none',
-                                fontFamily: 'monospace'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#ec489a'}
-                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                        />
-                    </div>
-
-                    {/* Transfer Date Field */}
-                    <div style={{ marginBottom: '20px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>📅 Transfer Date <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input
-                            ref={transferDateRef}
-                            type="date"
-                            name="transfer_date"
-                            value={transferDetails.transfer_date}
-                            onChange={handleChange}
-                            onKeyPress={(e) => handleKeyPress(e, notesRef)}
-                            style={{
-                                width: '100%',
-                                padding: '12px 14px',
-                                border: '2px solid #e2e8f0',
-                                borderRadius: '12px',
-                                fontSize: '14px',
-                                outline: 'none'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#ec489a'}
-                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                        />
-                    </div>
-
-                    {/* Notes Field (Last Field - Submits on Enter) */}
-                    <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>📝 Notes (Optional)</label>
-                        <textarea
-                            ref={notesRef}
-                            name="notes"
-                            value={transferDetails.notes}
-                            onChange={handleChange}
-                            onKeyDown={handleLastFieldKeyPress}
-                            placeholder="Additional notes about the transfer..."
-                            rows="3"
-                            style={{
-                                width: '100%',
-                                padding: '12px 14px',
-                                border: '2px solid #e2e8f0',
-                                borderRadius: '12px',
-                                fontSize: '14px',
-                                outline: 'none',
-                                resize: 'vertical',
-                                fontFamily: 'inherit'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#ec489a'}
-                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                        />
-                    </div>
-
-                    {/* Buttons Section */}
-                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                        <button
-                            ref={cancelButtonRef}
-                            onClick={onClose}
-                            onKeyPress={(e) => handleButtonKeyPress(e, onClose)}
-                            style={{
-                                padding: '10px 24px',
-                                background: '#f1f5f9',
-                                color: '#475569',
-                                border: 'none',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                fontWeight: '600',
-                                fontSize: '13px',
-                                transition: 'background 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#e2e8f0'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            ref={confirmButtonRef}
-                            onClick={handleSubmit}
-                            onKeyPress={(e) => handleButtonKeyPress(e, handleSubmit)}
-                            style={{
-                                padding: '10px 24px',
-                                background: 'linear-gradient(135deg, #ec489a, #db2777)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                fontWeight: '600',
-                                fontSize: '13px',
-                                transition: 'transform 0.2s'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'scale(1.02)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'scale(1)';
-                            }}
-                        >
-                            Confirm Transfer
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-// ==================== PAYMENT ADJUSTMENT MODAL ====================
-const PaymentAdjustmentModal = ({ isOpen, onClose, onConfirm, billNo, supplierCode, originalBillTotal, adjustmentType = 'bag_to_box', onAmountCalculated, maxAllowedAmount = Infinity }) => {
-    const [bagCount, setBagCount] = useState('');
-    const [boxCount, setBoxCount] = useState('');
-    const [bagValue, setBagValue] = useState('');
-    const [boxValue, setBoxValue] = useState('');
-    const [targetSupplierCode, setTargetSupplierCode] = useState('');
-    const [targetSupplierBillNo, setTargetSupplierBillNo] = useState('');
-    const [targetSupplierBillValue, setTargetSupplierBillValue] = useState('');
-    const [badDebtName, setBadDebtName] = useState('');
-    const [badDebtAmount, setBadDebtAmount] = useState('');
-    const [exceedsMax, setExceedsMax] = useState(false);
-
-    // Refs for input fields to enable Enter key navigation
-    const bagCountRef = useRef(null);
-    const bagValueRef = useRef(null);
-    const boxCountRef = useRef(null);
-    const boxValueRef = useRef(null);
-    const targetSupplierCodeRef = useRef(null);
-    const targetSupplierBillNoRef = useRef(null);
-    const targetSupplierBillValueRef = useRef(null);
-    const badDebtNameRef = useRef(null);
-    const badDebtAmountRef = useRef(null);
-    const cancelButtonRef = useRef(null);
-    const confirmButtonRef = useRef(null);
-
-    // Helper function to check if amount exceeds max
-    const checkExceedsMax = (amount) => {
-        if (maxAllowedAmount !== Infinity && amount > maxAllowedAmount) {
-            setExceedsMax(true);
-            return true;
-        }
-        setExceedsMax(false);
+const writeAndPrintBill = (fullHtmlDocument) => {
+    const iframe = getPrintFrame();
+    const win = iframe.contentWindow;
+    const doc = win?.document;
+    if (!win || !doc) return false;
+    doc.open();
+    doc.write(fullHtmlDocument);
+    doc.close();
+    // Print in the same user-gesture turn whenever possible so the dialog
+    // opens with content already in the document (no white flash).
+    try {
+        win.focus();
+        win.print();
+        return true;
+    } catch (_) {
         return false;
-    };
-
-    // Effect to auto-calculate and send amount for bag_to_box
-    useEffect(() => {
-        if (adjustmentType === 'bag_to_box' && onAmountCalculated) {
-            const totalBagValue = (parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0);
-            const totalBoxValue = (parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0);
-            const amount = Math.abs(totalBagValue + totalBoxValue);
-            if (amount > 0 && !checkExceedsMax(amount)) {
-                onAmountCalculated(amount);
-            } else if (amount > 0 && checkExceedsMax(amount)) {
-                onAmountCalculated(0);
-            }
-        }
-    }, [bagCount, bagValue, boxCount, boxValue, adjustmentType, maxAllowedAmount]);
-
-    // Effect for bill_to_bill
-    useEffect(() => {
-        if (adjustmentType === 'bill_to_bill' && onAmountCalculated) {
-            const amount = parseFloat(targetSupplierBillValue) || 0;
-            if (amount > 0 && !checkExceedsMax(amount)) {
-                onAmountCalculated(amount);
-            } else if (amount > 0 && checkExceedsMax(amount)) {
-                onAmountCalculated(0);
-            }
-        }
-    }, [targetSupplierBillValue, adjustmentType, maxAllowedAmount]);
-
-    // Effect for bad_debt
-    useEffect(() => {
-        if (adjustmentType === 'bad_debt' && onAmountCalculated) {
-            const amount = parseFloat(badDebtAmount) || 0;
-            if (amount > 0 && !checkExceedsMax(amount)) {
-                onAmountCalculated(amount);
-            } else if (amount > 0 && checkExceedsMax(amount)) {
-                onAmountCalculated(0);
-            }
-        }
-    }, [badDebtAmount, adjustmentType, maxAllowedAmount]);
-
-    if (!isOpen) return null;
-
-    const calculateBagToBoxAdjustment = () => {
-        const totalBagValue = (parseInt(bagCount) || 0) * (parseFloat(bagValue) || 0);
-        const totalBoxValue = (parseInt(boxCount) || 0) * (parseFloat(boxValue) || 0);
-        const totalAmount = totalBagValue + totalBoxValue;
-
-        // Check against max allowed amount
-        if (maxAllowedAmount !== Infinity && totalAmount > maxAllowedAmount) {
-            return 0;
-        }
-        return totalAmount;
-    };
-
-    const handleConfirm = () => {
-        const adjustmentData = { adjustment_type: adjustmentType, original_bill_total: originalBillTotal };
-        let amount = 0;
-
-        if (adjustmentType === 'bag_to_box') {
-            if (!bagCount || !boxCount || !bagValue || !boxValue) {
-                alert('Please fill all bag/box fields');
-                return;
-            }
-            amount = Math.abs(calculateBagToBoxAdjustment());
-            if (amount === 0 && maxAllowedAmount !== Infinity) {
-                alert(`Adjustment amount exceeds maximum allowed of Rs. ${formatDecimal(maxAllowedAmount)}`);
-                return;
-            }
-            adjustmentData.bag_count = parseInt(bagCount);
-            adjustmentData.box_count = parseInt(boxCount);
-            adjustmentData.bag_value = parseFloat(bagValue);
-            adjustmentData.box_value = parseFloat(boxValue);
-            adjustmentData.amount = amount;
-        } else if (adjustmentType === 'bill_to_bill') {
-            if (!targetSupplierCode || !targetSupplierBillNo || !targetSupplierBillValue) {
-                alert('Please fill all bill to bill fields');
-                return;
-            }
-            amount = parseFloat(targetSupplierBillValue);
-            if (maxAllowedAmount !== Infinity && amount > maxAllowedAmount) {
-                alert(`Bill amount exceeds maximum allowed of Rs. ${formatDecimal(maxAllowedAmount)}`);
-                return;
-            }
-            adjustmentData.target_supplier_code = targetSupplierCode;
-            adjustmentData.target_supplier_bill_no = targetSupplierBillNo;
-            adjustmentData.target_supplier_bill_value = amount;
-            adjustmentData.amount = amount;
-        } else if (adjustmentType === 'bad_debt') {
-            if (!badDebtName || !badDebtAmount) {
-                alert('Please enter bad debt name and amount');
-                return;
-            }
-            amount = parseFloat(badDebtAmount);
-            if (maxAllowedAmount !== Infinity && amount > maxAllowedAmount) {
-                alert(`Bad debt amount exceeds maximum allowed of Rs. ${formatDecimal(maxAllowedAmount)}`);
-                return;
-            }
-            adjustmentData.bad_debt_name = badDebtName;
-            adjustmentData.bad_debt_amount = amount;
-            adjustmentData.amount = amount;
-        }
-
-        onConfirm(adjustmentData);
-        onClose();
-    };
-
-    // Reset form fields when modal closes
-    const handleClose = () => {
-        setBagCount('');
-        setBoxCount('');
-        setBagValue('');
-        setBoxValue('');
-        setTargetSupplierCode('');
-        setTargetSupplierBillNo('');
-        setTargetSupplierBillValue('');
-        setBadDebtName('');
-        setBadDebtAmount('');
-        setExceedsMax(false);
-        onClose();
-    };
-
-    // Handle Enter key navigation
-    const handleKeyPress = (e, nextRef) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (nextRef && nextRef.current) {
-                nextRef.current.focus();
-            }
-        }
-    };
-
-    // Handle Enter key on last field or confirm button
-    const handleLastFieldKeyPress = (e, isLastField = false) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (isLastField && !exceedsMax) {
-                handleConfirm();
-            } else if (confirmButtonRef.current && !exceedsMax) {
-                confirmButtonRef.current.focus();
-            }
-        }
-    };
-
-    const getModalTitle = () => {
-        switch (adjustmentType) {
-            case 'bag_to_box': return '📦 Bag to Box Conversion';
-            case 'bill_to_bill': return '📄 Bill to Bill Transfer';
-            case 'bad_debt': return '⚠️ Bad Debt Write-off';
-            default: return 'Payment Adjustment';
-        }
-    };
-
-    const formatCurrency = (amount) => {
-        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    };
-
-    const formatDecimalLocal = (value) => {
-        return new Intl.NumberFormat('en-US', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }).format(Number(value || 0));
-    };
-
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }} onClick={handleClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '24px', width: '750px', maxWidth: '90%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '24px 24px 0 0' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span style={{ fontSize: '28px' }}>🔧</span>
-                        <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: 'white' }}>{getModalTitle()}</h3>
-                    </div>
-                    <button onClick={handleClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', fontSize: '24px', cursor: 'pointer', color: 'white', width: '34px', height: '34px', borderRadius: '50%' }}>×</button>
-                </div>
-
-                {maxAllowedAmount !== Infinity && (
-                    <div style={{ padding: '12px 24px', background: '#dbeafe', borderBottom: '1px solid #bfdbfe' }}>
-                        <div style={{ fontSize: '12px', color: '#1e40af' }}>
-                            ⚠️ Maximum allowed amount: {formatCurrency(maxAllowedAmount)}
-                        </div>
-                    </div>
-                )}
-
-                <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-                    {/* Show different form based on adjustment type */}
-                    {adjustmentType === 'bag_to_box' && (
-                        <>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>📦 Number of Bags</label>
-                                    <input
-                                        ref={bagCountRef}
-                                        type="number"
-                                        value={bagCount}
-                                        onChange={(e) => setBagCount(e.target.value)}
-                                        onKeyPress={(e) => handleKeyPress(e, bagValueRef)}
-                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>💰 Value per Bag (Rs.)</label>
-                                    <input
-                                        ref={bagValueRef}
-                                        type="number"
-                                        value={bagValue}
-                                        onChange={(e) => setBagValue(e.target.value)}
-                                        onKeyPress={(e) => handleKeyPress(e, boxCountRef)}
-                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
-                                    />
-                                </div>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>📦 Number of Boxes</label>
-                                    <input
-                                        ref={boxCountRef}
-                                        type="number"
-                                        value={boxCount}
-                                        onChange={(e) => setBoxCount(e.target.value)}
-                                        onKeyPress={(e) => handleKeyPress(e, boxValueRef)}
-                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>💰 Value per Box (Rs.)</label>
-                                    <input
-                                        ref={boxValueRef}
-                                        type="number"
-                                        value={boxValue}
-                                        onChange={(e) => setBoxValue(e.target.value)}
-                                        onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
-                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
-                                    />
-                                </div>
-                            </div>
-                            <div style={{ background: exceedsMax ? '#fee2e2' : 'linear-gradient(135deg, #fef3c7, #fde68a)', padding: '16px', borderRadius: '12px' }}>
-                                <div style={{ fontSize: '13px', fontWeight: '600' }}>📊 Adjustment Summary</div>
-                                <div>Adjustment Amount: Rs. {Math.abs(calculateBagToBoxAdjustment()).toFixed(2)}</div>
-                                {maxAllowedAmount !== Infinity && calculateBagToBoxAdjustment() > maxAllowedAmount && (
-                                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '8px', fontWeight: 'bold' }}>
-                                        ⚠️ Amount exceeds maximum allowed! Max: {formatCurrency(maxAllowedAmount)}
-                                    </div>
-                                )}
-                                {Math.abs(calculateBagToBoxAdjustment()) > 0 && calculateBagToBoxAdjustment() <= maxAllowedAmount && (
-                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#92400e' }}>
-                                        💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
-                                    </div>
-                                )}
-                            </div>
-                        </>
-                    )}
-
-                    {adjustmentType === 'bill_to_bill' && (
-                        <div style={{ marginBottom: '24px', padding: '16px', background: '#f8fafc', borderRadius: '16px' }}>
-                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px' }}>🏢 Supplier Bill Transfer</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>Supplier Code</label>
-                                    <input
-                                        ref={targetSupplierCodeRef}
-                                        type="text"
-                                        value={targetSupplierCode}
-                                        onChange={(e) => setTargetSupplierCode(e.target.value.toUpperCase())}
-                                        onKeyPress={(e) => handleKeyPress(e, targetSupplierBillNoRef)}
-                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>Supplier Bill No</label>
-                                    <input
-                                        ref={targetSupplierBillNoRef}
-                                        type="text"
-                                        value={targetSupplierBillNo}
-                                        onChange={(e) => setTargetSupplierBillNo(e.target.value)}
-                                        onKeyPress={(e) => handleKeyPress(e, targetSupplierBillValueRef)}
-                                        style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>Bill Amount (Rs.)</label>
-                                <input
-                                    ref={targetSupplierBillValueRef}
-                                    type="number"
-                                    value={targetSupplierBillValue}
-                                    onChange={(e) => {
-                                        let val = e.target.value;
-                                        if (val === "") {
-                                            setTargetSupplierBillValue("");
-                                            return;
-                                        }
-                                        let num = parseFloat(val);
-                                        if (maxAllowedAmount !== Infinity && num > maxAllowedAmount) {
-                                            alert(`Maximum allowed: Rs. ${formatDecimalLocal(maxAllowedAmount)}`);
-                                            return;
-                                        }
-                                        setTargetSupplierBillValue(val);
-                                    }}
-                                    onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
-                                    style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px' }}
-                                />
-                            </div>
-                            <div style={{ background: (parseFloat(targetSupplierBillValue) || 0) > maxAllowedAmount && maxAllowedAmount !== Infinity ? '#fee2e2' : '#dbeafe', padding: '16px', borderRadius: '12px', marginTop: '16px' }}>
-                                <div style={{ fontSize: '13px', fontWeight: '600' }}>📊 Transfer Summary</div>
-                                <div>Transfer Amount: Rs. {(parseFloat(targetSupplierBillValue) || 0).toLocaleString()}</div>
-                                {maxAllowedAmount !== Infinity && (parseFloat(targetSupplierBillValue) || 0) > maxAllowedAmount && (
-                                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '8px', fontWeight: 'bold' }}>
-                                        ⚠️ Amount exceeds maximum allowed! Max: {formatCurrency(maxAllowedAmount)}
-                                    </div>
-                                )}
-                                {(parseFloat(targetSupplierBillValue) || 0) > 0 && (parseFloat(targetSupplierBillValue) || 0) <= maxAllowedAmount && (
-                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#1e40af' }}>
-                                        💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {adjustmentType === 'bad_debt' && (
-                        <>
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>Bad Debt Name/Reference</label>
-                                <input
-                                    ref={badDebtNameRef}
-                                    type="text"
-                                    value={badDebtName}
-                                    onChange={(e) => setBadDebtName(e.target.value)}
-                                    onKeyPress={(e) => handleKeyPress(e, badDebtAmountRef)}
-                                    style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px' }}
-                                />
-                            </div>
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px' }}>Bad Debt Amount (Rs.)</label>
-                                <input
-                                    ref={badDebtAmountRef}
-                                    type="number"
-                                    value={badDebtAmount}
-                                    onChange={(e) => {
-                                        let val = e.target.value;
-                                        if (val === "") {
-                                            setBadDebtAmount("");
-                                            return;
-                                        }
-                                        let num = parseFloat(val);
-                                        if (maxAllowedAmount !== Infinity && num > maxAllowedAmount) {
-                                            alert(`Maximum allowed: Rs. ${formatDecimalLocal(maxAllowedAmount)}`);
-                                            return;
-                                        }
-                                        setBadDebtAmount(val);
-                                    }}
-                                    onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
-                                    style={{ width: '100%', padding: '12px 14px', border: '2px solid #e2e8f0', borderRadius: '12px' }}
-                                />
-                            </div>
-                            <div style={{ background: (parseFloat(badDebtAmount) || 0) > maxAllowedAmount && maxAllowedAmount !== Infinity ? '#fee2e2' : '#fee2e2', padding: '16px', borderRadius: '12px' }}>
-                                <div style={{ fontSize: '14px', fontWeight: '600' }}>⚠️ Bad Debt Write-off: Rs. {(parseFloat(badDebtAmount) || 0).toLocaleString()}</div>
-                                {maxAllowedAmount !== Infinity && (parseFloat(badDebtAmount) || 0) > maxAllowedAmount && (
-                                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '8px', fontWeight: 'bold' }}>
-                                        ⚠️ Amount exceeds maximum allowed! Max: {formatCurrency(maxAllowedAmount)}
-                                    </div>
-                                )}
-                                {(parseFloat(badDebtAmount) || 0) > 0 && (parseFloat(badDebtAmount) || 0) <= maxAllowedAmount && (
-                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#991b1b' }}>
-                                        💡 This amount will be automatically filled in the payment field when you click "Apply Adjustment"
-                                    </div>
-                                )}
-                            </div>
-                        </>
-                    )}
-                </div>
-
-                <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#f8fafc', borderRadius: '0 0 24px 24px' }}>
-                    <button
-                        ref={cancelButtonRef}
-                        onClick={handleClose}
-                        onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleClose();
-                            }
-                        }}
-                        style={{ padding: '10px 24px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600' }}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        ref={confirmButtonRef}
-                        onClick={handleConfirm}
-                        disabled={exceedsMax}
-                        onKeyPress={(e) => {
-                            if (e.key === 'Enter' && !exceedsMax) {
-                                e.preventDefault();
-                                handleConfirm();
-                            }
-                        }}
-                        style={{
-                            padding: '10px 24px',
-                            background: exceedsMax ? '#9ca3af' : 'linear-gradient(135deg, #4CAF50, #45a049)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: exceedsMax ? 'not-allowed' : 'pointer',
-                            fontWeight: '600',
-                            opacity: exceedsMax ? 0.6 : 1
-                        }}
-                    >
-                        Apply Adjustment
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-// ==================== DELETE CONFIRMATION MODAL ====================
-const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, supplierCode, billNo }) => {
-    const [loading, setLoading] = useState(false);
-    if (!isOpen) return null;
-
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20001 }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '450px', maxWidth: '90%', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                    <span style={{ fontSize: '48px' }}>⚠️</span>
-                    <h3>Delete Payment Record</h3>
-                    <p>Are you sure you want to delete this payment record?</p>
-                </div>
-                <div style={{ background: '#fef3c7', padding: '12px', borderRadius: '10px', marginBottom: '20px', fontSize: '13px' }}>
-                    <strong>Supplier:</strong> {supplierCode}<br />
-                    <strong>Bill No:</strong> {billNo || 'N/A'}<br />
-                    <strong>Warning:</strong> This action cannot be undone!
-                </div>
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                    <button onClick={onClose} style={{ padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
-                    <button onClick={() => onConfirm(supplierCode, billNo)} disabled={loading} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #ef4444, #dc2626)', color: 'white', border: 'none', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>{loading ? 'Deleting...' : 'Yes, Delete'}</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ==================== PRINT BILL MODAL ====================
-const PrintBillModal = ({ isOpen, onClose, billContent, billSize, setBillSize, onPrint }) => {
-    if (!isOpen) return null;
-
-    const handlePrint = () => {
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(`<html><head><title>Print Bill</title><style>@media print{@page{margin:0;}body{margin:0;padding:0;}}</style></head><body>${billContent}</body></html>`);
-        printWindow.document.close();
-        printWindow.print();
-        printWindow.close();
-        onPrint();
-        onClose();
-    };
-
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 20002, display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', padding: '24px' }} onClick={(e) => e.stopPropagation()}>
-                <h3>Print Bill</h3>
-                <div style={{ marginBottom: '16px' }}>
-                    <label>Bill Size: </label>
-                    <select value={billSize} onChange={(e) => setBillSize(e.target.value)} style={{ padding: '8px', marginLeft: '12px', borderRadius: '8px' }}>
-                        <option value="4inch">4 Inch (Thermal)</option>
-                        <option value="a4">A4 Paper</option>
-                    </select>
-                </div>
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                    <button onClick={onClose} style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '8px' }}>Cancel</button>
-                    <button onClick={handlePrint} style={{ padding: '10px 20px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px' }}>Print Bill</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ==================== CREDITOR MODAL ====================
-const CreditorModal = ({ isOpen, onClose, onConfirm, supplierCode: initialSupplierCode = '', billNo: initialBillNo = null }) => {
-    const [supplierCode, setSupplierCode] = useState(initialSupplierCode || '');
-    const [billNo, setBillNo] = useState(initialBillNo || '');
-    const [loading, setLoading] = useState(false);
-    const [showSupplierForm, setShowSupplierForm] = useState(false);
-    const [matchingSuppliers, setMatchingSuppliers] = useState([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
-    const [selectedFromDropdown, setSelectedFromDropdown] = useState(false);
-    const [selectedSupplierData, setSelectedSupplierData] = useState(null);
-    const [formData, setFormData] = useState({ code: '', name: '', dob: '', address: '', telephone_no: '', profile_pic: null, nic_front: null, nic_back: null });
-    const [previewImages, setPreviewImages] = useState({ profile_pic: null, nic_front: null, nic_back: null });
-
-    // Refs for form fields in supplier form
-    const nameRef = useRef(null);
-    const dobRef = useRef(null);
-    const addressRef = useRef(null);
-    const telephoneRef = useRef(null);
-    const profilePicRef = useRef(null);
-    const nicFrontRef = useRef(null);
-    const nicBackRef = useRef(null);
-    const submitButtonRef = useRef(null);
-    const backButtonRef = useRef(null);
-    const mainInputRef = useRef(null); // Add ref for main input
-
-    // Auto-focus name field when supplier form opens
-    useEffect(() => {
-        if (showSupplierForm && nameRef.current) {
-            setTimeout(() => {
-                nameRef.current.focus();
-            }, 100);
-        }
-    }, [showSupplierForm]);
-
-    // Auto-focus main input when modal opens
-    useEffect(() => {
-        if (isOpen && !showSupplierForm && mainInputRef.current) {
-            setTimeout(() => {
-                mainInputRef.current.focus();
-            }, 100);
-        }
-    }, [isOpen, showSupplierForm]);
-
-    // IMPORTANT: Keep formData.code in sync with supplierCode
-    useEffect(() => {
-        if (supplierCode) {
-            setFormData(prev => ({ ...prev, code: supplierCode }));
-        }
-    }, [supplierCode]);
-
-    useEffect(() => {
-        // Only set initial values when modal first opens, not on every prop change
-        if (isOpen && initialSupplierCode && supplierCode === '') {
-            setSupplierCode(initialSupplierCode);
-        }
-        if (isOpen && initialBillNo && billNo === '') {
-            setBillNo(initialBillNo);
-        }
-    }, [isOpen, initialSupplierCode, initialBillNo]);
-
-    useEffect(() => {
-        if (supplierCode && supplierCode.length > 0 && !selectedFromDropdown) {
-            const timer = setTimeout(() => fetchMatchingSuppliers(supplierCode.charAt(0)), 300);
-            return () => clearTimeout(timer);
-        } else if (!supplierCode) {
-            setMatchingSuppliers([]);
-            setShowSuggestions(false);
-        }
-    }, [supplierCode, selectedFromDropdown]);
-
-    const fetchMatchingSuppliers = async (letter) => {
-        if (!letter) { setMatchingSuppliers([]); setShowSuggestions(false); return; }
-        setIsLoadingSuppliers(true);
-        try {
-            const response = await api.get(`/suppliers/by-letter?letter=${letter}`);
-            if (response.data.success) {
-                setMatchingSuppliers(response.data.data);
-                setShowSuggestions(response.data.data.length > 0);
-            }
-        } catch (error) { console.error('Error fetching suppliers:', error); }
-        finally { setIsLoadingSuppliers(false); }
-    };
-
-    const handleSupplierCodeChange = (e) => {
-        console.log('Supplier code changed:', e.target.value); // Debug log
-        const newCode = e.target.value.toUpperCase();
-        setSupplierCode(newCode);
-        setFormData(prev => ({ ...prev, code: newCode }));
-        setSelectedFromDropdown(false);
-        setSelectedSupplierData(null);
-    };
-
-    const handleSelectSupplier = (supplier) => {
-        setSupplierCode(supplier.code);
-        setFormData(prev => ({ ...prev, code: supplier.code }));
-        setSelectedSupplierData(supplier);
-        setSelectedFromDropdown(true);
-        setShowSuggestions(false);
-
-        // Show success toast/message
-        const message = `✅ Supplier "${supplier.code}" selected!\n📋 Creditor Number: ${supplier.Creditor_no || 'Not Assigned'}\n📝 Name: ${supplier.name || 'No name'}\n\n📄 Bill No: ${billNo || 'N/A'}`;
-        alert(message);
-    };
-
-    const handleCheckCreditor = async () => {
-        if (!supplierCode) { alert('Please enter supplier code'); return; }
-        setLoading(true);
-        try {
-            if (selectedFromDropdown && selectedSupplierData) {
-                if (selectedSupplierData.Creditor !== 'Y') {
-                    await api.put('/suppliers/update-creditor-status', { code: supplierCode, Creditor: 'Y', bill_no: billNo });
-                }
-                await api.post('/creditors/create-with-supplier', { bill_no: billNo, supplier_code: supplierCode, credit_amount: 0, creditor_no: selectedSupplierData.Creditor_no });
-                alert(`✅ Creditor record created for Bill #${billNo}\n📋 Supplier: ${supplierCode}`);
-                onConfirm(selectedSupplierData);
-                onClose();
-            } else {
-                setShowSupplierForm(true);
-            }
-        } catch (error) {
-            alert('Error: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleCreateSupplier = async () => {
-        const submitData = new FormData();
-        submitData.append('code', supplierCode.toUpperCase());
-        submitData.append('name', formData.name);
-        submitData.append('dob', formData.dob);
-        submitData.append('address', formData.address);
-        submitData.append('telephone_no', formData.telephone_no);
-        submitData.append('bill_no', billNo);
-        submitData.append('credit_amount', '0');
-        if (formData.profile_pic) submitData.append('profile_pic', formData.profile_pic);
-        if (formData.nic_front) submitData.append('nic_front', formData.nic_front);
-        if (formData.nic_back) submitData.append('nic_back', formData.nic_back);
-
-        setLoading(true);
-        try {
-            const response = await api.post('/suppliers', submitData, { headers: { 'Content-Type': 'multipart/form-data' } });
-            if (billNo) {
-                await api.post('/creditors/create-with-supplier', { bill_no: billNo, supplier_code: supplierCode.toUpperCase(), credit_amount: 0, creditor_no: response.data.Creditor_no });
-            }
-            alert(`Supplier registered as Creditor successfully!\nCreditor Number: ${response.data.Creditor_no}`);
-            onConfirm(response.data.supplier);
-            onClose();
-        } catch (error) {
-            console.error('Error:', error);
-            alert('Error creating supplier: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Handle image preview
-    const handleImageChange = (e, fieldName) => {
-        const file = e.target.files[0];
-        if (file) {
-            setFormData({ ...formData, [fieldName]: file });
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setPreviewImages(prev => ({ ...prev, [fieldName]: reader.result }));
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    // Handle Enter key navigation
-    const handleKeyPress = (e, nextRef) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (nextRef && nextRef.current) {
-                nextRef.current.focus();
-            }
-        }
-    };
-
-    const handleLastFieldKeyPress = (e, isLastField = false) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (isLastField) {
-                if (submitButtonRef.current) {
-                    submitButtonRef.current.click();
-                }
-            } else if (submitButtonRef.current) {
-                submitButtonRef.current.focus();
-            }
-        }
-    };
-
-    if (showSupplierForm) {
-        return (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.7)',
-                backdropFilter: 'blur(5px)',
-                zIndex: 20001,
-                overflowY: 'auto',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                pointerEvents: 'auto'
-            }} onClick={onClose}>
-                <div style={{
-                    backgroundColor: 'white',
-                    borderRadius: '24px',
-                    width: '550px',
-                    maxWidth: '90%',
-                    maxHeight: '90vh',
-                    overflowY: 'auto',
-                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        padding: '20px 24px',
-                        borderRadius: '24px 24px 0 0',
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 1
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <span style={{ fontSize: '28px' }}>🏪</span>
-                            <div>
-                                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'white' }}>Create New Supplier (Creditor)</h3>
-                                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>
-                                    Register a new supplier as creditor
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style={{ padding: '24px' }}>
-                        {billNo && (
-                            <div style={{
-                                background: '#e0f2fe',
-                                padding: '12px 16px',
-                                borderRadius: '12px',
-                                marginBottom: '20px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                borderLeft: '4px solid #0284c7'
-                            }}>
-                                <span style={{ fontSize: '20px' }}>📄</span>
-                                <div>
-                                    <div style={{ fontSize: '11px', color: '#0369a1' }}>Linked Bill</div>
-                                    <div style={{ fontWeight: '600', color: '#0c4a6e' }}>Bill No: {billNo}</div>
-                                </div>
-                            </div>
-                        )}
-
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>
-                                Supplier Code <span style={{ color: '#ef4444' }}>*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={supplierCode}
-                                disabled
-                                style={{
-                                    width: '100%',
-                                    padding: '12px 14px',
-                                    border: '2px solid #e2e8f0',
-                                    borderRadius: '12px',
-                                    fontSize: '14px',
-                                    background: '#f1f5f9',
-                                    color: '#1e293b',
-                                    fontFamily: 'monospace',
-                                    fontWeight: 'bold'
-                                }}
-                            />
-                        </div>
-
-                        <form onSubmit={(e) => { e.preventDefault(); handleCreateSupplier(); }}>
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                    Supplier Name <span style={{ color: '#ef4444' }}>*</span>
-                                </label>
-                                <input
-                                    ref={nameRef}
-                                    type="text"
-                                    name="name"
-                                    placeholder="Enter supplier name"
-                                    required
-                                    value={formData.name}
-                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    onKeyPress={(e) => handleKeyPress(e, dobRef)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        border: '2px solid #e2e8f0',
-                                        borderRadius: '10px',
-                                        fontSize: '13px',
-                                        outline: 'none',
-                                        transition: 'border-color 0.2s',
-                                        background: 'white'
-                                    }}
-                                    onFocus={(e) => e.target.style.borderColor = '#667eea'}
-                                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                />
-                            </div>
-
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                    Date of Birth
-                                </label>
-                                <input
-                                    ref={dobRef}
-                                    type="date"
-                                    name="dob"
-                                    value={formData.dob}
-                                    onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                                    onKeyPress={(e) => handleKeyPress(e, addressRef)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        border: '2px solid #e2e8f0',
-                                        borderRadius: '10px',
-                                        fontSize: '13px',
-                                        outline: 'none',
-                                        background: 'white'
-                                    }}
-                                />
-                            </div>
-
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                    Address <span style={{ color: '#ef4444' }}>*</span>
-                                </label>
-                                <textarea
-                                    ref={addressRef}
-                                    name="address"
-                                    placeholder="Enter full address"
-                                    required
-                                    rows="2"
-                                    value={formData.address}
-                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                    onKeyPress={(e) => handleKeyPress(e, telephoneRef)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        border: '2px solid #e2e8f0',
-                                        borderRadius: '10px',
-                                        fontSize: '13px',
-                                        outline: 'none',
-                                        resize: 'vertical',
-                                        background: 'white'
-                                    }}
-                                />
-                            </div>
-
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                    Telephone Number <span style={{ color: '#ef4444' }}>*</span>
-                                </label>
-                                <input
-                                    ref={telephoneRef}
-                                    type="tel"
-                                    name="telephone_no"
-                                    placeholder="Enter telephone number"
-                                    required
-                                    value={formData.telephone_no}
-                                    onChange={(e) => setFormData({ ...formData, telephone_no: e.target.value })}
-                                    onKeyPress={(e) => handleKeyPress(e, profilePicRef)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        border: '2px solid #e2e8f0',
-                                        borderRadius: '10px',
-                                        fontSize: '13px',
-                                        outline: 'none',
-                                        background: 'white'
-                                    }}
-                                />
-                            </div>
-
-                            {/* Profile Picture */}
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                    Profile Picture
-                                </label>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <input
-                                        ref={profilePicRef}
-                                        type="file"
-                                        name="profile_pic"
-                                        accept="image/*"
-                                        onChange={(e) => handleImageChange(e, 'profile_pic')}
-                                        onKeyPress={(e) => handleKeyPress(e, nicFrontRef)}
-                                        style={{ flex: 1, padding: '8px', background: 'white' }}
-                                    />
-                                    {previewImages.profile_pic && (
-                                        <img src={previewImages.profile_pic} alt="Preview" style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover' }} />
-                                    )}
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                        NIC Front
-                                    </label>
-                                    <input
-                                        ref={nicFrontRef}
-                                        type="file"
-                                        name="nic_front"
-                                        accept="image/*"
-                                        onChange={(e) => handleImageChange(e, 'nic_front')}
-                                        onKeyPress={(e) => handleKeyPress(e, nicBackRef)}
-                                        style={{ width: '100%', padding: '8px', background: 'white' }}
-                                    />
-                                    {previewImages.nic_front && (
-                                        <img src={previewImages.nic_front} alt="NIC Front" style={{ width: '100%', maxHeight: '80px', objectFit: 'cover', marginTop: '8px', borderRadius: '8px' }} />
-                                    )}
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '12px', color: '#334155' }}>
-                                        NIC Back
-                                    </label>
-                                    <input
-                                        ref={nicBackRef}
-                                        type="file"
-                                        name="nic_back"
-                                        accept="image/*"
-                                        onChange={(e) => handleImageChange(e, 'nic_back')}
-                                        onKeyPress={(e) => handleLastFieldKeyPress(e, false)}
-                                        style={{ width: '100%', padding: '8px', background: 'white' }}
-                                    />
-                                    {previewImages.nic_back && (
-                                        <img src={previewImages.nic_back} alt="NIC Back" style={{ width: '100%', maxHeight: '80px', objectFit: 'cover', marginTop: '8px', borderRadius: '8px' }} />
-                                    )}
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-                                <button
-                                    ref={backButtonRef}
-                                    type="button"
-                                    onClick={() => setShowSupplierForm(false)}
-                                    onKeyPress={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            setShowSupplierForm(false);
-                                        }
-                                    }}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px',
-                                        background: '#f1f5f9',
-                                        color: '#475569',
-                                        border: 'none',
-                                        borderRadius: '10px',
-                                        cursor: 'pointer',
-                                        fontWeight: '600',
-                                        fontSize: '14px',
-                                        transition: 'background 0.2s'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = '#e2e8f0'}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                >
-                                    Back
-                                </button>
-                                <button
-                                    ref={submitButtonRef}
-                                    type="submit"
-                                    disabled={loading}
-                                    onKeyPress={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            handleCreateSupplier();
-                                        }
-                                    }}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px',
-                                        background: loading ? '#9ca3af' : 'linear-gradient(135deg, #4CAF50, #45a049)',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '10px',
-                                        cursor: loading ? 'not-allowed' : 'pointer',
-                                        fontWeight: '600',
-                                        fontSize: '14px',
-                                        opacity: loading ? 0.6 : 1,
-                                        transition: 'transform 0.2s'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        if (!loading) {
-                                            e.currentTarget.style.transform = 'scale(1.02)';
-                                        }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.transform = 'scale(1)';
-                                    }}
-                                >
-                                    {loading ? 'Saving...' : 'Create Supplier'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        );
     }
-
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 20001,
-            pointerEvents: 'auto'
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '24px',
-                width: '550px',
-                maxWidth: '90%',
-                maxHeight: '90vh',
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
-                pointerEvents: 'auto'
-            }} onClick={(e) => e.stopPropagation()}>
-                {/* Header */}
-                <div style={{
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    padding: '20px 24px',
-                    borderRadius: '24px 24px 0 0'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span style={{ fontSize: '28px' }}>💰</span>
-                        <div>
-                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'white' }}>Creditor Mode</h3>
-                            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>
-                                Mark supplier as creditor
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-                    {billNo && (
-                        <div style={{
-                            background: '#e0f2fe',
-                            padding: '12px 16px',
-                            borderRadius: '12px',
-                            marginBottom: '20px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            borderLeft: '4px solid #0284c7'
-                        }}>
-                            <span style={{ fontSize: '20px' }}>📄</span>
-                            <div>
-                                <div style={{ fontSize: '11px', color: '#0369a1' }}>Current Bill</div>
-                                <div style={{ fontWeight: '600', color: '#0c4a6e', fontSize: '14px' }}>Bill Number: <strong>{billNo}</strong></div>
-                            </div>
-                        </div>
-                    )}
-
-                    <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
-                        Enter supplier code to mark as creditor:
-                    </p>
-
-                    <div style={{ position: 'relative', marginBottom: '16px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>
-                            Supplier Code <span style={{ color: '#ef4444' }}>*</span>
-                        </label>
-                        <input
-                            ref={mainInputRef}
-                            type="text"
-                            value={supplierCode}
-                            onChange={handleSupplierCodeChange}
-                            placeholder="Enter Supplier Code (e.g., SUP001)"
-                            autoFocus
-                            style={{
-                                width: '100%',
-                                padding: '14px 16px',
-                                border: '2px solid #e2e8f0',
-                                borderRadius: '12px',
-                                fontSize: '15px',
-                                fontFamily: 'monospace',
-                                fontWeight: 'bold',
-                                outline: 'none',
-                                transition: 'border-color 0.2s',
-                                background: 'white',
-                                color: '#1e293b'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#667eea'}
-                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                        />
-
-                        {showSuggestions && !selectedFromDropdown && (
-                            <div style={{
-                                position: 'absolute',
-                                top: '100%',
-                                left: 0,
-                                right: 0,
-                                background: 'white',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '12px',
-                                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
-                                zIndex: 20002,
-                                maxHeight: '250px',
-                                overflowY: 'auto',
-                                marginTop: '4px'
-                            }}>
-                                {isLoadingSuppliers ? (
-                                    <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>
-                                        <div style={{ display: 'inline-block', width: '20px', height: '20px', border: '2px solid #e2e8f0', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }}></div>
-                                        <p style={{ marginTop: '8px', fontSize: '12px' }}>Loading suppliers...</p>
-                                    </div>
-                                ) : (
-                                    matchingSuppliers.map((supplier, idx) => (
-                                        <div
-                                            key={idx}
-                                            onClick={() => handleSelectSupplier(supplier)}
-                                            style={{
-                                                padding: '14px 16px',
-                                                cursor: 'pointer',
-                                                borderBottom: idx < matchingSuppliers.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                                transition: 'background 0.2s'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                                        >
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <div>
-                                                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#1e293b' }}>{supplier.code}</div>
-                                                    {supplier.name && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{supplier.name}</div>}
-                                                </div>
-                                                <div style={{
-                                                    background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)',
-                                                    padding: '4px 12px',
-                                                    borderRadius: '20px',
-                                                    fontSize: '11px',
-                                                    fontWeight: '600',
-                                                    color: '#065f46'
-                                                }}>
-                                                    📋 {supplier.Creditor_no || 'Creditor'}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    <div style={{
-                        fontSize: '12px',
-                        color: '#64748b',
-                        padding: '12px 16px',
-                        background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)',
-                        borderRadius: '12px',
-                        marginBottom: '16px'
-                    }}>
-                        <div style={{ fontWeight: '600', marginBottom: '8px', color: '#475569' }}>💡 Tip:</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                            <li>Select from dropdown → Use existing supplier</li>
-                            <li>Type & click "Continue" → Create NEW supplier</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <div style={{
-                    padding: '16px 24px',
-                    borderTop: '1px solid #e2e8f0',
-                    display: 'flex',
-                    gap: '12px',
-                    background: '#f8fafc',
-                    borderRadius: '0 0 24px 24px'
-                }}>
-                    <button
-                        onClick={onClose}
-                        style={{
-                            flex: 1,
-                            padding: '12px',
-                            background: '#f1f5f9',
-                            color: '#475569',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontWeight: '600',
-                            fontSize: '14px',
-                            transition: 'background 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = '#e2e8f0'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleCheckCreditor}
-                        disabled={loading}
-                        style={{
-                            flex: 1,
-                            padding: '12px',
-                            background: loading ? '#9ca3af' : 'linear-gradient(135deg, #4CAF50, #45a049)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: loading ? 'not-allowed' : 'pointer',
-                            fontWeight: '600',
-                            fontSize: '14px',
-                            opacity: loading ? 0.6 : 1,
-                            transition: 'transform 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                            if (!loading) {
-                                e.currentTarget.style.transform = 'scale(1.02)';
-                            }
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'scale(1)';
-                        }}
-                    >
-                        {loading ? 'Processing...' : 'Continue →'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
 };
-// ==================== VIEW OLD BILLS MODAL ====================
-const ViewOldBillsModal = ({ isOpen, onClose, onViewBills, isLoading }) => {
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+const buildPrintDocumentShell = (title, receiptHtml) =>
+    `<!DOCTYPE html><html><head><title>${title}</title><meta charset="utf-8"/>` +
+    `<style>html,body{margin:0;padding:0;background:#fff}body{padding:8px}` +
+    `@media print{body{padding:0}}</style></head><body>${receiptHtml}</body></html>`;
 
-    if (!isOpen) return null;
-
-    const handleView = () => {
-        if (!startDate || !endDate) {
-            alert('Please select both start date and end date');
-            return;
-        }
-        if (new Date(startDate) > new Date(endDate)) {
-            alert('Start date cannot be after end date');
-            return;
-        }
-        onViewBills(startDate, endDate);
-        onClose();
-    };
-
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20004 }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '450px', maxWidth: '90%', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                    <span style={{ fontSize: '28px' }}>📜</span>
-                    <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>View Old Bills</h3>
-                </div>
-                <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Select a date range to view bills from the history table.</p>
-                <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>Start Date <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px' }} />
-                </div>
-                <div style={{ marginBottom: '20px' }}>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: '#334155' }}>End Date <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '14px' }} />
-                </div>
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                    <button onClick={onClose} style={{ padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600' }}>Cancel</button>
-                    <button onClick={handleView} disabled={isLoading} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #667eea, #764ba2)', color: 'white', border: 'none', borderRadius: '10px', cursor: isLoading ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: isLoading ? 0.6 : 1 }}>{isLoading ? 'Loading...' : 'View Bills'}</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ==================== STYLES ====================
-const styles = {
-    app: { width: '100vw', minHeight: '100vh', background: '#0dea77', margin: 0, padding: 0, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
-    container: { width: '100%', maxWidth: '1600px', margin: '0 auto', padding: '24px 32px' },
-    threeColumns: { display: 'grid', gridTemplateColumns: '0.7fr 2fr 0.7fr', gap: '24px', alignItems: 'start', width: '100%' },
-    panel: { background: '#11ba2d', borderRadius: '20px', border: '4px solid #000000', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
-    panelHeader: { padding: '16px 20px', background: '#ffffff', borderBottom: '1px solid #eef2ff' },
-    panelTitle: { fontSize: '16px', fontWeight: '600', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' },
-    panelContent: { flex: 1, overflowY: 'auto', padding: '16px' },
-    searchInput: { width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '13px', background: 'white', outline: 'none' },
-    billItem: { padding: '14px', borderRadius: '12px', marginBottom: '8px', cursor: 'pointer', transition: 'all 0.15s', border: '1px solid transparent' },
-    billPending: { background: '#ffffff', borderColor: '#f1f5f9' },
-    billSelected: { background: '#eff6ff', borderColor: '#074ec1' },
-    billApplied: { background: '#f0fdf4', borderColor: '#dcfce7' },
-    billRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-    billLeft: { flex: 1 },
-    billNo: { fontWeight: '700', fontSize: '15px', color: '#0f172a' },
-    billCustomer: { fontSize: '12px', color: '#000000', fontWeight: 'bold', marginTop: '2px' },
-    billRight: { textAlign: 'right' },
-    billTotal: { fontWeight: '700', fontSize: '15px', color: '#0f172a' },
-    billGiven: { fontSize: '11px', color: '#64748b', marginTop: '2px' },
-    statsRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginTop: '28px', marginBottom: '0' },
-    statBox: { background: 'white', borderRadius: '16px', padding: '18px 20px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' },
-    statLabel: { fontSize: '13px', fontWeight: '500', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
-    statNumber: { fontSize: '32px', fontWeight: '700', color: '#0f172a' },
-    statSub: { fontSize: '12px', color: '#94a3b8', marginTop: '4px' },
-    emptyState: { textAlign: 'center', padding: '60px 20px', color: '#94a3b8' },
-    paymentBox: { background: '#f8fafc', borderRadius: '16px', padding: '18px', margin: '0 0 16px 0' },
-    paymentButtonsContainer: { display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' },
-    cashPaymentBtn: { flex: 1, padding: '12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
-    chequePaymentBtn: { flex: 1, padding: '12px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
-    bankToBankPaymentBtn: { flex: 1, padding: '12px', background: '#ec489a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
-    adjustmentBtn: { width: '100%', marginBottom: '12px', padding: '12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }
-};
-
-const LoadingSkeleton = () => (
-    <div style={styles.app}>
-        <div style={styles.container}>
-            <div style={{ height: '40px', background: '#e2e8f0', borderRadius: '12px', width: '200px', marginBottom: '24px' }}></div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '24px' }}>
-                {[1, 2, 3].map(i => <div key={i} style={{ background: 'white', borderRadius: '20px', height: '500px' }}></div>)}
-            </div>
-        </div>
-    </div>
-);
-
-const EmptyState = ({ message }) => (
-    <div style={styles.emptyState}>
-        <div style={{ fontSize: '40px', marginBottom: '12px' }}>📋</div>
-        <p style={{ margin: 0, fontSize: '13px' }}>{message}</p>
-    </div>
-);
-
-// ==================== DETAILED REPORT MODAL ====================
-const DetailedReportModal = ({ isOpen, onClose, data, supplierCode, isLoading }) => {
-    if (!isOpen) return null;
-
-    const formatCurrency = (amount) => `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
-    const getPaymentColor = (method) => ({ 'Cash': '#10b981', 'Cheque': '#8b5cf6', 'Bank Transfer': '#ec489a', 'bag_to_box': '#f59e0b', 'bill_to_bill': '#3b82f6', 'bad_debt': '#ef4444' }[method] || '#6b7280');
-    const getPaymentIcon = (method) => ({ 'Cash': '💰', 'Cheque': '💳', 'Bank Transfer': '🏦', 'bag_to_box': '📦', 'bill_to_bill': '📄', 'bad_debt': '⚠️' }[method] || '💵');
-
-    if (isLoading) {
-        return <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20003 }}><div style={{ background: 'white', borderRadius: '20px', padding: '40px', textAlign: 'center' }}><div style={{ fontSize: '40px', marginBottom: '16px' }}>⏳</div><p>Loading detailed report...</p></div></div>;
+// Cheap sales-list fingerprint — avoids JSON.stringify of the full array every poll.
+const buildSalesSignature = (sales) => {
+    if (!Array.isArray(sales) || sales.length === 0) return '0';
+    let sig = String(sales.length);
+    for (let i = 0; i < sales.length; i++) {
+        const s = sales[i];
+        if (!s) continue;
+        sig += `|${s.id ?? ''}:${s.weight ?? ''}:${s.price_per_kg ?? ''}:${s.packs ?? ''}:${s.bill_printed ?? ''}:${s.given_amount ?? ''}:${s.updated_at ?? s.timestamp ?? ''}`;
     }
+    return sig;
+};
+
+// Hoisted formatter: creating Intl.NumberFormat per call is expensive inside render loops.
+const decimalFormatter = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+const formatDecimal = (value) => decimalFormatter.format(Number(value || 0));
+
+// Stable function identity whose body always sees the latest render's values.
+// Prevents global listeners / memoized children from being torn down on every render.
+const useStableCallback = (fn) => {
+    const fnRef = useRef(fn);
+    fnRef.current = fn;
+    return useCallback((...args) => fnRef.current(...args), []);
+};
+
+// --- Sub-Components ---
+
+const BreakdownDisplay = React.memo(({ sale, formatDecimal }) => {
+    if (!sale?.breakdown_history) return null;
+    let history = [];
+    try {
+        history = typeof sale.breakdown_history === 'string' ? JSON.parse(sale.breakdown_history) : sale.breakdown_history;
+    } catch (e) { return null; }
+    if (!Array.isArray(history) || history.length < 2) return null;
 
     return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20003, overflowY: 'auto', padding: '20px' }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '24px', width: '1200px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '24px 30px', borderRadius: '24px 24px 0 0', color: 'white', position: 'sticky', top: 0, zIndex: 10 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div><h2 style={{ margin: 0, fontSize: '24px', fontWeight: '700' }}>👨‍🌾 Farmer Detailed Report</h2><p style={{ margin: '8px 0 0 0', opacity: 0.9 }}>Supplier Code: <strong>{supplierCode}</strong></p></div>
-                        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', fontSize: '24px', cursor: 'pointer', color: 'white', width: '40px', height: '40px', borderRadius: '50%' }}>×</button>
-                    </div>
-                </div>
-                {data && (
-                    <div style={{ padding: '24px 30px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '30px' }}>
-                            <div style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)', padding: '20px', borderRadius: '16px', color: 'white' }}><div style={{ fontSize: '12px', marginBottom: '8px' }}>Total Sales</div><div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(data.summary?.total_sales_value)}</div></div>
-                            <div style={{ background: '#10b981', padding: '20px', borderRadius: '16px', color: 'white' }}><div style={{ fontSize: '12px', marginBottom: '8px' }}>Total Paid</div><div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(data.summary?.total_paid)}</div></div>
-                            <div style={{ background: '#f59e0b', padding: '20px', borderRadius: '16px', color: 'white' }}><div style={{ fontSize: '12px', marginBottom: '8px' }}>Remaining</div><div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(data.summary?.total_remaining)}</div></div>
-                            <div style={{ background: '#3b82f6', padding: '20px', borderRadius: '16px', color: 'white' }}><div style={{ fontSize: '12px', marginBottom: '8px' }}>Total Bills</div><div style={{ fontSize: '28px', fontWeight: 'bold' }}>{data.summary?.unique_bills || 0}</div></div>
-                        </div>
-                        <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px', color: '#1e293b' }}>📋 Bills & Transactions</h3>
-                        {data.bills?.map((bill, idx) => (
-                            <div key={idx} style={{ marginBottom: '20px', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
-                                <div style={{ background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                                    <div><strong>Bill No: {bill.bill_no}</strong><div style={{ fontSize: '12px', color: '#64748b' }}>Date: {formatDate(bill.date)}</div></div>
-                                    <div style={{ textAlign: 'right' }}><div>Total: <strong>{formatCurrency(bill.total_amount)}</strong></div><div>Paid: <strong style={{ color: '#10b981' }}>{formatCurrency(bill.paid_amount)}</strong></div><div>Remaining: <strong>{formatCurrency(bill.total_amount - bill.paid_amount)}</strong></div></div>
-                                </div>
-                            </div>
+        <div className="mt-4 p-3 bg-white rounded-lg border-2 border-blue-500 shadow-sm" style={{ width: '450px', margin: '10px auto' }}>
+            <div style={{ maxHeight: '150px' }}>
+                <table className="w-full text-xs text-black" style={{ marginTop: "-6px" }}>
+                    <thead>
+                        <tr className="text-gray-500 border-b">
+                            <th className="text-left py-1">(වේලාව)</th>
+                            <th className="text-right py-1">(බර)</th>
+                            <th className="text-right py-1">(මලු)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {history.map((entry, i) => (
+                            <tr key={i} className="border-b border-gray-50 last:border-0">
+                                <td className="py-1 text-white">{entry.time}</td>
+                                <td className="py-1 text-right font-bold text-white">{formatDecimal(entry.weight)} kg</td>
+                                <td className="py-1 text-right font-bold text-white">{entry.packs}</td>
+                            </tr>
                         ))}
-                        <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '30px 0 20px', color: '#1e293b' }}>📜 All Payment Records</h3>
-                        <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
-                                <thead><tr style={{ background: '#f1f5f9' }}><th style={{ padding: '12px', textAlign: 'left' }}>Date</th><th style={{ padding: '12px', textAlign: 'left' }}>Bill No</th><th style={{ padding: '12px', textAlign: 'left' }}>Method</th><th style={{ padding: '12px', textAlign: 'right' }}>Amount</th><th style={{ padding: '12px', textAlign: 'left' }}>Reference</th></tr></thead>
-                                <tbody>{data.all_payments?.map((payment, idx) => (
-                                    <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                        <td style={{ padding: '12px' }}>{formatDate(payment.created_at)}</td>
-                                        <td style={{ padding: '12px' }}>{payment.bill_no || 'N/A'}</td>
-                                        <td style={{ padding: '12px' }}><span style={{ background: getPaymentColor(payment.type), padding: '4px 10px', borderRadius: '20px', color: 'white', fontSize: '11px' }}>{getPaymentIcon(payment.type)} {payment.type}</span></td>
-                                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(payment.loan_amount)}</td>
-                                        <td style={{ padding: '12px', fontSize: '11px', color: '#64748b' }}>{payment.cheque_no || payment.transfer_reference_no || '-'}</td>
+                    </tbody>
+                </table>
+            </div>
+            <div className="mt-2 pt-1 border-t-2 border-blue-200 text-right font-black text-sm text-black">
+                Total: {formatDecimal(sale.weight)}kg / {sale.packs}p
+            </div>
+        </div>
+    );
+});
+
+// --- Admin Modal Component (Popup Window) ---
+const AdminDataTableModal = React.memo(({ isOpen, onClose, title, sales, type, formatDecimal, billSize = '3inch' }) => {
+    if (!isOpen || !sales || sales.length === 0) return null;
+
+    const isFarmer = type === 'farmer';
+    const is4Inch = billSize === '4inch';
+
+    // Exact width for thermal preview
+    const receiptMaxWidth = is4Inch ? '4in' : '350px';
+
+    // --- REPLICATED FORMATTING LOGIC ---
+    // Farmer uses maxDecimals = 3, Customer uses fixed 2 decimals
+    const formatNumber = (value) => {
+        if (typeof value !== 'number' && typeof value !== 'string') return '0';
+        const number = parseFloat(value);
+        if (isNaN(number)) return '0';
+
+        if (Number.isInteger(number)) {
+            return number.toLocaleString('en-US');
+        } else {
+            const maxD = isFarmer ? 3 : 2;
+            const parts = number.toFixed(maxD).split('.');
+            // For farmers, we strip trailing zeros as per your getBillContent logic
+            const processedDecimals = isFarmer ? parts[1].replace(/0+$/, '') : parts[1];
+            const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+            return processedDecimals ? `${wholePart}.${processedDecimals}` : wholePart;
+        }
+    };
+
+    // --- DATA PROCESSING ---
+    const date = isFarmer ? new Date().toLocaleDateString('si-LK') : new Date().toLocaleDateString();
+    const time = isFarmer ? new Date().toLocaleTimeString('si-LK') : new Date().toLocaleTimeString();
+    const mobile = '0777672838/071437115';
+    const displayName = isFarmer ? sales[0].supplier_code : (sales[0].customer_code || "").toUpperCase();
+    const billNo = isFarmer ? (sales[0].supplier_bill_no || 'N/A') : (sales[0].bill_no || 'N/A');
+
+    // Consolidated Summary Logic
+    const consolidatedSummary = {};
+    sales.forEach(s => {
+        const itemName = s.item_name || 'Unknown';
+        if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+        consolidatedSummary[itemName].totalWeight += parseFloat(isFarmer ? s.SupplierWeight : s.weight) || 0;
+        consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+    });
+
+    const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+
+    // Value Calculation logic differs for Farmer vs Customer
+    const totalSalesSum = sales.reduce((sum, s) => {
+        const w = parseFloat(isFarmer ? s.SupplierWeight : s.weight) || 0;
+        const p = parseFloat(isFarmer ? s.SupplierPricePerKg : s.price_per_kg) || 0;
+        const total = isFarmer ? (parseFloat(s.SupplierTotal) || (w * p)) : (w * p);
+        return sum + total;
+    }, 0);
+
+    const totalPackCost = isFarmer ? 0 : sales.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+    const finalGrandTotal = totalSalesSum + totalPackCost;
+
+    const givenAmount = !isFarmer ? (sales.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0) : 0;
+    const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+
+    // Style Constants
+    const fontSizeBody = '25px';
+    const fontSizeHeader = '23px';
+    const fontSizeTotal = '28px';
+
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={onClose}>
+            <div style={{ backgroundColor: '#fff', borderRadius: '12px', width: '95%', maxWidth: '450px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+
+                <div style={{ padding: '12px', background: '#111827', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 'bold' }}>බිල්පත් පෙරදසුන ({isFarmer ? 'ගොවියා' : 'පාරිභෝගිකයා'})</span>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+                </div>
+
+                <div style={{ padding: '20px', overflowY: 'auto', backgroundColor: '#e5e7eb', flexGrow: 1 }}>
+                    <div style={{ width: receiptMaxWidth, margin: '0 auto', padding: '10px', backgroundColor: 'white', fontFamily: "'Courier New', monospace", color: '#000', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+
+                        {/* HEADER SECTION */}
+                        <div style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                            <div style={{ fontSize: '24px' }}>මංජු සහ සහෝදරයෝ</div>
+                            {!isFarmer && <div style={{ fontSize: '20px', marginBottom: '5px' }}>colombage lanka (Pvt) Ltd</div>}
+
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', margin: '12px 0' }}>
+                                <span style={{ border: '2.5px solid #000', padding: '5px 12px', fontSize: '22px' }}>N66</span>
+                                {isFarmer ? (
+                                    <div style={{ fontSize: '18px' }}>ගොවියා: <span style={{ border: '2.5px solid #000', padding: '5px 10px', fontSize: '22px' }}>{displayName}</span></div>
+                                ) : (
+                                    <span style={{ border: '2.5px solid #000', padding: '5px 12px', fontSize: '22px' }}>{displayName}</span>
+                                )}
+                            </div>
+
+                            <div style={{ fontSize: '16px' }}>{isFarmer ? 'එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල' : 'එළවළු,පළතුරු තොග වෙළෙන්දෝ'}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '6px', padding: '0 5px' }}>
+                                <span>බණ්ඩාරවෙල</span>
+                                <span>{time}</span>
+                            </div>
+                        </div>
+
+                        <div style={{ fontSize: '19px', marginTop: '10px', padding: '0 5px' }}>
+                            <div style={{ fontWeight: 'bold' }}>දුර: {mobile}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '3px' }}>
+                                <span>බිල් අංකය: {billNo}</span>
+                                <span>දිනය: {date}</span>
+                            </div>
+                        </div>
+
+                        <hr style={{ border: 'none', borderTop: '2.5px solid #000', margin: '10px 0' }} />
+
+                        {/* ITEMS TABLE */}
+                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                            <colgroup>
+                                <col style={{ width: '32%' }} /><col style={{ width: '21%' }} /><col style={{ width: '21%' }} /><col style={{ width: '26%' }} />
+                            </colgroup>
+                            <thead>
+                                <tr style={{ borderBottom: '2.5px solid #000', fontWeight: 'bold' }}>
+                                    <th style={{ textAlign: 'left', paddingBottom: '8px', fontSize: fontSizeHeader }}>වර්ගය<br />මලු</th>
+                                    <th style={{ textAlign: 'right', paddingBottom: '8px', fontSize: fontSizeHeader, position: 'relative', left: '-50px', top: '24px' }}>කිලෝ</th>
+                                    <th style={{ textAlign: 'right', paddingBottom: '8px', fontSize: fontSizeHeader, position: 'relative', left: '-45px', top: '24px' }}>මිල</th>
+                                    <th style={{ textAlign: 'right', paddingBottom: '8px', fontSize: fontSizeHeader }}>{isFarmer ? 'කේතය' : 'අයිතිය'}<br />අගය</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sales.map((s, i) => {
+                                    const w = parseFloat(isFarmer ? s.SupplierWeight : s.weight) || 0;
+                                    const p = parseFloat(isFarmer ? s.SupplierPricePerKg : s.price_per_kg) || 0;
+                                    const itemTotal = isFarmer ? (parseFloat(s.SupplierTotal) || (w * p)) : (w * p);
+                                    const code = isFarmer ? s.customer_code?.toUpperCase() : s.supplier_code;
+
+                                    return (
+                                        <tr key={i} style={{ fontSize: fontSizeBody, fontWeight: 'bold', verticalAlign: 'bottom' }}>
+                                            <td style={{ textAlign: 'left', padding: '10px 0', whiteSpace: 'nowrap' }}>
+                                                {s.item_name}<br />{formatNumber(parseInt(s.packs))}
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '10px 2px', position: 'relative', left: '-70px' }}>
+                                                {formatNumber(w)}
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '10px 2px', position: 'relative', left: '-65px' }}>
+                                                {formatNumber(p)}
+                                            </td>
+                                            <td style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                                <div style={{ fontSize: '25px', whiteSpace: 'nowrap' }}>{code}</div>
+                                                <div style={{ fontWeight: '900', whiteSpace: 'nowrap' }}>{formatNumber(itemTotal)}</div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            <tfoot>
+                                <tr style={{ borderTop: '2.5px solid #000', fontWeight: 'bold' }}>
+                                    <td style={{ paddingTop: '12px', fontSize: fontSizeTotal }}>{formatNumber(totalPacksSum)}</td>
+                                    <td colSpan="3" style={{ paddingTop: '12px', fontSize: fontSizeTotal }}>
+                                        <div style={{ textAlign: 'right', float: 'right', whiteSpace: 'nowrap' }}>{formatNumber(totalSalesSum)}</div>
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        {/* TOTALS SECTION */}
+                        <table style={{ width: '100%', marginTop: '20px', fontWeight: 'bold', fontSize: '22px', padding: '0 5px' }}>
+                            {!isFarmer && (
+                                <tr>
+                                    <td>මලු:</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatNumber(totalPackCost)}</td>
+                                </tr>
+                            )}
+                            <tr>
+                                <td style={{ fontSize: isFarmer ? '15px' : '20px', paddingTop: '8px', whiteSpace: 'nowrap', position: isFarmer ? 'relative' : 'static', left: isFarmer ? '-15px' : '0' }}>
+                                    {isFarmer ? 'මෙම බිලට ගෙවන්න:' : 'එකතුව:'}
+                                </td>
+                                <td style={{ textAlign: 'right', paddingTop: '8px' }}>
+                                    <span style={{ borderBottom: '5px double #000', borderTop: '2px solid #000', fontSize: fontSizeTotal, padding: '5px 10px', paddingLeft: isFarmer ? '25px' : '10px' }}>
+                                        {formatNumber(isFarmer ? totalSalesSum : finalGrandTotal)}
+                                    </span>
+                                </td>
+                            </tr>
+                            {!isFarmer && givenAmount > 0 && (
+                                <>
+                                    <tr>
+                                        <td style={{ fontSize: '18px', paddingTop: '18px' }}>දුන් මුදල:</td>
+                                        <td style={{ textAlign: 'right', fontSize: '20px', paddingTop: '18px', fontWeight: 'bold' }}>{formatNumber(parseFloat(givenAmount))}</td>
                                     </tr>
-                                ))}</tbody>
-                                <tfoot><tr style={{ background: '#f8fafc', fontWeight: 'bold' }}><td colSpan="3" style={{ padding: '12px', textAlign: 'right' }}>Total:</td><td style={{ padding: '12px', textAlign: 'right' }}>{formatCurrency(data.summary?.total_paid)}</td><td></td></tr></tfoot>
+                                    <tr>
+                                        <td style={{ fontSize: '22px' }}>ඉතිරිය:</td>
+                                        <td style={{ textAlign: 'right', fontSize: '26px' }}>{formatNumber(remaining)}</td>
+                                    </tr>
+                                </>
+                            )}
+                        </table>
+
+                        {/* SUMMARY GRID */}
+                        <div style={{ marginTop: '25px', borderTop: '1px dashed #000', paddingTop: '10px' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', textAlign: 'center' }}>
+                                <tbody>
+                                    {Object.entries(consolidatedSummary).reduce((rows, key, index) => {
+                                        if (index % 2 === 0) rows.push([key]);
+                                        else rows[rows.length - 1].push(key);
+                                        return rows;
+                                    }, []).map((row, i) => (
+                                        <tr key={i}>
+                                            {row.map(([name, data]) => (
+                                                <td key={name} style={{ padding: '6px', width: '50%', fontWeight: 'bold', whiteSpace: 'nowrap', fontSize: '14px' }}>
+                                                    {name}:{formatNumber(data.totalWeight)}/{formatNumber(data.totalPacks)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
                             </table>
                         </div>
+
+                        {/* FOOTER */}
+                        <div style={{ textAlign: 'center', marginTop: '25px', fontSize: '13px', borderTop: '2.5px solid #000', paddingTop: '10px' }}>
+                            <p style={{ margin: '4px 0', fontWeight: 'bold' }}>භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+                            <p style={{ margin: '4px 0' }}>නැවත භාර ගනු නොලැබේ</p>
+                        </div>
                     </div>
-                )}
+                </div>
             </div>
         </div>
     );
-};
-// ==================== ADJUSTMENT SUMMARY MODAL ====================
-const AdjustmentSummaryModal = ({ isOpen, onClose, totals }) => {
-    if (!isOpen) return null;
+});
+const ImagePreviewModal = React.memo(({ isOpen, onClose, data }) => {
+    if (!isOpen || !data) return null;
 
-    const formatCurrency = (amount) => `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const baseUrl = "https://goviraju.lk/sms_new_backend_50500/application/public/storage/";
 
-    const totalReceived = (totals.cash || 0) + (totals.cheque || 0) + (totals.bank_transfer || 0) + (totals.bag_to_box || 0) + (totals.bill_to_bill || 0) + (totals.bad_debt || 0);
-    const totalWithCredit = totalReceived + (totals.credit || 0);
-
-    const paymentItems = [
-        { icon: '💰', label: 'Cash Payments', value: totals.cash, color: '#10b981', bg: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' },
-        { icon: '💳', label: 'Cheque Payments', value: totals.cheque, color: '#8b5cf6', bg: 'linear-gradient(135deg, #ede9fe, #ddd6fe)' },
-        { icon: '🏦', label: 'Bank Transfer Payments', value: totals.bank_transfer, color: '#ec489a', bg: 'linear-gradient(135deg, #fce7f3, #fbcfe8)' },
-        { icon: '💳', label: 'Credit Payments ', value: totals.credit, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
-        { icon: '📦', label: 'Bag to Box Conversion', value: totals.bag_to_box, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
-        { icon: '📄', label: 'Bill to Bill Transfer', value: totals.bill_to_bill, color: '#3b82f6', bg: 'linear-gradient(135deg, #dbeafe, #bfdbfe)' },
-        { icon: '⚠️', label: 'Bad Debt Write-off', value: totals.bad_debt, color: '#ef4444', bg: 'linear-gradient(135deg, #fee2e2, #fecaca)' }
-    ];
-
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20001 }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '450px', maxWidth: '90%', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '20px', paddingBottom: '12px', borderBottom: '2px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '40px', lineHeight: 1 }}>📊</span>
-                    <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Payment Summary</h3>
-                </div>
-                <div style={{ marginBottom: '20px' }}>
-                    {paymentItems.map((item, idx) => (
-                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', marginBottom: '10px', background: item.bg, borderRadius: '12px', borderLeft: `4px solid ${item.color}` }}>
-                            <div><span style={{ fontSize: '20px', marginRight: '8px' }}>{item.icon}</span><span style={{ fontWeight: '600', color: item.color === '#10b981' ? '#065f46' : item.color === '#8b5cf6' ? '#5b21b6' : item.color === '#ec489a' ? '#9d174d' : item.color === '#f59e0b' ? '#92400e' : item.color === '#3b82f6' ? '#1e40af' : '#991b1b' }}>{item.label}</span></div>
-                            <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>{formatCurrency(item.value || 0)}</div>
-                        </div>
-                    ))}
-
-                    <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '16px 0' }}></div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'linear-gradient(135deg, #10b981, #059669)', borderRadius: '12px', color: 'white', marginBottom: '10px' }}>
-                        <div><span style={{ fontSize: '20px', marginRight: '8px' }}>💰</span><span style={{ fontWeight: '700' }}>Total Received</span></div>
-                        <div style={{ fontSize: '20px', fontWeight: '800' }}>{formatCurrency(totalReceived)}</div>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: '#1e293b', borderRadius: '12px', color: 'white' }}>
-                        <div><span style={{ fontSize: '20px', marginRight: '8px' }}>📊</span><span style={{ fontWeight: '700' }}>Total Including Credit</span></div>
-                        <div style={{ fontSize: '20px', fontWeight: '800' }}>{formatCurrency(totalWithCredit)}</div>
-                    </div>
-                </div>
-
-                <button onClick={onClose} style={{ width: '100%', padding: '12px', background: 'linear-gradient(135deg, #667eea, #764ba2)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}>Close</button>
-            </div>
-        </div>
-    );
-};
-// ==================== BANK ALLOCATION MODAL (UPDATED) ====================
-const BankAllocationModal = ({ isOpen, onClose }) => {
-    const [allocatedRecords, setAllocatedRecords] = useState([]);
-    const [grandTotals, setGrandTotals] = useState({
-        total_cash_allocated: 0,
-        total_bank_allocated: 0,
-        total_allocated: 0,
-        total_records: 0
-    });
-    const [isLoading, setIsLoading] = useState(false);
-    const [expandedCashier, setExpandedCashier] = useState(null);
-
-    // Fetch allocated breakdown when modal opens
-    useEffect(() => {
-        if (isOpen) {
-            fetchAllocatedBreakdown();
-        }
-    }, [isOpen]);
-
-    const fetchAllocatedBreakdown = async () => {
-        setIsLoading(true);
-        try {
-            const response = await api.get('/cashier-balance/allocated-breakdown');
-            if (response.data.success) {
-                // The API returns records array with cashier-specific data
-                const records = response.data.data.records || [];
-                const totals = response.data.data.grand_totals || {
-                    total_cash_allocated: 0,
-                    total_bank_allocated: 0,
-                    total_allocated: 0,
-                    total_records: 0
-                };
-
-                setAllocatedRecords(records);
-                setGrandTotals(totals);
-                console.log('Allocated breakdown fetched:', { records, totals });
-            }
-        } catch (error) {
-            console.error('Error fetching allocated breakdown:', error);
-        } finally {
-            setIsLoading(false);
-        }
+    const formatUrl = (path) => {
+        if (!path) return null;
+        return path.startsWith('http') ? path : `${baseUrl}${path}`;
     };
-
-    if (!isOpen) return null;
-
-    const formatCurrency = (amount) => {
-        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    };
-
-    const toggleCashierExpand = (cashierName) => {
-        if (expandedCashier === cashierName) {
-            setExpandedCashier(null);
-        } else {
-            setExpandedCashier(cashierName);
-        }
-    };
-
-    return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 20008
-        }} onClick={onClose}>
-            <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                width: '550px',
-                maxWidth: '90%',
-                padding: '24px',
-                maxHeight: '80vh',
-                overflowY: 'auto'
-            }} onClick={(e) => e.stopPropagation()}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '20px',
-                    paddingBottom: '12px',
-                    borderBottom: '2px solid #e2e8f0'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '28px' }}>💰</span>
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Funds Allocation Details</h3>
-                    </div>
-                    <button onClick={onClose} style={{
-                        background: '#f1f5f9',
-                        border: 'none',
-                        fontSize: '20px',
-                        cursor: 'pointer',
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%'
-                    }}>×</button>
-                </div>
-
-                {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px' }}>
-                        <div style={{ fontSize: '40px', marginBottom: '16px' }}>⏳</div>
-                        <p>Loading allocation details...</p>
-                    </div>
-                ) : (
-                    <>
-                        {/* Grand Totals Summary */}
-                        <div style={{
-                            background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                            borderRadius: '12px',
-                            padding: '16px',
-                            marginBottom: '20px',
-                            textAlign: 'center',
-                            color: 'white'
-                        }}>
-                            <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '4px' }}>📊 Total Allocated Funds (All Cashiers)</div>
-                            <div style={{ fontSize: '28px', fontWeight: 'bold' }}>{formatCurrency(grandTotals.total_allocated)}</div>
-                            <div style={{ fontSize: '11px', marginTop: '8px', opacity: 0.8 }}>
-                                Across {grandTotals.total_records} cashier record(s)
-                            </div>
-                        </div>
-
-                        {/* Cashier-wise Breakdown */}
-                        <div style={{ marginBottom: '16px' }}>
-                            <div style={{
-                                background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-                                borderRadius: '12px',
-                                padding: '12px 16px',
-                                marginBottom: '12px',
-                                color: 'white'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <span style={{ fontSize: '20px' }}>👤</span>
-                                    <span style={{ fontWeight: '600' }}>Cashier-wise Breakdown</span>
-                                </div>
-                            </div>
-
-                            {allocatedRecords.length > 0 ? (
-                                <div style={{ paddingLeft: '8px' }}>
-                                    {allocatedRecords.map((record, index) => {
-                                        const isExpanded = expandedCashier === record.cashier_name;
-                                        const hasBankAllocations = record.bank_breakdown && record.bank_breakdown.length > 0;
-
-                                        return (
-                                            <div key={record.id || index} style={{
-                                                marginBottom: '12px',
-                                                border: '1px solid #e2e8f0',
-                                                borderRadius: '12px',
-                                                overflow: 'hidden',
-                                                background: 'white'
-                                            }}>
-                                                {/* Cashier Header - Clickable */}
-                                                <div
-                                                    onClick={() => toggleCashierExpand(record.cashier_name)}
-                                                    style={{
-                                                        display: 'flex',
-                                                        justifyContent: 'space-between',
-                                                        alignItems: 'center',
-                                                        padding: '12px 16px',
-                                                        background: '#f8fafc',
-                                                        cursor: 'pointer',
-                                                        borderBottom: isExpanded ? '1px solid #e2e8f0' : 'none',
-                                                        transition: 'background 0.2s'
-                                                    }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                                >
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                        <span style={{ fontSize: '18px' }}>👤</span>
-                                                        <div>
-                                                            <div style={{ fontWeight: '700', color: '#1e293b' }}>{record.cashier_name}</div>
-                                                            <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                                                Total: {formatCurrency(record.total_allocated)}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <span style={{ fontSize: '18px', color: '#64748b' }}>
-                                                        {isExpanded ? '▲' : '▼'}
-                                                    </span>
-                                                </div>
-
-                                                {/* Expanded Content */}
-                                                {isExpanded && (
-                                                    <div style={{ padding: '16px' }}>
-                                                        {/* Cash Allocated */}
-                                                        <div style={{
-                                                            background: 'linear-gradient(135deg, #10b981, #059669)',
-                                                            borderRadius: '10px',
-                                                            padding: '12px 16px',
-                                                            marginBottom: '12px',
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between',
-                                                            alignItems: 'center',
-                                                            color: 'white'
-                                                        }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <span style={{ fontSize: '20px' }}>💰</span>
-                                                                <span style={{ fontWeight: '600' }}>Cash Allocated</span>
-                                                            </div>
-                                                            <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                                                                {formatCurrency(record.cash_allocated)}
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Bank Allocated Section */}
-                                                        <div>
-                                                            <div style={{
-                                                                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                                                                borderRadius: '10px',
-                                                                padding: '12px 16px',
-                                                                marginBottom: '12px',
-                                                                display: 'flex',
-                                                                justifyContent: 'space-between',
-                                                                alignItems: 'center',
-                                                                color: 'white'
-                                                            }}>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                    <span style={{ fontSize: '20px' }}>🏦</span>
-                                                                    <span style={{ fontWeight: '600' }}>Bank Allocated</span>
-                                                                </div>
-                                                                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                                                                    {formatCurrency(record.total_bank_allocated)}
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Individual Bank Breakdown */}
-                                                            {hasBankAllocations ? (
-                                                                <div style={{ paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
-                                                                    {record.bank_breakdown.map((bank, bankIdx) => (
-                                                                        <div key={bankIdx} style={{
-                                                                            display: 'flex',
-                                                                            justifyContent: 'space-between',
-                                                                            alignItems: 'center',
-                                                                            padding: '10px 14px',
-                                                                            marginBottom: '8px',
-                                                                            background: '#fef3c7',
-                                                                            borderRadius: '8px',
-                                                                            borderLeft: '3px solid #f59e0b'
-                                                                        }}>
-                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                                <span style={{ fontSize: '16px' }}>🏦</span>
-                                                                                <span style={{ fontWeight: '600', color: '#92400e', fontSize: '13px' }}>
-                                                                                    {bank.bank_name}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div style={{ fontSize: '15px', fontWeight: '700', color: '#dc2626' }}>
-                                                                                {formatCurrency(bank.amount)}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            ) : (
-                                                                <div style={{
-                                                                    padding: '12px',
-                                                                    textAlign: 'center',
-                                                                    color: '#94a3b8',
-                                                                    fontSize: '12px',
-                                                                    background: '#f8fafc',
-                                                                    borderRadius: '8px'
-                                                                }}>
-                                                                    No bank allocations for this cashier
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        {/* Last Updated Info */}
-                                                        {record.last_updated && (
-                                                            <div style={{
-                                                                marginTop: '12px',
-                                                                padding: '8px',
-                                                                textAlign: 'center',
-                                                                fontSize: '10px',
-                                                                color: '#94a3b8',
-                                                                borderTop: '1px solid #e2e8f0'
-                                                            }}>
-                                                                Last updated: {new Date(record.last_updated).toLocaleString()}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <div style={{
-                                    padding: '40px',
-                                    textAlign: 'center',
-                                    color: '#94a3b8',
-                                    fontSize: '13px',
-                                    background: '#f8fafc',
-                                    borderRadius: '10px'
-                                }}>
-                                    No allocation records found
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
-
-                <button onClick={onClose} style={{
-                    width: '100%',
-                    marginTop: '20px',
-                    padding: '12px',
-                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '10px',
-                    cursor: 'pointer',
-                    fontWeight: '600',
-                    fontSize: '14px'
-                }}>
-                    Close
-                </button>
-            </div>
-        </div>
-    );
-};
-// ==================== INCOME SOURCES MODAL ====================
-const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, filterOptions, onAllocateFunds }) => {
-    const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
-    const [localTotals, setLocalTotals] = useState(totals);
-    const [localIsLoading, setLocalIsLoading] = useState(false);
-
-    // FILTER STATES
-    const [selectedUniqueCode, setSelectedUniqueCode] = useState('all');
-    const [selectedBankName, setSelectedBankName] = useState('all');
-    const [selectedCashierName, setSelectedCashierName] = useState('all');
-    const [localFilterOptions, setLocalFilterOptions] = useState(filterOptions || { unique_codes: [], bank_names: [], cashier_names: [] });
-    const [isLoadingOptions, setIsLoadingOptions] = useState(false);
-
-    // NEW: Fund Allocation Modal State
-    const [showFundAllocationModal, setShowFundAllocationModal] = useState(false);
-    const [selectedTotalForAllocation, setSelectedTotalForAllocation] = useState(0);
-
-    // Cashier Balance States
-    const [cashierBalance, setCashierBalance] = useState({
-        cash_balance: 0,
-        bank_balance: 0,
-        bank_breakdown: {},
-        total_balance: 0,
-        cashier_names: [],
-        session_count: 0
-    });
-    const [showBankBreakdown, setShowBankBreakdown] = useState(false);
-    const [isLoadingCashierBalance, setIsLoadingCashierBalance] = useState(false);
-
-    // Polling interval refs
-    const filterPollingIntervalRef = useRef(null);
-    const cashierBalanceIntervalRef = useRef(null);
-
-    const fetchCashierBalance = async () => {
-        console.log('🟢 FETCHING CASHIER BALANCE...');
-        setIsLoadingCashierBalance(true);
-        try {
-            let url = '/cashier-balance/detailed-balance';
-            const params = new URLSearchParams();
-
-            if (selectedCashierName && selectedCashierName !== 'all') {
-                params.append('cashier_name', selectedCashierName);
-            }
-            if (dateRange.startDate) {
-                params.append('start_date', dateRange.startDate);
-            }
-            if (dateRange.endDate) {
-                params.append('end_date', dateRange.endDate);
-            }
-
-            if (params.toString()) {
-                url += `?${params.toString()}`;
-            }
-
-            console.log('📡 Fetching from URL:', url);
-            const response = await api.get(url);
-            console.log('📦 Cashier Balance Response:', response.data);
-
-            if (response.data.success) {
-                // The data is now at the root of response.data.data
-                const data = response.data.data;
-                setCashierBalance({
-                    cash_balance: data.cash_balance || 0,
-                    bank_balance: data.bank_balance || 0,
-                    bank_breakdown: data.bank_breakdown || {},
-                    total_balance: data.total_balance || 0,
-                    cashier_names: data.cashier_names || [],
-                    session_count: data.session_count || 0
-                });
-                console.log('✅ Cashier balance set:', data);
-            } else {
-                console.error('❌ API returned success=false:', response.data.message);
-            }
-        } catch (error) {
-            console.error('❌ Error fetching cashier balance:', error);
-            console.error('Error details:', error.response?.data);
-        } finally {
-            setIsLoadingCashierBalance(false);
-        }
-    };
-
-    // Fetch filter options (including cashier names)
-    const fetchFilterOptions = async () => {
-        setIsLoadingOptions(true);
-        try {
-            // Fetch income filter options
-            const incomeResponse = await api.get('/income-filter-options');
-
-            // Fetch cashier names from cashier balance
-            const cashierResponse = await api.get('/cashier-balance/detailed-balance');
-
-            const cashierNames = cashierResponse.data.success ? cashierResponse.data.data.cashier_names : [];
-
-            setLocalFilterOptions({
-                unique_codes: incomeResponse.data.data?.unique_codes || [],
-                bank_names: incomeResponse.data.data?.bank_names || [],
-                cashier_names: cashierNames
-            });
-        } catch (error) {
-            console.error('Error fetching filter options:', error);
-        } finally {
-            setIsLoadingOptions(false);
-        }
-    };
-
-    // Fetch cashier balance when modal opens or filters change
-    useEffect(() => {
-        if (isOpen) {
-            fetchCashierBalance();
-        }
-    }, [isOpen, selectedCashierName, dateRange.startDate, dateRange.endDate]);
-
-    // Polling for cashier balance every 30 seconds
-    useEffect(() => {
-        let isSubscribed = true;
-        let pollingInterval = null;
-
-        if (isOpen && isSubscribed) {
-            pollingInterval = setInterval(() => {
-                if (isSubscribed) {
-                    console.log('🔄 Auto-refreshing cashier balance...');
-                    fetchCashierBalance();
-                }
-            }, 30000);
-
-            cashierBalanceIntervalRef.current = pollingInterval;
-        }
-
-        return () => {
-            isSubscribed = false;
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-            }
-            if (cashierBalanceIntervalRef.current) {
-                clearInterval(cashierBalanceIntervalRef.current);
-                cashierBalanceIntervalRef.current = null;
-            }
-        };
-    }, [isOpen, selectedCashierName]);
-
-    // Fetch filter options when modal opens
-    useEffect(() => {
-        let isSubscribed = true;
-        let pollingInterval = null;
-
-        if (isOpen && isSubscribed) {
-            fetchFilterOptions();
-
-            pollingInterval = setInterval(() => {
-                if (isSubscribed) {
-                    console.log('🔄 Auto-refreshing income filter options...');
-                    fetchFilterOptions();
-                }
-            }, 30000);
-
-            filterPollingIntervalRef.current = pollingInterval;
-        }
-
-        return () => {
-            isSubscribed = false;
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-            }
-            if (filterPollingIntervalRef.current) {
-                clearInterval(filterPollingIntervalRef.current);
-                filterPollingIntervalRef.current = null;
-            }
-        };
-    }, [isOpen]);
-
-    useEffect(() => {
-        if (totals) {
-            setLocalTotals(totals);
-        }
-    }, [totals]);
-
-    if (!isOpen) return null;
-
-    const formatCurrency = (amount) => {
-        return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    };
-
-    const handleApplyFilters = async () => {
-        setLocalIsLoading(true);
-        try {
-            await onRefresh(
-                dateRange.startDate,
-                dateRange.endDate,
-                selectedUniqueCode,
-                selectedBankName,
-                selectedCashierName
-            );
-            await fetchCashierBalance();
-        } finally {
-            setLocalIsLoading(false);
-        }
-    };
-
-    const handleResetFilters = async () => {
-        setDateRange({ startDate: '', endDate: '' });
-        setSelectedUniqueCode('all');
-        setSelectedBankName('all');
-        setSelectedCashierName('all');
-        setLocalIsLoading(true);
-        try {
-            await onRefresh();
-            await fetchCashierBalance();
-        } finally {
-            setLocalIsLoading(false);
-        }
-    };
-
-    const totalIncome = (localTotals?.cash || 0) + (localTotals?.cheque || 0) + (localTotals?.bank_transfer || 0) +
-        (localTotals?.bag_to_box || 0) + (localTotals?.bill_to_bill || 0) + (localTotals?.bad_debt || 0);
-
-    // UPDATED: Open fund allocation modal - pass 0 or null to indicate custom amount
-    const handleAllocateFunds = () => {
-        if (totalIncome > 0) {
-            setSelectedTotalForAllocation(0); // Set to 0 to indicate custom amount in modal
-            setShowFundAllocationModal(true);
-        } else {
-            alert('No income available to allocate funds.');
-        }
-    };
-    // In IncomeSourcesModal
-    const handleAllocationComplete = (allocationData) => {
-        console.log('Allocation completed:', allocationData);
-
-        // Safely extract allocated amount
-        let allocatedAmount = 0;
-        let remainingBalance = 0;
-
-        if (typeof allocationData === 'number') {
-            allocatedAmount = allocationData;
-        } else if (allocationData && typeof allocationData === 'object') {
-            allocatedAmount = allocationData.allocated_amount || allocationData.amount || 0;
-            remainingBalance = allocationData.remaining || allocationData.remaining_balance || 0;
-        }
-
-        // Update funds in parent component
-        if (onAllocateFunds) {
-            onAllocateFunds(allocatedAmount);
-        }
-
-        // Refresh cashier balance
-        fetchCashierBalance();
-
-        // Show success message with proper formatting
-        const formatCurrency = (amount) => {
-            return `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        };
-
-        alert(`✅ Funds allocated successfully!\n\nAllocated Amount: ${formatCurrency(allocatedAmount)}\nRemaining Balance: ${formatCurrency(remainingBalance)}`);
-    };
-    const incomeItems = [
-        { id: 'cash', icon: '💰', label: 'Cash Payments', value: localTotals?.cash || 0, color: '#10b981', bg: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' },
-        { id: 'cheque', icon: '💳', label: 'Cheque Payments', value: localTotals?.cheque || 0, color: '#8b5cf6', bg: 'linear-gradient(135deg, #ede9fe, #ddd6fe)' },
-        { id: 'bank_transfer', icon: '🏦', label: 'Bank Transfer Payments', value: localTotals?.bank_transfer || 0, color: '#ec489a', bg: 'linear-gradient(135deg, #fce7f3, #fbcfe8)' },
-        { id: 'bag_to_box', icon: '📦', label: 'Bag to Box Conversion', value: localTotals?.bag_to_box || 0, color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
-        { id: 'bill_to_bill', icon: '📄', label: 'Bill to Bill Transfer', value: localTotals?.bill_to_bill || 0, color: '#3b82f6', bg: 'linear-gradient(135deg, #dbeafe, #bfdbfe)' },
-        { id: 'bad_debt', icon: '⚠️', label: 'Bad Debt Write-off', value: localTotals?.bad_debt || 0, color: '#ef4444', bg: 'linear-gradient(135deg, #fee2e2, #fecaca)' }
-    ];
 
     return (
         <div
@@ -2849,5371 +371,4591 @@ const IncomeSourcesModal = ({ isOpen, onClose, totals, isLoading, onRefresh, fil
                 position: 'fixed',
                 top: 0,
                 left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.6)',
-                backdropFilter: 'blur(4px)',
+                width: '100vw',
+                height: '100vh',
+                backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                backdropFilter: 'blur(10px)',
                 display: 'flex',
-                justifyContent: 'center',
                 alignItems: 'center',
-                zIndex: 20005,
-                overflowY: 'auto',
-                padding: '20px'
+                justifyContent: 'center',
+                zIndex: 10000
             }}
             onClick={onClose}
         >
             <div
                 style={{
-                    backgroundColor: 'white',
+                    backgroundColor: '#1f2937',
                     borderRadius: '20px',
-                    width: '650px',
-                    maxWidth: '95%',
-                    padding: '24px',
-                    maxHeight: '90vh',
-                    overflowY: 'auto'
+                    width: '95%',
+                    maxWidth: '1000px',
+                    maxHeight: '95vh',
+                    padding: '25px',
+                    position: 'relative',
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+                    border: '1px solid #4b5563',
+                    display: 'flex',
+                    flexDirection: 'column'
                 }}
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: '20px',
-                        paddingBottom: '12px',
-                        borderBottom: '2px solid #e2e8f0'
-                    }}
-                >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '32px' }}>💰</span>
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Income & Balance Summary</h3>
-                    </div>
+                {/* Header Area */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #374151', paddingBottom: '15px' }}>
+                    <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'white', margin: 0 }}>
+                        {data.title} -({data.type === 'customer' ? 'ගනුදෙනුකරු' : 'සැපයුම්කරු'})
+                    </h2>
                     <button
                         onClick={onClose}
-                        style={{
-                            background: '#f1f5f9',
-                            border: 'none',
-                            fontSize: '20px',
-                            cursor: 'pointer',
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '50%'
-                        }}
+                        style={{ background: '#374151', border: 'none', color: 'white', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}
                     >
-                        ×
+                        ✕
                     </button>
                 </div>
 
-                {/* Cashier Balance Section */}
-                <div
-                    style={{
-                        marginBottom: '20px',
-                        padding: '16px',
-                        background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-                        borderRadius: '16px',
-                        color: 'white'
-                    }}
-                >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <div style={{ fontSize: '14px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span>🏦</span> Cashier Balance Summary
-                        </div>
-                        {isLoadingCashierBalance && (
-                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>⏳ Updating...</div>
-                        )}
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                        {/* Cash Balance Card */}
-                        <div
-                            style={{
-                                background: 'linear-gradient(135deg, #10b981, #059669)',
-                                borderRadius: '12px',
-                                padding: '16px',
-                                textAlign: 'center'
-                            }}
-                        >
-                            <div style={{ fontSize: '11px', opacity: 0.9, marginBottom: '4px' }}>💰 Cash Balance</div>
-                            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-                                {formatCurrency(cashierBalance.cash_balance)}
-                            </div>
-                        </div>
-
-                        {/* Bank Balance Card - Clickable */}
-                        <div
-                            onClick={() => setShowBankBreakdown(!showBankBreakdown)}
-                            style={{
-                                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                                borderRadius: '12px',
-                                padding: '16px',
-                                textAlign: 'center',
-                                cursor: 'pointer',
-                                transition: 'transform 0.2s'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'scale(1.02)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'scale(1)';
-                            }}
-                        >
-                            <div style={{ fontSize: '11px', opacity: 0.9, marginBottom: '4px' }}>
-                                🏦 Bank Balance {showBankBreakdown ? '▲' : '▼'}
-                            </div>
-                            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-                                {formatCurrency(cashierBalance.bank_balance)}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Bank Breakdown */}
-                    {showBankBreakdown && (
-                        <div
-                            style={{
-                                marginTop: '12px',
-                                padding: '12px',
-                                background: 'rgba(255,255,255,0.1)',
-                                borderRadius: '12px',
-                                border: '1px solid rgba(255,255,255,0.2)'
-                            }}
-                        >
-                            <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span>🏦</span> Bank-wise Breakdown
-                            </div>
-                            {Object.keys(cashierBalance.bank_breakdown).length > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {Object.entries(cashierBalance.bank_breakdown).map(([bankName, amount]) => (
-                                        <div
-                                            key={bankName}
-                                            style={{
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
-                                                padding: '8px 12px',
-                                                background: 'rgba(255,255,255,0.08)',
-                                                borderRadius: '8px'
-                                            }}
-                                        >
-                                            <div style={{ fontSize: '12px', fontWeight: '500' }}>{bankName.replace(/_/g, ' ')}</div>
-                                            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#fbbf24' }}>
-                                                {formatCurrency(amount)}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                {/* Larger Images Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '20px', overflowY: 'auto', padding: '5px' }}>
+                    {/* Profile Picture */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ color: '#60a5fa', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>ප්‍රධාන රූපය</span>
+                        <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #3b82f6', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                            {data.profile ? (
+                                <img src={data.profile} style={{ width: '100%', height: 'auto', display: 'block' }} alt="Profile" />
                             ) : (
-                                <div style={{ fontSize: '11px', textAlign: 'center', padding: '12px', color: '#94a3b8' }}>
-                                    No bank transactions recorded
-                                </div>
+                                <div style={{ height: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>ඡායාරූපයක් නොමැත</div>
                             )}
                         </div>
-                    )}
+                    </div>
 
-                    {/* Total Balance */}
-                    <div
-                        style={{
-                            marginTop: '12px',
-                            padding: '12px',
-                            background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                            borderRadius: '12px',
-                            textAlign: 'center'
-                        }}
+                    {/* NIC Front */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC ඉදිරිපස</span>
+                        <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                            {data.nic_front ? (
+                                <img src={formatUrl(data.nic_front)} style={{ width: '100%', height: 'auto', maxHeight: '500px', display: 'block', objectFit: 'contain' }} alt="NIC Front" />
+                            ) : (
+                                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>ඡායාරූපයක් නොමැත</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* NIC Back */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>NIC පසුපස</span>
+                        <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '2px solid #4b5563', backgroundColor: '#111827', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                            {data.nic_back ? (
+                                <img src={formatUrl(data.nic_back)} style={{ width: '100%', height: 'auto', maxHeight: '500px', display: 'block', objectFit: 'contain' }} alt="NIC Back" />
+                            ) : (
+                                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>ඡායාරූපයක් නොමැත</div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Action Area */}
+                <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #374151', paddingTop: '15px' }}>
+                    <button
+                        onClick={onClose}
+                        style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '12px 30px', borderRadius: '10px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}
                     >
-                        <div style={{ fontSize: '11px', opacity: 0.9 }}>📊 Total Balance</div>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
-                            {formatCurrency(cashierBalance.total_balance)}
-                        </div>
-                        {cashierBalance.session_count > 0 && (
-                            <div style={{ fontSize: '9px', marginTop: '4px', opacity: 0.7 }}>
-                                Based on {cashierBalance.session_count} session(s)
-                            </div>
-                        )}
-                    </div>
+                        Close
+                    </button>
                 </div>
-
-                {/* Filter Section */}
-                <div
-                    style={{
-                        marginBottom: '20px',
-                        padding: '16px',
-                        background: '#f8fafc',
-                        borderRadius: '12px',
-                        border: '1px solid #e2e8f0'
-                    }}
-                >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#334155' }}>🔍 Filters</div>
-                        {isLoadingOptions && (
-                            <div style={{ fontSize: '10px', color: '#10b981' }}>🔄 Refreshing...</div>
-                        )}
-                    </div>
-
-                    {/* Cashier Name Filter */}
-                    <div style={{ marginBottom: '12px' }}>
-                        <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>👤 Cashier Name</label>
-                        <select
-                            value={selectedCashierName}
-                            onChange={(e) => setSelectedCashierName(e.target.value)}
-                            disabled={isLoadingOptions}
-                            style={{
-                                width: '100%',
-                                padding: '8px',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                background: 'white'
-                            }}
-                        >
-                            <option value="all">-- All Cashiers --</option>
-                            {localFilterOptions.cashier_names?.map((name, idx) => (
-                                <option key={idx} value={name}>{name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* User Filter */}
-                    <div style={{ marginBottom: '12px' }}>
-                        <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>👤 User (Unique Code)</label>
-                        <select
-                            value={selectedUniqueCode}
-                            onChange={(e) => setSelectedUniqueCode(e.target.value)}
-                            disabled={isLoadingOptions}
-                            style={{
-                                width: '100%',
-                                padding: '8px',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                background: 'white'
-                            }}
-                        >
-                            <option value="all">-- All Users --</option>
-                            {localFilterOptions.unique_codes?.map((code, idx) => (
-                                <option key={idx} value={code}>{code}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Bank Filter */}
-                    <div style={{ marginBottom: '12px' }}>
-                        <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>🏦 Bank Name</label>
-                        <select
-                            value={selectedBankName}
-                            onChange={(e) => setSelectedBankName(e.target.value)}
-                            disabled={isLoadingOptions}
-                            style={{
-                                width: '100%',
-                                padding: '8px',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '8px',
-                                fontSize: '13px',
-                                background: 'white'
-                            }}
-                        >
-                            <option value="all">-- All Banks --</option>
-                            {localFilterOptions.bank_names?.map((bank, idx) => (
-                                <option key={idx} value={bank}>{bank}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Date Range */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                        <div>
-                            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>Start Date</label>
-                            <input
-                                type="date"
-                                value={dateRange.startDate}
-                                onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
-                                style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
-                            />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: '#64748b' }}>End Date</label>
-                            <input
-                                type="date"
-                                value={dateRange.endDate}
-                                onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
-                                style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Auto-refresh indicator */}
-                    <div style={{ fontSize: '10px', color: '#94a3b8', textAlign: 'center', marginBottom: '8px' }}>
-                        🔄 Filters auto-refresh every 10 seconds | Balance refreshes every 30 seconds
-                    </div>
-
-                    {/* Filter Buttons */}
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                            onClick={handleApplyFilters}
-                            disabled={localIsLoading}
-                            style={{
-                                flex: 1,
-                                padding: '8px',
-                                background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                cursor: localIsLoading ? 'not-allowed' : 'pointer',
-                                fontSize: '12px',
-                                fontWeight: '600',
-                                opacity: localIsLoading ? 0.6 : 1
-                            }}
-                        >
-                            {localIsLoading ? 'Loading...' : 'Apply Filters'}
-                        </button>
-                        <button
-                            onClick={handleResetFilters}
-                            disabled={localIsLoading}
-                            style={{
-                                flex: 1,
-                                padding: '8px',
-                                background: '#f1f5f9',
-                                color: '#475569',
-                                border: 'none',
-                                borderRadius: '8px',
-                                cursor: localIsLoading ? 'not-allowed' : 'pointer',
-                                fontSize: '12px',
-                                fontWeight: '600'
-                            }}
-                        >
-                            Reset All
-                        </button>
-                    </div>
-                </div>
-
-                {localIsLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px' }}>
-                        <div style={{ fontSize: '40px', marginBottom: '16px' }}>⏳</div>
-                        <p>Loading income data...</p>
-                    </div>
-                ) : (
-                    <>
-                        {/* Summary Stats */}
-                        <div
-                            style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                marginBottom: '20px',
-                                padding: '12px',
-                                background: '#e0f2fe',
-                                borderRadius: '12px'
-                            }}
-                        >
-                            <div style={{ textAlign: 'center', flex: 1 }}>
-                                <div style={{ fontSize: '11px', color: '#0369a1' }}>Total Bills</div>
-                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0369a1' }}>{localTotals?.total_bills || 0}</div>
-                            </div>
-                            <div style={{ textAlign: 'center', flex: 1 }}>
-                                <div style={{ fontSize: '11px', color: '#0369a1' }}>Total Customers</div>
-                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0369a1' }}>{localTotals?.total_customers || 0}</div>
-                            </div>
-                        </div>
-
-                        {/* Income Items (without checkboxes) */}
-                        {incomeItems.map((item, idx) => (
-                            <div
-                                key={idx}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    padding: '12px 16px',
-                                    marginBottom: '10px',
-                                    background: item.bg,
-                                    borderRadius: '12px',
-                                    borderLeft: `4px solid ${item.color}`
-                                }}
-                            >
-                                <div style={{ flex: 1 }}>
-                                    <span style={{ fontSize: '20px', marginRight: '8px' }}>{item.icon}</span>
-                                    <span style={{
-                                        fontWeight: '600',
-                                        color: item.color === '#10b981' ? '#065f46' :
-                                            item.color === '#8b5cf6' ? '#5b21b6' :
-                                                item.color === '#ec489a' ? '#9d174d' :
-                                                    item.color === '#f59e0b' ? '#92400e' :
-                                                        item.color === '#3b82f6' ? '#1e40af' : '#991b1b'
-                                    }}>
-                                        {item.label}
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: '18px', fontWeight: '700', color: '#dc2626' }}>
-                                    {formatCurrency(item.value)}
-                                </div>
-                            </div>
-                        ))}
-
-                        <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', margin: '16px 0' }}></div>
-
-                        {/* Total Income */}
-                        <div
-                            style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '20px',
-                                background: 'linear-gradient(135deg, #10b981, #059669)',
-                                borderRadius: '12px',
-                                color: 'white'
-                            }}
-                        >
-                            <div>
-                                <span style={{ fontSize: '24px', marginRight: '12px' }}>💰</span>
-                                <span style={{ fontWeight: '700', fontSize: '16px' }}>Total Income</span>
-                            </div>
-                            <div style={{ fontSize: '24px', fontWeight: '800' }}>
-                                {formatCurrency(totalIncome)}
-                            </div>
-                        </div>
-
-                        {/* Allocate Funds Button - Opens modal where user can enter custom amount */}
-                        <button
-                            onClick={handleAllocateFunds}
-                            disabled={totalIncome === 0}
-                            style={{
-                                width: '100%',
-                                marginTop: '16px',
-                                padding: '14px',
-                                background: totalIncome === 0 ? '#9ca3af' : 'linear-gradient(135deg, #f59e0b, #d97706)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '10px',
-                                cursor: totalIncome === 0 ? 'not-allowed' : 'pointer',
-                                fontWeight: '700',
-                                fontSize: '16px',
-                                opacity: totalIncome === 0 ? 0.6 : 1,
-                                transition: 'transform 0.2s'
-                            }}
-                            onMouseEnter={(e) => {
-                                if (totalIncome > 0) {
-                                    e.currentTarget.style.transform = 'scale(1.02)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'scale(1)';
-                            }}
-                        >
-                            💵 Allocate Funds
-                        </button>
-
-                        {/* Active Filters Display */}
-                        {(selectedUniqueCode !== 'all' || selectedBankName !== 'all' || selectedCashierName !== 'all' || dateRange.startDate || dateRange.endDate) && (
-                            <div
-                                style={{
-                                    marginTop: '16px',
-                                    padding: '10px',
-                                    background: '#f1f5f9',
-                                    borderRadius: '8px',
-                                    fontSize: '11px',
-                                    color: '#64748b',
-                                    textAlign: 'center'
-                                }}
-                            >
-                                🔍 Active Filters:
-                                {selectedCashierName !== 'all' && ` Cashier: ${selectedCashierName}`}
-                                {selectedUniqueCode !== 'all' && ` User: ${selectedUniqueCode}`}
-                                {selectedBankName !== 'all' && ` Bank: ${selectedBankName}`}
-                                {dateRange.startDate && ` From: ${dateRange.startDate}`}
-                                {dateRange.endDate && ` To: ${dateRange.endDate}`}
-                            </div>
-                        )}
-
-                        {/* Note about excluded items */}
-                        <div
-                            style={{
-                                marginTop: '16px',
-                                padding: '10px',
-                                background: '#f1f5f9',
-                                borderRadius: '8px',
-                                fontSize: '11px',
-                                color: '#64748b',
-                                textAlign: 'center'
-                            }}
-                        >
-                            ℹ️ Credit payments are excluded as they represent debt, not actual income.
-                        </div>
-                    </>
-                )}
-
-                <button
-                    onClick={onClose}
-                    style={{
-                        width: '100%',
-                        marginTop: '20px',
-                        padding: '12px',
-                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        fontWeight: '600',
-                        fontSize: '14px'
-                    }}
-                >
-                    Close
-                </button>
             </div>
-
-            {/* Fund Allocation Modal - User will enter custom amount */}
-            <FundAllocationModal
-                isOpen={showFundAllocationModal}
-                onClose={() => {
-                    setShowFundAllocationModal(false);
-                    setSelectedTotalForAllocation(0);
-                }}
-                onAllocate={handleAllocationComplete}
-                selectedAmount={null} // Pass null so modal allows custom amount entry
-                maxAmount={totalIncome} // Pass max available amount for validation
-            />
         </div>
     );
-};
-// ==================== CREDITOR FORM MODAL ====================
-const CreditorFormModal = ({ isOpen, onClose, onSave, supplierCode, billNo = null, existingCreditorNo = null }) => {
-    const [formData, setFormData] = useState({ code: '', name: '', dob: '', address: '', telephone_no: '', advance_amount: '', profile_pic: null, nic_front: null, nic_back: null });
-    const [loading, setLoading] = useState(false);
-    const [previewImages, setPreviewImages] = useState({ profile_pic: null, nic_front: null, nic_back: null });
-    const [generatedCreditorNo, setGeneratedCreditorNo] = useState(null);
+});
+const CustomerList = React.memo(({ type, searchQuery, onSearchChange, selectedPrintedCustomer, selectedUnprintedCustomer, handleCustomerClick, allSales, isCashFilterActive, toggleCashFilter }) => {
+    const filteredPrintedGroups = useMemo(() => {
+        if (type !== "printed") return [];
 
-    useEffect(() => {
-        if (isOpen && supplierCode) {
-            setFormData(prev => ({ ...prev, code: supplierCode.toUpperCase() }));
-            setGeneratedCreditorNo(existingCreditorNo || null);
-        }
-    }, [isOpen, supplierCode, existingCreditorNo]);
+        const groups = new Map();
+        allSales.forEach((sale) => {
+            if (sale.bill_printed !== 'Y' || !sale.bill_no) return;
 
-    if (!isOpen) return null;
-
-    const handleSubmit = async () => {
-        setLoading(true);
-        try {
-            const formDataToSend = new FormData();
-            formDataToSend.append('code', supplierCode.toUpperCase());
-            if (formData.name) formDataToSend.append('name', formData.name);
-            if (formData.dob) formDataToSend.append('dob', formData.dob);
-            if (formData.address) formDataToSend.append('address', formData.address);
-            if (formData.telephone_no) formDataToSend.append('telephone_no', formData.telephone_no);
-            if (formData.advance_amount) formDataToSend.append('advance_amount', formData.advance_amount);
-            formDataToSend.append('Creditor', 'Y');
-            if (formData.profile_pic) formDataToSend.append('profile_pic', formData.profile_pic);
-            if (formData.nic_front) formDataToSend.append('nic_front', formData.nic_front);
-            if (formData.nic_back) formDataToSend.append('nic_back', formData.nic_back);
-
-            const response = await api.post('/suppliers', formDataToSend, { headers: { 'Content-Type': 'multipart/form-data' } });
-            if (response.status === 200 || response.status === 201) {
-                const creditorNo = response.data.Creditor_no;
-                if (billNo) {
-                    await api.post('/creditors/create-with-supplier', { bill_no: billNo, supplier_code: supplierCode.toUpperCase(), credit_amount: 0, creditor_no: creditorNo });
-                }
-                alert(`Supplier registered as Creditor successfully!\nCreditor Number: ${creditorNo}`);
-                onSave(true, creditorNo);
-                onClose();
+            if (isCashFilterActive) {
+                if (sale.credit_transaction !== 'Y') return;
+            } else if (sale.credit_transaction !== 'N') {
+                return;
             }
-        } catch (error) { alert('Failed to save creditor information. Please try again.'); }
-        finally { setLoading(false); }
-    };
+
+            const groupKey = `${sale.customer_code}-${sale.bill_no}`;
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, {
+                    customerCode: sale.customer_code,
+                    billNo: sale.bill_no,
+                    displayText: sale.customer_code,
+                    hasGivenAmountApplied: false,
+                    totalAmount: 0,
+                    billSales: []
+                });
+            }
+
+            const group = groups.get(groupKey);
+            group.billSales.push(sale);
+            group.totalAmount += parseFloat(sale.total) || 0;
+            if (sale.given_amount_applied && sale.given_amount_applied.trim() !== '') {
+                group.hasGivenAmountApplied = true;
+            }
+        });
+
+        let groupsArray = Array.from(groups.values());
+        if (searchQuery) {
+            const lowerQuery = searchQuery.toLowerCase();
+            groupsArray = groupsArray.filter(g =>
+                g.customerCode.toLowerCase().startsWith(lowerQuery) ||
+                String(g.billNo || '').toLowerCase().startsWith(lowerQuery) ||
+                g.displayText.toLowerCase().startsWith(lowerQuery)
+            );
+        }
+
+        return groupsArray.sort((a, b) => (parseInt(b.billNo, 10) || 0) - (parseInt(a.billNo, 10) || 0));
+    }, [allSales, type, isCashFilterActive, searchQuery]);
+
+    const filteredUnprintedCustomers = useMemo(() => {
+        if (type !== "unprinted") return [];
+
+        const customerMap = new Map();
+        allSales.forEach((sale) => {
+            const status = String(sale.bill_printed ?? '').trim().toUpperCase();
+            if (!(status === 'N' || status === '' || status === 'NULL' || status === 'UNDEFINED')) return;
+
+            const customerCode = sale.customer_code;
+            const latestTimestamp = sale.timestamp || sale.created_at || sale.date || sale.id;
+            const existing = customerMap.get(customerCode);
+
+            if (!existing || new Date(latestTimestamp) > new Date(existing.latestTimestamp)) {
+                customerMap.set(customerCode, {
+                    customerCode,
+                    latestTimestamp,
+                    displayText: customerCode,
+                    billSales: []
+                });
+            }
+        });
+
+        allSales.forEach((sale) => {
+            const status = String(sale.bill_printed ?? '').trim().toUpperCase();
+            if (!(status === 'N' || status === '' || status === 'NULL' || status === 'UNDEFINED')) return;
+            const existing = customerMap.get(sale.customer_code);
+            if (existing) {
+                existing.billSales.push(sale);
+            }
+        });
+
+        let customersArray = Array.from(customerMap.values());
+        if (searchQuery) {
+            const lower = searchQuery.toLowerCase();
+            customersArray = customersArray.filter(c => c.customerCode.toLowerCase().startsWith(lower));
+        }
+
+        // CHANGE THIS LINE - Sort alphabetically A to Z
+        return customersArray.sort((a, b) => a.customerCode.localeCompare(b.customerCode));
+    }, [allSales, type, searchQuery]);
+
+    const displayItems = type === "printed" ? filteredPrintedGroups : filteredUnprintedCustomers;
+    const isSelected = (item) => type === "printed" ? selectedPrintedCustomer === `${item.customerCode}-${item.billNo}` : selectedUnprintedCustomer === item.customerCode;
 
     return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10001 }} onClick={onClose}>
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '500px', maxWidth: '90%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '20px 20px 0 0' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'white' }}>Register Creditor: {supplierCode}{billNo && <span style={{ fontSize: '12px', marginLeft: '8px' }}>(Bill: {billNo})</span>}</h3>
+        <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh", overflowY: "auto" }}>
+            <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                    <h2 className="font-bold text-white whitespace-nowrap" style={{ fontSize: '14px' }}>
+                        {type === "printed" ? "මුද්‍රණය කළ" : "මුද්‍රණය නොකළ"}
+                    </h2>
+
+                    {/* Only show the checkbox for the "printed" column */}
+                    {type === "printed" && (
+                        <div
+                            onClick={() => toggleCashFilter()}
+                            className="cursor-pointer transition-all border border-white rounded"
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                backgroundColor: isCashFilterActive ? '#2563eb' : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                marginLeft: '90px',
+                                marginTop: '-22px',
+                            }}
+                        >
+                            {isCashFilterActive && <span style={{ color: 'white', fontSize: '12px', fontWeight: 'bold' }}>✓</span>}
+                        </div>
+                    )}
                 </div>
-                <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-                    <div style={{ background: '#fef3c7', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px', color: '#92400e' }}>
-                        ⚠️ Supplier "{supplierCode}" not found. Please provide information to register as Creditor.
-                        <br /><small>A unique Creditor Number will be automatically generated.</small>
-                    </div>
-                    <div><label>Supplier Code</label><input type="text" value={supplierCode} disabled style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f1f5f9' }} /></div>
-                    <div><label>Supplier Name</label><input type="text" name="name" onChange={(e) => setFormData({ ...formData, name: e.target.value })} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px' }} /></div>
-                    <div><label>Date of Birth</label><input type="date" name="dob" onChange={(e) => setFormData({ ...formData, dob: e.target.value })} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px' }} /></div>
-                    <div><label>Telephone Number</label><input type="tel" name="telephone_no" onChange={(e) => setFormData({ ...formData, telephone_no: e.target.value })} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px' }} /></div>
-                    <div><label>Address</label><textarea name="address" onChange={(e) => setFormData({ ...formData, address: e.target.value })} rows="2" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px' }} /></div>
-                    <div><label>Advance Amount (Rs.)</label><input type="number" name="advance_amount" onChange={(e) => setFormData({ ...formData, advance_amount: e.target.value })} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px' }} /></div>
-                    <div><label>Profile Picture</label><input type="file" accept="image/*" onChange={(e) => setFormData({ ...formData, profile_pic: e.target.files[0] })} style={{ width: '100%', padding: '6px' }} /></div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <div><label>NIC Front</label><input type="file" accept="image/*" onChange={(e) => setFormData({ ...formData, nic_front: e.target.files[0] })} style={{ width: '100%', padding: '6px' }} /></div>
-                        <div><label>NIC Back</label><input type="file" accept="image/*" onChange={(e) => setFormData({ ...formData, nic_back: e.target.files[0] })} style={{ width: '100%', padding: '6px' }} /></div>
-                    </div>
-                </div>
-                <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px', background: '#f8fafc', borderRadius: '0 0 20px 20px' }}>
-                    <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Skip</button>
-                    <button onClick={handleSubmit} disabled={loading} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #4CAF50, #45a049)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>{loading ? 'Saving...' : 'Save & Continue'}</button>
-                </div>
+
+                <input
+                    type="text"
+                    placeholder={`සෙවීම ${type === "printed" ? "බිල්පත් අංකය/කේතය..." : "ගනුදෙනු කේතය..."}`}
+                    value={searchQuery}
+                    onChange={(e) => onSearchChange(e.target.value.toUpperCase())}
+                    className="px-4 py-0.5 border rounded-xl focus:ring-2 focus:ring-blue-300 uppercase block mx-auto"
+                    style={{ width: '169px' }}
+                />
+            </div>
+            <div className="py-1">
+                {displayItems.length === 0 ? (<p className="text-gray-700 p-2 text-center text-xs">වාර්තා නොමැත.</p>) : (
+                    <ul className="flex flex-col px-1">
+                        {displayItems.map((item) => {
+                            let customerCode, displayText, totalAmount, billSales;
+                            let shouldShowRed = false; // ADD THIS LINE
+
+                            if (type === "printed") {
+                                customerCode = item.customerCode;
+                                displayText = `${item.customerCode}-${item.billNo}`;
+                                billSales = item.billSales;
+                                totalAmount = item.totalAmount;
+                                shouldShowRed = !item.hasGivenAmountApplied;
+                            } else {
+                                customerCode = item.customerCode;
+                                displayText = item.customerCode;
+                                billSales = item.billSales;
+                                totalAmount = billSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
+                            }
+                            const isItemSelected = isSelected(item);
+                            const buttonText = displayText.replace(/\n/g, ' ');
+
+                            return (
+                                <li key={type === "printed" ? `${item.customerCode}-${item.billNo}` : item.customerCode} className="flex">
+                                    <button
+                                        onClick={() => handleCustomerClick(type, customerCode, item.billNo || null, billSales)}
+                                        className={`py-1 mb-2 rounded-xl border ${isItemSelected ? "border-blue-600" : "bg-gray-50 hover:bg-gray-100 border-gray-200"}`}
+                                        style={isItemSelected ? { backgroundColor: '#93C5FD', paddingLeft: '05px', width: '280px', textAlign: 'left', fontSize: '12px' } : { paddingLeft: '1px', width: '280px', textAlign: 'left', fontSize: '12px' }}
+                                    >
+                                        <span
+                                            style={{
+                                                display: 'block',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                textAlign: 'inherit',
+                                                width: '100%',
+                                                // ADD THESE STYLES - Apply red color for printed bills without given_amount_applied
+                                                color: shouldShowRed ? '#dc2626' : (isItemSelected ? 'black' : '#374151'),
+                                                fontWeight: shouldShowRed ? 'bold' : 'normal'
+                                            }}
+                                            className={`font-semibold ${isItemSelected ? 'text-black' : 'text-gray-700'}`}
+                                            title={buttonText}
+                                        >
+                                            {buttonText}
+                                        </span>
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
             </div>
         </div>
     );
-};
-const FundsAllocatedModal = ({ isOpen, onClose, fundsAllocated }) => {
-    if (!isOpen) return null;
+});
 
-    const formatCurrency = (amount) => `Rs. ${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const isNegative = fundsAllocated < 0;
-    const absoluteAmount = Math.abs(fundsAllocated);
+const ItemSummary = React.memo(({ sales }) => {
+
+    const formatWeight = (value) => {
+        if (!value) return "0";
+        const num = parseFloat(value);
+        return num % 1 === 0 ? num.toString() : num.toFixed(1);
+    };
+
+    const formatPacks = (value) => {
+        if (!value) return "0";
+        return parseInt(value).toString();
+    };
+
+    const summary = useMemo(() => {
+        const result = {};
+        sales.forEach(sale => {
+            const itemName = sale.item_name || 'Unknown';
+            if (!result[itemName]) result[itemName] = { totalWeight: 0, totalPacks: 0 };
+            result[itemName].totalWeight += parseFloat(sale.weight) || 0;
+            result[itemName].totalPacks += parseInt(sale.packs) || 0;
+        });
+        return result;
+    }, [sales]);
+
+    if (Object.keys(summary).length === 0) return null;
+
+    const items = Object.entries(summary);
+
+    const rows = [];
+    for (let i = 0; i < items.length; i += 3) {
+        rows.push(items.slice(i, i + 3));
+    }
 
     return (
         <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 20006
-        }} onClick={onClose}>
+            width: '100%',
+            backgroundColor: '#ffffff',
+            color: '#000000',
+            fontFamily: "'Segoe UI', Tahoma",
+            marginTop: '10px'
+        }}>
             <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                width: '400px',
-                maxWidth: '90%',
-                padding: '24px',
-                textAlign: 'center'
-            }} onClick={e => e.stopPropagation()}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>
-                    {isNegative ? '⚠️' : '💰'}
-                </div>
-                <h3 style={{ marginBottom: '12px', color: '#1e293b' }}>
-                    {isNegative ? 'Negative Balance' : 'Funds Allocated'}
-                </h3>
-                <div style={{
-                    fontSize: '36px',
-                    fontWeight: 'bold',
-                    color: isNegative ? '#ef4444' : '#10b981',
-                    marginBottom: '20px',
-                    padding: '20px',
-                    background: isNegative ? '#fee2e2' : '#f0fdf4',
-                    borderRadius: '12px'
-                }}>
-                    {isNegative ? '-' : ''}{formatCurrency(absoluteAmount)}
-                </div>
-                {isNegative && (
-                    <div style={{
-                        marginBottom: '20px',
-                        padding: '12px',
-                        background: '#fef3c7',
-                        borderRadius: '8px',
-                        color: '#92400e',
-                        fontSize: '14px'
-                    }}>
-                        ⚠️ You have overspent the allocated funds. This amount is due.
-                    </div>
-                )}
-                <button
-                    onClick={onClose}
+                textAlign: 'center',
+                marginBottom: '10px'
+            }}>
+                <span style={{ fontSize: '18px', fontWeight: '800' }}>Item Summary</span>
+            </div>
+
+            {rows.map((row, rowIndex) => (
+                <div
+                    key={rowIndex}
                     style={{
-                        padding: '10px 24px',
-                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        fontWeight: '600'
+                        display: 'flex',
+                        gap: '10px',
+                        marginBottom: '5px',
+                        backgroundColor: '#ffffff'
                     }}
                 >
-                    Close
-                </button>
+                    {row.map(([itemName, data]) => (
+                        <div key={itemName} style={{ flex: 1 }}>
+
+                            {/* Compact format */}
+                            <span style={{
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                display: 'block'
+                            }}>
+                                {itemName}: {formatWeight(data.totalWeight)}kg/{formatPacks(data.totalPacks)}p
+                            </span>
+
+                        </div>
+                    ))}
+
+                    {row.length < 3 &&
+                        Array.from({ length: 3 - row.length }).map((_, idx) => (
+                            <div key={idx} style={{ flex: 1 }} />
+                        ))
+                    }
+                </div>
+            ))}
+        </div>
+    );
+});
+
+
+const SalesSummaryFooter = React.memo(({ sales, formatDecimal }) => {
+    const totals = useMemo(() => {
+        return sales.reduce((acc, s) => {
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const packs = parseFloat(s.packs) || 0;
+            const packCost = parseFloat(s.CustomerPackCost) || 0;
+            const packLabour = parseFloat(s.CustomerPackLabour) || 0;
+            acc.billTotal += (weight * price);
+            acc.totalBagPrice += (packs * packCost);
+            acc.totalLabour += (packs * packLabour);
+            return acc;
+        }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+    }, [sales]);
+
+    const finalPayable = totals.billTotal + totals.totalBagPrice;
+
+    return (
+        <div className="flex flex-row flex-nowrap items-center justify-between w-full p-2 mt-2 rounded-xl border-2 border-blue-500 bg-gray-900 text-white font-bold shadow-lg overflow-hidden">
+            <div className="flex items-center gap-4 px-3 border-r border-gray-700 flex-1 justify-center">
+                <span className="text-gray-400 uppercase text-[10px] whitespace-nowrap">එකතුව:</span>
+                <span className="text-white text-sm whitespace-nowrap" style={{ marginLeft: '6px' }}>
+                    {formatDecimal(totals.billTotal)}
+                </span>
+
+            </div>
+            <div className="flex items-center gap-2 px-3 border-r border-gray-700 flex-1 justify-center" style={{ marginLeft: '20px', transform: 'translateY(-24px)' }}>
+                <span className="text-gray-400 uppercase text-[10px] whitespace-nowrap" style={{ marginLeft: '140px' }}>බෑග් මිල:</span>
+                <span className="text-white text-sm whitespace-nowrap" style={{ marginLeft: '6px' }}>{formatDecimal(totals.totalBagPrice)}</span>
+            </div>
+            <div className="flex flex-row items-center whitespace-nowrap px-4 border-r border-gray-700 h-full ml-auto" style={{ transform: 'translateY(-48px)' }}>
+                <span className="text-gray-400 uppercase text-[10px] mr-2" style={{ marginLeft: '310px' }}>කාම්කරු:</span>
+                <span className="font-bold text-sm" style={{ marginLeft: '6px' }}>0</span>
+            </div>
+            <div className="flex flex-row items-center whitespace-nowrap px-4 border-r border-gray-700 h-full ml-auto" style={{ transform: 'translateY(-72px)' }}>
+                <span className="text-gray-400 uppercase text-[10px] mr-2" style={{ marginLeft: '480px' }}>ගෙවිය:</span>
+                <span className="font-bold text-sm text-yellow-400" style={{ marginLeft: '6px' }}>{formatDecimal(finalPayable)}</span>
             </div>
         </div>
     );
-};
-// ==================== MAIN COMPONENT ====================
-export default function SupplierReportPrinted() {
-    const navigate = useNavigate();
-    const [showFarmerModal, setShowFarmerModal] = useState(false);
-    const [selectedBillCreditor, setSelectedBillCreditor] = useState(null);
-    const [showCreditorModal, setShowCreditorModal] = useState(false);
-    const [selectedBillForCreditor, setSelectedBillForCreditor] = useState({ supplierCode: '', billNo: null });
-    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-    const [showDetailedReport, setShowDetailedReport] = useState(false);
-    const [detailedReportData, setDetailedReportData] = useState(null);
-    const [isLoadingReport, setIsLoadingReport] = useState(false);
-    const [selectedReportSupplier, setSelectedReportSupplier] = useState(null);
-    const farmerSelectRef = useRef(null);
-    const [farmerSearchQuery, setFarmerSearchQuery] = useState('');
-    const [allFarmerOptions, setAllFarmerOptions] = useState([]);
-    const [isLoadingFarmers, setIsLoadingFarmers] = useState(false);
-    const [showCreditorForm, setShowCreditorForm] = useState(false);
-    const [pendingCreditorBill, setPendingCreditorBill] = useState(null);
+});
 
-    // NEW: State for View Old Bills
-    const [showOldBillsModal, setShowOldBillsModal] = useState(false);
-    const [isViewingHistory, setIsViewingHistory] = useState(false);
-    const [historyDateRange, setHistoryDateRange] = useState({ startDate: '', endDate: '' });
-    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-    const [isMiddlePanelLocked, setIsMiddlePanelLocked] = useState(true);
+// --- Main Export Component ---
+const initialFormData = { customer_code: "", customer_name: "", supplier_code: "", code: "", item_code: "", item_name: "", weight: "", price_per_kg: "", pack_due: "", total: "", packs: "", given_amount: "", pack_cost: "", telephone_no: "", };
+const fieldOrder = ["telephone_no", "customer_code_input", "customer_code_select", "supplier_code", "item_code_select", "weight", "price_per_kg_grid_item", "packs", "total"];
+const skipMap = { telephone_no: "customer_code_input", customer_code_input: "supplier_code", customer_code_select: "supplier_code", given_amount: "supplier_code", supplier_code: "item_code_select", item_code_select: "weight", price_per_kg: "packs", price_per_kg_grid_item: "packs" };
 
-    // Add these state variables with your other useState declarations
-    const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
-    const [calculatedAdjustmentAmount, setCalculatedAdjustmentAmount] = useState(0);
-    const [selectedAdjustmentType, setSelectedAdjustmentType] = useState('bag_to_box');
-    // Add this with your other state declarations
-    const [advanceAmountsByBill, setAdvanceAmountsByBill] = useState({});
+export default function SalesEntry() {
+    const isMountedRef = useRef(true);
+    const lastSubmitSignatureRef = useRef('');
+    const lastSubmitAtRef = useRef(0);
+    const submitGenerationRef = useRef(0);
+    // Each packs-Enter gets its own controller — concurrent lines must never abort each other.
+    const pendingSubmitsRef = useRef(new Map());
+    const refreshInFlightRef = useRef(false);
+    const pendingForceRefreshRef = useRef(false);
+    const lastRefreshAtRef = useRef(0);
+    const recentSubmittedSalesRef = useRef(new Map());
+    // Overlay rows for the sales table — refresh/poll must never wipe these.
+    const localTableSalesRef = useRef(new Map());
+    const deletedSaleIdsRef = useRef(new Set());
+    // Last customer code used to scope the sales table. Survives brief formData
+    // flicker when react-select remounts/re-renders on item Enter.
+    const tableCustomerScopeRef = useRef('');
+    const refreshAbortRef = useRef(null);
+    const initAbortRef = useRef(null);
+    const loanAbortRef = useRef(null);
+    const printInFlightRef = useRef(false);
+    const printStartedAtRef = useRef(0);
+    const givenAmountInFlightRef = useRef(false);
+    const customerClickGenerationRef = useRef(0);
+    // Survives optimistic editingSaleId clear so a second Enter cannot POST a duplicate row.
+    const editingSaleIdRef = useRef(null);
+    const lastContentSubmitSigRef = useRef('');
+    const loanCacheRef = useRef(new Map());
+    const lastUserActivityAtRef = useRef(Date.now());
+    const activeIntervalsRef = useRef(new Set());
+    const activeTimeoutsRef = useRef(new Set());
+    const referenceRefreshStartedAtRef = useRef(0);
 
+    // Blocks late/stale focus() calls that yank the cursor back to supplier
+    // after the operator has already moved on to the item select (Enter).
+    const suppressSupplierFocusUntilRef = useRef(0);
+
+    // Single stable refs container: keeps identity constant across renders so
+    // effects/listeners depending on it never re-subscribe.
+    const refs = useRef({
+        telephone_no: { current: null }, customer_code_input: { current: null }, customer_code_select: { current: null }, given_amount: { current: null },
+        supplier_code: { current: null }, item_code_select: { current: null }, item_name: { current: null },
+        weight: { current: null }, price_per_kg: { current: null }, packs: { current: null }, total: { current: null },
+        price_per_kg_grid_item: { current: null },
+    }).current;
+
+    const isFocusInItemEntryFields = useCallback(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body) return false;
+
+        if (
+            active === refs.weight.current ||
+            active === refs.price_per_kg_grid_item.current ||
+            active === refs.price_per_kg.current
+        ) {
+            return true;
+        }
+
+        // Item react-select (or its inner input / menu)
+        if (active.closest?.('.react-select-container')) return true;
+
+        const select = refs.item_code_select.current;
+        const itemInput =
+            select?.inputRef ||
+            select?.select?.inputRef ||
+            select?.controlRef?.querySelector?.('input');
+        return !!(itemInput && active === itemInput);
+    }, []);
+
+    const focusSupplierCode = useCallback(() => {
+        if (Date.now() < suppressSupplierFocusUntilRef.current) return;
+        // Never yank focus back if the operator already moved to item/weight/price.
+        if (isFocusInItemEntryFields()) return;
+
+        const el = refs.supplier_code.current;
+        if (!el) return;
+        el.focus();
+        el.select?.();
+    }, [isFocusInItemEntryFields]);
+
+    const focusItemCodeSelect = useCallback(() => {
+        // Block late post-submit supplier.focus() for long enough to cover slow API returns.
+        suppressSupplierFocusUntilRef.current = Date.now() + 2500;
+        const select = refs.item_code_select.current;
+        if (!select) return;
+
+        if (typeof select.focus === 'function') {
+            select.focus();
+        }
+
+        // Keep the menu open so the operator can type the item code immediately.
+        if (typeof select.setState === 'function') {
+            select.setState({ menuIsOpen: true });
+        } else if (typeof select.onMenuOpen === 'function') {
+            select.onMenuOpen();
+        }
+
+        // Focus the real <input> inside react-select (version-safe).
+        const inputEl =
+            select.inputRef ||
+            select.select?.inputRef ||
+            select.controlRef?.querySelector?.('input') ||
+            document.querySelector('.react-select-container input');
+        if (inputEl && typeof inputEl.focus === 'function') {
+            inputEl.focus();
+        }
+    }, []);
 
     const [state, setState] = useState({
-        pendingSuppliers: [], completedSuppliers: [], selectedSupplier: null, selectedBillNo: null, supplierDetails: [],
-        isLoading: true, isPrinting: false, paymentAmount: "", searchPendingQuery: "", searchCompletedQuery: "",
-        showChequeModal: false, pendingChequeAmount: 0, showBankToBankModal: false, pendingBankToBankAmount: 0,
-        showAdjustmentModal: false, showPaymentHistoryModal: false, currentPayments: [], paymentHistoryTotalPaid: 0,
-        paymentHistoryTotalBill: 0, paymentHistoryRemaining: 0, showDeleteModal: false, deleteSupplierCode: null,
-        deleteBillNo: null, paymentMethod: 'Cash', isUpdatingCompletedBill: false, currentPaidAmount: 0,
-        selectedMode: 'walking_seller', showPrintModal: false, printBillContent: '', billSize: '4inch', paymentBreakdown: [],
-        currentBillTotal: 0
+        allSales: [], localTableSales: [], selectedPrintedCustomer: null, selectedUnprintedCustomer: null, editingSaleId: null,
+        searchQueries: { printed: "", unprinted: "", farmerPrinted: "", farmerUnprinted: "" }, errors: {}, loanAmount: 0, isManualClear: false,
+        isSubmitting: false, formData: initialFormData, packCost: 0, customerSearchInput: "", itemSearchInput: "",
+        supplierSearchInput: "", currentBillNo: null, isLoading: false, customers: [], items: [], suppliers: [],
+        isPrinting: false, billSize: '3inch', priceManuallyChanged: false,
+        gridPricePerKg: "", selectedSaleForBreakdown: null, showSavePhoneButton: false,
+        currentUser: null,
+        isAdminModalOpen: false, modalTitle: "", modalData: [], modalType: "", isGivenAmountManuallyTouched: false, filterOnlyCash: false, isCashFilterActive: false, customerProfilePic: null, supplierProfilePic: null, customerNameDisplay: "", supplierNameDisplay: "", isImageModalOpen: false, selectedImageData: { profile: null, nic_front: null, nic_back: null, title: "" },
     });
-    const [showAdjustmentSummary, setShowAdjustmentSummary] = useState(false);
-    const [adjustmentTotals, setAdjustmentTotals] = useState({
-        cash: 0,
-        cheque: 0,
-        bank_transfer: 0,
-        credit: 0,
-        bag_to_box: 0,
-        bill_to_bill: 0,
-        bad_debt: 0
-    });
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-    // Initialize fundsAllocated directly from localStorage (no initial 0)
-    const [fundsAllocated, setFundsAllocated] = useState(() => {
-        try {
-            const saved = localStorage.getItem('fundsAllocated');
-            console.log('Initializing fundsAllocated from localStorage:', saved);
-            if (saved !== null && !isNaN(parseFloat(saved))) {
-                return parseFloat(saved);
+    const setFormData = useCallback((updater) => {
+        if (!isMountedRef.current) return;
+        setState(prev => ({
+            ...prev,
+            formData: typeof updater === 'function' ? updater(prev.formData) : updater
+        }));
+    }, []);
+
+    const updateState = useCallback((updates) => {
+        if (!isMountedRef.current) return;
+        setState(prev => {
+            // Skip the re-render entirely when nothing actually changed.
+            // Many effects call updateState on every keystroke with identical values.
+            let changed = false;
+            for (const key in updates) {
+                if (!Object.is(prev[key], updates[key])) { changed = true; break; }
             }
-        } catch (error) {
-            console.error('Error reading fundsAllocated:', error);
-        }
-        return 0;
-    });
-    // Add these state variables with your other useState declarations (around line ~40-50)
-
-    // Advance state for NEW table
-    const [advanceAmount, setAdvanceAmount] = useState(0);
-    const [advancePayload, setAdvancePayload] = useState({
-        supplier_code: '',
-        supplier_bill_no: '',
-        traveler_code: '',
-        advance_amount: ''
-    });
-    const [advanceLoading, setAdvanceLoading] = useState(false);
-    const [advanceStatus, setAdvanceStatus] = useState({ type: '', text: '' });
-    const [supplierAdvances, setSupplierAdvances] = useState([]);
-    const [totalAdvanceAmount, setTotalAdvanceAmount] = useState(0);
-    const [showAdvanceHistory, setShowAdvanceHistory] = useState(false);
-    const [bagAmount, setBagAmount] = useState('');
-
-    // Store advance in NEW table
-    const storeAdvance = async (advanceData) => {
-        const response = await api.post('/supplier-advances', advanceData);
-        return response.data;
-    };
-
-    // Fetch supplier advances from NEW table
-    const fetchSupplierAdvances = async (supplierCode, billNo = null) => {
-        if (!supplierCode) return;
-        try {
-            let url = `/supplier-advances/supplier?supplier_code=${supplierCode}`;
-            if (billNo) {
-                url += `&supplier_bill_no=${billNo}`;
-            }
-            const response = await api.get(url);
-            if (response.data.success) {
-                setSupplierAdvances(response.data.data.advances);
-                setTotalAdvanceAmount(response.data.data.summary.total_advance);
-            }
-        } catch (error) {
-            console.error('Error fetching advances:', error);
-        }
-    };
-    // Update this function to properly fetch from backend
-    // Update this function to properly fetch from backend
-    const fetchAdvanceAmountsForBills = async (bills) => {
-        const advanceMap = {};
-        const uniqueBillNos = [];
-
-        // Collect unique bill numbers from the bills
-        bills.forEach(bill => {
-            if (bill.supplier_bill_no) {
-                const billNo = bill.supplier_bill_no;
-                if (!advanceMap[billNo]) {
-                    advanceMap[billNo] = { bill_no: billNo };
-                    uniqueBillNos.push(billNo);
-                }
-            }
+            return changed ? { ...prev, ...updates } : prev;
         });
+    }, []);
 
-        // If no bills with numbers, return empty map
-        if (uniqueBillNos.length === 0) {
-            return {};
-        }
-
-        try {
-            // Call the backend endpoint to get advance amounts by bill numbers
-            const response = await api.post('/suppliers/advance-amounts', {
-                bill_numbers: uniqueBillNos
-            });
-
-            if (response.data && response.data.success) {
-                const data = response.data.data;
-
-                // Map advance amounts to our bills
-                uniqueBillNos.forEach(billNo => {
-                    advanceMap[billNo].advance_amount = data[billNo] || 0;
-                });
-            }
-        } catch (error) {
-            console.error('Error fetching advance amounts:', error);
-            // Set all to 0 on error
-            uniqueBillNos.forEach(billNo => {
-                advanceMap[billNo].advance_amount = 0;
-            });
-        }
-
-        return advanceMap;
-    };
-    // Updated handleAdvanceSubmit for NEW table
-    const handleAdvanceSubmit = async (e) => {
-        e.preventDefault();
-
-        if (!state.selectedSupplier) {
-            alert('Please select a supplier first');
-            return;
-        }
-
-        const amount = parseFloat(advancePayload.advance_amount);
-        if (isNaN(amount) || amount <= 0) {
-            alert('Please enter a valid advance amount');
-            return;
-        }
-
-        if (!advancePayload.traveler_code.trim()) {
-            alert('Please enter traveler/trader code');
-            return;
-        }
-
-        setAdvanceLoading(true);
-        setAdvanceStatus({ type: '', text: '' });
-
-        try {
-            const response = await storeAdvance({
-                supplier_code: state.selectedSupplier,
-                supplier_bill_no: state.selectedBillNo || null,
-                traveler_code: advancePayload.traveler_code.toUpperCase(),
-                advance_amount: amount
-            });
-
-            if (response.success) {
-                setAdvanceStatus({
-                    type: 'success',
-                    text: `✅ Advance recorded successfully! Amount: Rs. ${formatDecimal(amount)}`
-                });
-
-                // Reset form - keep supplier code but clear other fields
-                setAdvancePayload({
-                    supplier_code: state.selectedSupplier,
-                    supplier_bill_no: state.selectedBillNo || '',
-                    traveler_code: '',
-                    advance_amount: ''
-                });
-
-                // Refresh advances list from new table
-                await fetchSupplierAdvances(state.selectedSupplier, state.selectedBillNo);
-
-                // Also update the total advance amount for display
-                setAdvanceAmount(prev => prev + amount);
-
-                // Clear success message after 3 seconds
-                runSafeTimeout(() => setAdvanceStatus({ type: '', text: '' }), 3000);
-            } else {
-                throw new Error(response.message || 'Failed to record advance');
-            }
-        } catch (error) {
-            console.error('Advance submission error:', error);
-            setAdvanceStatus({
-                type: 'error',
-                text: `❌ Failed to record advance: ${error.response?.data?.message || error.message}`
-            });
-            runSafeTimeout(() => setAdvanceStatus({ type: '', text: '' }), 5000);
-        } finally {
-            setAdvanceLoading(false);
-        }
-    };
-
-    // Reset advance form and fetch advances when supplier changes
-    useEffect(() => {
-        if (state.selectedSupplier) {
-            setAdvancePayload({
-                supplier_code: state.selectedSupplier,
-                supplier_bill_no: state.selectedBillNo || '',
-                traveler_code: '',
-                advance_amount: ''
-            });
-            // Fetch advances from NEW table
-            fetchSupplierAdvances(state.selectedSupplier, state.selectedBillNo);
-            setBagAmount('');
-        } else {
-            setSupplierAdvances([]);
-            setTotalAdvanceAmount(0);
-            setAdvanceAmount(0);
-            setBagAmount('');
-        }
-    }, [state.selectedSupplier, state.selectedBillNo]);
-
-
-    // Add these state variables with your other state declarations (around line ~40-50)
-    const [editingRecord, setEditingRecord] = useState(null);
-    const [newFarmerCode, setNewFarmerCode] = useState('');
-    const [newCustomerCode, setNewCustomerCode] = useState('');
-
-    const handleUpdateFarmer = async () => {
-        if (!editingRecord) return;
-
-        const finalSupplierCode = newFarmerCode || editingRecord.supplier_code;
-        const finalCustomerCode = newCustomerCode || editingRecord.customer_code;
-
-        try {
-            // Use setIsDetailsLoading if you have it, or set a local loading state
-            // If you don't have setIsDetailsLoading, you can remove it or add a local loading state
-            const response = await api.put(`/sales/${editingRecord.id}/update-supplier`, {
-                supplier_code: finalSupplierCode,
-                customer_code: finalCustomerCode
-            });
-
-            if (response.status === 200) {
-                // Close the modal
-                setEditingRecord(null);
-                setNewFarmerCode('');
-                setNewCustomerCode('');
-
-                // Refresh the current supplier details to show updated data
-                // Get the current selected supplier and bill from state
-                const currentSupplier = state.selectedSupplier;
-                const currentBillNo = state.selectedBillNo;
-
-                if (currentSupplier && currentBillNo) {
-                    // Refresh the current bill details
-                    await handleSupplierClick(currentSupplier, currentBillNo);
-                }
-
-                // Also refresh the supplier list data
-                await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, false);
-
-                // Show success message
-                alert('✅ Record updated successfully!');
-
-                // If the customer code was changed, you might want to show additional info
-                if (finalCustomerCode && finalCustomerCode !== editingRecord.customer_code) {
-                    console.log('Customer code updated from', editingRecord.customer_code, 'to', finalCustomerCode);
-                }
-                if (finalSupplierCode && finalSupplierCode !== editingRecord.supplier_code) {
-                    console.log('Supplier code updated from', editingRecord.supplier_code, 'to', finalSupplierCode);
-                }
-            }
-        } catch (error) {
-            console.error("Update failed:", error);
-            const errorMessage = error.response?.data?.message || error.message || "Failed to update records. Please try again.";
-            alert(`Update failed: ${errorMessage}`);
-        }
-    };
-    const [showFundsAllocated, setShowFundsAllocated] = useState(false);
-    const isFirstRender = useRef(true);
-    const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
-    const dropdownButtonRef = useRef(null);
-    const [dropdownPosition, setDropdownPosition] = useState({ x: 0, y: 0 });
-
-    // Save fundsAllocated to localStorage whenever it changes (skip first render to prevent overwrite)
-    useEffect(() => {
-        // Skip the first render to prevent overwriting the loaded value with 0
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            // On first render, just ensure localStorage has the correct value
-            localStorage.setItem('fundsAllocated', fundsAllocated.toString());
-            console.log('First render - saved fundsAllocated:', fundsAllocated);
-            return;
-        }
-
-        try {
-            console.log('Saving fundsAllocated to localStorage:', fundsAllocated);
-            localStorage.setItem('fundsAllocated', fundsAllocated.toString());
-        } catch (error) {
-            console.error('Error saving fundsAllocated:', error);
-        }
-    }, [fundsAllocated]);
-    useEffect(() => {
-        if (isDropdownOpen && dropdownButtonRef.current) {
-            const rect = dropdownButtonRef.current.getBoundingClientRect();
-            setDropdownPosition({ x: rect.left, y: rect.bottom });
-        }
-    }, [isDropdownOpen]);
-    // Backup: Save before page unload
-    useEffect(() => {
-        const handleBeforeUnload = () => {
-            localStorage.setItem('fundsAllocated', fundsAllocated.toString());
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [fundsAllocated]);
-    // Add these for silent refresh
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const refreshTimeoutRef = useRef(null);
-    const isMountedRef = useRef(true);
-    const timeoutIdsRef = useRef([]);
-
-    const processingPaymentRef = useRef(false);
-    const lastPaymentDataRef = useRef(null);
-    const modalOpenRef = useRef(false);
-
-    // Add these with your other state declarations
-    const [paymentLock, setPaymentLock] = useState(false);
-    const paymentLockRef = useRef(false);
-    const idempotencyKeyRef = useRef(null);
-
-    const runSafeTimeout = useCallback((fn, delay) => {
-        const id = setTimeout(() => {
-            timeoutIdsRef.current = timeoutIdsRef.current.filter((t) => t !== id);
-            if (isMountedRef.current) {
-                fn();
-            }
+    const setManagedTimeout = useCallback((fn, delay) => {
+        const id = window.setTimeout(() => {
+            activeTimeoutsRef.current.delete(id);
+            fn();
         }, delay);
-        timeoutIdsRef.current.push(id);
+        activeTimeoutsRef.current.add(id);
         return id;
     }, []);
 
+    const setManagedInterval = useCallback((fn, delay) => {
+        const id = window.setInterval(fn, delay);
+        activeIntervalsRef.current.add(id);
+        return id;
+    }, []);
+
+    const clearManagedInterval = useCallback((id) => {
+        if (!id) return;
+        window.clearInterval(id);
+        activeIntervalsRef.current.delete(id);
+    }, []);
+
+    const { allSales, localTableSales, customerSearchInput, selectedPrintedCustomer, selectedUnprintedCustomer, editingSaleId,
+        searchQueries, errors, loanAmount, isManualClear, formData, packCost, isLoading, customers,
+        items, suppliers, isPrinting, billSize, gridPricePerKg, selectedSaleForBreakdown, currentUser,
+        isAdminModalOpen, modalTitle, modalData, modalType } = state;
+
+    const upsertLocalTableSale = useCallback((sale) => {
+        if (!sale?.id) return;
+        localTableSalesRef.current.set(String(sale.id), sale);
+    }, []);
+
+    const removeLocalTableSale = useCallback((id) => {
+        if (id == null) return;
+        localTableSalesRef.current.delete(String(id));
+    }, []);
+
+    // --- Logic for Farmer Lists (Admin View) ---
+    const printedFarmers = useMemo(() => {
+        const groups = {};
+        allSales.filter(s => s.supplier_bill_printed === 'Y').forEach(sale => {
+            const code = sale.supplier_code;
+            if (code && !groups[code]) groups[code] = { supplier_code: code };
+        });
+        return Object.values(groups);
+    }, [allSales]);
+    const unprintedFarmers = useMemo(() => {
+        const groups = {};
+        allSales.filter(s => s.supplier_bill_printed === 'N' || !s.supplier_bill_printed).forEach(sale => {
+            const code = sale.supplier_code;
+            if (code && !groups[code]) groups[code] = { supplier_code: code };
+        });
+        return Object.values(groups);
+    }, [allSales]);
+
+    const { newSales, printedSales, unprintedSales } = useMemo(() => ({
+        // Include pending 'N' rows so packs-Enter optimistic lines appear instantly
+        // even before a sidebar customer is selected.
+        newSales: allSales.filter((s) => {
+            const status = String(s.bill_printed ?? '').trim().toUpperCase();
+            return s.id && status !== 'Y';
+        }),
+        printedSales: allSales.filter((s) => String(s.bill_printed ?? '').trim().toUpperCase() === 'Y'),
+        unprintedSales: allSales.filter((s) => {
+            const status = String(s.bill_printed ?? '').trim().toUpperCase();
+            return status === 'N' || status === '' || status === 'NULL' || status === 'UNDEFINED';
+        })
+    }), [allSales]);
+
+    const filterCustomers = (sales, query, searchByBillNo = false) => {
+        const allCustomers = [...new Set(sales.map(s => s.customer_code))];
+        if (!query) return allCustomers;
+        const lowerQuery = query.toLowerCase();
+        if (searchByBillNo) {
+            const byBillNo = sales.filter(s => (s.bill_no?.toString() || '').toLowerCase().includes(lowerQuery)).map(s => s.customer_code);
+            const byCode = allCustomers.filter(code => code.toLowerCase().includes(lowerQuery));
+            return [...new Set([...byBillNo, ...byCode])];
+        }
+        return allCustomers.filter(code => code.toLowerCase().includes(lowerQuery));
+    };
+
+    const unprintedCustomers = useMemo(() => filterCustomers(unprintedSales, searchQueries.unprinted), [unprintedSales, searchQueries.unprinted]);
+
+    const displayedSales = useMemo(() => {
+        const normalizeCode = (value) => String(value || '').trim().toUpperCase();
+        const normalizedStatus = (sale) => String(sale?.bill_printed ?? '').trim().toUpperCase();
+        const isPrintedSale = (sale) => normalizedStatus(sale) === 'Y';
+        const isPendingSale = (sale) => !isPrintedSale(sale);
+        const isTempSale = (sale) => !!(sale?._optimistic || String(sale?.id || '').startsWith('tmp-'));
+
+        // Customer-code INPUT is the source of truth for the table (never show all sales).
+        const inputCustomer = normalizeCode(formData.customer_code);
+        const sidebarUnprinted = normalizeCode(selectedUnprintedCustomer);
+        let printedCustomer = '';
+        let printedBillNo = '';
+        if (selectedPrintedCustomer) {
+            if (selectedPrintedCustomer.includes('-')) {
+                const separatorIndex = selectedPrintedCustomer.lastIndexOf('-');
+                printedCustomer = normalizeCode(selectedPrintedCustomer.slice(0, separatorIndex));
+                printedBillNo = String(selectedPrintedCustomer.slice(separatorIndex + 1) || '').trim();
+            } else {
+                printedCustomer = normalizeCode(selectedPrintedCustomer);
+            }
+        }
+
+        const activeCustomerCode = inputCustomer || sidebarUnprinted || printedCustomer
+            || (!isManualClear ? normalizeCode(tableCustomerScopeRef.current) : '');
+        if (inputCustomer || sidebarUnprinted || printedCustomer) {
+            tableCustomerScopeRef.current = activeCustomerCode;
+        }
+        if (!activeCustomerCode) return [];
+
+       const matchesScope = (s) => {
+    const sameCustomer = normalizeCode(s.customer_code) === activeCustomerCode;
+    if (!sameCustomer) return false;
+
+    // When a printed bill is explicitly selected from the sidebar
+    if (printedBillNo && printedCustomer && printedCustomer === activeCustomerCode) {
+        const saleBillNo = String(s.bill_no ?? '').trim();
+        // Ensure the bill_no is NOT empty and matches the selected bill_no exactly
+        const sameBill = saleBillNo !== '' && saleBillNo === printedBillNo;
+        return sameBill;
+    }
+
+    return isPendingSale(s);
+};
+
+        // Local overlay first — survives refresh races. Then allSales.
+        // Dedupe by id ONLY. Never collapse by product line — same item/weight
+        // entered twice in a row is normal POS behavior and must both stay visible.
+        const candidates = [
+            ...(localTableSales || []).filter(matchesScope),
+            ...(allSales || []).filter(matchesScope),
+        ];
+
+        const byId = new Map();
+        candidates.forEach((sale) => {
+            if (!sale?.id) return;
+            const key = String(sale.id);
+            if (!byId.has(key)) byId.set(key, sale);
+        });
+
+       const rows = Array.from(byId.values()).sort((a, b) => {
+    const aTmp = isTempSale(a) ? 0 : 1;
+    const bTmp = isTempSale(b) ? 0 : 1;
+    if (aTmp !== bTmp) return aTmp - bTmp;
+    
+    // Sort by created_at first (most reliable)
+    const aTime = a.created_at || a.updated_at || a.timestamp || a.date || 0;
+    const bTime = b.created_at || b.updated_at || b.timestamp || b.date || 0;
+    
+    // If both have timestamps, compare them
+    if (aTime && bTime) {
+        return new Date(bTime) - new Date(aTime);
+    }
+    
+    // Fallback to numeric ID comparison (parse as number)
+    const aId = parseInt(a.id, 10);
+    const bId = parseInt(b.id, 10);
+    if (!isNaN(aId) && !isNaN(bId)) {
+        return bId - aId;
+    }
+    
+    // Last resort: string comparison
+    return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+});
+        return rows;
+    }, [allSales, localTableSales, selectedUnprintedCustomer, selectedPrintedCustomer, formData.customer_code, isManualClear]);
+
+    const autoCustomerCode = useMemo(() => displayedSales.length > 0 && !isManualClear ? displayedSales[0].customer_code || "" : "", [displayedSales, isManualClear]);
+    const currentBillNo = useMemo(() => {
+        if (selectedPrintedCustomer && selectedPrintedCustomer.includes('-')) return selectedPrintedCustomer.split('-')[1] || "N/A";
+        if (selectedPrintedCustomer) return printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no || "N/A";
+        return "";
+    }, [selectedPrintedCustomer, printedSales]);
+
     useEffect(() => {
         isMountedRef.current = true;
+        // Warm the hidden print iframe so the first F1 does not pay creation cost.
+        try { getPrintFrame(); } catch (_) { /* ignore */ }
         return () => {
+            if (refreshAbortRef.current) refreshAbortRef.current.abort();
+            if (initAbortRef.current) initAbortRef.current.abort();
+            if (loanAbortRef.current) loanAbortRef.current.abort();
+            pendingSubmitsRef.current.forEach((controller) => {
+                try { controller.abort(); } catch (_) { /* ignore */ }
+            });
+            pendingSubmitsRef.current.clear();
+
+            activeIntervalsRef.current.forEach((id) => window.clearInterval(id));
+            activeIntervalsRef.current.clear();
+            activeTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+            activeTimeoutsRef.current.clear();
+
             isMountedRef.current = false;
-            timeoutIdsRef.current.forEach((id) => clearTimeout(id));
-            timeoutIdsRef.current = [];
         };
     }, []);
-
-    // Initialize window flags for duplicate detection
+    // Add this useEffect after the existing keyboard shortcut useEffect
     useEffect(() => {
-        window.cashPaymentProcessing = false;
-        window.lastPaymentTime = null;
-        window.lastPaymentAmount = null;
+        const handleF6Clear = (e) => {
+            if (e.key === "F6") {
+                e.preventDefault();
 
-        return () => {
-            delete window.cashPaymentProcessing;
-            delete window.lastPaymentTime;
-            delete window.lastPaymentAmount;
-        };
-    }, []);
-
-
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (isDropdownOpen && !event.target.closest('.dropdown-container')) {
-                setIsDropdownOpen(false);
-            }
-        };
-        document.addEventListener('click', handleClickOutside);
-        return () => document.removeEventListener('click', handleClickOutside);
-    }, [isDropdownOpen]);
-    // Add refs for history state to avoid stale closures
-    const viewHistoryRef = useRef(isViewingHistory);
-    const historyStartDateRef = useRef(historyDateRange.startDate);
-    const historyEndDateRef = useRef(historyDateRange.endDate);
-    const [isPolling, setIsPolling] = useState(true);
-    const pollingIntervalRef = useRef(null);
-    const supplierDataRequestInFlightRef = useRef(false);
-    // Add these with your other state declarations (around line where you have other state)
-    const [showIncomeSourcesModal, setShowIncomeSourcesModal] = useState(false);
-    const [incomeTotals, setIncomeTotals] = useState({
-        cash: 0,
-        cheque: 0,
-        bank_transfer: 0,
-        bag_to_box: 0,
-        bill_to_bill: 0,
-        bad_debt: 0,
-        total_income: 0,
-        total_bills: 0,
-        total_customers: 0
-    });
-    const [isLoadingIncome, setIsLoadingIncome] = useState(false);
-    //ne fund balance
-    // Add these with your other state declarations
-    // Add these with your other state declarations
-    const [allocatedBreakdown, setAllocatedBreakdown] = useState({
-        cash_allocated: 0,
-        bank_breakdown: [],
-        total_bank_allocated: 0,
-        total_allocated: 0
-    });
-    const [isLoadingAllocated, setIsLoadingAllocated] = useState(false);
-    const [showAllocatedBankModal, setShowAllocatedBankModal] = useState(false);
-    // Fetch allocated breakdown from cashier_balances table
-    const fetchAllocatedBreakdown = async () => {
-        setIsLoadingAllocated(true);
-        try {
-            const response = await api.get('/cashier-balance/allocated-breakdown');
-            if (response.data.success) {
-                if (!isMountedRef.current) return;
-                setAllocatedBreakdown(response.data.data);
-                console.log('Allocated breakdown fetched:', response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching allocated breakdown:', error);
-        } finally {
-            if (isMountedRef.current) {
-                setIsLoadingAllocated(false);
-            }
-        }
-    };
-    // Add this with your other state declarations
-    const [netAvailableAmount, setNetAvailableAmount] = useState(0);
-    const [isLoadingNetAvailable, setIsLoadingNetAvailable] = useState(false);
-    const [totalAllocatedAmount, setTotalAllocatedAmount] = useState(0);
-
-    const [supplierPaymentsTotal, setSupplierPaymentsTotal] = useState(0);
-    // Add this function with your other fetch functions
-    const fetchNetAvailableAmount = async () => {
-        console.log('🔵 FETCH NET AVAILABLE - STARTED');
-
-        setIsLoadingNetAvailable(true);
-        try {
-            const response = await api.get('/cashier-balance/net-available');
-
-            console.log('🔵 API Response:', response.data);
-
-            if (response.data.success) {
-                // Use the grand totals from the response
-                const grandTotals = response.data.data.grand_totals;
-                const netAmount = grandTotals.net_available || 0;
-                const totalAllocated = grandTotals.total_allocated || 0;
-                const supplierPaymentsTotal = response.data.data.supplier_payments_total || 0;
-
-                console.log('💰 Grand Totals:', {
-                    net_available: netAmount,
-                    total_allocated: totalAllocated,
-                    supplier_payments: supplierPaymentsTotal,
-                    total_records: grandTotals.total_records
+                // Clear all form data
+                setFormData({
+                    ...initialFormData,
+                    telephone_no: "",
+                    customer_code: "",
+                    customer_name: "",
+                    supplier_code: "",
+                    item_code: "",
+                    item_name: "",
+                    weight: "",
+                    price_per_kg: "",
+                    pack_due: "",
+                    total: "",
+                    packs: "",
+                    given_amount: ""
                 });
 
-                if (!isMountedRef.current) return;
-                setNetAvailableAmount(netAmount);
-                setTotalAllocatedAmount(totalAllocated);
-                setSupplierPaymentsTotal(supplierPaymentsTotal);
-            } else {
-                console.error('❌ API returned success=false:', response.data.message);
-                if (!isMountedRef.current) return;
-                setNetAvailableAmount(0);
-                setTotalAllocatedAmount(0);
-                setSupplierPaymentsTotal(0);
+                // CRITICAL: Clear selected printed and unprinted customers
+                tableCustomerScopeRef.current = '';
+                updateState({
+                    editingSaleId: null,
+                    isManualClear: false,
+                    priceManuallyChanged: false,
+                    gridPricePerKg: "",
+                    selectedSaleForBreakdown: null,
+                    isGivenAmountManuallyTouched: false,
+                    // Clear sidebar selections
+                    selectedPrintedCustomer: null,
+                    selectedUnprintedCustomer: null,
+                    currentBillNo: null,
+                    // Clear search queries if needed
+                    searchQueries: {
+                        printed: "",
+                        unprinted: "",
+                        farmerPrinted: "",
+                        farmerUnprinted: ""
+                    },
+                    // Clear loan amount
+                    loanAmount: 0,
+                    // Clear any errors
+                    errors: {},
+                    // Clear customer/supplier profile pics
+                    customerProfilePic: null,
+                    supplierProfilePic: null,
+                    customerNameDisplay: "",
+                    supplierNameDisplay: ""
+                });
+
+                // Clear the loan cache for this customer
+                loanCacheRef.current.clear();
+
+                // Focus on customer_code_input with a small delay to ensure state updates
+                setManagedTimeout(() => {
+                    if (refs.customer_code_input.current) {
+                        refs.customer_code_input.current.focus();
+                        refs.customer_code_input.current.select();
+                    }
+                }, 50);
             }
-        } catch (error) {
-            console.error('❌ Error fetching net available amount:', error);
+        };
+
+        window.addEventListener("keydown", handleF6Clear);
+
+        return () => {
+            window.removeEventListener("keydown", handleF6Clear);
+        };
+    }, [setFormData, updateState, setManagedTimeout, refs]);
+
+    // Clear loan cache after long inactivity to avoid stale/accumulated entries in all-day sessions.
+    useEffect(() => {
+        const markActivity = () => {
+            lastUserActivityAtRef.current = Date.now();
+        };
+
+        const inactivityInterval = setManagedInterval(() => {
+            const idleMs = Date.now() - lastUserActivityAtRef.current;
+            if (idleMs >= 30 * 60 * 1000 && loanCacheRef.current.size > 0) {
+                loanCacheRef.current.clear();
+            }
+        }, 5 * 60 * 1000);
+
+        window.addEventListener('mousemove', markActivity);
+        window.addEventListener('keydown', markActivity);
+        window.addEventListener('touchstart', markActivity);
+        window.addEventListener('focus', markActivity);
+
+        return () => {
+            window.removeEventListener('mousemove', markActivity);
+            window.removeEventListener('keydown', markActivity);
+            window.removeEventListener('touchstart', markActivity);
+            window.removeEventListener('focus', markActivity);
+            clearManagedInterval(inactivityInterval);
+        };
+    }, [setManagedInterval, clearManagedInterval]);
+    // Add this useEffect after the existing keyboard shortcut useEffect
+    useEffect(() => {
+        const handleF6Clear = (e) => {
+            if (e.key === "F6") {
+                e.preventDefault();
+
+                // Clear all form data
+                setFormData({
+                    ...initialFormData,
+                    // Preserve telephone number if you want, or clear it too
+                    telephone_no: "",
+                    customer_code: "",
+                    customer_name: "",
+                    supplier_code: "",
+                    item_code: "",
+                    item_name: "",
+                    weight: "",
+                    price_per_kg: "",
+                    pack_due: "",
+                    total: "",
+                    packs: "",
+                    given_amount: ""
+                });
+
+                // Reset other state variables
+                updateState({
+                    editingSaleId: null,
+                    isManualClear: false,
+                    priceManuallyChanged: false,
+                    gridPricePerKg: "",
+                    selectedSaleForBreakdown: null,
+                    isGivenAmountManuallyTouched: false,
+                    // Optionally clear sidebar selections
+                    // selectedPrintedCustomer: null,
+                    // selectedUnprintedCustomer: null,
+                    // currentBillNo: null
+                });
+
+                // Focus on customer_code_input with a small delay to ensure state updates
+                setManagedTimeout(() => {
+                    if (refs.customer_code_input.current) {
+                        refs.customer_code_input.current.focus();
+                        refs.customer_code_input.current.select();
+                    }
+                }, 50);
+            }
+        };
+
+        window.addEventListener("keydown", handleF6Clear);
+
+        return () => {
+            window.removeEventListener("keydown", handleF6Clear);
+        };
+    }, [setFormData, updateState, setManagedTimeout, refs]);
+
+    const refreshStartedAtRef = useRef(0);
+    const lastSalesSignatureRef = useRef('');
+    // Last known non-temp sales count — used to reject empty/truncated GET payloads
+    // that would wipe the table during rapid POS entry.
+    const lastKnownSaleCountRef = useRef(0);
+
+    const refreshSalesData = useCallback(async (force = false) => {
+        if (!isMountedRef.current) return;
+        // Never let a poll/refresh fight in-flight packs-Enter paints.
+        if (pendingSubmitsRef.current.size > 0) {
+            if (force) pendingForceRefreshRef.current = true;
+            return;
+        }
+        if (refreshInFlightRef.current) {
+            if (Date.now() - refreshStartedAtRef.current < API_TIMEOUT_MS + 5000) {
+                if (force) pendingForceRefreshRef.current = true;
+                return;
+            }
+            refreshInFlightRef.current = false;
+        }
+
+        const now = Date.now();
+        // Force refresh always hits the DB; background polls stay lightly throttled.
+        if (!force && now - lastRefreshAtRef.current < 2000) return;
+
+        if (refreshAbortRef.current) {
+            refreshAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        refreshAbortRef.current = controller;
+
+        refreshInFlightRef.current = true;
+        refreshStartedAtRef.current = now;
+        try {
+            const response = await api.get(routes.sales, { signal: controller.signal, timeout: API_TIMEOUT_MS });
             if (!isMountedRef.current) return;
-            setNetAvailableAmount(0);
-            setTotalAllocatedAmount(0);
-            setSupplierPaymentsTotal(0);
-        } finally {
-            if (isMountedRef.current) {
-                setIsLoadingNetAvailable(false);
-            }
-            console.log('🔵 FETCH NET AVAILABLE - COMPLETED');
-        }
-    };
-    const [showDirectFundAllocationModal, setShowDirectFundAllocationModal] = useState(false);
-    const deductAllocatedFunds = async (amount, paymentMethod, bankName = null) => {
-        try {
-            const response = await api.post('/cashier-balance/deduct-allocated-funds', {
-                amount: amount,
-                payment_method: paymentMethod,
-                bank_name: bankName
-            });
-
-            if (response.data.success) {
-                console.log('✅ Allocated funds deducted successfully:', response.data);
-                // Refresh the allocated breakdown after deduction
-                await fetchAllocatedBreakdown();
-                // Refresh net available amount as well
-                await fetchNetAvailableAmount();
-                return true;
-            } else {
-                console.error('Failed to deduct allocated funds:', response.data.message);
-                return false;
-            }
-        } catch (error) {
-            console.error('Error deducting allocated funds:', error);
-            return false;
-        }
-    };
-    // Fetch allocated breakdown on component mount
-    useEffect(() => {
-        fetchAllocatedBreakdown();
-
-        // Refresh allocated breakdown every 30 seconds
-        const allocatedInterval = setInterval(() => {
-            if (!modalOpenRef.current) {
-                fetchAllocatedBreakdown();
-            }
-        }, 30000);
-
-        return () => clearInterval(allocatedInterval);
-    }, []);
-    // Fetch net available amount on component mount and periodically
-    useEffect(() => {
-        // Initial fetch
-        fetchNetAvailableAmount();
-
-        // Refresh net available amount every 30 seconds
-        const netAvailableInterval = setInterval(() => {
-            if (!modalOpenRef.current) {
-                fetchNetAvailableAmount();
-            }
-        }, 30000);
-
-        return () => clearInterval(netAvailableInterval);
-    }, []);
-    // Auto-refresh polling every 10 seconds - FIXED MEMORY LEAK
-    useEffect(() => {
-        let isSubscribed = true;
-        let pollingInterval = null;
-
-        // Start polling when component mounts
-        if (isPolling && isSubscribed) {
-            pollingInterval = setInterval(async () => {
-                // Don't refresh if component unmounted
-                if (!isSubscribed) return;
-
-                // Don't refresh if there's a payment being processed or printing
-                if (!state.isPrinting && !isProcessingPayment && !isRefreshing) {
-                    console.log('🔄 Auto-refreshing supplier data...');
-                    await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
-                }
-            }, 30000);
-
-            pollingIntervalRef.current = pollingInterval;
-        }
-
-        // Cleanup on unmount
-        return () => {
-            isSubscribed = false;
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-            }
-            if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current);
-                pollingIntervalRef.current = null;
-            }
-        };
-    }, [isPolling, state.isPrinting, isProcessingPayment, isRefreshing, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, state.selectedSupplier, state.selectedBillNo]);
-    // Add this function to fetch income sources with filters
-    const fetchIncomeSources = async (startDate = null, endDate = null, uniqueCode = null, bankName = null, cashierName = null) => {
-        setIsLoadingIncome(true);
-        try {
-            let url = '/income-sources';
-            const params = new URLSearchParams();
-
-            if (startDate) params.append('start_date', startDate);
-            if (endDate) params.append('end_date', endDate);
-            if (uniqueCode && uniqueCode !== 'all') params.append('unique_code', uniqueCode);
-            if (bankName && bankName !== 'all') params.append('bank_name', bankName);
-            if (cashierName && cashierName !== 'all') params.append('cashier_name', cashierName);
-
-            if (params.toString()) {
-                url += `?${params.toString()}`;
-            }
-
-            const response = await api.get(url);
-
-            if (response.data.success) {
-                const data = response.data.data;
-                setIncomeTotals({
-                    cash: data.totals.cash || 0,
-                    cheque: data.totals.cheque || 0,
-                    bank_transfer: data.totals.bank_transfer || 0,
-                    bag_to_box: data.totals.bag_to_box || 0,
-                    bill_to_bill: data.totals.bill_to_bill || 0,
-                    bad_debt: data.totals.bad_debt || 0,
-                    total_income: data.totals.total_income || 0,
-                    total_bills: data.totals.total_bills || 0,
-                    total_customers: data.totals.total_customers || 0
-                });
-            } else {
-                alert('Failed to load income data');
-            }
-        } catch (error) {
-            console.error('Error fetching income sources:', error);
-            alert('Failed to load income data: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setIsLoadingIncome(false);
-        }
-    };
-    // Store mode selections per bill (persists in localStorage)
-    const [billModeSelections, setBillModeSelections] = useState(() => {
-        try {
-            const saved = localStorage.getItem('billModeSelections');
-            return saved ? JSON.parse(saved) : {};
-        } catch {
-            return {};
-        }
-    });
-    // Save bill mode selections to localStorage
-    useEffect(() => {
-        localStorage.setItem('billModeSelections', JSON.stringify(billModeSelections));
-    }, [billModeSelections]);
-    const formatDecimal = (value) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
-    // Helper function to calculate total paid excluding Credit from payment_details
-    const calculateTotalPaidExcludingCredit = (paymentDetails) => {
-        let total = 0;
-        if (!paymentDetails) return total;
-
-        let payments = paymentDetails;
-        if (typeof payments === 'string') {
-            try {
-                payments = JSON.parse(payments);
-            } catch (e) {
-                payments = [];
-            }
-        }
-
-        if (!Array.isArray(payments)) return total;
-
-        for (const payment of payments) {
-            if (payment.method !== 'Credit') {
-                total += parseFloat(payment.amount) || 0;
-            }
-        }
-        return total;
-    };
-    // Handler for adjustment amount calculation
-    const handleAdjustmentAmountCalculated = (amount) => {
-        setCalculatedAdjustmentAmount(amount);
-        // Update the paymentAmount state with the calculated amount
-        setState(prev => ({ ...prev, paymentAmount: amount.toString() }));
-    };
-    const unlockMiddlePanel = () => {
-        setIsMiddlePanelLocked(false);
-    };
-    // Handler for Bag to Box adjustment
-    const handleBagToBoxAdjustment = () => {
-        if (!state.selectedSupplier) {
-            alert('Please select a supplier/bill first');
-            return;
-        }
-        setSelectedAdjustmentType('bag_to_box');
-        setShowAdjustmentModal(true);
-    };
-
-    // Handler for Bill to Bill adjustment
-    const handleBillToBillAdjustment = () => {
-        if (!state.selectedSupplier) {
-            alert('Please select a supplier/bill first');
-            return;
-        }
-        setSelectedAdjustmentType('bill_to_bill');
-        setShowAdjustmentModal(true);
-    };
-
-    // Handler for Bad Debt adjustment
-    const handleBadDebtAdjustment = () => {
-        if (!state.selectedSupplier) {
-            alert('Please select a supplier/bill first');
-            return;
-        }
-        setSelectedAdjustmentType('bad_debt');
-        setShowAdjustmentModal(true);
-    };
-    // Helper function to calculate total Credit amount from payment_details
-    const calculateTotalCreditAmount = (paymentDetails) => {
-        let total = 0;
-        if (!paymentDetails) return total;
-
-        let payments = paymentDetails;
-        if (typeof payments === 'string') {
-            try {
-                payments = JSON.parse(payments);
-            } catch (e) {
-                payments = [];
-            }
-        }
-
-        if (!Array.isArray(payments)) return total;
-
-        for (const payment of payments) {
-            if (payment.method === 'Credit') {
-                total += parseFloat(payment.amount) || 0;
-            }
-        }
-        return total;
-    };
-    const fetchSupplierData = async (useHistory = false, startDate = null, endDate = null, isSilent = false) => {
-        if (supplierDataRequestInFlightRef.current) {
-            console.log('⏭️ Skipping fetchSupplierData: previous request still in progress');
-            return null;
-        }
-        supplierDataRequestInFlightRef.current = true;
-
-        if (!isSilent && isMountedRef.current) {
-            setState(prev => ({ ...prev, isLoading: true }));
-        }
-        try {
-            // Use the passed parameters or fall back to state values
-            const effectiveUseHistory = useHistory !== undefined ? useHistory : isViewingHistory;
-            const effectiveStartDate = startDate || historyDateRange.startDate;
-            const effectiveEndDate = endDate || historyDateRange.endDate;
-
-            let url = routes.getSuppliers;
-            const params = new URLSearchParams();
-
-            if (effectiveUseHistory) {
-                url = routes.getOldBillsSummary;
-                params.append('use_history', 'true');
-                params.append('date_filtered', 'true');
-
-                if (effectiveStartDate && effectiveEndDate) {
-                    params.append('start_date', effectiveStartDate);
-                    params.append('end_date', effectiveEndDate);
-                }
-            }
-
-            console.log('🔄 fetchSupplierData called with:', {
-                useHistory,
-                effectiveUseHistory,
-                startDate,
-                endDate,
-                effectiveStartDate,
-                effectiveEndDate,
-                isSilent,
-                currentHistoryState: {
-                    isViewingHistory,
-                    startDate: historyDateRange.startDate,
-                    endDate: historyDateRange.endDate
-                }
-            });
-
-            console.log('Fetching supplier data with params:', params.toString());
-            const response = await api.get(`${url}?${params.toString()}`);
-
-            if (response.data) {
-                let pending = response.data.unprinted || [];
-                let completed = response.data.printed || [];
-                // ✅ Fetch advance amounts by matching bill number from JSON data
-                const allBills = [...pending, ...completed];
-                const advanceMap = await fetchAdvanceAmountsForBills(allBills);
-                console.log('📊 Advance amounts fetched by bill number:', advanceMap);
-
-                const processBill = async (item) => {
-                    console.log(`\n🔍 [START] Processing bill for supplier: ${item.supplier_code}, Bill No: ${item.supplier_bill_no}`);
-                    console.log(`📦 Raw item data:`, {
-                        total_amount: item.total_amount,
-                        payment_details_type: typeof item.payment_details,
-                        payment_details_raw: item.payment_details,
-                        is_printed: item.is_printed,
-                        from_array: item.from_array || 'unknown'
-                    });
-
-                    let paymentDetails = item.payment_details;
-                    if (typeof paymentDetails === 'string') {
-                        console.log(`📝 Payment details is string, parsing JSON...`);
-                        try {
-                            paymentDetails = JSON.parse(paymentDetails);
-                            console.log(`✅ Successfully parsed payment details:`, paymentDetails);
-                        } catch (e) {
-                            console.log(`❌ Failed to parse payment details:`, e.message);
-                            paymentDetails = [];
-                        }
-                    } else {
-                        console.log(`📝 Payment details is already an object/array:`, paymentDetails);
-                    }
-
-                    // Ensure paymentDetails is an array
-                    if (!Array.isArray(paymentDetails)) {
-                        console.log(`⚠️ Payment details is not an array, converting to array`);
-                        paymentDetails = [];
-                    }
-
-                    // In history mode, old-bills summary can be stale right after settlements.
-                    // Pull latest paid amount/payment_details from supplier-loan history record.
-                    let historyLoanAmount = 0;
-                    if (effectiveUseHistory && item.supplier_code && item.supplier_bill_no) {
-                        try {
-                            const historyLoanResponse = await api.get(
-                                `/supplier-loan/search?code=${encodeURIComponent(item.supplier_code)}&bill_no=${encodeURIComponent(item.supplier_bill_no)}&use_history=true`
-                            );
-
-                            if (historyLoanResponse.data) {
-                                historyLoanAmount = parseFloat(historyLoanResponse.data.loan_amount) || 0;
-
-                                let historyPaymentDetails = historyLoanResponse.data.payment_details || [];
-                                if (typeof historyPaymentDetails === 'string') {
-                                    try {
-                                        historyPaymentDetails = JSON.parse(historyPaymentDetails);
-                                    } catch (e) {
-                                        historyPaymentDetails = [];
-                                    }
-                                }
-
-                                if (Array.isArray(historyPaymentDetails) && historyPaymentDetails.length > 0) {
-                                    paymentDetails = historyPaymentDetails;
-                                }
-
-                                console.log(`🧾 History loan sync for ${item.supplier_code}/${item.supplier_bill_no}:`, {
-                                    summaryLoanAmount: item.loan_amount,
-                                    historyLoanAmount,
-                                    paymentCount: Array.isArray(paymentDetails) ? paymentDetails.length : 0
-                                });
-                            }
-                        } catch (historyLoanError) {
-                            console.log(`⚠️ History loan sync failed for ${item.supplier_code}/${item.supplier_bill_no}:`, historyLoanError?.message || historyLoanError);
-                        }
-                    }
-
-                    // Calculate total from ALL payment methods (including Credit)
-                    let totalAllPayments = 0;
-                    let cashAmount = 0;
-                    let chequeAmount = 0;
-                    let bankTransferAmount = 0;
-                    let creditAmount = 0;
-                    let bagToBoxAmount = 0;
-                    let billToBillAmount = 0;
-                    let badDebtAmount = 0;
-
-                    console.log(`📊 Processing ${paymentDetails.length} payment(s)...`);
-
-                    if (paymentDetails.length > 0) {
-                        paymentDetails.forEach((payment, index) => {
-                            const amount = parseFloat(payment.amount) || 0;
-                            totalAllPayments += amount;
-
-                            console.log(`  Payment #${index + 1}: Method=${payment.method}, Amount=${amount}`);
-
-                            switch (payment.method) {
-                                case 'Cash':
-                                    cashAmount += amount;
-                                    break;
-                                case 'Cheque':
-                                    chequeAmount += amount;
-                                    break;
-                                case 'Bank Transfer':
-                                    bankTransferAmount += amount;
-                                    break;
-                                case 'Credit':
-                                    creditAmount += amount;
-                                    break;
-                                case 'bag_to_box':
-                                    bagToBoxAmount += amount;
-                                    break;
-                                case 'bill_to_bill':
-                                    billToBillAmount += amount;
-                                    break;
-                                case 'bad_debt':
-                                    badDebtAmount += amount;
-                                    break;
-                                default:
-                                    console.log(`  ⚠️ Unknown payment method: ${payment.method}`);
-                            }
-                        });
-                    } else {
-                        console.log(`  No payments found`);
-                    }
-
-                    const totalAmount = parseFloat(item.total_amount) || 0;
-                    const persistedPaidAmount = Math.max(parseFloat(item.loan_amount) || 0, historyLoanAmount);
-                    const effectivePaidAmount = Math.max(totalAllPayments, persistedPaidAmount);
-
-                    // ==================== GET ADVANCE AMOUNT ====================
-                    // Get advance amount by matching bill number from JSON data
-                    const billNo = item.supplier_bill_no;
-                    const advanceAmount = advanceMap[billNo]?.advance_amount || 0;
-                    console.log(`💰 Advance amount for bill ${billNo}: Rs. ${advanceAmount}`);
-                    // ===========================================================
-
-                    // Calculate remaining WITHOUT moving to fully settled based on advance
-                    // Just deduct advance for display purposes
-                    const totalDeducted = effectivePaidAmount + advanceAmount;
-                    const displayRemaining = Math.max(0, totalAmount - totalDeducted);
-
-                    // ⚠️ IMPORTANT: DO NOT change is_fully_settled based on advance
-                    // Keep the original settlement status from the database
-                    const isFullySettled = effectivePaidAmount >= totalAmount;
-
-                    console.log(`💰 Financial Summary with Advance (Display Only):`);
-                    console.log(`  - Total Bill Amount: Rs. ${totalAmount}`);
-                    console.log(`  - Cash Payments: Rs. ${cashAmount}`);
-                    console.log(`  - Cheque Payments: Rs. ${chequeAmount}`);
-                    console.log(`  - Bank Transfer Payments: Rs. ${bankTransferAmount}`);
-                    console.log(`  - Credit Payments: Rs. ${creditAmount}`);
-                    console.log(`  - Bag to Box Adjustments: Rs. ${bagToBoxAmount}`);
-                    console.log(`  - Bill to Bill Adjustments: Rs. ${billToBillAmount}`);
-                    console.log(`  - Bad Debt Write-offs: Rs. ${badDebtAmount}`);
-                    console.log(`  - TOTAL ALL PAYMENTS: Rs. ${totalAllPayments}`);
-                    console.log(`  - EFFECTIVE PAID AMOUNT: Rs. ${effectivePaidAmount}`);
-                    console.log(`  - ADVANCE AMOUNT (display): Rs. ${advanceAmount}`);
-                    console.log(`  - DISPLAY REMAINING: Rs. ${displayRemaining}`);
-                    console.log(`  - ORIGINAL SETTLEMENT STATUS: ${isFullySettled ? 'Fully Settled' : 'Not Settled'}`);
-                    console.log(`  - ⚠️ Bill NOT moved to Fully Settled due to advance`);
-
-                    const totalCreditTaken = parseFloat(item.credit_amount) || 0;
-                    const creditPaidAmount = parseFloat(item.credit_paid_amount ?? item.paid_amount) || 0;
-                    const creditRemainingAmount = parseFloat(item.credit_remaining_amount ?? item.remaining_amount) || 0;
-                    const creditorStatus = item.creditor_status || item.status || '';
-                    const creditorNo = item.creditor_no || item.Creditor_no || null;
-
-                    const result = {
-                        ...item,
-                        loan_amount: effectivePaidAmount,
-                        credit_amount: totalCreditTaken,
-                        credit_paid_amount: creditPaidAmount,
-                        credit_remaining_amount: creditRemainingAmount,
-                        creditor_status: creditorStatus,
-                        creditor_no: creditorNo,
-                        net_remaining: displayRemaining, // Show remaining after advance deduction
-                        payment_details: paymentDetails,
-                        is_fully_settled: isFullySettled, // ✅ Keep original status
-                        is_history: effectiveUseHistory,
-                        advance_amount: advanceAmount, // ✅ Store advance amount for display
-                    };
-
-                    console.log(`✅ FINAL RESULT (Status UNCHANGED):`, {
-                        loan_amount: result.loan_amount,
-                        advance_amount: result.advance_amount,
-                        net_remaining: result.net_remaining,
-                        is_fully_settled: result.is_fully_settled,
-                        original_status: isFullySettled ? 'Fully Settled' : 'Not Settled'
-                    });
-                    console.log(`🔚 [END] Processing bill for ${item.supplier_code}\n`);
-
-                    return result;
-                };
-
-                // Process all bills - using Promise.all for async operations
-                const processedPending = await Promise.all(pending.map(processBill));
-                const processedCompleted = await Promise.all(completed.map(processBill));
-
-                // Separate into Not Settled and Fully Settled
-                const notSettled = processedPending.filter(item => !item.is_fully_settled);
-                const fullySettled = [
-                    ...processedCompleted.filter(item => item.is_fully_settled),
-                    ...processedPending.filter(item => item.is_fully_settled)
-                ];
-
-                console.log('📋 Final Distribution:', {
-                    originalPendingCount: pending.length,
-                    notSettledCount: notSettled.length,
-                    movedToFullySettledCount: processedPending.filter(item => item.is_fully_settled).length,
-                    fullySettledTotal: fullySettled.length,
-                    isHistoryMode: effectiveUseHistory
-                });
-
-                // Log which bills moved to Fully Settled due to credit
-                const movedByCredit = processedPending.filter(item => item.is_fully_settled && item.credit_amount > 0 && item.loan_amount === 0);
-                if (movedByCredit.length > 0) {
-                    console.log('🎉 Bills moved to Fully Settled by Credit alone:', movedByCredit.map(item => ({
-                        code: item.supplier_code,
-                        billNo: item.supplier_bill_no,
-                        creditAmount: item.credit_amount,
-                        totalAmount: item.total_amount
-                    })));
-                }
-
-                if (isMountedRef.current) {
-                    setState(prev => ({
-                        ...prev,
-                        pendingSuppliers: notSettled,
-                        completedSuppliers: fullySettled,
-                        isLoading: false
-                    }));
-                }
-                return { pending: notSettled, completed: fullySettled, totalLoansFound: response.data.total_loans_found || 0 };
-            }
-        } catch (error) {
-            console.error("Error fetching supplier data:", error);
-            if (!isSilent && isMountedRef.current) {
-                setState(prev => ({ ...prev, isLoading: false }));
-            }
-            return null;
-        } finally {
-            supplierDataRequestInFlightRef.current = false;
-        }
-    };
-    // Handler for viewing old bills
-    // Handler for viewing old bills
-    const handleViewOldBills = async (startDate, endDate) => {
-        setIsLoadingHistory(true);
-        try {
-            console.log('Viewing old bills from:', startDate, 'to:', endDate);
-
-            const formattedStart = new Date(startDate).toISOString().split('T')[0];
-            const formattedEnd = new Date(endDate).toISOString().split('T')[0];
-
-            setIsViewingHistory(true);
-            setHistoryDateRange({ startDate: formattedStart, endDate: formattedEnd });
-
-            // ✅ IMPORTANT: Pass the date range explicitly to fetchSupplierData
-            const result = await fetchSupplierData(true, formattedStart, formattedEnd, false);
-
-            if (result && (result.pending.length > 0 || result.completed.length > 0)) {
-                alert(`✅ Loaded bills from ${formattedStart} to ${formattedEnd}\n\nNot Settled: ${result.pending.length}\nFully Settled: ${result.completed.length}`);
-            } else {
-                alert('No records found for the selected date range.');
-                setIsViewingHistory(false);
-                setHistoryDateRange({ startDate: '', endDate: '' });
-                await fetchSupplierData(false, null, null, false);
-            }
-        } catch (error) {
-            console.error('Error loading old bills:', error);
-            alert('Failed to load old bills. Please try again.');
-            setIsViewingHistory(false);
-            setHistoryDateRange({ startDate: '', endDate: '' });
-        } finally {
-            setIsLoadingHistory(false);
-        }
-    };
-    const calculatePaymentTotals = useCallback(() => {
-        const totals = {
-            cash: 0,
-            cheque: 0,
-            bank_transfer: 0,
-            credit: 0,
-            bag_to_box: 0,
-            bill_to_bill: 0,
-            bad_debt: 0
-        };
-
-        // Combine pending and completed suppliers
-        const allSuppliers = [...state.pendingSuppliers, ...state.completedSuppliers];
-
-        allSuppliers.forEach(supplier => {
-            const paymentDetails = supplier.payment_details || [];
-            if (Array.isArray(paymentDetails)) {
-                paymentDetails.forEach(payment => {
-                    const amount = parseFloat(payment.amount) || 0;
-                    switch (payment.method) {
-                        case 'Cash':
-                            totals.cash += amount;
-                            break;
-                        case 'Cheque':
-                            totals.cheque += amount;
-                            break;
-                        case 'Bank Transfer':
-                            totals.bank_transfer += amount;
-                            break;
-                        case 'Credit':
-                            totals.credit += amount;
-                            break;
-                        case 'bag_to_box':
-                            totals.bag_to_box += amount;
-                            break;
-                        case 'bill_to_bill':
-                            totals.bill_to_bill += amount;
-                            break;
-                        case 'bad_debt':
-                            totals.bad_debt += amount;
-                            break;
-                        default:
-                            break;
-                    }
-                });
-            }
-        });
-
-        setAdjustmentTotals(totals);
-    }, [state.pendingSuppliers, state.completedSuppliers]);
-
-    // Reset to current bills
-    const handleResetToCurrentBills = async () => {
-        try {
-            setIsViewingHistory(false);
-            setHistoryDateRange({ startDate: '', endDate: '' });
-            await fetchSupplierData(false, null, null, false);
-            alert('✅ Switched back to current bills');
-        } catch (error) {
-            console.error('Error resetting to current bills:', error);
-            alert('Failed to load current bills.');
-        }
-    };
-
-    const fetchPaymentHistory = async (supplierCode, billNo) => {
-        try {
-            let url = routes.paymentHistory;
-            const params = new URLSearchParams();
-            params.append('code', supplierCode);
-            params.append('bill_no', billNo || '');
-            if (isViewingHistory) {
-                params.append('use_history', 'true');
-            }
-            const response = await api.get(`${url}?${params.toString()}`);
-            if (response.data.success) {
-                const payments = response.data.data.payments || [];
-                const uniquePayments = [];
-                const seenIds = new Set();
-                for (const payment of payments) {
-                    const uniqueKey = `${payment.amount}-${payment.method}-${new Date(payment.date).getTime()}`;
-                    if (!seenIds.has(uniqueKey)) {
-                        seenIds.add(uniqueKey);
-                        uniquePayments.push(payment);
-                    }
-                }
-
-                // ✅ FIX: Calculate total paid from the actual payments array
-                // Exclude 'Credit' method payments if needed (since credit is payable TO supplier)
-                const calculatedTotalPaid = uniquePayments.reduce((total, payment) => {
-                    // Only add non-credit payments to total paid
-                    if (payment.method !== 'Credit') {
-                        return total + (parseFloat(payment.amount) || 0);
-                    }
-                    return total;
-                }, 0);
-
-                // ✅ FIX: Get total bill amount from response data
-                // Try multiple possible field names
-                let totalBillAmount = response.data.data.total_bill_amount ||
-                    response.data.data.total_amount ||
-                    response.data.data.bill_total ||
-                    0;
-
-                // If totalBillAmount is still 0, try to calculate from payments + remaining
-                if (totalBillAmount === 0) {
-                    const remainingBalance = response.data.data.remaining_balance || 0;
-                    totalBillAmount = calculatedTotalPaid + remainingBalance;
-                }
-
-                const remainingBalance = response.data.data.remaining_balance ||
-                    (totalBillAmount - calculatedTotalPaid);
-
-                console.log('Payment History Data:', {
-                    totalBillAmount,
-                    calculatedTotalPaid,
-                    remainingBalance,
-                    payments: uniquePayments
-                });
-
-                setState(prev => ({
-                    ...prev,
-                    currentPayments: uniquePayments,
-                    paymentHistoryTotalPaid: calculatedTotalPaid,
-                    paymentHistoryTotalBill: totalBillAmount,
-                    paymentHistoryRemaining: remainingBalance,
-                    showPaymentHistoryModal: true
-                }));
-            }
-        } catch (error) {
-            console.error('Failed to fetch payment history:', error);
-            alert('Failed to fetch payment history');
-        }
-    };
-
-    const fetchDetailedReport = async (supplierCode) => {
-        setIsLoadingReport(true);
-        setSelectedReportSupplier(supplierCode);
-        try {
-            const response = await api.get(`${routes.getSupplierDetailedReport}/${supplierCode}`);
-            if (response.data.success) { setDetailedReportData(response.data.data); setShowDetailedReport(true); }
-            else { alert('Failed to load detailed report'); }
-        } catch (error) { alert('Error loading report: ' + (error.response?.data?.message || error.message)); }
-        finally { setIsLoadingReport(false); }
-    };
-
-    const checkBillCreditorStatus = async (billNo, supplierCode) => {
-        try {
-            const response = await api.get(`/creditors/${billNo}?supplier_code=${supplierCode}`);
-            return response.data.success && response.data.data ? response.data.data : null;
-        }
-        catch (error) { return null; }
-    };
-
-    // Update refs when history state changes
-    useEffect(() => {
-        viewHistoryRef.current = isViewingHistory;
-    }, [isViewingHistory]);
-
-    useEffect(() => {
-        historyStartDateRef.current = historyDateRange.startDate;
-        historyEndDateRef.current = historyDateRange.endDate;
-    }, [historyDateRange]);
-
-    // Main useEffect for initial load and silent refresh
-    useEffect(() => {
-        // Initial load with loading indicator (only first time)
-        const initialLoad = async () => {
-            await fetchSupplierData(false, null, null, false);
-        };
-        initialLoad();
-
-        // Cleanup on unmount
-        return () => {
-            if (refreshTimeoutRef.current) {
-                clearTimeout(refreshTimeoutRef.current);
-            }
-        };
-    }, []); // Empty dependency array - runs once on mount
-
-    const handleModeChange = (mode) => {
-        // Store the mode selection for this specific bill
-        if (state.selectedBillNo) {
-            const billKey = `${state.selectedSupplier}-${state.selectedBillNo}`;
-            setBillModeSelections(prev => ({
-                ...prev,
-                [billKey]: mode
-            }));
-        }
-
-        // Unlock the panel when a mode is selected
-        setIsMiddlePanelLocked(false);
-
-        setState(prev => ({ ...prev, selectedMode: mode }));
-
-        if (mode === 'creditor') {
-            if (!state.selectedSupplier) {
-                alert('Please select a supplier/bill first before marking as creditor.');
-                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-                setIsMiddlePanelLocked(true);
+            // A submit started while we were fetching — keep local overlay, retry later.
+            if (pendingSubmitsRef.current.size > 0) {
+                pendingForceRefreshRef.current = true;
                 return;
             }
-            if (!state.selectedBillNo) {
-                alert('Please select a bill that has a bill number.');
-                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-                setIsMiddlePanelLocked(true);
-                return;
-            }
-            setSelectedBillForCreditor({ supplierCode: state.selectedSupplier, billNo: state.selectedBillNo });
-            setShowCreditorModal(true);
-        }
-    };
 
-    const handleCreditorSave = async (saved, creditorNo = null) => {
-        if (saved && pendingCreditorBill) {
-            setShowCreditorForm(false);
-            setPendingCreditorBill(null);
-            await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-            alert(`Supplier ${pendingCreditorBill.supplierCode} has been registered as a Creditor!${creditorNo ? `\nCreditor Number: ${creditorNo}` : ''}${pendingCreditorBill.billNo ? `\nBill No: ${pendingCreditorBill.billNo}` : ''}`);
-        } else { setShowCreditorForm(false); setPendingCreditorBill(null); }
-    };
+            const salesData = response.data.data || response.data.sales || response.data || [];
+            const nowTs = Date.now();
 
-    const fetchAllFarmers = async () => {
-        setIsLoadingFarmers(true);
-        try {
-            const suppliersResponse = await api.get('/suppliers');
-            const suppliers = suppliersResponse.data || [];
-            const salesResponse = await api.get('/suppliers/with-bills');
-            const salesSuppliers = salesResponse.data?.data || [];
-            const allOptions = [];
-            suppliers.forEach(supplier => allOptions.push({ type: 'supplier', code: supplier.code, name: supplier.name, telephone: supplier.telephone_no, billNo: null, hasBill: false }));
-            salesSuppliers.forEach(item => { if (item.supplier_code) allOptions.push({ type: 'bill', code: item.supplier_code, name: '', telephone: '', displayText: `${item.supplier_code} - Bill: ${item.supplier_bill_no || 'N/A'}`, billNo: item.supplier_bill_no, hasBill: true }); });
-            const pendingWithNoBill = [...state.pendingSuppliers];
-            pendingWithNoBill.forEach(item => { if (!allOptions.some(opt => opt.code === item.supplier_code && opt.billNo === item.supplier_bill_no)) allOptions.push({ type: 'pending', code: item.supplier_code, displayText: `${item.supplier_code} - Bill: ${item.supplier_bill_no || 'Pending'} (Due: ${formatDecimal(item.total_amount || 0)})`, billNo: item.supplier_bill_no, amount: item.total_amount }); });
-            const completedWithBill = [...state.completedSuppliers];
-            completedWithBill.forEach(item => { if (!allOptions.some(opt => opt.code === item.supplier_code && opt.billNo === item.supplier_bill_no) && item.supplier_bill_no) allOptions.push({ type: 'completed', code: item.supplier_code, displayText: `${item.supplier_code} - Bill: ${item.supplier_bill_no} (Settled ✓)`, billNo: item.supplier_bill_no, settled: true }); });
-            const uniqueOptions = [], keyMap = new Map();
-            for (const option of allOptions) { const key = `${option.code}-${option.billNo || 'no-bill'}`; if (!keyMap.has(key)) { keyMap.set(key, option); uniqueOptions.push(option); } }
-            uniqueOptions.sort((a, b) => a.code.localeCompare(b.code));
-            setAllFarmerOptions(uniqueOptions);
-        } catch (error) { alert('Failed to load farmers list'); }
-        finally { setIsLoadingFarmers(false); }
-    };
-
-    useEffect(() => { if (showFarmerModal) fetchAllFarmers(); }, [showFarmerModal]);
-
-    const filteredFarmerOptions = useMemo(() => {
-        if (!farmerSearchQuery) return allFarmerOptions;
-        const query = farmerSearchQuery.toLowerCase();
-        return allFarmerOptions.filter(option => option.code.toLowerCase().includes(query) || (option.name && option.name.toLowerCase().includes(query)) || (option.billNo && option.billNo.toString().toLowerCase().includes(query)));
-    }, [allFarmerOptions, farmerSearchQuery]);
-
-    const groupedFarmers = useMemo(() => {
-        const groups = { suppliers: [], pending: [], printed: [], completed: [] };
-        filteredFarmerOptions.forEach(option => {
-            if (option.type === 'supplier') groups.suppliers.push(option);
-            else if (option.type === 'pending') groups.pending.push(option);
-            else if (option.type === 'completed') groups.completed.push(option);
-            else if (option.type === 'bill') groups.printed.push(option);
-        });
-        return groups;
-    }, [filteredFarmerOptions]);
-
-    const handleCreditorConfirm = async (supplier) => {
-        // Save the current selected supplier and bill before any refresh
-        const currentSupplier = state.selectedSupplier;
-        const currentBillNo = state.selectedBillNo;
-
-        // Save creditor mode for this bill
-        if (currentBillNo) {
-            const billKey = `${currentSupplier}-${currentBillNo}`;
-            setBillModeSelections(prev => ({
-                ...prev,
-                [billKey]: 'creditor'
-            }));
-        }
-
-        alert(`Supplier ${supplier.code} marked as creditor successfully!`);
-
-        // Refresh data silently WITHOUT resetting the selected bill
-        await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, true);
-
-        // Re-select the same bill after refresh
-        if (currentSupplier && currentBillNo) {
-            // Check if the bill still exists after refresh
-            const billStillExists = [...state.pendingSuppliers, ...state.completedSuppliers].some(
-                item => item.supplier_code === currentSupplier &&
-                    item.supplier_bill_no === currentBillNo
-            );
-
-            if (billStillExists) {
-                // Re-select the bill without showing the lock screen
-                setIsMiddlePanelLocked(false);
-
-                // Fetch the refreshed details for this bill
-                await refreshSupplierDetailsAfterCreditor(currentSupplier, currentBillNo);
-
-                // Update the selected state without triggering a full reset
-                setState(prev => ({
-                    ...prev,
-                    selectedSupplier: currentSupplier,
-                    selectedBillNo: currentBillNo,
-                    selectedMode: 'creditor'
-                }));
-            } else {
-                // Bill no longer exists, clear selection
-                setState(prev => ({
-                    ...prev,
-                    selectedSupplier: null,
-                    selectedBillNo: null,
-                    supplierDetails: [],
-                    paymentAmount: "",
-                    currentPaidAmount: 0,
-                    paymentBreakdown: [],
-                    currentBillTotal: 0
-                }));
-                setSelectedBillCreditor(null);
-                setIsMiddlePanelLocked(true);
-            }
-        }
-
-        setIsMiddlePanelLocked(false);
-    };
-
-    // Add this helper function to refresh supplier details without resetting selection
-    const refreshSupplierDetailsAfterCreditor = async (supplierCode, billNo) => {
-        try {
-            let url, response;
-            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-
-            if (billNo) {
-                url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
-                if (useHistoryParam) {
-                    url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                response = await api.get(url);
-            } else {
-                url = `${routes.getUnprintedDetails}/${supplierCode}`;
-                if (useHistoryParam) {
-                    url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                response = await api.get(url);
-            }
-
-            const salesData = response.data.sales || response.data;
-
-            let calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-
-            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            let actualBillTotal = calculatedTotal;
-            if (billFromState && billFromState.total_amount) {
-                actualBillTotal = parseFloat(billFromState.total_amount);
-            }
-
-            const total = actualBillTotal;
-            let currentPaid = 0;
-            let paymentBreakdown = [];
-
-            if (billNo) {
-                try {
-                    let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-                    if (useHistoryParam) {
-                        loanUrl += `&use_history=true`;
-                    }
-                    const loanRes = await api.get(loanUrl);
-                    if (loanRes.data) {
-                        const paymentDetails = loanRes.data.payment_details || [];
-                        if (typeof paymentDetails === 'string') {
-                            paymentBreakdown = JSON.parse(paymentDetails);
-                        } else {
-                            paymentBreakdown = paymentDetails;
-                        }
-
-                        const isFromFullySettled = state.completedSuppliers.some(
-                            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-                        );
-
-                        let totalPaidFromPayments = 0;
-                        if (Array.isArray(paymentBreakdown)) {
-                            paymentBreakdown.forEach(payment => {
-                                const amount = parseFloat(payment.amount) || 0;
-                                if (isFromFullySettled && payment.method === 'Credit') {
-                                    // Exclude Credit from Total Paid display for Fully Settled bills
-                                } else {
-                                    totalPaidFromPayments += amount;
-                                }
-                            });
-                        }
-                        currentPaid = totalPaidFromPayments;
-                    }
-                } catch (loanError) {
-                    console.error('Error fetching loan details during refresh:', loanError);
-                }
-            }
-
-            // Get updated creditor info
-            let creditorInfo = null;
-            if (billNo) {
-                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-                setSelectedBillCreditor(creditorInfo);
-            } else {
-                setSelectedBillCreditor(null);
-            }
-
-            const isFromNotSettled = state.pendingSuppliers.some(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            const isFromFullySettled = state.completedSuppliers.some(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            let totalRemainingAmount = 0;
-            let isUpdatingCompletedBill = false;
-
-            if (isFromNotSettled) {
-                const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-                totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
-                isUpdatingCompletedBill = false;
-            } else if (isFromFullySettled) {
-                totalRemainingAmount = creditorInfo?.remaining_amount || 0;
-                isUpdatingCompletedBill = true;
-            }
-
-            const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
-
-            // Update state without clearing the selection
-            setState(prev => ({
-                ...prev,
-                supplierDetails: salesData || [],
-                currentPaidAmount: currentPaid,
-                paymentBreakdown: paymentBreakdown,
-                currentBillTotal: total,
-                isUpdatingCompletedBill: isUpdatingCompletedBill,
-                paymentAmount: defaultPaymentAmount
-            }));
-
-            console.log('✅ Supplier details refreshed after creditor creation');
-
-        } catch (error) {
-            console.error('Error refreshing supplier details after creditor:', error);
-        }
-    };
-
-    const handleSupplierClick = async (supplierCode, billNo = null) => {
-        if (state.selectedSupplier === supplierCode && state.selectedBillNo === billNo) {
-            setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], paymentAmount: "", currentPaidAmount: 0, paymentBreakdown: [], currentBillTotal: 0 }));
-            setSelectedBillCreditor(null);
-            setIsMiddlePanelLocked(true);
-            return;
-        }
-
-        // ⭐ CRITICAL: Immediately check for creditor before any loading
-        let hasCreditor = false;
-        let creditorInfo = null;
-
-        if (billNo) {
-            try {
-                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
-                console.log('🔍 Pre-check creditor status:', { supplierCode, billNo, hasCreditor, creditorInfo });
-            } catch (error) {
-                console.log('Error checking creditor status:', error);
-            }
-        }
-
-        // ⭐ Check if this specific bill has a previously selected mode
-        const billKey = `${supplierCode}-${billNo}`;
-        const savedMode = billModeSelections[billKey];
-
-        // ⭐ DECISION LOGIC:
-        if (hasCreditor) {
-            console.log('✅ Bill HAS CREDITOR - Panel UNLOCKED');
-            setIsMiddlePanelLocked(false);
-            if (!state.selectedMode || state.selectedMode === 'walking_seller') {
-                setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-            }
-        } else if (savedMode) {
-            console.log(`✅ Bill has previously selected mode: ${savedMode} - Panel UNLOCKED`);
-            setIsMiddlePanelLocked(false);
-            setState(prev => ({ ...prev, selectedMode: savedMode }));
-        } else {
-            console.log('❌ New bill - Panel LOCKED');
-            setIsMiddlePanelLocked(true);
-            setState(prev => ({ ...prev, selectedMode: null }));
-        }
-
-        setState(prev => ({ ...prev, isPrinting: true, selectedSupplier: supplierCode, selectedBillNo: billNo }));
-
-        try {
-            let url, response;
-            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-
-            if (billNo) {
-                url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${supplierCode}`;
-                if (useHistoryParam) {
-                    url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                response = await api.get(url);
-                console.log('📡 API Response for bill details:', response.data);
-            } else {
-                url = `${routes.getUnprintedDetails}/${supplierCode}`;
-                if (useHistoryParam) {
-                    url += `?use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-                }
-                response = await api.get(url);
-            }
-
-            // CRITICAL FIX: Handle the response correctly for history mode
-            let salesData = [];
-
-            // For history mode, the response has a 'sales' property
-            if (response.data && response.data.sales) {
-                salesData = response.data.sales;
-                console.log('📋 Using sales data from response.data.sales (history mode)', salesData);
-                console.log('📋 Number of sales records:', salesData.length);
-                if (salesData.length > 0) {
-                    console.log('📋 First sales record sample:', salesData[0]);
-                }
-            }
-            // For normal mode, response is directly an array
-            else if (Array.isArray(response.data)) {
-                salesData = response.data;
-                console.log('📋 Using sales data as array (normal mode)', salesData);
-            }
-            // Check if response has data property
-            else if (response.data && response.data.data) {
-                salesData = Array.isArray(response.data.data) ? response.data.data : [];
-                console.log('📋 Using sales data from response.data.data', salesData);
-            }
-            // Fallback: try to get from response directly
-            else if (response.data) {
-                if (typeof response.data === 'object' && !Array.isArray(response.data)) {
-                    // If it's an object with numeric keys, convert to array
-                    salesData = Object.values(response.data).filter(item => item && typeof item === 'object' && item.SupplierTotal !== undefined);
-                    console.log('📋 Converted object to array', salesData);
-                } else {
-                    salesData = [];
-                }
-            }
-
-            // Ensure salesData is an array
+            // Invalid payload must never replace a populated table (common under load).
             if (!Array.isArray(salesData)) {
-                salesData = [];
+                pendingForceRefreshRef.current = true;
+                return;
+            }
+            const rawList = salesData;
+
+            // Empty GET while we already have rows = almost always a bad/partial response.
+            // Keep UI as-is and retry; a true empty day starts with lastKnownSaleCountRef=0.
+            if (rawList.length === 0 && lastKnownSaleCountRef.current > 0) {
+                pendingForceRefreshRef.current = true;
+                return;
             }
 
-            console.log('📊 Final salesData length:', salesData.length);
+            // Cap tombstones if refresh has been failing
+            if (deletedSaleIdsRef.current.size > 500) {
+                const trimmed = [...deletedSaleIdsRef.current].slice(-250);
+                deletedSaleIdsRef.current = new Set(trimmed);
+            }
 
-            // If still no sales data, try to get it from the pending/completed suppliers list
-            if (salesData.length === 0 && billNo) {
-                console.log('⚠️ No sales data from API, checking from state...');
-                const billFromList = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-                    item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
+            const serverSales = rawList.filter((sale) => {
+                const saleId = sale?.id;
+                if (saleId == null) return false;
+                if (deletedSaleIdsRef.current.has(saleId) || deletedSaleIdsRef.current.has(String(saleId))) {
+                    return false;
+                }
+                return true;
+            });
+
+            // Truncated payload guard (e.g. proxy/error body parsed as short array).
+            const known = lastKnownSaleCountRef.current;
+            if (known > 15 && serverSales.length < Math.floor(known * 0.5) && serverSales.length < known - 10) {
+                pendingForceRefreshRef.current = true;
+                return;
+            }
+
+            const baseIds = new Set(serverSales.map((s) => s?.id).filter((id) => id != null).map(String));
+
+            // Keep just-submitted rows for a short window (covers stale GET after POST)
+            recentSubmittedSalesRef.current.forEach((entry, id) => {
+                if (!entry || !id) return;
+                const ageMs = nowTs - entry.at;
+                if (ageMs > 60000) {
+                    recentSubmittedSalesRef.current.delete(id);
+                    return;
+                }
+                const idStr = String(id);
+                if (!baseIds.has(idStr) && !deletedSaleIdsRef.current.has(id) && !deletedSaleIdsRef.current.has(idStr)) {
+                    serverSales.push(entry.sale);
+                    baseIds.add(idStr);
+                }
+            });
+
+            lastRefreshAtRef.current = Date.now();
+
+            setState((prev) => {
+                // Snapshot ref overlay FIRST so concurrent packs-Enter upserts are not lost
+                // when we later sync the ref (never clear()-wipe mid-flight rows).
+                const overlayById = new Map();
+                (prev.localTableSales || []).forEach((sale) => {
+                    if (sale?.id != null) overlayById.set(String(sale.id), sale);
+                });
+                localTableSalesRef.current.forEach((sale, id) => {
+                    if (!overlayById.has(id)) overlayById.set(id, sale);
+                });
+
+                const mergedById = new Map();
+                // Seed with ALL previous rows, then let the server overwrite.
+                // Replacing from GET alone was wiping the table when a stale/partial
+                // response arrived in the middle of rapid submits.
+                (prev.allSales || []).forEach((sale) => {
+                    if (sale?.id == null) return;
+                    const idStr = String(sale.id);
+                    if (deletedSaleIdsRef.current.has(sale.id) || deletedSaleIdsRef.current.has(idStr)) return;
+                    mergedById.set(idStr, sale);
+                });
+                // Server is authoritative for ids it returns.
+                serverSales.forEach((sale) => {
+                    if (sale?.id == null) return;
+                    mergedById.set(String(sale.id), sale);
+                });
+                // Overlay / in-flight temps always win for visibility.
+                // Recently submitted/edited rows also win over a stale GET that still
+                // has pre-edit values (or briefly omits the row).
+                overlayById.forEach((sale, idStr) => {
+                    const recent = recentSubmittedSalesRef.current.get(idStr)
+                        || recentSubmittedSalesRef.current.get(sale.id);
+                    if (recent?.sale) {
+                        mergedById.set(idStr, recent.sale);
+                        return;
+                    }
+                    if (!mergedById.has(idStr)) mergedById.set(idStr, sale);
+                });
+                recentSubmittedSalesRef.current.forEach((entry, id) => {
+                    if (!entry?.sale || entry.sale.id == null) return;
+                    const idStr = String(entry.sale.id);
+                    if (!mergedById.has(idStr)) mergedById.set(idStr, entry.sale);
+                });
+
+                const mergedSalesData = Array.from(mergedById.values());
+
+                // Prune local overlay carefully:
+                // - temps stay until API success removes them (or they age out of recentSubmitted)
+                // - confirmed real ids drop once the server list contains them
+                const nextLocal = [];
+                const nextLocalIds = new Set();
+                overlayById.forEach((sale) => {
+                    if (!sale?.id) return;
+                    const idStr = String(sale.id);
+                    const isTemp = !!(sale._optimistic || idStr.startsWith('tmp-'));
+                    if (isTemp) {
+                        // Still in-flight or waiting for POST response mapping.
+                        if (recentSubmittedSalesRef.current.has(idStr) || recentSubmittedSalesRef.current.has(sale.id)) {
+                            nextLocal.push(sale);
+                            nextLocalIds.add(idStr);
+                            return;
+                        }
+                        // Orphan temp older than 60s with no tracker — drop.
+                        const createdAt = Number(String(idStr).split('-')[1]) || 0;
+                        if (createdAt && Date.now() - createdAt < 60000) {
+                            nextLocal.push(sale);
+                            nextLocalIds.add(idStr);
+                        } else if (!createdAt) {
+                            nextLocal.push(sale);
+                            nextLocalIds.add(idStr);
+                        }
+                        return;
+                    }
+                    if (baseIds.has(idStr)) {
+                        return;
+                    }
+                    nextLocal.push(sale);
+                    nextLocalIds.add(idStr);
+                });
+
+                // Sync ref without clear(): keep mid-flight upserts that appeared during this updater.
+                const prevLocalIds = new Set(
+                    (prev.localTableSales || []).map((s) => (s?.id != null ? String(s.id) : null)).filter(Boolean)
                 );
-                if (billFromList && billFromList.sales_data) {
-                    salesData = billFromList.sales_data;
-                    console.log('📋 Found sales_data in state list:', salesData.length);
-                }
-            }
-
-            let calculatedTotal = 0;
-            if (salesData.length > 0) {
-                calculatedTotal = salesData.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-                console.log('💰 Calculated total from salesData:', calculatedTotal);
-            } else {
-                console.warn('⚠️ No sales data available for this bill!');
-            }
-
-            const billFromState = [...state.pendingSuppliers, ...state.completedSuppliers].find(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            let actualBillTotal = calculatedTotal;
-            let creditAmount = 0;
-            let creditorRemainingAmount = 0;
-
-            if (billFromState && billFromState.total_amount) {
-                actualBillTotal = parseFloat(billFromState.total_amount);
-                console.log('📋 Using total_amount from state:', actualBillTotal);
-            } else if (calculatedTotal > 0) {
-                actualBillTotal = calculatedTotal;
-            }
-
-            const total = actualBillTotal;
-
-            let currentPaid = 0;
-            let paymentBreakdown = [];
-
-            if (billNo) {
-                try {
-                    let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-                    if (useHistoryParam) {
-                        loanUrl += `&use_history=true`;
+                nextLocal.forEach((sale) => localTableSalesRef.current.set(String(sale.id), sale));
+                prevLocalIds.forEach((id) => {
+                    if (!nextLocalIds.has(id) && !recentSubmittedSalesRef.current.has(id)) {
+                        localTableSalesRef.current.delete(id);
                     }
-                    const loanRes = await api.get(loanUrl);
-                    console.log('📡 Loan search response:', loanRes.data);
-                    if (loanRes.data) {
-                        const paymentDetails = loanRes.data.payment_details || [];
-                        if (typeof paymentDetails === 'string') {
-                            paymentBreakdown = JSON.parse(paymentDetails);
-                        } else {
-                            paymentBreakdown = paymentDetails;
-                        }
+                });
 
-                        const isFromFullySettled = state.completedSuppliers.some(
-                            item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-                        );
+                const confirmedCount = mergedSalesData.filter(
+                    (s) => s?.id != null && !String(s.id).startsWith('tmp-') && !s._optimistic
+                ).length;
+                lastKnownSaleCountRef.current = confirmedCount;
 
-                        let totalPaidFromPayments = 0;
-                        if (Array.isArray(paymentBreakdown)) {
-                            paymentBreakdown.forEach(payment => {
-                                const amount = parseFloat(payment.amount) || 0;
-                                if (isFromFullySettled && payment.method === 'Credit') {
-                                    // Exclude Credit from Total Paid display for Fully Settled bills
-                                } else {
-                                    totalPaidFromPayments += amount;
-                                }
-                            });
-                        }
-                        currentPaid = totalPaidFromPayments;
-                        console.log('💰 Current paid amount from loan:', currentPaid);
-                    }
-                } catch (loanError) {
-                    console.error('Error fetching loan details:', loanError);
+                const signature = buildSalesSignature(mergedSalesData) + `|L${nextLocal.length}:${nextLocal.map((s) => s.id).join(',')}`;
+                if (signature === lastSalesSignatureRef.current
+                    && nextLocal.length === (prev.localTableSales || []).length) {
+                    return prev;
                 }
-            }
-
-            // Get creditor info
-            if (billNo && !creditorInfo) {
-                creditorInfo = await checkBillCreditorStatus(billNo, supplierCode);
-                setSelectedBillCreditor(creditorInfo);
-                hasCreditor = !!(creditorInfo && (creditorInfo.creditor_no || creditorInfo.creditorNo || creditorInfo.Creditor_no));
-                if (creditorInfo) {
-                    creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
-                    creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
-                }
-            } else if (creditorInfo) {
-                setSelectedBillCreditor(creditorInfo);
-                creditAmount = parseFloat(creditorInfo.credit_amount) || 0;
-                creditorRemainingAmount = parseFloat(creditorInfo.remaining_amount) || 0;
-            } else {
-                setSelectedBillCreditor(null);
-            }
-
-            // Check which section this bill belongs to
-            const isFromNotSettled = state.pendingSuppliers.some(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            const isFromFullySettled = state.completedSuppliers.some(
-                item => item.supplier_code === supplierCode && item.supplier_bill_no === billNo
-            );
-
-            // Calculate remaining amount
-            let totalRemainingAmount = 0;
-            let isUpdatingCompletedBill = false;
-
-            if (isFromNotSettled) {
-                const totalPaidIncludingCredit = paymentBreakdown.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-                totalRemainingAmount = Math.max(0, total - totalPaidIncludingCredit);
-                isUpdatingCompletedBill = false;
-            } else if (isFromFullySettled) {
-                totalRemainingAmount = creditorRemainingAmount;
-                isUpdatingCompletedBill = true;
-            }
-
-            if (hasCreditor && isMiddlePanelLocked) {
-                setIsMiddlePanelLocked(false);
-            }
-
-            const defaultPaymentAmount = totalRemainingAmount > 0 ? totalRemainingAmount.toString() : "";
-
-            console.log('📊 Final state update:', {
-                supplierDetailsCount: salesData.length,
-                totalPayable: total,
-                currentPaid: currentPaid,
-                remainingAmount: totalRemainingAmount,
-                isHistory: isViewingHistory
+                lastSalesSignatureRef.current = signature;
+                return { ...prev, allSales: mergedSalesData, localTableSales: nextLocal };
             });
 
-            setState(prev => ({
-                ...prev,
-                supplierDetails: salesData || [],
-                paymentAmount: defaultPaymentAmount,
-                currentPaidAmount: currentPaid,
-                paymentBreakdown: paymentBreakdown,
-                isPrinting: false,
-                currentBillTotal: total,
-                isUpdatingCompletedBill: isUpdatingCompletedBill
-            }));
-
-            if (salesData.length === 0) {
-                console.warn('⚠️ No sales data found for this bill! This might be an issue with the API response.');
-                alert('Warning: No item details found for this bill. The table may be empty.');
-            }
-
-        } catch (error) {
-            console.error('Error fetching supplier details:', error);
-            setState(prev => ({ ...prev, isPrinting: false, supplierDetails: [] }));
-            setSelectedBillCreditor(null);
-            setIsMiddlePanelLocked(true);
-            alert('Error loading bill details: ' + (error.response?.data?.message || error.message));
-        }
-    };
-    const generateBillContent = useCallback(async (billNo) => {
-        try {
-            const useHistoryParam = isViewingHistory && historyDateRange.startDate && historyDateRange.endDate;
-            let url = `${routes.getSupplierBillDetails}/${billNo}/details?supplier_code=${state.selectedSupplier}`;
-            if (useHistoryParam) {
-                url += `&use_history=true&start_date=${historyDateRange.startDate}&end_date=${historyDateRange.endDate}`;
-            }
-            const response = await api.get(url);
-            const details = response.data.sales || response.data;
-
-            // Calculate totals from details
-            let totalsupplierSales = 0;
-            let totalPacksSum = 0;
-            const itemSummaryData = {};
-
-            details.forEach(record => {
-                const total = parseFloat(record.SupplierTotal) || 0;
-                const weight = parseFloat(record.weight) || 0;
-                const packs = parseInt(record.packs) || 0;
-                const itemName = record.item_name || '';
-
-                totalsupplierSales += total;
-                totalPacksSum += packs;
-
-                if (!itemSummaryData[itemName]) {
-                    itemSummaryData[itemName] = { totalWeight: 0, totalPacks: 0 };
-                }
-                itemSummaryData[itemName].totalWeight += weight;
-                itemSummaryData[itemName].totalPacks += packs;
-            });
-
-            // Get payment details
-            let paymentBreakdown = [];
-            let currentPaidAmount = 0;
             try {
-                let loanUrl = `/supplier-loan/search?code=${state.selectedSupplier}&bill_no=${billNo}`;
-                if (useHistoryParam) {
-                    loanUrl += `&use_history=true`;
-                }
-                const loanRes = await api.get(loanUrl);
-                if (loanRes.data) {
-                    currentPaidAmount = parseFloat(loanRes.data.loan_amount) || 0;
-                    paymentBreakdown = loanRes.data.payment_details || [];
-                    if (typeof paymentBreakdown === 'string') {
-                        paymentBreakdown = JSON.parse(paymentBreakdown);
-                    }
-                }
-            } catch (loanError) { }
-
-            // Use your bill structure
-            const date = new Date().toLocaleDateString('si-LK');
-            const mobile = '0777672838/0714371115';
-            const is4Inch = state.billSize === '4inch';
-            const receiptMaxWidth = is4Inch ? '4in' : '350px';
-            const fontSizeBody = '25px';
-            const fontSizeHeader = '23px';
-            const fontSizeTotal = '28px';
-
-            const paidAmountValue = currentPaidAmount;
-            const remainingAfterPayment = totalsupplierSales - paidAmountValue;
-            // ✅ FIX: Get the total advance amount from the supplier_advances table
-            const advanceAmount = totalAdvanceAmount || 0;
-
-            const colGroups = `
-        <colgroup>
-            <col style="width:32%;"> 
-            <col style="width:21%;">
-            <col style="width:21%;">
-            <col style="width:26%;">
-        </colgroup>`;
-
-            const formatNumber = (value, maxDecimals = 3) => {
-                if (typeof value !== 'number' && typeof value !== 'string') return '0';
-                const number = parseFloat(value);
-                if (isNaN(number)) return '0';
-                if (Number.isInteger(number)) return number.toLocaleString('en-US');
-                const parts = number.toFixed(maxDecimals).replace(/\.?0+$/, '').split('.');
-                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
-                return parts[1] ? `${wholePart}.${parts[1]}` : wholePart;
-            };
-
-            const detailedItemsHtml = details.map(record => {
-                const weight = parseFloat(record.weight) || 0;
-                const packs = parseInt(record.packs) || 0;
-                const price = parseFloat(record.SupplierPricePerKg) || 0;
-                const total = parseFloat(record.SupplierTotal) || 0;
-                const itemName = record.item_name || '';
-                const customerCode = record.customer_code?.toUpperCase() || '';
-
-                return `
-            <tr style="font-size:${fontSizeBody}; font-weight:bold; vertical-align: bottom;">
-                <td style="text-align:left; padding:10px 0; white-space: nowrap;">${itemName}<br>${formatNumber(packs)}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -70px;">${formatNumber(weight.toFixed(2))}</td>
-                <td style="text-align:right; padding:10px 2px; position: relative; left: -65px;">${formatNumber(price.toFixed(2))}</td>
-                <td style="padding:10px 0; display:flex; flex-direction:column; align-items:flex-end;">
-                    <div style="font-size:25px; white-space:nowrap;">${customerCode}</div>
-                    <div style="font-weight:900; white-space:nowrap;">${formatNumber(total.toFixed(2))}</div>
-                </td>
-            </tr>`;
-            }).join("");
-
-            const summaryEntries = Object.entries(itemSummaryData);
-            let itemSummaryHtml = '';
-            for (let i = 0; i < summaryEntries.length; i += 2) {
-                const [name1, d1] = summaryEntries[i];
-                const [name2, d2] = summaryEntries[i + 1] || [null, null];
-                const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
-                const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
-                itemSummaryHtml += `<tr><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text1}</td><td style="padding:6px; width:50%; font-weight:bold; white-space:nowrap; font-size:14px;">${text2}</td></tr>`;
+                const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+                const storedDeletes = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
+                const freshDeletes = storedDeletes.filter(item => {
+                    if (item.timestamp && item.timestamp > fiveMinutesAgo) return true;
+                    return deletedSaleIdsRef.current.has(item.id);
+                });
+                localStorage.setItem('deletedSaleIds', JSON.stringify(freshDeletes));
+            } catch (e) {
+                // Ignore localStorage errors
             }
 
-            const netPayable = advanceAmount - paidAmountValue;
-
-            return `
-        <div style="width:${receiptMaxWidth}; margin:0 auto; padding:10px; font-family:'Courier New', monospace; color:#000; background:#fff;">
-            <div style="text-align:center; font-weight:bold;">
-                <div style="font-size:24px;">මංජු සහ සහෝදරයෝ</div>
-                <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin:12px 0;">
-                    <span style="border:2.5px solid #000; padding:5px 12px; font-size:22px;">N66</span>
-                    <div style="font-size:18px;">ගොවියා: <span style="border:2.5px solid #000; padding:5px 10px; font-size:22px;">${state.selectedSupplier}</span></div>
-                </div>
-                <div style="font-size:16px; white-space: nowrap;">එළවළු තොග වෙළෙන්දෝ බණ්ඩාරවෙල</div>
-            </div>
-            <div style="font-size:19px; margin-top:10px; padding:0 5px;">
-                <div style="font-weight: bold;">දුර:${mobile}</div>
-                <div style="display:flex; justify-content:space-between; margin-top:3px;">
-                    <span>බිල් අංකය:${billNo}</span>
-                    <span>දිනය:${date}</span>
-                </div>
-            </div>
-            <hr style="border:none; border-top:2.5px solid #000; margin:10px 0;">
-            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
-                ${colGroups}
-                <thead>
-                    <tr style="border-bottom:2.5px solid #000; font-weight:bold;">
-                        <th style="text-align:left; padding-bottom:8px; font-size:${fontSizeHeader};">වර්ගය<br>මලු</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -50px; top: 24px;">කිලෝ</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader}; position: relative; left: -45px; top: 24px;">මිල</th>
-                        <th style="text-align:right; padding-bottom:8px; font-size:${fontSizeHeader};">කේතය<br>අගය</th>
-                    </tr>
-                </thead>
-                <tbody>${detailedItemsHtml}</tbody>
-                <tfoot>
-                    <tr style="border-top:2.5px solid #000; font-weight:bold;">
-                        <td style="padding-top:12px; font-size:${fontSizeTotal};">${formatNumber(totalPacksSum)}</td>
-                        <td colspan="3" style="padding-top:12px; font-size:${fontSizeTotal};"><div style="text-align:right; float:right; white-space:nowrap;">${totalsupplierSales.toFixed(2)}</div></td>
-                    <tr>
-                </tfoot>
-            </table>
-
-            <table style="width:100%; margin-top:20px; font-weight:bold; font-size:22px; padding:0 5px;">
-                <tr>
-                    <td style="font-size:15px; white-space:nowrap; position:relative; left:-15px;">මෙම බිලට මුළු අගය:</td>
-                    <td style="text-align:right;"><span style="border-bottom:2px solid #000; font-size:${fontSizeTotal}; padding:5px 10px;">${totalsupplierSales.toFixed(2)}</span></td>
-                </tr>
-                
-                ${paidAmountValue > 0 ? `
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:10px;">ගෙවූ මුදල (Paid):</td>
-                    <td style="text-align:right; padding-top:10px; color:#000;">- ${paidAmountValue.toFixed(2)}</td>
-                </tr>
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:5px;">ඉතිරි මුදල (Remaining):</td>
-                    <td style="text-align:right; padding-top:5px; color:#000;">${remainingAfterPayment.toFixed(2)}</td>
-                </tr>
-                <tr><td colspan="2" style="border-top:1px dashed #000; padding: 5px 0;"></td></tr>
-                ` : ''}
-
-                <tr style="font-size:18px;">
-                    <td style="font-size:15px; padding-top:5px;">අත්තිකාරම් (Advance):</td>
-                    <td style="text-align:right; padding-top:5px; color:#d97706; font-weight:bold;">- ${advanceAmount.toFixed(2)}</td>
-                </tr>
-
-                <tr style="font-weight:900;">
-                    <td style="font-size:18px; padding-top:10px;">ශුද්ධ ඉතිරි ශේෂය:</td>
-                    <td style="text-align:right; padding-top:10px;">
-                        <span style="color:#000; font-size:${fontSizeTotal}; border-bottom:5px double #000; border-top:2px solid #000;">
-                        ${netPayable.toFixed(2)}
-                        </span>
-                    </td>
-                </tr>
-            </table>
-
-            <div style="margin-top:25px; border-top:1px dashed #000; padding-top:10px;">
-                <table style="width:100%; border-collapse:collapse; font-size:14px; text-align:center;">${itemSummaryHtml}</table>
-            </div>
-        </div>`;
         } catch (error) {
-            console.error('Error generating bill:', error);
-            return '<div>Error generating bill</div>';
+            if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+                return;
+            }
+            console.error("Failed to refresh sales data:", error);
+        } finally {
+            if (refreshAbortRef.current === controller) {
+                refreshAbortRef.current = null;
+            }
+            refreshInFlightRef.current = false;
+            if (pendingForceRefreshRef.current && isMountedRef.current && pendingSubmitsRef.current.size === 0) {
+                pendingForceRefreshRef.current = false;
+                setManagedTimeout(() => refreshSalesData(true), 250);
+            }
         }
-    }, [state.selectedSupplier, state.billSize, isViewingHistory, historyDateRange.startDate, historyDateRange.endDate, totalAdvanceAmount]);
-    // Add this function to check if loan exists
-    const checkLoanExists = async (supplierCode, billNo) => {
-        try {
-            let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-            if (isViewingHistory) {
-                loanUrl += `&use_history=true`;
-            }
-            const response = await api.get(loanUrl);
-            return response.data && response.data.id ? true : false;
-        } catch (error) {
-            if (error.response && error.response.status === 404) {
-                return false;
-            }
-            console.error('Error checking loan existence:', error);
-            return false;
-        }
-    };
-    // Add this helper function at the component level (outside any other function)
-    const findExistingLoanId = async (supplierCode, billNo) => {
-        try {
-            let loanUrl = `/supplier-loan/search?code=${supplierCode}&bill_no=${billNo}`;
-            if (isViewingHistory) {
-                loanUrl += `&use_history=true`;
-            }
-            console.log('🔍 Checking for existing loan:', loanUrl);
-            const response = await api.get(loanUrl);
+    }, [setManagedTimeout]);
+    // Listen for updates from PrintedBills page and cross-tab storage updates.
+    useEffect(() => {
+        const handleSalesUpdate = () => {
+            refreshSalesData(true);
+        };
 
-            const loanId = response.data?.id || response.data?.ID || response.data?.loan_id;
-
-            if (loanId) {
-                console.log('✅ Found existing loan with ID:', loanId);
-                let paymentDetails = response.data?.payment_details || [];
-                if (typeof paymentDetails === 'string') {
-                    try {
-                        paymentDetails = JSON.parse(paymentDetails);
-                    } catch (e) {
-                        paymentDetails = [];
-                    }
-                }
-                return {
-                    exists: true,
-                    id: loanId,
-                    paymentDetails: paymentDetails,
-                    currentPaid: response.data?.loan_amount || 0
-                };
+        const handleStorageChange = (event) => {
+            if (event.key === 'salesDataUpdated') {
+                refreshSalesData(true);
             }
+        };
 
-            console.log('❌ No existing loan found');
-            return { exists: false, id: null, paymentDetails: [], currentPaid: 0 };
-        } catch (error) {
-            if (error.response && error.response.status === 404) {
-                console.log('❌ No loan record found (404)');
-                return { exists: false, id: null, paymentDetails: [], currentPaid: 0 };
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                refreshSalesData();
             }
-            console.error('Error checking loan existence:', error);
-            return { exists: false, id: null, paymentDetails: [], currentPaid: 0 };
-        }
-    };
-    const processPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null, isAdjustment = false, adjustmentDetails = null) => {
-        // ========== IMPROVED RACE CONDITION FIXES ==========
-        const callId = Math.random().toString(36).substr(2, 9);
-        console.log(`🟣 [${callId}] PROCESS PAYMENT CALLED at:`, new Date().toISOString());
-        console.log(`🟣 [${callId}] Payment amount:`, paymentAmount);
-        console.log(`🟣 [${callId}] Selected supplier:`, state.selectedSupplier);
-        console.log(`🟣 [${callId}] Selected billNo:`, state.selectedBillNo);
+        };
 
-        // IMPROVED: Use React state lock instead of just window flag
-        if (paymentLockRef.current || paymentLock) {
-            console.log(`🔴 [${callId}] Payment already in progress (paymentLock = true), ignoring duplicate`);
-            alert('Payment is already being processed. Please wait...');
+        window.addEventListener('salesDataUpdated', handleSalesUpdate);
+        window.addEventListener('storage', handleStorageChange);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('salesDataUpdated', handleSalesUpdate);
+            window.removeEventListener('storage', handleStorageChange);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [refreshSalesData]);
+
+    // Keep sidebars close to DB truth during active POS use.
+    useEffect(() => {
+        const interval = setManagedInterval(() => {
+            if (document.visibilityState === 'visible') {
+                refreshSalesData();
+            }
+        }, 8000);
+
+        return () => clearManagedInterval(interval);
+    }, [refreshSalesData, setManagedInterval, clearManagedInterval]);
+
+    // Reference data (customers/items/suppliers) also goes stale over an all-day session;
+    // refresh it quietly every 10 minutes without touching the sales list or the form.
+    const referenceRefreshInFlightRef = useRef(false);
+    useEffect(() => {
+        const interval = setManagedInterval(async () => {
+            if (document.visibilityState !== 'visible') return;
+            if (referenceRefreshInFlightRef.current) {
+                // Stuck-lock recovery if a prior refresh never cleared the flag.
+                if (Date.now() - referenceRefreshStartedAtRef.current < API_TIMEOUT_MS + 5000) return;
+                referenceRefreshInFlightRef.current = false;
+            }
+            referenceRefreshInFlightRef.current = true;
+            referenceRefreshStartedAtRef.current = Date.now();
+            const controller = new AbortController();
+            try {
+                const reqConfig = { signal: controller.signal, timeout: API_TIMEOUT_MS };
+                const [resCustomers, resItems, resSuppliers] = await Promise.all([
+                    api.get(routes.customers, reqConfig),
+                    api.get(routes.items, reqConfig),
+                    api.get(routes.suppliers, reqConfig)
+                ]);
+                if (!isMountedRef.current) return;
+                updateState({
+                    customers: resCustomers.data.data || resCustomers.data.customers || resCustomers.data || [],
+                    items: resItems.data.data || resItems.data.items || resItems.data || [],
+                    suppliers: resSuppliers.data.data || resSuppliers.data.suppliers || resSuppliers.data || [],
+                });
+            } catch {
+                // A failed background refresh is harmless; existing data stays usable.
+            } finally {
+                referenceRefreshInFlightRef.current = false;
+            }
+        }, 10 * 60 * 1000);
+
+        return () => clearManagedInterval(interval);
+    }, [updateState, setManagedInterval, clearManagedInterval]);
+
+
+    const fetchLoanAmount = useCallback(async (customerCode) => {
+        if (!customerCode) return updateState({ loanAmount: 0 });
+
+        const normalized = String(customerCode).trim().toUpperCase();
+        if (loanCacheRef.current.has(normalized)) {
+            updateState({ loanAmount: loanCacheRef.current.get(normalized) });
             return;
         }
 
-        // Generate idempotency key for backend deduplication
-        const idempotencyKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        idempotencyKeyRef.current = idempotencyKey;
+        if (loanAbortRef.current) {
+            loanAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        loanAbortRef.current = controller;
 
-        // CRITICAL FIX: Check if the selected bill is in the "Not Settled" list
-        const isBillInNotSettled = state.pendingSuppliers.some(item =>
-            item.supplier_code === state.selectedSupplier &&
-            item.supplier_bill_no === state.selectedBillNo
+        try {
+            const response = await api.post(routes.getLoanAmount, { customer_short_name: customerCode }, { signal: controller.signal, timeout: API_TIMEOUT_MS });
+            const value = parseFloat(response.data.total_loan_amount) || 0;
+            // Prevent unbounded cache growth during long-running sessions.
+            if (!loanCacheRef.current.has(normalized) && loanCacheRef.current.size >= 200) {
+                const oldestKey = loanCacheRef.current.keys().next().value;
+                if (oldestKey !== undefined) {
+                    loanCacheRef.current.delete(oldestKey);
+                }
+            }
+            loanCacheRef.current.set(normalized, value);
+            updateState({ loanAmount: value });
+        } catch (error) {
+            if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+                return;
+            }
+            updateState({ loanAmount: 0 });
+        } finally {
+            if (loanAbortRef.current === controller) {
+                loanAbortRef.current = null;
+            }
+        }
+    }, [updateState]);
+
+    const fetchInitialData = useCallback(async (attempt = 0) => {
+        if (initAbortRef.current) {
+            initAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        initAbortRef.current = controller;
+
+        try {
+            let userData = null;
+            try { userData = JSON.parse(localStorage.getItem('user')); } catch { /* corrupt storage should not block the page */ }
+            const reqConfig = { signal: controller.signal, timeout: API_TIMEOUT_MS };
+            const [resSales, resCustomers, resItems, resSuppliers] = await Promise.all([
+                api.get(routes.sales, reqConfig),
+                api.get(routes.customers, reqConfig),
+                api.get(routes.items, reqConfig),
+                api.get(routes.suppliers, reqConfig)
+            ]);
+
+            if (!isMountedRef.current) return;
+
+            const salesData = resSales.data.data || resSales.data.sales || resSales.data || [];
+            const customersData = resCustomers.data.data || resCustomers.data.customers || resCustomers.data || [];
+            const itemsData = resItems.data.data || resItems.data.items || resItems.data || [];
+            const suppliersData = resSuppliers.data.data || resSuppliers.data.suppliers || resSuppliers.data || [];
+            const normalizedSales = Array.isArray(salesData)
+                ? salesData.filter((sale) => !deletedSaleIdsRef.current.has(sale?.id) && !deletedSaleIdsRef.current.has(String(sale?.id ?? '')))
+                : [];
+            lastKnownSaleCountRef.current = normalizedSales.filter(
+                (s) => s?.id != null && !String(s.id).startsWith('tmp-')
+            ).length;
+            updateState({
+                allSales: normalizedSales,
+                customers: customersData,
+                items: itemsData,
+                suppliers: suppliersData,
+                isLoading: false,
+                currentUser: userData
+            });
+        } catch (error) {
+            if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError') {
+                return;
+            }
+            updateState({ errors: { form: 'Failed to load data. Retrying…' } });
+            // Auto-retry with backoff so a brief network blip at page open doesn't leave
+            // the operator with an empty screen for the rest of the day.
+            if (attempt < 5 && isMountedRef.current) {
+                setManagedTimeout(() => fetchInitialData(attempt + 1), Math.min(30000, 2000 * (attempt + 1)));
+            }
+        } finally {
+            if (initAbortRef.current === controller) {
+                initAbortRef.current = null;
+            }
+        }
+    }, [updateState, setManagedTimeout]);
+
+    useEffect(() => {
+        // Only clear given_amount when the customer selection is gone — not when
+        // displayedSales briefly goes empty during a refresh/filter flicker.
+        const hasCustomer = !!(formData.customer_code || autoCustomerCode || selectedUnprintedCustomer || selectedPrintedCustomer);
+        if (!hasCustomer) {
+            setFormData(prev => (prev.given_amount === "" ? prev : { ...prev, given_amount: "" }));
+        }
+    }, [formData.customer_code, autoCustomerCode, selectedUnprintedCustomer, selectedPrintedCustomer, setFormData]);
+    useEffect(() => {
+        // Determine the code to search for: manually entered, phone-matched, or sidebar-selected
+        const code = formData.customer_code || autoCustomerCode;
+
+        if (code && customers.length > 0) {
+            const customer = customers.find(c =>
+                String(c.short_name).toUpperCase() === String(code).toUpperCase()
+            );
+
+            if (customer) {
+                const baseUrl = "https://goviraju.lk/sms_new_backend_50500/application/public";
+                let fileName = customer.profile_pic;
+                let fullPath = null;
+
+                if (fileName) {
+                    if (fileName.startsWith('http')) {
+                        fullPath = fileName;
+                    } else {
+                        const cleanFileName = fileName.replace('public/', '');
+                        const subPath = cleanFileName.includes('customers')
+                            ? cleanFileName
+                            : `customers/${cleanFileName}`;
+
+                        fullPath = `${baseUrl}/storage/${subPath}`;
+                    }
+                }
+
+                updateState({
+                    customerProfilePic: fullPath,
+                    customerNameDisplay: customer.name || ""
+                });
+            } else {
+                updateState({ customerProfilePic: null, customerNameDisplay: "" });
+            }
+        } else {
+            updateState({ customerProfilePic: null, customerNameDisplay: "" });
+        }
+    }, [formData.customer_code, autoCustomerCode, customers]);
+    // useEffect to fetch Supplier profile pic
+    useEffect(() => {
+        const code = formData.supplier_code;
+        if (code && suppliers.length > 0) {
+            const supplier = suppliers.find(s =>
+                String(s.code).toUpperCase() === String(code).toUpperCase()
+            );
+
+            if (supplier) {
+                // Root path where the 'storage' symlink is located
+                const baseUrl = "https://goviraju.lk/sms_new_backend_50500/application/public";
+                let fileName = supplier.profile_pic;
+
+                let fullPath = null;
+
+                if (fileName) {
+                    if (fileName.startsWith('http')) {
+                        // Use directly if it's already a full URL
+                        fullPath = fileName;
+                    } else {
+                        // Check if 'suppliers/profiles' is already in the filename string from DB
+                        // If not, we manually add it to match your folder structure
+                        const subPath = fileName.includes('suppliers/profiles')
+                            ? fileName.replace('public/', '')
+                            : `suppliers/profiles/${fileName.replace('public/', '')}`;
+
+                        fullPath = `${baseUrl}/storage/${subPath}`;
+                    }
+                }
+
+                updateState({
+                    supplierProfilePic: fullPath,
+                    supplierNameDisplay: supplier.name || ""
+                });
+            } else {
+                updateState({ supplierProfilePic: null, supplierNameDisplay: "" });
+            }
+        } else {
+            updateState({ supplierProfilePic: null, supplierNameDisplay: "" });
+        }
+    }, [formData.supplier_code, suppliers]);
+    useEffect(() => {
+        const w = parseFloat(formData.weight) || 0;
+        const p = parseFloat(formData.price_per_kg) || 0;
+        const total = Number((w * p).toFixed(2));
+        // Bail when the value is already correct so this effect doesn't trigger an extra
+        // render for every keystroke in unrelated fields.
+        setFormData(prev => (prev.total === total ? prev : { ...prev, total }));
+        if (!state.priceManuallyChanged) updateState({ gridPricePerKg: formData.price_per_kg });
+    }, [formData.weight, formData.price_per_kg, formData.packs, formData.pack_due]);
+
+    useEffect(() => {
+        fetchInitialData();
+        refs.customer_code_input.current?.focus();
+    }, [fetchInitialData]);
+
+    const buildSubmissionFormData = useCallback((formOverrides = {}) => {
+        const resolvedPricePerKg = refs.price_per_kg_grid_item.current?.value
+            ?? refs.price_per_kg.current?.value
+            ?? formData.price_per_kg;
+        // Live input wins — controlled state / autoCustomerCode can lag one keystroke.
+        const liveCustomer = (refs.customer_code_input.current?.value
+            || formData.customer_code
+            || selectedUnprintedCustomer
+            || '').toString().trim().toUpperCase();
+        const nextFormData = {
+            ...formData,
+            customer_code: liveCustomer,
+            supplier_code: refs.supplier_code.current?.value ?? formData.supplier_code,
+            weight: refs.weight.current?.value ?? formData.weight,
+            price_per_kg: resolvedPricePerKg,
+            packs: refs.packs.current?.value ?? formData.packs,
+            ...formOverrides,
+            // Keep customer_code from live input unless an override explicitly set it.
+            customer_code: (formOverrides.customer_code != null && formOverrides.customer_code !== '')
+                ? String(formOverrides.customer_code).trim().toUpperCase()
+                : liveCustomer,
+        };
+
+        const computedTotal = (parseFloat(nextFormData.weight) || 0) * (parseFloat(nextFormData.price_per_kg) || 0);
+        return {
+            ...nextFormData,
+            total: Number(computedTotal.toFixed(2)),
+        };
+    }, [formData, selectedUnprintedCustomer]);
+
+    const handleKeyDown = async (e, currentFieldName) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Ignore key auto-repeat so one physical Enter press triggers one submit flow.
+            if (e.repeat) return;
+
+            if (currentFieldName === "price_per_kg") {
+                // Quick validation to ensure required fields are filled
+                if (!formData.item_code) {
+                    refs.item_code_select.current?.focus();
+                    updateState({ errors: { form: 'Please select an item first' } });
+                    return;
+                }
+                if (!formData.weight) {
+                    refs.weight.current?.focus();
+                    updateState({ errors: { form: 'Please enter weight' } });
+                    return;
+                }
+                if (!formData.packs) {
+                    refs.packs.current?.focus();
+                    updateState({ errors: { form: 'Please enter packs' } });
+                    return;
+                }
+
+                // Store the current item data before submitting
+                const currentItemCode = formData.item_code;
+                const currentItemName = formData.item_name;
+                const currentPackDue = formData.pack_due;
+
+                // Submit the sale
+                await handleSubmit(e, {}, { bypassSignatureThrottle: true });
+
+                // After submit, restore the item selection
+                setManagedTimeout(() => {
+                    setFormData(prev => ({
+                        ...prev,
+                        item_code: currentItemCode,
+                        item_name: currentItemName,
+                        pack_due: currentPackDue,
+                        // Clear only the weight, price, packs, total fields
+                        weight: "",
+                        price_per_kg: "",
+                        packs: "",
+                        total: "",
+                    }));
+
+                    // Focus on weight field for next entry
+                    refs.weight.current?.focus();
+                    refs.weight.current?.select();
+                }, 50);
+
+                return;
+            }
+
+            // 1. Handle Given Amount
+            if (currentFieldName === "given_amount") {
+                const success = await handleSubmitGivenAmount(e);
+                if (success) {
+                    handlePrintAndClear();
+                }
+                return;
+            }
+
+            // 2. Packs Enter → paint the table row in THIS keydown tick, then persist to DB.
+            if (currentFieldName === "packs") {
+                const livePacks = (e.target?.value ?? refs.packs.current?.value ?? formData.packs ?? "").toString().trim();
+                const submitFormData = buildSubmissionFormData({ packs: livePacks });
+
+                if (!submitFormData.item_code) {
+                    refs.item_code_select.current?.focus();
+                    updateState({ errors: { form: 'Please select an item first' } });
+                    return;
+                }
+                if (!submitFormData.weight) {
+                    refs.weight.current?.focus();
+                    updateState({ errors: { form: 'Please enter weight' } });
+                    return;
+                }
+                if (!submitFormData.packs || submitFormData.packs.toString().trim() === '') {
+                    updateState({ errors: { form: 'Please enter packs' } });
+                    refs.packs.current?.focus();
+                    return;
+                }
+
+                const customerForTable = String(
+                    submitFormData.customer_code || formData.customer_code || autoCustomerCode || selectedUnprintedCustomer || ''
+                ).trim().toUpperCase();
+                if (!customerForTable) {
+                    refs.customer_code_input.current?.focus();
+                    updateState({ errors: { form: 'කරුණාකර Customer Code ඇතුළත් කරන්න' } });
+                    return;
+                }
+
+                // Editing an existing row: reuse handleSubmit optimistic update (no new temp row).
+                if (editingSaleIdRef.current ?? editingSaleId) {
+                    void handleSubmit(e, { ...submitFormData, customer_code: customerForTable }, {
+                        bypassSignatureThrottle: true,
+                    });
+                    return;
+                }
+
+                // Ignore accidental double-Enter before painting a temp row.
+                const packsSubmitSig = [
+                    customerForTable,
+                    String(submitFormData.supplier_code || '').trim().toUpperCase(),
+                    String(submitFormData.item_code || '').trim().toUpperCase(),
+                    String(submitFormData.weight || '').trim(),
+                    String(submitFormData.price_per_kg || '').trim(),
+                    String(submitFormData.packs || '').trim(),
+                ].join('|');
+                const packsNow = Date.now();
+                if (packsSubmitSig === lastContentSubmitSigRef.current && packsNow - lastSubmitAtRef.current < SUBMIT_DEDUP_MS) {
+                    return;
+                }
+
+                // Claim signature immediately so a bounce Enter cannot paint a twin.
+                lastContentSubmitSigRef.current = packsSubmitSig;
+                lastSubmitAtRef.current = packsNow;
+
+                // Instant table paint (same keydown frame) — only this customer_code.
+                // Only treat as printed when a printed bill is actually selected.
+                // A leftover currentBillNo must NOT mark rows as printed (they vanish from the table).
+                const stayOnPrinted = !!selectedPrintedCustomer;
+                const instantTempId = `tmp-${packsNow}-${++submitGenerationRef.current}`;
+                const weightNum = parseFloat(submitFormData.weight) || 0;
+                const priceNum = parseFloat(submitFormData.price_per_kg) || 0;
+                const packsNum = parseFloat(submitFormData.packs) || 0;
+                const instantSale = {
+                    id: instantTempId,
+                    supplier_code: String(submitFormData.supplier_code || '').toUpperCase(),
+                    customer_code: customerForTable,
+                    customer_name: submitFormData.customer_name || formData.customer_name || '',
+                    item_code: submitFormData.item_code,
+                    item_name: submitFormData.item_name || '',
+                    weight: weightNum,
+                    price_per_kg: priceNum,
+                    pack_due: parseFloat(submitFormData.pack_due) || 0,
+                    total: Number((weightNum * priceNum).toFixed(2)),
+                    packs: packsNum,
+                    bill_printed: stayOnPrinted ? 'Y' : 'N',
+                    bill_no: stayOnPrinted
+                        ? (state.currentBillNo
+                            || (selectedPrintedCustomer?.includes('-') ? selectedPrintedCustomer.split('-').pop() : null)
+                            || null)
+                        : null,
+                    CustomerPackCost: packCost || 0,
+                    _optimistic: true,
+                };
+
+                // Register BEFORE paint so any concurrent refresh cannot drop this row.
+                recentSubmittedSalesRef.current.set(instantTempId, { sale: instantSale, at: packsNow });
+                upsertLocalTableSale(instantSale);
+
+                flushSync(() => {
+                    setState((prev) => ({
+                        ...prev,
+                        allSales: [instantSale, ...(prev.allSales || [])],
+                        localTableSales: [instantSale, ...(prev.localTableSales || []).filter((s) => String(s?.id) !== String(instantTempId))],
+                        formData: {
+                            ...initialFormData,
+                            customer_code: customerForTable,
+                            customer_name: instantSale.customer_name || prev.formData.customer_name,
+                            telephone_no: prev.formData.telephone_no || formData.telephone_no || '',
+                            supplier_code: instantSale.supplier_code || '',
+                        },
+                        editingSaleId: null,
+                        isManualClear: false,
+                        errors: {},
+                        priceManuallyChanged: false,
+                        gridPricePerKg: '',
+                        selectedSaleForBreakdown: null,
+                        selectedUnprintedCustomer: stayOnPrinted ? null : customerForTable,
+                        selectedPrintedCustomer: stayOnPrinted ? prev.selectedPrintedCustomer : null,
+                    }));
+                });
+                if (refs.weight.current) refs.weight.current.value = '';
+                if (refs.packs.current) refs.packs.current.value = '';
+                if (refs.price_per_kg_grid_item.current) refs.price_per_kg_grid_item.current.value = '';
+                if (refs.price_per_kg.current) refs.price_per_kg.current.value = '';
+                if (refs.total.current) refs.total.current.value = '';
+                suppressSupplierFocusUntilRef.current = 0;
+                focusSupplierCode();
+
+                void handleSubmit(e, { ...submitFormData, customer_code: customerForTable }, {
+                    bypassSignatureThrottle: true,
+                    skipOptimistic: true,
+                    preTempId: instantTempId,
+                });
+                return;
+            }
+
+            // 3. Logic for TELEPHONE input (Reverse Lookup)
+            if (currentFieldName === "telephone_no") {
+                // Hide save button when navigating away
+                updateState({ showSavePhoneButton: false });
+                refs.customer_code_input.current?.focus();
+                return;
+            }
+
+            // In the handleKeyDown function, update the customer_code_input case:
+            if (currentFieldName === "customer_code_input") {
+                const code = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+
+                if (code) {
+                    // LOCAL LOOKUP - ONLY on Enter key
+                    const match = customers.find(c => String(c.short_name).toUpperCase() === code);
+
+                    if (match) {
+                        // Update customer_name
+                        setFormData(prev => ({
+                            ...prev,
+                            customer_name: match.name || ""
+                        }));
+                        fetchLoanAmount(code);
+
+                        // ✅ Auto-select on Enter
+                        const hasUnprintedSales = unprintedCustomers.some(c => c.toUpperCase() === code);
+                        if (hasUnprintedSales) {
+                            updateState({
+                                selectedUnprintedCustomer: code,
+                                selectedPrintedCustomer: null,
+                            });
+                        }
+                    } else {
+                        console.log("Customer not found in local data");
+                    }
+                }
+
+                refs.supplier_code.current?.focus();
+                return;
+            }
+
+            // supplier_code → item select. Defer focus until after this Enter keydown
+            // fully settles; sync focus during keydown lets some browsers bounce focus
+            // back to supplier (and late post-submit focusSupplierCode can too).
+            if (currentFieldName === "supplier_code") {
+                suppressSupplierFocusUntilRef.current = Date.now() + 2500;
+                refs.supplier_code.current?.blur();
+                requestAnimationFrame(() => {
+                    setManagedTimeout(() => {
+                        focusItemCodeSelect();
+                    }, 0);
+                });
+                return;
+            }
+
+            // 5. General Navigation Logic
+            let nextFieldName = skipMap[currentFieldName];
+            if (!nextFieldName) {
+                const currentIndex = fieldOrder.indexOf(currentFieldName);
+                let nextIndex = currentIndex + 1;
+                while (nextIndex < fieldOrder.length &&
+                    ["customer_code_select", "item_name", "total"].includes(fieldOrder[nextIndex])) {
+                    nextIndex++;
+                }
+                nextFieldName = nextIndex < fieldOrder.length ? fieldOrder[nextIndex] : "customer_code_input";
+            }
+
+            const nextRef = refs[nextFieldName];
+            if (nextRef?.current) {
+                if (nextFieldName === "item_code_select") {
+                    focusItemCodeSelect();
+                    return;
+                }
+                requestAnimationFrame(() => {
+                    setManagedTimeout(() => {
+                        nextRef.current.focus();
+                        if (!nextFieldName.includes("select")) nextRef.current.select();
+                    }, 0);
+                });
+            }
+        }
+    };
+
+    const { salesTotal, packCostTotal, totalSalesValue } = useMemo(() => {
+        const totals = displayedSales.reduce((acc, s) => {
+            acc.sales += ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0));
+            acc.pack += ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0));
+            return acc;
+        }, { sales: 0, pack: 0 });
+
+        return {
+            salesTotal: totals.sales,
+            packCostTotal: totals.pack,
+            totalSalesValue: totals.sales + totals.pack,
+        };
+    }, [displayedSales]);
+
+    const handleInputChange = (field, value) => {
+        if (field === 'price_per_kg') {
+            setFormData(prev => ({ ...prev, [field]: value }));
+            updateState({ priceManuallyChanged: true, gridPricePerKg: value });
+        } else if (field === 'price_per_kg_grid_item') {
+            setFormData(prev => ({ ...prev, 'price_per_kg': value }));
+            updateState({ gridPricePerKg: value, priceManuallyChanged: false });
+        } else if (field === 'telephone_no') {
+            // Only allow numbers and limit to 10 digits
+            const cleaned = value.replace(/\D/g, '').slice(0, 10);
+            setFormData(prev => ({ ...prev, telephone_no: cleaned }));
+        } else {
+            setFormData(prev => ({ ...prev, [field]: value }));
+        }
+
+        if (field === 'customer_code') {
+            const trimmedValue = value.trim();
+
+            // Scope the sales table to whatever is typed — do not require the code to already
+            // exist in the unprinted sidebar list (new customers still need their lines visible).
+            if (trimmedValue) {
+                tableCustomerScopeRef.current = trimmedValue.toUpperCase();
+                updateState({
+                    selectedUnprintedCustomer: trimmedValue.toUpperCase(),
+                    selectedPrintedCustomer: null,
+                    isManualClear: false,
+                });
+            } else {
+                updateState({
+                    selectedUnprintedCustomer: null,
+                    selectedPrintedCustomer: null,
+                    isManualClear: true,
+                });
+                tableCustomerScopeRef.current = '';
+            }
+
+            const customer = customers.find(c =>
+                String(c.short_name || '').toUpperCase() === trimmedValue.toUpperCase()
+            );
+            const customerSales = allSales.filter(s =>
+                String(s.customer_code || '').toUpperCase() === trimmedValue.toUpperCase()
+            );
+            const firstSale = customerSales[0];
+            const givenAmount = firstSale?.given_amount || "";
+            setFormData(prev => ({
+                ...prev,
+                customer_name: customer?.name || "",
+                given_amount: givenAmount,
+                customer_code: trimmedValue.toUpperCase(),
+            }));
+
+            if (trimmedValue) {
+                fetchLoanAmount(trimmedValue);
+            } else {
+                updateState({ loanAmount: 0 });
+                setFormData(prev => ({ ...prev, given_amount: "" }));
+            }
+        }
+
+        if (field === 'supplier_code') setFormData(prev => ({ ...prev, supplier_code: value }));
+        if (field === "given_amount") {
+            updateState({ isGivenAmountManuallyTouched: true });
+        }
+    };
+    const handleItemSelect = (selectedOption) => {
+        if (selectedOption) {
+            const { item } = selectedOption;
+            if (!item) return;
+            const fetchedPackDue = parseFloat(item?.pack_due) || 0;
+            const fetchedPackCost = parseFloat(item?.pack_cost) || 0;
+
+            setFormData(prev => {
+                const keptCustomer = String(
+                    prev.customer_code
+                    || selectedUnprintedCustomer
+                    || tableCustomerScopeRef.current
+                    || ''
+                ).trim().toUpperCase();
+                if (keptCustomer) tableCustomerScopeRef.current = keptCustomer;
+                return {
+                    ...prev,
+                    // Never let item selection wipe the active customer — that empties the table.
+                    customer_code: keptCustomer || prev.customer_code,
+                    item_code: item.no,
+                    item_name: item.type,
+                    pack_due: fetchedPackDue,
+                    weight: prev.weight || "",
+                    price_per_kg: prev.price_per_kg || "",
+                    packs: prev.packs || "",
+                    leading_sales_id: prev.leading_sales_id || "",
+                    total: prev.total || ""
+                };
+            });
+
+            const customerForScope = String(
+                formData.customer_code
+                || selectedUnprintedCustomer
+                || tableCustomerScopeRef.current
+                || ''
+            ).trim().toUpperCase();
+
+            updateState({
+                packCost: fetchedPackCost,
+                itemSearchInput: "",
+                gridPricePerKg: formData.price_per_kg || "",
+                isManualClear: false,
+                // Re-assert sidebar scope so the table cannot drop during select re-render.
+                ...(customerForScope && !selectedPrintedCustomer
+                    ? { selectedUnprintedCustomer: customerForScope }
+                    : {}),
+            });
+
+            // Focus on weight field
+            setManagedTimeout(() => refs.weight.current?.focus(), 100);
+        } else {
+            // Only clear item fields if explicitly deselecting — never touch customer/sales scope.
+            setFormData(prev => ({
+                ...prev,
+                item_code: "",
+                item_name: "",
+                pack_due: "",
+                weight: "",
+                price_per_kg: "",
+                packs: "",
+                leading_sales_id: "",
+                total: ""
+            }));
+            updateState({ packCost: 0, itemSearchInput: "", gridPricePerKg: "" });
+        }
+    };
+
+    const handleCustomerSelect = (selectedOption) => {
+        const short = selectedOption ? selectedOption.value : "";
+        const customer = customers.find(x => String(x.short_name) === String(short));
+        updateState({ selectedUnprintedCustomer: unprintedCustomers.includes(short) ? short : null, selectedPrintedCustomer: null, customerSearchInput: "" });
+        const existingGivenAmount = allSales.find(s => s.customer_code === short)?.given_amount || "";
+        setFormData(prev => ({ ...prev, customer_code: short || "", customer_name: customer?.name || "", given_amount: existingGivenAmount }));
+        fetchLoanAmount(short);
+        updateState({ isManualClear: false });
+        setManagedTimeout(() => { refs.price_per_kg.current?.focus(); refs.price_per_kg.current?.select(); }, 100);
+    };
+    //function to display customer image
+    const handleImageClick = (entityType) => {
+        const code = entityType === 'customer' ? (formData.customer_code || autoCustomerCode) : formData.supplier_code;
+        const list = entityType === 'customer' ? customers : suppliers;
+
+        const person = list.find(p =>
+            String(entityType === 'customer' ? p.short_name : p.code).toUpperCase() === String(code).toUpperCase()
         );
 
-        console.log(`🟣 [${callId}] Is bill in Not Settled list:`, isBillInNotSettled);
-        console.log(`🟣 [${callId}] isUpdatingCompletedBill:`, state.isUpdatingCompletedBill);
-
-        // Determine if this should be treated as a credit settlement payment
-        const isCreditSettlementPayment = !isBillInNotSettled &&
-            state.isUpdatingCompletedBill &&
-            selectedBillCreditor &&
-            selectedBillCreditor.remaining_amount > 0;
-
-        console.log(`🟣 [${callId}] Is Credit Settlement Payment:`, isCreditSettlementPayment);
-
-        // Check for duplicate within the last 5 seconds using enhanced tracking
-        const now = Date.now();
-
-        // Enhanced duplicate detection with idempotency key
-        if (window.lastPaymentTime && (now - window.lastPaymentTime) < 5000) {
-            console.log(`🔴 [${callId}] DUPLICATE DETECTED! Last payment was ${now - window.lastPaymentTime}ms ago`);
-            if (window.lastPaymentAmount === paymentAmount && window.lastIdempotencyKey === idempotencyKey) {
-                console.log(`🔴 [${callId}] SAME AMOUNT AND IDEMPOTENCY KEY - BLOCKING DUPLICATE`);
-                alert('Duplicate payment detected. Please wait a moment.');
-                return;
-            }
+        if (person) {
+            updateState({
+                isImageModalOpen: true,
+                selectedImageData: {
+                    profile: entityType === 'customer' ? state.customerProfilePic : state.supplierProfilePic,
+                    nic_front: person.nic_front,
+                    nic_back: person.nic_back,
+                    title: person.name || code,
+                    type: entityType // <--- ADD THIS LINE
+                }
+            });
         }
+    };
+    // Show Save button when telephone number has 10 digits
+    useEffect(() => {
+        const phoneNumber = formData.telephone_no || "";
+        // Check if phone number has exactly 10 digits (only numbers)
+        const isValidPhone = /^\d{10}$/.test(phoneNumber);
 
-        // Store this payment attempt with idempotency key
-        window.lastPaymentTime = now;
-        window.lastPaymentAmount = paymentAmount;
-        window.lastIdempotencyKey = idempotencyKey;
-        console.log(`🟢 [${callId}] Stored payment attempt with idempotency key`);
+        // Also check if we have a customer code
+        const customerCode = formData.customer_code || autoCustomerCode;
 
-        // Create a unique key for this payment attempt
-        const paymentKey = `${state.selectedSupplier}-${state.selectedBillNo}-${paymentAmount}-${idempotencyKey}`;
-        console.log(`🟢 [${callId}] Payment key:`, paymentKey);
+        if (isValidPhone && customerCode && !selectedPrintedCustomer) {
+            updateState({ showSavePhoneButton: true });
+        } else {
+            updateState({ showSavePhoneButton: false });
+        }
+    }, [formData.telephone_no, formData.customer_code, autoCustomerCode, selectedPrintedCustomer]);
 
-        // Check if we're already processing a payment using ref lock
-        if (processingPaymentRef.current) {
-            console.log(`🔴 [${callId}] Payment already in progress (processingPaymentRef = true), ignoring duplicate call`);
-            alert('Payment is already being processed. Please wait...');
+    const handleEditClick = (sale) => {
+        // If same record clicked again → clear fields EXCEPT customer/contact fields
+        if (sameSaleId(state.editingSaleId, sale.id)) {
+            setFormData((prev) => ({
+                ...prev,
+                customer_code: sale.customer_code || "",
+                customer_name: sale.customer_name || "",
+                // PRESERVE TELEPHONE:
+                telephone_no: prev.telephone_no || "",
+                supplier_code: "",
+                item_code: "",
+                item_name: "",
+                weight: "",
+                price_per_kg: "",
+                pack_due: "",
+                total: "",
+                packs: ""
+            }));
+
+            updateState({
+                editingSaleId: null,
+                isManualClear: true,
+                priceManuallyChanged: false,
+                gridPricePerKg: "",
+                selectedSaleForBreakdown: null
+            });
+            editingSaleIdRef.current = null;
+
+            setManagedTimeout(() => {
+                refs.supplier_code?.current?.focus();
+                refs.supplier_code?.current?.select();
+            }, 0);
+
             return;
         }
 
-        // Check for duplicate within the last 3 seconds using ref with idempotency
-        if (lastPaymentDataRef.current) {
-            const timeDiff = Date.now() - lastPaymentDataRef.current.timestamp;
-            const sameSupplier = lastPaymentDataRef.current.supplier === state.selectedSupplier;
-            const sameBill = lastPaymentDataRef.current.billNo === state.selectedBillNo;
-            const sameIdempotencyKey = lastPaymentDataRef.current.idempotencyKey === idempotencyKey;
-            const sameAmount = Math.abs(lastPaymentDataRef.current.amount - paymentAmount) < 0.01;
-
-            console.log(`🟡 [${callId}] Last payment check - Time diff: ${timeDiff}ms, Same idempotency key: ${sameIdempotencyKey}`);
-
-            if (timeDiff < 3000 && sameSupplier && sameBill && (sameAmount || sameIdempotencyKey)) {
-                console.log(`🔴 [${callId}] DUPLICATE PAYMENT DETECTED within 3 seconds, ignoring`);
-                alert('Duplicate payment detected. Please wait a moment before trying again.');
-                return;
-            }
+        // === Normal behavior when selecting a record to edit ===
+        let fetchedPackDue = sale.pack_due || "";
+        if (sale.item_code) {
+            const matchingItem = items.find(i => String(i.no) === String(sale.item_code));
+            fetchedPackDue = parseFloat(matchingItem?.pack_due) || sale.pack_due || "";
         }
 
-        if (!state.selectedSupplier || state.isPrinting) {
-            console.log(`🔴 [${callId}] Invalid state - no supplier or is printing`);
+        editingSaleIdRef.current = sale.id;
+
+        setFormData((prev) => ({
+            ...sale,
+            // Ensure we explicitly map these so they don't get lost
+            item_name: sale.item_name || "",
+            customer_code: sale.customer_code || "",
+            customer_name: sale.customer_name || "",
+            // PRESERVE TELEPHONE from the current form state or the sale object
+            telephone_no: sale.telephone_no || prev.telephone_no || "",
+            supplier_code: sale.supplier_code || "",
+            item_code: sale.item_code || "",
+            weight: sale.weight || "",
+            price_per_kg: sale.price_per_kg || "",
+            pack_due: fetchedPackDue,
+            total: sale.total || "",
+            packs: sale.packs || ""
+        }));
+
+        updateState({
+            editingSaleId: sale.id,
+            isManualClear: false,
+            priceManuallyChanged: false,
+            gridPricePerKg: sale.price_per_kg || "",
+            selectedSaleForBreakdown: sale
+        });
+
+        // CHANGE THIS PART - Focus on price field instead of weight
+        setManagedTimeout(() => {
+            refs.price_per_kg_grid_item.current?.focus();
+            refs.price_per_kg_grid_item.current?.select();
+        }, 0);
+    };
+
+    const handleTableRowKeyDown = (e, sale) => { if (e.key === "Enter") { e.preventDefault(); handleEditClick(sale); } };
+
+    const handleClearForm = (clearBillNo = false) => {
+        editingSaleIdRef.current = null;
+        tableCustomerScopeRef.current = '';
+        setFormData(initialFormData);
+        updateState({
+            editingSaleId: null,
+            loanAmount: 0,
+            isManualClear: false,
+            packCost: 0,
+            customerSearchInput: "",
+            itemSearchInput: "",
+            supplierSearchInput: "",
+            priceManuallyChanged: false,
+            gridPricePerKg: "",
+            isGivenAmountManuallyTouched: false,
+            selectedSaleForBreakdown: null,
+            ...(clearBillNo && { currentBillNo: null })
+        });
+        // REMOVED: setTimeout(() => { refs.supplier_code?.current?.focus(); }, 0);
+    };
+
+    const handleDeleteRecord = async (saleId) => {
+        if (!saleId) {
+            updateState({ errors: { form: "Invalid sale ID" } });
             return;
         }
 
-        // Set all processing flags with locks
-        processingPaymentRef.current = true;
-        paymentLockRef.current = true;
-        setPaymentLock(true);
+        if (!window.confirm("Are you sure you want to delete this sales record?")) {
+            return;
+        }
 
-        lastPaymentDataRef.current = {
-            timestamp: Date.now(),
-            supplier: state.selectedSupplier,
-            billNo: state.selectedBillNo,
-            amount: paymentAmount,
-            idempotencyKey: idempotencyKey,
-            callId: callId
-        };
-        console.log(`🟢 [${callId}] Processing flags set`);
+        const removedSale = allSales.find((sale) => sale.id === saleId) || null;
 
-        // Disable the button immediately
-        setIsProcessingPayment(true);
-        setState(prev => ({ ...prev, isPrinting: true }));
-        console.log(`🟢 [${callId}] UI disabled, isPrinting set to true`);
+        if (!removedSale) {
+            updateState({ errors: { form: "Record not found" } });
+            return;
+        }
+
+        const idStr = String(saleId);
+
+        // 1. Add to tombstones / deleted sets
+        deletedSaleIdsRef.current.add(saleId);
+        deletedSaleIdsRef.current.add(idStr);
+
+        // 2. CRITICAL: Instantly remove from internal overlay references to prevent background refresh from restoring it
+        localTableSalesRef.current.delete(saleId);
+        localTableSalesRef.current.delete(idStr);
+        recentSubmittedSalesRef.current.delete(saleId);
+        recentSubmittedSalesRef.current.delete(idStr);
+
+        // 3. Store in localStorage with timestamp for cleanup/cross-tab persistence
+        try {
+            const deletedIds = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
+            deletedIds.push({
+                id: saleId,
+                timestamp: Date.now()
+            });
+            if (deletedIds.length > 100) {
+                deletedIds.splice(0, deletedIds.length - 100);
+            }
+            localStorage.setItem('deletedSaleIds', JSON.stringify(deletedIds));
+        } catch (e) {
+            // Ignore localStorage errors
+        }
+
+        // 4. Immediately purge from UI state (both allSales AND localTableSales)
+        flushSync(() => {
+            setState((prev) => ({
+                ...prev,
+                allSales: prev.allSales.filter((sale) => !sameSaleId(sale.id, saleId)),
+                localTableSales: (prev.localTableSales || []).filter((sale) => !sameSaleId(sale.id, saleId)),
+            }));
+        });
+
+        // Clear form if currently editing the deleted record
+        if (sameSaleId(editingSaleId, saleId)) {
+            handleClearForm();
+        }
 
         try {
-            const totalPayable = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-            console.log(`🟢 [${callId}] Total payable:`, totalPayable);
+            // 5. Call API to delete from backend
+            await api.delete(`${routes.sales}/${saleId}`, { timeout: API_TIMEOUT_MS });
 
-            // Check if loan exists with idempotency check
-            console.log(`🟢 [${callId}] Checking for existing loan...`);
-            const loanCheck = await findExistingLoanId(state.selectedSupplier, state.selectedBillNo);
-            console.log(`🟢 [${callId}] Loan check result - exists: ${loanCheck.exists}, id: ${loanCheck.id}, currentPaid: ${loanCheck.currentPaid}, paymentDetails length: ${loanCheck.paymentDetails.length}`);
+            // Trigger background refresh to sync DB state
+            setManagedTimeout(() => {
+                refreshSalesData(true);
+            }, 200);
 
-            let currentPaid = loanCheck.currentPaid;
-            let existingPaymentDetails = loanCheck.paymentDetails;
-            let existingLoanId = loanCheck.exists ? loanCheck.id : null;
+        } catch (error) {
+            // If delete fails, revert tombstones and restore the record
+            deletedSaleIdsRef.current.delete(saleId);
+            deletedSaleIdsRef.current.delete(idStr);
 
-            // Ensure payment details is an array
-            if (typeof existingPaymentDetails === 'string') {
-                try {
-                    existingPaymentDetails = JSON.parse(existingPaymentDetails);
-                    console.log(`🟢 [${callId}] Parsed payment details from string, length: ${existingPaymentDetails.length}`);
-                } catch (e) {
-                    existingPaymentDetails = [];
+            try {
+                const deletedIds = JSON.parse(localStorage.getItem('deletedSaleIds') || '[]');
+                const updated = deletedIds.filter(item => item.id !== saleId && item.id !== idStr);
+                localStorage.setItem('deletedSaleIds', JSON.stringify(updated));
+            } catch (e) {
+                // Ignore localStorage errors
+            }
+
+            if (removedSale) {
+                localTableSalesRef.current.set(idStr, removedSale);
+                setState((prev) => ({
+                    ...prev,
+                    allSales: [...prev.allSales, removedSale],
+                    localTableSales: [...(prev.localTableSales || []), removedSale]
+                }));
+            }
+
+            updateState({
+                errors: {
+                    form: error.response?.data?.message || error.message || "Failed to delete record"
+                }
+            });
+        }
+    };
+
+    const handleSubmitGivenAmount = async (e) => {
+        if (e) e.preventDefault();
+        // Prevent parallel Enter presses from firing duplicate given-amount + print flows.
+        if (givenAmountInFlightRef.current) return null;
+        givenAmountInFlightRef.current = true;
+        updateState({ errors: {} });
+
+        try {
+            const customerCode = (formData.customer_code || autoCustomerCode).trim().toUpperCase();
+            if (!customerCode) return null;
+
+            const salesToUpdate = displayedSales.filter(s => s.id);
+            if (salesToUpdate.length === 0) return null;
+
+            // 1. Get the entered amount
+            const currentInputAmount = parseFloat(String(formData.given_amount ?? "").replace(/,/g, "")) || 0;
+
+            // 2. DETECT CREDIT STATUS based on your calculated logic
+            // We calculate it here to know if we should block the process before the API call
+            const totals = salesToUpdate.reduce((acc, s) => {
+                const weight = parseFloat(s.weight) || 0;
+                const price = parseFloat(s.price_per_kg) || 0;
+                const packs = parseFloat(s.packs) || 0;
+                const pCost = parseFloat(s.CustomerPackCost) || 0;
+                const pLabour = parseFloat(s.CustomerPackLabour) || 0;
+                acc.billTotal += (weight * price);
+                acc.totalBagPrice += (packs * pCost);
+                acc.totalLabour += (packs * pLabour);
+                return acc;
+            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+
+            const autoCalculatedGrandTotal = totals.billTotal + totals.totalBagPrice;
+            const isCredit = Math.abs(currentInputAmount - autoCalculatedGrandTotal) > 0.01;
+            const creditTransactionStatus = isCredit ? 'Y' : 'N';
+
+            // 4. PROCEED: Update database with the determined status
+            const updatePromises = salesToUpdate.map(sale =>
+                api.put(`${routes.sales}/${sale.id}/given-amount`, {
+                    given_amount: currentInputAmount,
+                    credit_transaction: creditTransactionStatus
+                }, { timeout: API_TIMEOUT_MS })
+            );
+
+            const results = await Promise.all(updatePromises);
+            if (!isMountedRef.current) return null;
+            updateState({ isGivenAmountManuallyTouched: false });
+
+            const updatedSalesFromApi = results.map(response => response.data.sale);
+            const updatedSalesMap = {};
+            updatedSalesFromApi.forEach(sale => { updatedSalesMap[sale.id] = sale; });
+
+            // Functional update: `allSales` captured at render time may be stale after the
+            // await above (a background refresh could have replaced it).
+            setState(prev => ({
+                ...prev,
+                allSales: prev.allSales.map(s => updatedSalesMap[s.id] ? updatedSalesMap[s.id] : s)
+            }));
+
+            return updatedSalesFromApi;
+        } catch (error) {
+            if (isMountedRef.current) {
+                updateState({ errors: { form: error.response?.data?.message || error.message } });
+            }
+            return null;
+        } finally {
+            givenAmountInFlightRef.current = false;
+        }
+    };
+    const handleSubmit = async (e, formOverrides = {}, options = {}) => {
+        const { bypassSignatureThrottle = false, skipOptimistic = false, preTempId = null, preserveItem = false } = options;
+        if (e?.preventDefault) e.preventDefault();
+        const now = Date.now();
+
+        const effectiveFormData = buildSubmissionFormData(formOverrides);
+        // Content-only signature: after an optimistic edit clears editingSaleId, a second
+        // Enter must NOT look like a different "new" submit of the same line.
+        const contentSubmitSignature = [
+            String(effectiveFormData.customer_code || '').trim().toUpperCase(),
+            String(effectiveFormData.supplier_code || '').trim().toUpperCase(),
+            String(effectiveFormData.item_code || '').trim().toUpperCase(),
+            String(effectiveFormData.weight || '').trim(),
+            String(effectiveFormData.price_per_kg || '').trim(),
+            String(effectiveFormData.packs || '').trim(),
+        ].join('|');
+
+        if (!skipOptimistic && contentSubmitSignature === lastContentSubmitSigRef.current && now - lastSubmitAtRef.current < SUBMIT_DEDUP_MS) {
+            return;
+        }
+        if (!bypassSignatureThrottle && contentSubmitSignature === lastContentSubmitSigRef.current && now - lastSubmitAtRef.current < 1200) {
+            return;
+        }
+
+        // --- 1. VALIDATION LOGIC ---
+        const requiredFields = [
+            { key: "customer_code", ref: "customer_code_input", label: "Customer Code" },
+            { key: "supplier_code", ref: "supplier_code", label: "Supplier Code" },
+            { key: "item_code", ref: "item_code_select", label: "Item" },
+            { key: "weight", ref: "weight", label: "Weight" },
+            { key: "packs", ref: "packs", label: "Packs" }
+        ];
+
+        for (const field of requiredFields) {
+            const value = effectiveFormData[field.key];
+            if (value === null || value === undefined || value.toString().trim() === "") {
+                updateState({ errors: { form: `කරුණාකර ${field.label} ඇතුළත් කරන්න` } });
+                const targetRef = refs[field.ref];
+                if (targetRef?.current) {
+                    targetRef.current.focus();
+                    if (!field.ref.includes("select")) targetRef.current.select();
+                }
+                return;
+            }
+        }
+
+        // Claim edit id BEFORE any await/setState so a second Enter cannot POST a twin.
+        const editingIdAtStart = editingSaleIdRef.current ?? editingSaleId;
+        editingSaleIdRef.current = null;
+
+        // --- 2. PRE-FLIGHT PREPARATION ---
+        lastContentSubmitSigRef.current = contentSubmitSignature;
+        lastSubmitSignatureRef.current = `${editingIdAtStart || 'new'}|${contentSubmitSignature}`;
+        lastSubmitAtRef.current = now;
+        const myGeneration = ++submitGenerationRef.current;
+
+        const customerCode = String(
+            effectiveFormData.customer_code || autoCustomerCode || selectedUnprintedCustomer || ''
+        ).trim().toUpperCase();
+        const currentSupplierCode = effectiveFormData.supplier_code;
+        const currentCustomerName = effectiveFormData.customer_name;
+        const currentTelephone = effectiveFormData.telephone_no;
+        const shouldUpdateRelatedPrice = state.priceManuallyChanged;
+        const normalizedWeight = parseFloat(effectiveFormData.weight) || 0;
+        const normalizedPricePerKg = parseFloat(effectiveFormData.price_per_kg) || 0;
+        const normalizedPacks = parseFloat(effectiveFormData.packs) || 0;
+        const computedTotal = Number((normalizedWeight * normalizedPricePerKg).toFixed(2));
+        const previousEditedSale = editingIdAtStart !== null
+            ? (
+                allSales.find((sale) => sameSaleId(sale.id, editingIdAtStart))
+                || (localTableSales || []).find((sale) => sameSaleId(sale.id, editingIdAtStart))
+                || localTableSalesRef.current.get(String(editingIdAtStart))
+                || null
+            )
+            : null;
+        const tempId = editingIdAtStart != null
+            ? null
+            : (preTempId || `tmp-${Date.now()}-${myGeneration}`);
+        let submitTimeoutId = null;
+        let submitController = null;
+
+        // Capture current item values for preservation
+        const currentItemCode = effectiveFormData.item_code || formData.item_code;
+        const currentItemName = effectiveFormData.item_name || formData.item_name;
+        const currentPackDue = effectiveFormData.pack_due || formData.pack_due;
+
+        const clearLineEntryDom = () => {
+            if (refs.weight.current) refs.weight.current.value = '';
+            if (refs.packs.current) refs.packs.current.value = '';
+            if (refs.price_per_kg_grid_item.current) refs.price_per_kg_grid_item.current.value = '';
+            if (refs.price_per_kg.current) refs.price_per_kg.current.value = '';
+            if (refs.total.current) refs.total.current.value = '';
+        };
+
+        try {
+            const isEditing = editingIdAtStart != null;
+
+            // --- 3. BILLING LOGIC (sync, no await) ---
+            let billPrintedStatus = undefined, billNoToUse = null;
+            if (!isEditing) {
+                // Require an explicit printed-bill selection. Do not infer from currentBillNo alone —
+                // that leftover flag was tagging new lines as printed and filtering them out of the table.
+                if (selectedPrintedCustomer) {
+                    billPrintedStatus = 'Y';
+                    billNoToUse = selectedPrintedCustomer.includes('-')
+                        ? selectedPrintedCustomer.split('-')[1]
+                        : (state.currentBillNo
+                            || printedSales.find(s => s.customer_code === selectedPrintedCustomer)?.bill_no);
+                } else {
+                    billPrintedStatus = 'N';
+                    billNoToUse = null;
                 }
             }
-            if (!Array.isArray(existingPaymentDetails)) {
-                existingPaymentDetails = [];
+
+            const payload = {
+                supplier_code: currentSupplierCode.toUpperCase(),
+                customer_code: customerCode,
+                customer_name: currentCustomerName,
+                item_code: effectiveFormData.item_code,
+                item_name: effectiveFormData.item_name,
+                weight: normalizedWeight,
+                price_per_kg: normalizedPricePerKg,
+                pack_due: parseFloat(effectiveFormData.pack_due) || 0,
+                total: computedTotal,
+                packs: normalizedPacks,
+                given_amount: effectiveFormData.given_amount ? parseFloat(effectiveFormData.given_amount) : null,
+                ...(billPrintedStatus && { bill_printed: billPrintedStatus }),
+                ...(billNoToUse && { bill_no: billNoToUse }),
+                update_related_price: shouldUpdateRelatedPrice,
+            };
+
+            const url = isEditing ? `${routes.sales}/${editingIdAtStart}` : routes.sales;
+            const method = isEditing ? "put" : "post";
+
+            // Register pre-painted temp row so a refresh cannot drop it.
+            if (!isEditing && tempId && skipOptimistic) {
+                const existingOptimistic = localTableSalesRef.current.get(String(tempId))
+                    || allSales.find((s) => sameSaleId(s.id, tempId));
+                const saleToKeep = existingOptimistic || {
+                    ...payload,
+                    id: tempId,
+                    bill_printed: billPrintedStatus || 'N',
+                    CustomerPackCost: packCost || 0,
+                    _optimistic: true,
+                };
+                recentSubmittedSalesRef.current.set(tempId, { sale: saleToKeep, at: Date.now() });
+                upsertLocalTableSale(saleToKeep);
             }
 
-            // CRITICAL: Check for duplicate using idempotency key in database
-            console.log(`🟢 [${callId}] Checking for existing duplicate in ${existingPaymentDetails.length} existing payments`);
-            const duplicateInDb = existingPaymentDetails.some(p => {
-                const hasSameIdempotencyKey = p.idempotency_key === idempotencyKey;
-                const timeDiff = Math.abs(new Date(p.date).getTime() - Date.now());
-                const isRecentDuplicate = p.amount === paymentAmount && timeDiff < 10000;
+            // --- OPTIMISTIC UI SECTION ---
+            // Keep table scope on edit. billPrintedStatus is intentionally unset for edits,
+            // so stayOnPrinted must NOT depend on it — that cleared selectedPrintedCustomer
+            // and emptied the sales table after every edit save.
+            const resolveTableScope = (prev) => {
+                if (isEditing) {
+                    const keepPrinted = prev.selectedPrintedCustomer || null;
+                    const keepUnprinted = keepPrinted
+                        ? null
+                        : (prev.selectedUnprintedCustomer || customerCode || null);
+                    return { keepPrinted, keepUnprinted };
+                }
+                const stayOnPrinted = !!(prev.selectedPrintedCustomer && billPrintedStatus === 'Y');
+                if (preserveItem) {
+                    return {
+                        keepUnprinted: prev.selectedUnprintedCustomer,
+                        keepPrinted: prev.selectedPrintedCustomer,
+                    };
+                }
+                return {
+                    keepUnprinted: stayOnPrinted ? null : customerCode,
+                    keepPrinted: stayOnPrinted ? prev.selectedPrintedCustomer : null,
+                };
+            };
 
-                if (hasSameIdempotencyKey || isRecentDuplicate) {
-                    console.log(`🔴 [${callId}] Found duplicate in DB:`, {
-                        amount: p.amount,
-                        method: p.method,
-                        idempotencyKey: p.idempotency_key,
-                        timeDiff
+            if (!skipOptimistic && isEditing && previousEditedSale) {
+                const optimisticSale = {
+                    ...previousEditedSale,
+                    ...payload,
+                    id: editingIdAtStart,
+                    customer_code: customerCode,
+                    supplier_code: currentSupplierCode,
+                    item_name: effectiveFormData.item_name || previousEditedSale.item_name || '',
+                    // Never lose print status on edit — payload omits bill_printed/bill_no.
+                    bill_printed: previousEditedSale.bill_printed,
+                    bill_no: previousEditedSale.bill_no,
+                };
+
+                if (customerCode) tableCustomerScopeRef.current = customerCode;
+                recentSubmittedSalesRef.current.set(editingIdAtStart, { sale: optimisticSale, at: Date.now() });
+                upsertLocalTableSale(optimisticSale);
+
+                flushSync(() => {
+                    setState((prev) => {
+                        const { keepPrinted, keepUnprinted } = resolveTableScope(prev);
+                        const hadEditedSale = prev.allSales.some((sale) => sameSaleId(sale.id, editingIdAtStart));
+                        const updatedAllSales = hadEditedSale
+                            ? prev.allSales.map((sale) =>
+                                sameSaleId(sale.id, editingIdAtStart) ? optimisticSale : sale
+                            )
+                            : [optimisticSale, ...(prev.allSales || [])];
+                        const updatedLocalSales = [
+                            optimisticSale,
+                            ...(prev.localTableSales || []).filter((s) => !sameSaleId(s.id, editingIdAtStart)),
+                        ];
+
+                        return {
+                            ...prev,
+                            allSales: updatedAllSales,
+                            localTableSales: updatedLocalSales,
+                            formData: preserveItem ? {
+                                customer_code: customerCode,
+                                customer_name: currentCustomerName || prev.formData.customer_name,
+                                telephone_no: currentTelephone || prev.formData.telephone_no,
+                                supplier_code: currentSupplierCode || "",
+                                item_code: currentItemCode,
+                                item_name: currentItemName,
+                                pack_due: currentPackDue,
+                                weight: "",
+                                price_per_kg: "",
+                                packs: "",
+                                total: "",
+                            } : {
+                                ...initialFormData,
+                                customer_code: customerCode,
+                                customer_name: currentCustomerName || prev.formData.customer_name,
+                                telephone_no: currentTelephone || prev.formData.telephone_no,
+                                supplier_code: currentSupplierCode || "",
+                            },
+                            editingSaleId: null,
+                            isManualClear: false,
+                            isSubmitting: true,
+                            errors: {},
+                            priceManuallyChanged: false,
+                            gridPricePerKg: "",
+                            selectedSaleForBreakdown: null,
+                            selectedUnprintedCustomer: keepUnprinted,
+                            selectedPrintedCustomer: keepPrinted,
+                        };
                     });
-                    return true;
-                }
-                return false;
+                });
+                clearLineEntryDom();
+            } else if (!skipOptimistic && !isEditing && tempId) {
+                const optimisticSale = {
+                    ...payload,
+                    id: tempId,
+                    bill_printed: billPrintedStatus || 'N',
+                    CustomerPackCost: packCost || 0,
+                    _optimistic: true,
+                    customer_code: customerCode,
+                    supplier_code: currentSupplierCode,
+                    item_name: effectiveFormData.item_name || '',
+                };
+                if (customerCode) tableCustomerScopeRef.current = customerCode;
+                recentSubmittedSalesRef.current.set(tempId, { sale: optimisticSale, at: Date.now() });
+                upsertLocalTableSale(optimisticSale);
+
+                flushSync(() => {
+                    setState((prev) => {
+                        const { keepPrinted, keepUnprinted } = resolveTableScope(prev);
+
+                        return {
+                            ...prev,
+                            allSales: [optimisticSale, ...(prev.allSales || [])],
+                            localTableSales: [optimisticSale, ...(prev.localTableSales || []).filter((s) => !sameSaleId(s.id, tempId))],
+                            formData: preserveItem ? {
+                                customer_code: customerCode,
+                                customer_name: currentCustomerName || prev.formData.customer_name,
+                                telephone_no: currentTelephone || prev.formData.telephone_no,
+                                supplier_code: currentSupplierCode || "",
+                                item_code: currentItemCode,
+                                item_name: currentItemName,
+                                pack_due: currentPackDue,
+                                weight: "",
+                                price_per_kg: "",
+                                packs: "",
+                                total: "",
+                            } : {
+                                ...initialFormData,
+                                customer_code: customerCode,
+                                customer_name: currentCustomerName || prev.formData.customer_name,
+                                telephone_no: currentTelephone || prev.formData.telephone_no,
+                                supplier_code: currentSupplierCode || "",
+                            },
+                            editingSaleId: null,
+                            isManualClear: false,
+                            isSubmitting: true,
+                            errors: {},
+                            priceManuallyChanged: false,
+                            gridPricePerKg: "",
+                            selectedUnprintedCustomer: keepUnprinted,
+                            selectedPrintedCustomer: keepPrinted,
+                            selectedSaleForBreakdown: null,
+                        };
+                    });
+                });
+                clearLineEntryDom();
+            } else if (skipOptimistic) {
+                // Row already painted on packs Enter — only mark submitting.
+                updateState({ errors: {}, isSubmitting: true, isManualClear: false });
+            } else if (isEditing) {
+                // Edit without a prior snapshot — still keep customer scope so the table does not blank.
+                if (customerCode) tableCustomerScopeRef.current = customerCode;
+                updateState({
+                    errors: {},
+                    isSubmitting: true,
+                    isManualClear: false,
+                    selectedUnprintedCustomer: selectedPrintedCustomer ? null : (selectedUnprintedCustomer || customerCode),
+                    selectedPrintedCustomer: selectedPrintedCustomer || null,
+                    formData: {
+                        ...initialFormData,
+                        customer_code: customerCode,
+                        customer_name: currentCustomerName || formData.customer_name,
+                        telephone_no: currentTelephone || formData.telephone_no,
+                        supplier_code: currentSupplierCode || "",
+                    },
+                    editingSaleId: null,
+                });
+                clearLineEntryDom();
+            } else {
+                updateState({ errors: {}, isSubmitting: true });
+            }
+
+            // Focus next field immediately — do not wait for API.
+            if (!skipOptimistic) {
+                suppressSupplierFocusUntilRef.current = 0;
+                focusSupplierCode();
+            }
+
+            // Own controller per submit — never abort a previous in-flight save.
+            submitController = new AbortController();
+            pendingSubmitsRef.current.set(myGeneration, submitController);
+            submitTimeoutId = window.setTimeout(() => {
+                submitController.abort();
+            }, SUBMIT_TIMEOUT_MS);
+
+            // --- 4. API EXECUTION ---
+            const response = await api[method](url, payload, {
+                signal: submitController.signal,
+                timeout: SUBMIT_TIMEOUT_MS,
             });
 
-            if (duplicateInDb) {
-                console.log(`🔴 [${callId}] DUPLICATE FOUND IN DATABASE - ABORTING`);
-                alert('This payment was already recorded. Please refresh the page.');
-                // Clear all locks
-                processingPaymentRef.current = false;
-                paymentLockRef.current = false;
-                setPaymentLock(false);
-                setIsProcessingPayment(false);
-                setState(prev => ({ ...prev, isPrinting: false }));
+            // --- 5. DATA SYNC ---
+            // Prefer a concrete sale object. An empty `sales: []` is truthy and must not
+            // be treated as "no rows to merge" / wipe logic for edits.
+            const rawSalesList = response.data?.sales;
+            const updatedSalesRaw = (Array.isArray(rawSalesList) && rawSalesList.length > 0)
+                ? rawSalesList
+                : [response.data?.sale || response.data?.data || response.data];
+            const updatedSales = (Array.isArray(updatedSalesRaw) ? updatedSalesRaw : [updatedSalesRaw])
+                .filter((sale) => sale && sale.id != null && typeof sale === 'object' && !Array.isArray(sale))
+                .map((sale) => {
+                    // If the API omits print flags on PUT, keep the pre-edit values so the
+                    // row does not fall out of the printed/unprinted table filter.
+                    if (isEditing && previousEditedSale && sameSaleId(sale.id, editingIdAtStart)) {
+                        return {
+                            ...sale,
+                            bill_printed: sale.bill_printed ?? previousEditedSale.bill_printed,
+                            bill_no: sale.bill_no ?? previousEditedSale.bill_no,
+                        };
+                    }
+                    return sale;
+                });
+            const trackAt = Date.now();
+            const canRetireTemp = !tempId || updatedSales.length > 0;
+            if (tempId && canRetireTemp) {
+                recentSubmittedSalesRef.current.delete(tempId);
+                removeLocalTableSale(tempId);
+            }
+            updatedSales.forEach((sale) => {
+                recentSubmittedSalesRef.current.set(sale.id, { sale, at: trackAt });
+                upsertLocalTableSale(sale);
+                if (recentSubmittedSalesRef.current.size > 250) {
+                    const oldest = recentSubmittedSalesRef.current.keys().next().value;
+                    recentSubmittedSalesRef.current.delete(oldest);
+                }
+            });
+
+            if (isMountedRef.current) {
+                setState(prev => {
+                    const updatedSalesById = new Map(
+                        updatedSales.map((sale) => [String(sale.id), sale])
+                    );
+
+                    let uniqueMergedSales = prev.allSales
+                        .filter((sale) => {
+                            if (canRetireTemp && tempId && sameSaleId(sale.id, tempId)) {
+                                return false;
+                            }
+                            return true;
+                        })
+                        .map((sale) => {
+                            if (updatedSalesById.has(String(sale.id))) {
+                                return updatedSalesById.get(String(sale.id));
+                            }
+                            return sale;
+                        });
+
+                    // Never drop the edited row just because the PUT body omitted it.
+                    if (isEditing && editingIdAtStart != null) {
+                        const responseHasOldId = updatedSales.some((s) => sameSaleId(s.id, editingIdAtStart));
+                        if (!responseHasOldId) {
+                            const matchingUpdatedSale = updatedSales.find((s) =>
+                                String(s.customer_code || '').toUpperCase() === customerCode &&
+                                String(s.item_code || '').toUpperCase() === String(effectiveFormData.item_code || '').toUpperCase() &&
+                                parseFloat(s.weight) === normalizedWeight &&
+                                parseFloat(s.price_per_kg) === normalizedPricePerKg
+                            );
+                            if (matchingUpdatedSale) {
+                                // Replace old id with the returned row if the backend re-keyed it.
+                                uniqueMergedSales = uniqueMergedSales
+                                    .filter((s) => !sameSaleId(s.id, editingIdAtStart))
+                                    .concat(
+                                        uniqueMergedSales.some((s) => sameSaleId(s.id, matchingUpdatedSale.id))
+                                            ? []
+                                            : [matchingUpdatedSale]
+                                    );
+                            }
+                            // else: keep whatever optimistic/previous row is already in uniqueMergedSales
+                        }
+                    }
+
+                    const existingIds = new Set(uniqueMergedSales.map((sale) => String(sale?.id)).filter(Boolean));
+                    updatedSales.forEach((sale) => {
+                        if (!sale?.id || existingIds.has(String(sale.id))) return;
+                        uniqueMergedSales.push(sale);
+                        existingIds.add(String(sale.id));
+                    });
+
+                    const currentCustomerCode = prev.formData.customer_code || customerCode;
+                    let keepUnprinted = prev.selectedUnprintedCustomer;
+                    let keepPrinted = prev.selectedPrintedCustomer;
+
+                    // Preserve table scope after edit/create — never clear a printed bill selection
+                    // just because the PUT response arrived.
+                    if (prev.selectedPrintedCustomer) {
+                        keepPrinted = prev.selectedPrintedCustomer;
+                        keepUnprinted = null;
+                    } else if (currentCustomerCode) {
+                        keepUnprinted = currentCustomerCode;
+                        keepPrinted = null;
+                    }
+
+                    if (currentCustomerCode) {
+                        tableCustomerScopeRef.current = String(currentCustomerCode).trim().toUpperCase();
+                    }
+
+                    const updatedIdSet = new Set(updatedSales.map((s) => String(s.id)));
+                    const nextLocal = [
+                        ...updatedSales,
+                        ...(prev.localTableSales || []).filter((s) => {
+                            if (!s?.id) return false;
+                            if (canRetireTemp && tempId && sameSaleId(s.id, tempId)) return false;
+                            if (updatedIdSet.has(String(s.id))) return false;
+                            return true;
+                        }),
+                    ];
+
+                    if (isEditing && editingIdAtStart != null) {
+                        const editedSaleInLocal = nextLocal.some((s) => sameSaleId(s.id, editingIdAtStart));
+                        if (!editedSaleInLocal) {
+                            const editedSaleFromAll = uniqueMergedSales.find((s) => sameSaleId(s.id, editingIdAtStart));
+                            if (editedSaleFromAll) {
+                                nextLocal.push(editedSaleFromAll);
+                            }
+                        }
+                    }
+
+                    lastKnownSaleCountRef.current = uniqueMergedSales.filter(
+                        (s) => s?.id != null && !String(s.id).startsWith('tmp-') && !s._optimistic
+                    ).length;
+
+                    return {
+                        ...prev,
+                        allSales: uniqueMergedSales,
+                        localTableSales: nextLocal,
+                        editingSaleId: sameSaleId(prev.editingSaleId, editingIdAtStart) ? null : prev.editingSaleId,
+                        isManualClear: false,
+                        isSubmitting: pendingSubmitsRef.current.size > 1,
+                        selectedUnprintedCustomer: keepUnprinted,
+                        selectedPrintedCustomer: keepPrinted,
+                        searchQueries: prev.searchQueries,
+                    };
+                });
+            }
+
+            // Defer DB refresh so it never fights the next packs-Enter paint.
+            setManagedTimeout(() => {
+                if (pendingSubmitsRef.current.size > 0) {
+                    pendingForceRefreshRef.current = true;
+                    return;
+                }
+                refreshSalesData(true);
+            }, 3000);
+
+            if (!isFocusInItemEntryFields()) {
+                const active = document.activeElement;
+                if (!active || active === document.body || active === refs.packs.current) {
+                    focusSupplierCode();
+                }
+            }
+
+        } catch (error) {
+            const isAbort = error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError';
+
+            // Timeouts/aborts during rapid entry often mean the POST already reached the server.
+            // Keep the optimistic row and reconcile via refresh — rolling back here is what made
+            // table lines "disappear" while working quickly.
+            if (isAbort) {
+                pendingForceRefreshRef.current = true;
+                if (isMountedRef.current) {
+                    updateState({
+                        errors: {
+                            form: "Request timed out — rows kept on screen, syncing…"
+                        },
+                        isSubmitting: pendingSubmitsRef.current.size > 1
+                    });
+                }
+            } else if (tempId) {
+                // Definitive failure — roll back ONLY this submit's optimistic create
+                recentSubmittedSalesRef.current.delete(tempId);
+                removeLocalTableSale(tempId);
+                if (isMountedRef.current) {
+                    setState((prev) => ({
+                        ...prev,
+                        allSales: prev.allSales.filter((sale) => !sameSaleId(sale.id, tempId)),
+                        localTableSales: (prev.localTableSales || []).filter((sale) => !sameSaleId(sale.id, tempId)),
+                        isSubmitting: pendingSubmitsRef.current.size > 1,
+                        errors: {
+                            form: (error.response?.data?.message || error.message || "An error occurred")
+                        },
+                    }));
+                }
+            } else if (editingIdAtStart != null && previousEditedSale) {
+                // CRITICAL FIX: On edit error, restore the previous version of the sale
+                editingSaleIdRef.current = editingIdAtStart;
+                upsertLocalTableSale(previousEditedSale);
+                if (isMountedRef.current) {
+                    setState((prev) => ({
+                        ...prev,
+                        allSales: prev.allSales.map((sale) =>
+                            sameSaleId(sale.id, editingIdAtStart) ? previousEditedSale : sale
+                        ),
+                        localTableSales: [
+                            previousEditedSale,
+                            ...(prev.localTableSales || []).filter((sale) => !sameSaleId(sale.id, editingIdAtStart)),
+                        ],
+                        editingSaleId: editingIdAtStart,
+                        isSubmitting: pendingSubmitsRef.current.size > 1,
+                        errors: {
+                            form: (error.response?.data?.message || error.message || "An error occurred")
+                        },
+                    }));
+                }
+            } else if (isMountedRef.current) {
+                updateState({
+                    errors: {
+                        form: (error.response?.data?.message || error.message || "An error occurred")
+                    },
+                    isSubmitting: pendingSubmitsRef.current.size > 1
+                });
+            }
+        } finally {
+            if (submitTimeoutId) {
+                window.clearTimeout(submitTimeoutId);
+            }
+            pendingSubmitsRef.current.delete(myGeneration);
+            if (isMountedRef.current && pendingSubmitsRef.current.size === 0) {
+                updateState({ isSubmitting: false });
+                if (pendingForceRefreshRef.current) {
+                    pendingForceRefreshRef.current = false;
+                    setManagedTimeout(() => refreshSalesData(true), 0);
+                }
+            }
+        }
+    };
+    const handleCustomerClick = useStableCallback(async (type, customerCode, billNo = null, salesRecords = []) => {
+        // Do not block sidebar selection while a print dialog is open — that made the
+        // page feel frozen for up to PRINT_LOCK_MAX_MS after F1.
+
+        // --- ADMIN MODAL LOGIC ---
+        if (currentUser?.role === 'Admin') {
+            updateState({
+                isAdminModalOpen: true,
+                modalType: 'customer',
+                modalTitle: `Customer: ${customerCode} ${billNo ? `(Bill: ${billNo})` : ''}`,
+                modalData: salesRecords
+            });
+            return;
+        }
+
+        const isPrinted = type === 'printed';
+        let selectionKey = customerCode;
+        if (isPrinted && billNo) selectionKey = `${customerCode}-${billNo}`;
+        const isCurrentlySelected = isPrinted ? selectedPrintedCustomer === selectionKey : selectedUnprintedCustomer === selectionKey;
+
+        // Always pull latest sales for sidebars/table when a bill is selected.
+        void refreshSalesData(true);
+
+        if (isPrinted) {
+            updateState({
+                selectedPrintedCustomer: isCurrentlySelected ? null : selectionKey,
+                selectedUnprintedCustomer: null,
+                currentBillNo: isCurrentlySelected ? null : billNo
+            });
+        } else {
+            updateState({
+                selectedUnprintedCustomer: isCurrentlySelected ? null : selectionKey,
+                selectedPrintedCustomer: null,
+                currentBillNo: null
+            });
+        }
+
+        const customer = customers.find(x => String(x.short_name).toUpperCase() === String(customerCode).toUpperCase());
+
+        if (!isCurrentlySelected) {
+            // --- NEW CALCULATION LOGIC FOR GIVEN AMOUNT ---
+            // We calculate the sum of the records that are about to be displayed
+            const totals = salesRecords.reduce((acc, s) => {
+                const weight = parseFloat(s.weight) || 0;
+                const price = parseFloat(s.price_per_kg) || 0;
+                const packs = parseFloat(s.packs) || 0;
+                const pCost = parseFloat(s.CustomerPackCost) || 0;
+
+                acc.billTotal += (weight * price);
+                acc.totalBagPrice += (packs * pCost);
+
+                return acc;
+            }, { billTotal: 0, totalBagPrice: 0, totalLabour: 0 });
+
+            const calculatedFinal = totals.billTotal + totals.totalBagPrice;
+            const clickGeneration = ++customerClickGenerationRef.current;
+
+            // Apply form immediately so a slow given-amount API cannot leave the UI blank.
+            setFormData({
+                ...initialFormData,
+                customer_code: customerCode,
+                customer_name: customer?.name || "",
+                telephone_no: customer?.telephone_no || "",
+                given_amount: isPrinted ? "" : calculatedFinal.toFixed(2),
+            });
+            fetchLoanAmount(customerCode);
+            setManagedTimeout(() => focusSupplierCode(), 50);
+
+            try {
+                let fetchedGivenAmount = calculatedFinal.toFixed(2);
+
+                // If it's a printed bill, try to fetch the amount already stored
+                if (isPrinted) {
+                    try {
+                        let response;
+                        if (billNo) {
+                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}/${billNo}`, { timeout: API_TIMEOUT_MS });
+                            fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
+                        } else {
+                            response = await api.get(`${routes.getCustomerGivenAmount}/${customerCode}`, { timeout: API_TIMEOUT_MS });
+
+                            if (response.data?.by_bill_no && billNo) {
+                                fetchedGivenAmount = response.data.by_bill_no[billNo] ?? calculatedFinal.toFixed(2);
+                            } else if (response.data?.all_entries) {
+                                const matchingEntry = response.data.all_entries.find(entry => entry.bill_no === billNo);
+                                fetchedGivenAmount = matchingEntry?.given_amount ?? calculatedFinal.toFixed(2);
+                            } else {
+                                fetchedGivenAmount = response.data?.given_amount ?? calculatedFinal.toFixed(2);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error fetching given amount:', error);
+                        const matchingRecord = salesRecords.find(record => record.bill_no === billNo);
+                        fetchedGivenAmount = matchingRecord?.given_amount || calculatedFinal.toFixed(2);
+                    }
+                }
+
+                // Ignore late responses if the operator already clicked another customer
+                // or started typing a different sale.
+                if (
+                    clickGeneration !== customerClickGenerationRef.current ||
+                    !isMountedRef.current
+                ) {
+                    return;
+                }
+
+                setFormData(prev => {
+                    const stillSameCustomer =
+                        String(prev.customer_code || '').toUpperCase() === String(customerCode).toUpperCase();
+                    if (!stillSameCustomer) return prev;
+                    return {
+                        ...prev,
+                        customer_name: customer?.name || prev.customer_name,
+                        telephone_no: customer?.telephone_no || prev.telephone_no,
+                        given_amount: fetchedGivenAmount,
+                    };
+                });
+
+            } catch (error) {
+                console.error('Error in customer selection:', error);
+                if (clickGeneration !== customerClickGenerationRef.current || !isMountedRef.current) {
+                    return;
+                }
+                setFormData(prev => {
+                    const stillSameCustomer =
+                        String(prev.customer_code || '').toUpperCase() === String(customerCode).toUpperCase();
+                    if (!stillSameCustomer) return prev;
+                    return {
+                        ...prev,
+                        given_amount: calculatedFinal.toFixed(2),
+                    };
+                });
+            }
+        } else {
+            handleClearForm();
+        }
+
+        updateState({ editingSaleId: null, isManualClear: false, customerSearchInput: "", priceManuallyChanged: false, gridPricePerKg: "" });
+    });
+    // Helper function for normalizing codes
+    const normalizeCode = useCallback((value) => {
+        return String(value || '').trim().toUpperCase();
+    }, []);
+    const handleMarkAllProcessed = useStableCallback(async () => {
+        // Get sales to process - but do it synchronously without heavy filtering
+        const salesToProcess = [...newSales, ...unprintedSales];
+
+        // Clear form + focus customer code WITHOUT selecting text (select() made typing feel stuck).
+        editingSaleIdRef.current = null;
+        tableCustomerScopeRef.current = '';
+        setFormData(initialFormData);
+        updateState({
+            editingSaleId: null,
+            loanAmount: 0,
+            isManualClear: true, // block autoCustomerCode from filling the input after F5
+            packCost: 0,
+            customerSearchInput: "",
+            itemSearchInput: "",
+            supplierSearchInput: "",
+            priceManuallyChanged: false,
+            gridPricePerKg: "",
+            isGivenAmountManuallyTouched: false,
+            selectedSaleForBreakdown: null,
+            selectedUnprintedCustomer: null,
+            selectedPrintedCustomer: null,
+            currentBillNo: null,
+            isSubmitting: salesToProcess.length > 0,
+        });
+
+        const focusCustomerCodeNoSelect = () => {
+            const el = refs.customer_code_input.current;
+            if (!el) return;
+            el.focus({ preventScroll: true });
+            try {
+                const end = el.value?.length ?? 0;
+                el.setSelectionRange(end, end);
+            } catch (_) { /* ignore */ }
+        };
+        focusCustomerCodeNoSelect();
+
+        if (salesToProcess.length === 0) {
+            return;
+        }
+
+        try {
+            const saleIds = salesToProcess.map(s => s.id);
+            const response = await api.post(routes.markAllProcessed,
+                { sales_ids: saleIds },
+                { timeout: 5000 }
+            );
+
+            if (response.data.success) {
+                const processedIds = new Set(saleIds);
+                setState(prev => ({
+                    ...prev,
+                    allSales: prev.allSales.map(s =>
+                        processedIds.has(s.id) ? { ...s, bill_printed: "N" } : s
+                    ),
+                    isSubmitting: false,
+                    isManualClear: true,
+                }));
+            } else {
+                await refreshSalesData(true);
+                updateState({ isSubmitting: false, isManualClear: true });
+            }
+        } catch (err) {
+            console.error("Failed to mark sales as processed:", err);
+            await refreshSalesData(true);
+            updateState({ isSubmitting: false, isManualClear: true });
+        }
+        // Do NOT re-focus or select after the API — that steals the caret while the operator types.
+    });
+    const printSingleContent = async (html, customerName) => {
+        return new Promise((resolve) => {
+            const ok = writeAndPrintBill(buildPrintDocumentShell(`Print Bill - ${customerName}`, html));
+            if (!ok) {
+                alert("Unable to open print dialog");
+            }
+            setManagedTimeout(resolve, 300);
+        });
+    };
+
+    const buildFullReceiptHTML = (salesData, billNo, customerName, mobile, globalLoanAmount = 0, billSize = '3inch') => {
+        const formatNumber = (num) => {
+            if (typeof num !== 'number' && typeof num !== 'string') return '0';
+            const number = parseFloat(num);
+            if (isNaN(number)) return '0';
+
+            if (Number.isInteger(number)) {
+                return number.toLocaleString('en-US');
+            } else {
+                const parts = number.toFixed(2).split('.');
+                const wholePart = parseInt(parts[0]).toLocaleString('en-US');
+                return `${wholePart}.${parts[1]}`;
+            }
+        };
+
+        const date = new Date().toLocaleDateString();
+        const time = new Date().toLocaleTimeString();
+        let totalAmountSum = 0;
+        const consolidatedSummary = {};
+
+        salesData.forEach(s => {
+            const itemName = s.item_name || 'Unknown';
+            if (!consolidatedSummary[itemName]) consolidatedSummary[itemName] = { totalWeight: 0, totalPacks: 0 };
+            consolidatedSummary[itemName].totalWeight += parseFloat(s.weight) || 0;
+            consolidatedSummary[itemName].totalPacks += parseInt(s.packs) || 0;
+            totalAmountSum += parseFloat(s.total) || 0;
+        });
+
+        const totalPacksSum = Object.values(consolidatedSummary).reduce((sum, item) => sum + item.totalPacks, 0);
+        const is4Inch = billSize === '4inch';
+
+        // CLEAN FONT SETTINGS - 80mm paper
+        const receiptMaxWidth = '80mm';
+        const contentWidth = '72mm';
+
+        const fontSizeBody = '16px';
+        const fontSizeHeader = '16px';
+        const fontSizeTotal = '20px';
+        const fontSizeSmall = '13px';
+        const fontSizeXSmall = '11px';
+
+        const itemsHtml = salesData.map(s => {
+            const packs = parseInt(s.packs) || 0;
+            const weight = parseFloat(s.weight) || 0;
+            const price = parseFloat(s.price_per_kg) || 0;
+            const value = (weight * price).toFixed(2);
+
+            return `
+<tr style="font-size:${fontSizeBody}; font-weight:900; vertical-align: middle; line-height:1.4; page-break-inside: avoid;">
+    <td style="text-align:left; padding:3px 2px; white-space: nowrap;">
+    <span style="font-size:${fontSizeBody};">
+        ${s.item_name || ""}
+    </span><br>
+    <span style="font-size:${fontSizeXSmall}; font-weight:bold;">
+        ${formatNumber(packs)} 
+    </span>
+</td>
+    <td style="text-align:right; padding:3px 2px; white-space: nowrap; min-width: 25px; font-size:${fontSizeBody};">
+        ${formatNumber(weight.toFixed(2))}
+    </td>
+    <td style="text-align:right; padding:3px 2px; white-space: nowrap; min-width: 25px; font-size:${fontSizeBody};">
+        ${formatNumber(price.toFixed(2))}
+    </td>
+    <td style="text-align:right; padding:3px 2px; white-space: nowrap; min-width: 30px;">
+        <div style="font-size:${fontSizeXSmall}; font-weight:bold; white-space:nowrap; color:#555;">${s.supplier_code || "ASW"}</div>
+        <div style="font-size:${fontSizeBody}; font-weight:900; white-space:nowrap;">${formatNumber(value)}</div>
+    </td>
+</tr>`;
+        }).join("");
+
+        const totalSales = salesData.reduce((sum, s) => sum + ((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0)), 0);
+        const totalPackCost = salesData.reduce((sum, s) => sum + ((parseFloat(s.CustomerPackCost) || 0) * (parseFloat(s.packs) || 0)), 0);
+        const finalGrandTotal = totalSales + totalPackCost;
+        const givenAmount = salesData.find(s => parseFloat(s.given_amount) > 0)?.given_amount || 0;
+        const remaining = givenAmount > 0 ? Math.abs(givenAmount - finalGrandTotal) : 0;
+
+        const loanRow = globalLoanAmount !== 0 ? `
+<tr>
+    <td style="font-size:${fontSizeSmall}; padding-top:4px; white-space: nowrap; font-weight:bold;">පෙර ණය:</td>
+    <td style="text-align:right; font-size:${fontSizeSmall}; font-weight:bold; padding-top:4px; white-space: nowrap;">
+        Rs. ${formatNumber(Math.abs(globalLoanAmount).toFixed(2))}
+    </td>
+</tr>` : '';
+
+        const summaryEntries = Object.entries(consolidatedSummary);
+        let summaryHtmlContent = '';
+        for (let i = 0; i < summaryEntries.length; i += 2) {
+            const [name1, d1] = summaryEntries[i];
+            const [name2, d2] = summaryEntries[i + 1] || [null, null];
+            const text1 = `${name1}:${formatNumber(d1.totalWeight)}/${formatNumber(d1.totalPacks)}`;
+            const text2 = d2 ? `${name2}:${formatNumber(d2.totalWeight)}/${formatNumber(d2.totalPacks)}` : '';
+            const combinedText = d2 ? `${text1}  ${text2}` : text1;
+            summaryHtmlContent += `
+<tr>
+    <td style="padding:3px 2px; width:100%; font-weight:bold; white-space:nowrap; text-align:center; font-size:${fontSizeXSmall};" colspan="2">${combinedText}</td>
+</tr>`;
+        }
+
+        return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Print Receipt</title>
+    <style>
+        /* CRITICAL: Reset all margins for thermal printer */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* XP-80 Thermal Printer Settings */
+        @page {
+            size: ${receiptMaxWidth} auto;
+            margin: 0;
+            padding: 0;
+        }
+        
+        @media print {
+            html, body {
+                margin: 0;
+                padding: 0;
+                width: ${receiptMaxWidth};
+                background: white;
+                font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            }
+            
+            .receipt-content {
+                width: ${contentWidth};
+                margin: 0 auto;
+                padding: 3px 4px;
+                background: #fff;
+                font-size: ${fontSizeBody};
+                box-sizing: border-box;
+                overflow: hidden;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+            }
+            
+            .receipt-content * {
+                max-width: 100%;
+                box-sizing: border-box;
+                font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            }
+            
+            .no-break {
+                page-break-inside: avoid;
+                page-break-after: avoid;
+            }
+            
+            .total-section {
+                page-break-inside: avoid;
+                page-break-after: avoid;
+            }
+            
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                page-break-inside: auto;
+            }
+            
+            /* ===== CRITICAL FIX: Prevent table header from repeating on each page ===== */
+            /* This forces the browser to treat the header as a normal row group */
+            thead {
+                display: table-row-group !important;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+            }
+            
+            /* Override the default repeating header behavior */
+            table {
+                page-break-inside: auto;
+            }
+            
+            /* Make tbody work normally */
+            tbody {
+                display: table-row-group;
+                page-break-inside: auto;
+            }
+            
+            /* Remove the conflicting header-row-fix class */
+            /* .header-row-fix {
+                display: table-row;
+            } */
+            /* ===== END CRITICAL FIX ===== */
+            
+            tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+            
+            td, th {
+                padding: 2px 3px;
+                font-size: ${fontSizeBody};
+            }
+            
+            .divider {
+                border: none;
+                border-top: 2px solid #000;
+                margin: 4px 0;
+                width: 100%;
+            }
+            
+            .footer-section {
+                margin-top: 8px;
+                padding-top: 6px;
+                border-top: 2px solid #000;
+                width: 100%;
+                page-break-after: avoid;
+                page-break-inside: avoid;
+            }
+            
+            .cut-marker {
+                text-align: center;
+                font-size: 10px;
+                color: #999;
+                margin-top: 10px;
+                padding-top: 6px;
+                border-top: 1px dotted #ccc;
+                letter-spacing: 2px;
+                page-break-after: avoid;
+            }
+            
+            .net-payable {
+                color: #000;
+                font-size: ${fontSizeTotal};
+                font-weight: 900;
+                border-bottom: 3px double #000;
+                border-top: 2px solid #000;
+                padding: 3px 8px;
+                display: inline-block;
+                white-space: nowrap;
+                letter-spacing: 0.5px;
+            }
+            
+            .no-extra-space {
+                height: 0;
+                margin: 0;
+                padding: 0;
+            }
+            
+            .space-before-footer {
+                height: 8px;
+                margin: 0;
+                padding: 0;
+            }
+            
+            .header-title {
+                font-size: 22px;
+                font-weight: 900;
+                white-space: nowrap;
+                letter-spacing: 1px;
+            }
+            
+            .header-subtitle {
+                font-size: ${fontSizeXSmall};
+                font-weight: bold;
+                font-style: italic;
+                white-space: nowrap;
+                color: #333;
+            }
+            
+            .header-code {
+                border: 2px solid #000;
+                padding: 2px 8px;
+                font-size: 24px;
+                font-weight: 900;
+                white-space: nowrap;
+            }
+            
+            .header-name {
+                border: 2px solid #000;
+                padding: 2px 8px;
+                font-size: 22px;
+                font-weight: 900;
+                white-space: nowrap;
+                max-width: 60%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .bill-info {
+                font-size: ${fontSizeSmall};
+                font-weight: bold;
+                padding: 2px 2px;
+                width: 100%;
+            }
+            
+            .bill-info span {
+                font-weight: normal;
+            }
+            
+            .table-header th {
+                font-size: ${fontSizeHeader};
+                font-weight: 900;
+                text-align: left;
+                padding: 2px 2px;
+                border-bottom: 2px solid #000;
+            }
+            
+            .table-header th:not(:first-child) {
+                text-align: right;
+            }
+            
+            .summary-text {
+                font-size: ${fontSizeXSmall};
+                font-weight: bold;
+            }
+            
+            .total-label {
+                font-size: ${fontSizeTotal};
+                font-weight: 900;
+                padding: 2px 2px;
+                white-space: nowrap;
+            }
+            
+            .total-amount {
+                text-align: right;
+                padding: 2px 2px;
+            }
+            
+            .footer-text {
+                margin: 2px 0;
+                font-weight: bold;
+                white-space: nowrap;
+                text-align: center;
+                font-size: ${fontSizeSmall};
+            }
+            
+            .footer-text-small {
+                margin: 2px 0;
+                white-space: nowrap;
+                text-align: center;
+                font-size: ${fontSizeXSmall};
+            }
+        }
+        
+        /* Print-specific fixes */
+        @media print and (min-width: 0px) {
+            table {
+                page-break-inside: auto;
+            }
+            
+            tr {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="receipt-content">
+    <!-- HEADER -->
+    <div class="no-break">
+        <div style="text-align:center; font-weight:bold; padding:2px 0; width:100%;">
+            <div class="header-title">මංජු සහ සහෝදරයෝ</div>
+            <div class="header-subtitle">colombage lanka (Pvt) Ltd</div>
+            
+            <div style="display:flex; justify-content:space-between; align-items:center; margin:4px 0; width:100%;">
+                <span class="header-code">N66</span>
+                <span class="header-name">${(salesData[0]?.customer_code || 'CUSTOMER').toUpperCase()}</span>
+            </div>
+            
+            <div style="font-size:${fontSizeXSmall}; white-space:nowrap; font-weight:bold; color:#444;">එළවළු, පළතුරු තොග වෙළෙන්දෝ</div>
+            <div style="display:flex; justify-content:space-between; font-size:${fontSizeSmall}; padding:2px 2px; width:100%; font-weight:bold;">
+                <span style="white-space:nowrap;">බණ්ඩාරවෙල</span>
+                <span style="white-space:nowrap;">${time}</span>
+            </div>
+        </div>
+
+        <!-- CONTACT & BILL INFO -->
+        <div class="bill-info">
+            <div style="font-weight:bold; white-space:nowrap;">දුර: 0777672838 / 0714371115</div>
+            <div style="display:flex; justify-content:space-between; width:100%;">
+                <span style="white-space:nowrap;">බිල් අං: <strong id="receipt-bill-no">${billNo}</strong></span>
+                <span style="white-space:nowrap;">දිනය: <strong>${date}</strong></span>
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- ITEMS TABLE -->
+        <table style="width:100%; border-collapse:collapse; font-size:${fontSizeBody}; table-layout: fixed;">
+            <colgroup>
+                <col style="width: 32%;">
+                <col style="width: 20%;">
+                <col style="width: 20%;">
+                <col style="width: 28%;">
+            </colgroup>
+            <thead class="table-header" style="page-break-after: avoid; display: table-header-group;">
+                <tr style="border-bottom:2px solid #000; font-weight:bold; page-break-after: avoid;">
+                    <th style="text-align:left; padding:2px 2px;">වර්ගය<br>මලු</th>
+                    <th style="text-align:right; padding:2px 2px;">කිලෝ</th>
+                    <th style="text-align:right; padding:2px 2px;">මිල</th>
+                    <th style="text-align:right; padding:2px 2px;">අයිතිය<br>අගය</th>
+                </tr>
+            </thead>
+            <tbody style="page-break-inside: auto;">
+                ${itemsHtml}
+            </tbody>
+        </table>
+
+        <!-- SUMMARY -->
+        <div style="margin-top:4px; border-top:2px solid #000; padding-top:3px; width:100%;">
+            <table style="width:100%; border-collapse:collapse; font-size:${fontSizeXSmall}; text-align:center;">
+                <tbody>
+                    ${summaryHtmlContent || '<tr><td colspan="2" style="padding:2px; font-weight:bold;">No items</td></tr>'}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- TOTALS -->
+    <div class="total-section">
+        <table style="width:100%; margin-top:4px; font-weight:bold; border-collapse:collapse;">
+            <colgroup>
+                <col style="width: 50%;">
+                <col style="width: 50%;">
+            </colgroup>
+            <tbody>
+                <tr>
+                    <td style="font-size:${fontSizeSmall}; padding:2px 2px; white-space:nowrap;">මලු:</td>
+                    <td style="text-align:right; font-size:${fontSizeSmall}; padding:2px 2px; white-space:nowrap;">
+                        ${formatNumber(totalPackCost.toFixed(2))}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="total-label">එකතුව:</td>
+                    <td class="total-amount">
+                        <span class="net-payable">Rs. ${Number(finalGrandTotal || 0).toFixed(2)}</span>
+                    </td>
+                </tr>
+                ${loanRow}
+                ${givenAmount > 0 ? `
+                <tr>
+                    <td style="font-size:${fontSizeSmall}; padding:2px 2px; white-space:nowrap;">දුන් මුදල:</td>
+                    <td style="text-align:right; font-size:${fontSizeSmall}; padding:2px 2px; font-weight:bold; white-space:nowrap;">
+                        ${formatNumber((0).toFixed(2))}
+                    </td>
+                </tr>
+                <tr>
+                    <td style="font-size:${fontSizeSmall}; white-space:nowrap;">ඉතිරිය:</td>
+                    <td style="text-align:right; font-size:${fontSizeSmall}; white-space:nowrap;">${formatNumber((0).toFixed(2))}</td>
+                </tr>` : ''}
+            </tbody>
+        </table>
+
+        <!-- FOOTER WITH SPACE BEFORE CUT -->
+        <div class="space-before-footer"></div>
+        
+        <div class="footer-section">
+            <p class="footer-text">භාණ්ඩ පරීක්ෂාකර බලා රැගෙන යන්න</p>
+            <p class="footer-text-small">නැවත භාර ගනු නොලැබේ</p>
+        </div>
+        
+        <!-- CUT MARKER with extra space -->
+        <div class="cut-marker">- - - - - - - - - - - - - - - - - - - - - -</div>
+        <div style="height: 6px; margin: 0; padding: 0;"></div>
+    </div>
+</div>
+</body>
+</html>`;
+    };
+    const formatReceiptValue = (value) => {
+        if (value === null || value === undefined || value === '') return '0.00';
+        const num = parseFloat(value);
+        if (isNaN(num)) return '0.00';
+        return num.toFixed(2);
+    };
+
+    const handlePrintAndClear = useStableCallback(async (preOpenedPrintWindow = null, prefetch = null) => {
+        // ---------------------------------------------------------------------
+        // INSTANT UI CLEAR & FOCUS (Fires synchronously before network/print delays)
+        // ---------------------------------------------------------------------
+        tableCustomerScopeRef.current = '';
+        editingSaleIdRef.current = null;
+
+        // Force immediate UI reset
+        flushSync(() => {
+            handleClearForm(true);
+            setState(prev => ({
+                ...prev,
+                selectedPrintedCustomer: null,
+                selectedUnprintedCustomer: null,
+                currentBillNo: null,
+                isPrinting: false
+            }));
+        });
+
+        // Move focus to customer_code_input instantly
+        if (refs.customer_code_input.current) {
+            refs.customer_code_input.current.focus();
+            refs.customer_code_input.current.select();
+        }
+        // ---------------------------------------------------------------------
+
+        // When F1 already opened the system print dialog, only finish DB work
+        if (prefetch?.printAlreadyTriggered) {
+            printInFlightRef.current = true;
+            printStartedAtRef.current = Date.now();
+
+            const freshSalesData = await refreshSalesData(true);
+            let salesToProcess = (Array.isArray(prefetch?.salesToProcess) ? prefetch.salesToProcess : [])
+                .filter((s) => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic);
+            let billNo = prefetch?.billNo || "";
+
+            const finishPrintFlow = () => {
+                printInFlightRef.current = false;
+                printStartedAtRef.current = 0;
+                updateState({ isPrinting: false });
+            };
+
+            const finalizeUiAfterPrint = (finalBillNo) => {
+                const printedIds = new Set(salesToProcess.map((s) => s.id).filter(Boolean));
+                setState((prev) => ({
+                    ...prev,
+                    allSales: prev.allSales.map((s) =>
+                        printedIds.has(s.id)
+                            ? { ...s, bill_printed: 'Y', bill_no: finalBillNo || s.bill_no }
+                            : s
+                    ),
+                }));
+                printInFlightRef.current = false;
+                printStartedAtRef.current = 0;
+                setManagedTimeout(() => refreshSalesData(true), 400);
+            };
+
+            try {
+                if (!billNo && prefetch?.markPrintedPromise) {
+                    const printResponse = await prefetch.markPrintedPromise;
+                    if (printResponse?.data?.status === "success") {
+                        billNo = printResponse.data.customer_bill_no || billNo;
+                    }
+                }
+                finalizeUiAfterPrint(billNo);
+            } catch (error) {
+                console.error("Printing finalize error:", error);
+                finishPrintFlow();
+            }
+            return;
+        }
+
+        // Ref-based guard prevents duplicate prints
+        if (printInFlightRef.current) {
+            if (Date.now() - printStartedAtRef.current < PRINT_LOCK_MAX_MS) {
+                return;
+            }
+            printInFlightRef.current = false;
+            updateState({ isPrinting: false });
+        }
+        printInFlightRef.current = true;
+        printStartedAtRef.current = Date.now();
+
+        const finishPrintFlow = () => {
+            printInFlightRef.current = false;
+            printStartedAtRef.current = 0;
+            updateState({ isPrinting: false });
+        };
+
+        let customerCode = "";
+        let customerName = "";
+        let billNo = prefetch?.billNo || "";
+        let salesToProcess = Array.isArray(prefetch?.salesToProcess) ? prefetch.salesToProcess.slice() : [];
+
+        // Fetch fresh sales data in background for print rendering
+        try {
+            const response = await api.get(routes.sales, { timeout: API_TIMEOUT_MS });
+            const freshSalesData = response.data.data || response.data.sales || response.data || [];
+            const freshSalesArray = Array.isArray(freshSalesData) ? freshSalesData : [];
+
+            setState(prev => ({
+                ...prev,
+                allSales: freshSalesArray
+            }));
+
+            if (salesToProcess.length === 0) {
+                if (selectedPrintedCustomer) {
+                    if (selectedPrintedCustomer.includes('-')) {
+                        const [cCode, bNo] = selectedPrintedCustomer.split('-');
+                        customerCode = cCode;
+                        billNo = bNo;
+                        salesToProcess = freshSalesArray.filter(s =>
+                            String(s.customer_code || '').toUpperCase() === String(cCode).toUpperCase() &&
+                            String(s.bill_no || '') === String(bNo)
+                        );
+                    } else {
+                        salesToProcess = freshSalesArray.filter(s =>
+                            s.customer_code === selectedPrintedCustomer &&
+                            s.bill_printed === 'Y'
+                        );
+                        if (salesToProcess.length > 0) {
+                            billNo = salesToProcess[0].bill_no || "";
+                        }
+                    }
+                } else if (selectedUnprintedCustomer) {
+                    salesToProcess = freshSalesArray.filter(s =>
+                        s.customer_code === selectedUnprintedCustomer &&
+                        (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+                    );
+                    const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+                } else {
+                    salesToProcess = freshSalesArray.filter(s => s.id && !String(s.id).startsWith('tmp-') && !s._optimistic);
+                    const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+                }
+            } else if (!billNo) {
+                const updatedSalesToProcess = [];
+                for (const sale of salesToProcess) {
+                    const freshSale = freshSalesArray.find(s => s.id === sale.id);
+                    if (freshSale) {
+                        updatedSalesToProcess.push(freshSale);
+                    } else {
+                        updatedSalesToProcess.push(sale);
+                    }
+                }
+                salesToProcess = updatedSalesToProcess;
+
+                const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+                if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+                if (selectedPrintedCustomer && selectedPrintedCustomer.includes('-')) {
+                    billNo = selectedPrintedCustomer.split('-')[1] || billNo;
+                }
+            }
+
+        } catch (error) {
+            console.error("Failed to refresh sales data for printing:", error);
+            if (salesToProcess.length === 0) {
+                if (selectedPrintedCustomer) {
+                    if (selectedPrintedCustomer.includes('-')) {
+                        const [cCode, bNo] = selectedPrintedCustomer.split('-');
+                        customerCode = cCode;
+                        billNo = bNo;
+                        salesToProcess = allSales.filter(s =>
+                            String(s.customer_code || '').toUpperCase() === String(cCode).toUpperCase() &&
+                            String(s.bill_no || '') === String(bNo)
+                        );
+                    } else {
+                        salesToProcess = allSales.filter(s =>
+                            s.customer_code === selectedPrintedCustomer &&
+                            s.bill_printed === 'Y'
+                        );
+                        if (salesToProcess.length > 0) {
+                            billNo = salesToProcess[0].bill_no || "";
+                        }
+                    }
+                } else if (selectedUnprintedCustomer) {
+                    salesToProcess = allSales.filter(s =>
+                        s.customer_code === selectedUnprintedCustomer &&
+                        (s.bill_printed === 'N' || !s.bill_printed || s.bill_printed === '')
+                    );
+                    const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+                } else {
+                    salesToProcess = displayedSales.filter(s => s.id);
+                    const saleWithBillNo = salesToProcess.find(s => s.bill_no);
+                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+                }
+            }
+        }
+
+        if (!salesToProcess.length) {
+            alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+            finishPrintFlow();
+            return;
+        }
+
+        salesToProcess = salesToProcess.filter((s) => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic);
+        if (!salesToProcess.length) {
+            alert("වාර්තා සුරැකෙමින් පවතී. කරුණාකර නැවත F1 ඔබන්න.");
+            finishPrintFlow();
+            return;
+        }
+
+        const hasZeroOrOnePrice = salesToProcess.some(s => parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1);
+        if (hasZeroOrOnePrice) {
+            alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+            finishPrintFlow();
+            return;
+        }
+
+        for (const s of salesToProcess) {
+            if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+                alert(`කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`);
+                finishPrintFlow();
+                return;
+            }
+        }
+
+        customerCode = salesToProcess[0].customer_code;
+        customerName = salesToProcess[0].customer_name || customerCode;
+        const mobile = salesToProcess[0].mobile || "0777672838 / 071437115";
+        const normalizedCustomerCode = String(customerCode || '').trim().toUpperCase();
+        const currentLoan = loanCacheRef.current.has(normalizedCustomerCode)
+            ? loanCacheRef.current.get(normalizedCustomerCode)
+            : (parseFloat(loanAmount) || 0);
+
+        const printReceiptNow = (finalBillNo) => {
+            const receiptHtml = buildFullReceiptHTML(
+                salesToProcess,
+                finalBillNo,
+                customerName,
+                mobile,
+                currentLoan,
+                billSize
+            );
+            return writeAndPrintBill(buildPrintDocumentShell('Print Bill', receiptHtml));
+        };
+
+        const finalizeUiAfterPrint = (finalBillNo) => {
+            const printedIds = new Set(salesToProcess.map((s) => s.id).filter(Boolean));
+            setState((prev) => ({
+                ...prev,
+                allSales: prev.allSales.map((s) =>
+                    printedIds.has(s.id)
+                        ? { ...s, bill_printed: 'Y', bill_no: finalBillNo || s.bill_no }
+                        : s
+                ),
+            }));
+            printInFlightRef.current = false;
+            printStartedAtRef.current = 0;
+            setManagedTimeout(() => refreshSalesData(true), 400);
+        };
+
+        try {
+            if (billNo) {
+                printReceiptNow(billNo);
+                finalizeUiAfterPrint(billNo);
                 return;
             }
 
-            console.log(`🟢 [${callId}] No duplicate found, proceeding with payment`);
+            const allSaleIds = salesToProcess.map((s) => s.id);
+            const printResponse = prefetch?.markPrintedPromise
+                ? await prefetch.markPrintedPromise
+                : await api.post(routes.markPrinted, {
+                    sales_ids: allSaleIds,
+                    telephone_no: formData.telephone_no,
+                    customer_code: customerCode,
+                    customer_name: customerName,
+                    loan_amount: 0
+                }, { timeout: API_TIMEOUT_MS });
 
-            // ⭐ CRITICAL FIX: Calculate total paid AFTER this payment
-            const newTotalPaid = currentPaid + paymentAmount;
-            const isFullySettled = newTotalPaid >= totalPayable;
-            const newRemaining = Math.max(0, totalPayable - newTotalPaid);
-
-            console.log(`🟢 [${callId}] Payment calculation:`, {
-                currentPaid,
-                paymentAmount,
-                newTotalPaid,
-                totalPayable,
-                isFullySettled
-            });
-
-            let paymentMethod = 'Cash';
-            if (isAdjustment && adjustmentDetails) {
-                paymentMethod = adjustmentDetails.type === 'bag_to_box' ? 'bag_to_box' :
-                    (adjustmentDetails.type === 'bill_to_bill' ? 'bill_to_bill' : 'bad_debt');
-            } else if (isBankTransfer) {
-                paymentMethod = 'Bank Transfer';
-            } else if (isCheque) {
-                paymentMethod = 'Cheque';
+            if (printResponse.data.status !== "success") {
+                throw new Error("මුද්‍රණය අසාර්ථකයි");
             }
 
-            // Map payment method to creditor format
-            let paymentMethodForCreditor = 'cash';
-            if (paymentMethod === 'Cheque') paymentMethodForCreditor = 'cheque';
-            else if (paymentMethod === 'Bank Transfer') paymentMethodForCreditor = 'bank_transfer';
-            else if (paymentMethod === 'bag_to_box') paymentMethodForCreditor = 'bag_to_box';
-            else if (paymentMethod === 'bill_to_bill') paymentMethodForCreditor = 'bill_to_bill';
-            else if (paymentMethod === 'bad_debt') paymentMethodForCreditor = 'bad_debt';
+            billNo = printResponse.data.customer_bill_no || "";
+            if (!billNo) {
+                alert("බිල්පත් අංකය උත්පාදනය කිරීමට නොහැකි විය");
+                finishPrintFlow();
+                return;
+            }
 
-            // Create a truly unique ID using multiple sources including idempotency key
-            const uniqueId = `${idempotencyKey}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            const timestamp = Date.now();
-            console.log(`🟢 [${callId}] Created payment record with ID: ${uniqueId}`);
+            printReceiptNow(billNo);
+            finalizeUiAfterPrint(billNo);
+        } catch (error) {
+            console.error("Printing error:", error);
+            alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + (error.message || error));
+            finishPrintFlow();
+        }
+    });
+    const handleBillSizeChange = useStableCallback((e) => updateState({ billSize: e.target.value }));
 
-            const paymentRecord = {
-                id: uniqueId,
-                idempotency_key: idempotencyKey,
-                date: new Date().toISOString(),
-                amount: paymentAmount,
-                method: paymentMethod,
-                running_balance: newRemaining,
-                reference: paymentMethod === 'Cash' ? `Cash Payment ${timestamp}` : (chequeDetails?.cheq_no || bankTransferDetails?.reference_no || adjustmentDetails?.reference),
-                details: {},
-                unique_timestamp: timestamp,
-                payment_index: existingPaymentDetails.length,
-                call_id: callId,
-                is_credit_settlement: isCreditSettlementPayment
-            };
 
-            // Track bank name for allocation deduction
-            let bankNameForAllocation = null;
+    // Subscribe once for the lifetime of the page; the stable callback always sees fresh
+    // state, so this listener no longer detaches/re-attaches on every keystroke's render.
+    const handleShortcut = useStableCallback((e) => {
+        if (e.key === "F10") {
+            e.preventDefault();
+            // This reloads the entire page from the server
+            window.location.reload();
+        }
 
-            if (isCheque && chequeDetails) {
-                paymentRecord.reference = chequeDetails.cheq_no;
-                paymentRecord.details = {
-                    cheque_no: chequeDetails.cheq_no,
-                    cheque_date: chequeDetails.cheq_date,
-                    bank_account_id: chequeDetails.bank_account_id
-                };
-                // Get bank name for allocation deduction
-                bankNameForAllocation = chequeDetails.bank_name || null;
-            } else if (isBankTransfer && bankTransferDetails) {
-                paymentRecord.reference = bankTransferDetails.reference_no;
-                paymentRecord.details = {
-                    reference_no: bankTransferDetails.reference_no,
-                    transfer_date: bankTransferDetails.transfer_date,
-                    bank_account_id: bankTransferDetails.bank_account_id,
-                    notes: bankTransferDetails.notes
-                };
-                // Get bank name for allocation deduction
-                bankNameForAllocation = bankTransferDetails.bank_name || null;
-            } else if (isAdjustment && adjustmentDetails) {
-                if (adjustmentDetails.type === 'bag_to_box') {
-                    paymentRecord.details = {
-                        bag_count: adjustmentDetails.bag_count,
-                        box_count: adjustmentDetails.box_count,
-                        bag_value: adjustmentDetails.bag_value,
-                        box_value: adjustmentDetails.box_value
-                    };
-                } else if (adjustmentDetails.type === 'bill_to_bill') {
-                    paymentRecord.details = {
-                        target_supplier_code: adjustmentDetails.target_supplier_code,
-                        target_supplier_bill_no: adjustmentDetails.target_supplier_bill_no,
-                        target_supplier_bill_value: adjustmentDetails.target_supplier_bill_value
-                    };
-                } else if (adjustmentDetails.type === 'bad_debt') {
-                    paymentRecord.details = {
-                        bad_debt_name: adjustmentDetails.bad_debt_name,
-                        bad_debt_amount: adjustmentDetails.bad_debt_amount
-                    };
+        if (e.key === "F1") {
+            e.preventDefault();
+            if (e.repeat) return;
+            if (printInFlightRef.current) {
+                if (Date.now() - printStartedAtRef.current < PRINT_LOCK_MAX_MS) return;
+                printInFlightRef.current = false;
+                updateState({ isPrinting: false });
+            }
+
+            // --- GATHER SALES DATA FOR VALIDATION (local memory only — no network) ---
+            let salesDataToValidate = [];
+            let billNo = "";
+
+            // FIX: First check if we have any displayedSales, then determine which customer is selected
+            const customerCodeFromForm = formData.customer_code?.trim().toUpperCase();
+            const unprintedCustomer = selectedUnprintedCustomer?.trim().toUpperCase();
+            const printedCustomer = selectedPrintedCustomer;
+
+            // Determine which customer context to use
+            let activeCustomerCode = null;
+            let activeBillNo = null;
+
+            if (printedCustomer) {
+                if (printedCustomer.includes('-')) {
+                    const [cCode, bNo] = printedCustomer.split('-');
+                    activeCustomerCode = cCode;
+                    activeBillNo = bNo || "";
+                } else {
+                    activeCustomerCode = printedCustomer;
+                }
+            } else if (unprintedCustomer) {
+                activeCustomerCode = unprintedCustomer;
+            } else if (customerCodeFromForm) {
+                activeCustomerCode = customerCodeFromForm;
+            }
+
+            // If we have an active customer, filter displayedSales by that customer
+            if (activeCustomerCode) {
+                salesDataToValidate = displayedSales.filter(s =>
+                    String(s.customer_code || '').toUpperCase() === activeCustomerCode
+                );
+
+                // If we have a specific bill number (printed bill), filter further
+                if (activeBillNo) {
+                    salesDataToValidate = salesDataToValidate.filter(s =>
+                        String(s.bill_no || '') === activeBillNo
+                    );
+                }
+
+                // If we found sales, try to get the bill number
+                if (salesDataToValidate.length > 0) {
+                    const saleWithBillNo = salesDataToValidate.find(s => s.bill_no);
+                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+
+                    // If it's a printed customer but billNo not found, use the one from selection
+                    if (!billNo && printedCustomer && printedCustomer.includes('-')) {
+                        billNo = printedCustomer.split('-')[1] || "";
+                    }
                 }
             }
 
-            // Append new payment
-            const allPaymentDetails = [...existingPaymentDetails, paymentRecord];
-            console.log(`🟢 [${callId}] Appending payment, total payment details count: ${allPaymentDetails.length}`);
+            // If still no sales, try to get ANY displayed sales (fallback)
+            if (salesDataToValidate.length === 0) {
+                salesDataToValidate = displayedSales.filter(s => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic);
+                if (salesDataToValidate.length > 0) {
+                    const saleWithBillNo = salesDataToValidate.find(s => s.bill_no);
+                    if (saleWithBillNo) billNo = saleWithBillNo.bill_no;
+                }
+            }
 
-            // ========== CRITICAL FIX: Only update creditor if bill is NOT in Not Settled list ==========
-            let creditorUpdateSuccess = false;
-            let updatedCreditorData = null;
+            // Clean up: remove temp/optimistic rows
+            salesDataToValidate = salesDataToValidate.filter(
+                (s) => s?.id && !String(s.id).startsWith('tmp-') && !s._optimistic
+            );
 
-            if (!isBillInNotSettled && isCreditSettlementPayment && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                console.log(`🟢 [${callId}] CREDIT SETTLEMENT FOR FULLY SETTLED BILL DETECTED!`);
+            if (salesDataToValidate.length === 0) {
+                alert("මුද්‍රණය කිරීමට දත්ත නොමැත!");
+                return;
+            }
 
-                try {
-                    const updateResponse = await api.put('/creditors/update-payment', {
-                        bill_no: state.selectedBillNo,
-                        payment_amount: paymentAmount,
-                        payment_method: paymentMethodForCreditor,
-                        idempotency_key: idempotencyKey
-                    });
+            const hasZeroOrOnePrice = salesDataToValidate.some(s =>
+                parseFloat(s.price_per_kg) === 0 || parseFloat(s.price_per_kg) === 1
+            );
 
-                    console.log(`🟢 [${callId}] Creditor update response:`, updateResponse.data);
+            if (hasZeroOrOnePrice) {
+                alert("මිල 0 හෝ 1 ලෙස ඇති අයිතම මුද්‍රණය කළ නොහැක.");
+                return;
+            }
 
-                    if (updateResponse.data.success) {
-                        creditorUpdateSuccess = true;
-                        updatedCreditorData = updateResponse.data.data;
-                    } else {
-                        throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
-                    }
-                } catch (creditorError) {
-                    console.error(`❌ [${callId}] Failed to update creditor payment:`, creditorError);
-                    alert('Failed to update creditor payment: ' + (creditorError.response?.data?.message || creditorError.message));
-                    // Clear locks on error
-                    processingPaymentRef.current = false;
-                    paymentLockRef.current = false;
-                    setPaymentLock(false);
-                    setIsProcessingPayment(false);
-                    setState(prev => ({ ...prev, isPrinting: false }));
+            for (const s of salesDataToValidate) {
+                if (parseFloat(s.price_per_kg) === parseFloat(s.SupplierPricePerKg)) {
+                    alert(`කේතය: ${s.supplier_code} හි කොමිස් මුදල් අඩුකර නොමැත. කරුණාකර පාරිභෝගිකයා පද්ධතියට ඇතුළත් කර අදාළ ඡායාරූප (Profile, NIC) එක් කරන්න.`);
                     return;
                 }
             }
 
-            let response;
+            const customerCode = salesDataToValidate[0].customer_code;
+            const customerName = salesDataToValidate[0].customer_name || customerCode;
+            const mobile = salesDataToValidate[0].mobile || "0777672838 / 071437115";
+            const normalizedCustomerCode = String(customerCode || '').trim().toUpperCase();
+            const currentLoan = loanCacheRef.current.has(normalizedCustomerCode)
+                ? loanCacheRef.current.get(normalizedCustomerCode)
+                : (parseFloat(loanAmount) || 0);
 
-            if (existingLoanId) {
-                console.log(`🟢 [${callId}] UPDATING existing loan record:`, existingLoanId);
-
-                const payload = {
-                    code: state.selectedSupplier,
-                    bill_no: state.selectedBillNo,
-                    loan_amount: paymentAmount,
-                    total_amount: totalPayable,
-                    type: paymentMethod,
-                    transaction_ids: state.supplierDetails.map(record => record.id),
-                    payment_details: allPaymentDetails,
-                    use_history: isViewingHistory,
-                    is_credit_settlement: isCreditSettlementPayment,
-                    idempotency_key: idempotencyKey,
-                    bag_amount: bagAmount ? parseFloat(bagAmount) : null
-                };
-
-                if (isCheque && chequeDetails) {
-                    payload.bank_name = chequeDetails.bank_name;
-                    payload.cheque_no = chequeDetails.cheq_no;
-                    payload.realized_date = chequeDetails.cheq_date;
-                    payload.bank_account_id = chequeDetails.bank_account_id;
-                } else if (isBankTransfer && bankTransferDetails) {
-                    payload.bank_account_id = bankTransferDetails.bank_account_id;
-                    payload.transfer_reference_no = bankTransferDetails.reference_no;
-                    payload.transfer_date = bankTransferDetails.transfer_date;
-                    payload.transfer_notes = bankTransferDetails.notes;
-                } else if (isAdjustment && adjustmentDetails) {
-                    if (adjustmentDetails.type === 'bag_to_box') {
-                        payload.bag_count = adjustmentDetails.bag_count;
-                        payload.box_count = adjustmentDetails.box_count;
-                        payload.bag_value = adjustmentDetails.bag_value;
-                        payload.box_value = adjustmentDetails.box_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bill_to_bill') {
-                        payload.target_supplier_code = adjustmentDetails.target_supplier_code;
-                        payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
-                        payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bad_debt') {
-                        payload.bad_debt_name = adjustmentDetails.bad_debt_name;
-                        payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    }
-                }
-
-                console.log(`🟢 [${callId}] Sending UPDATE request to /supplier-loan/${existingLoanId}`);
-                response = await api.put(`/supplier-loan/${existingLoanId}`, payload);
-            } else {
-                console.log(`🟢 [${callId}] CREATING new loan record`);
-
-                const payload = {
-                    code: state.selectedSupplier,
-                    bill_no: state.selectedBillNo,
-                    loan_amount: paymentAmount,
-                    total_amount: totalPayable,
-                    type: paymentMethod,
-                    transaction_ids: state.supplierDetails.map(record => record.id),
-                    payment_details: allPaymentDetails,
-                    use_history: isViewingHistory,
-                    is_credit_settlement: isCreditSettlementPayment,
-                    idempotency_key: idempotencyKey,
-                    bag_amount: bagAmount ? parseFloat(bagAmount) : null
-                };
-
-                if (isCheque && chequeDetails) {
-                    payload.bank_name = chequeDetails.bank_name;
-                    payload.cheque_no = chequeDetails.cheq_no;
-                    payload.realized_date = chequeDetails.cheq_date;
-                    payload.bank_account_id = chequeDetails.bank_account_id;
-                } else if (isBankTransfer && bankTransferDetails) {
-                    payload.bank_account_id = bankTransferDetails.bank_account_id;
-                    payload.transfer_reference_no = bankTransferDetails.reference_no;
-                    payload.transfer_date = bankTransferDetails.transfer_date;
-                    payload.transfer_notes = bankTransferDetails.notes;
-                } else if (isAdjustment && adjustmentDetails) {
-                    if (adjustmentDetails.type === 'bag_to_box') {
-                        payload.bag_count = adjustmentDetails.bag_count;
-                        payload.box_count = adjustmentDetails.box_count;
-                        payload.bag_value = adjustmentDetails.bag_value;
-                        payload.box_value = adjustmentDetails.box_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bill_to_bill') {
-                        payload.target_supplier_code = adjustmentDetails.target_supplier_code;
-                        payload.target_supplier_bill_no = adjustmentDetails.target_supplier_bill_no;
-                        payload.target_supplier_bill_value = adjustmentDetails.target_supplier_bill_value;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    } else if (adjustmentDetails.type === 'bad_debt') {
-                        payload.bad_debt_name = adjustmentDetails.bad_debt_name;
-                        payload.bad_debt_amount = adjustmentDetails.bad_debt_amount;
-                        payload.adjustment_amount = adjustmentDetails.amount;
-                    }
-                }
-
-                console.log(`🟢 [${callId}] Sending CREATE request to /supplier-loan`);
-                response = await api.post('/supplier-loan', payload);
+            // Fire markPrinted in parallel (does not block the print dialog).
+            let markPrintedPromise = null;
+            if (!billNo) {
+                markPrintedPromise = api.post(routes.markPrinted, {
+                    sales_ids: salesDataToValidate.map(s => s.id),
+                    telephone_no: formData.telephone_no,
+                    customer_code: customerCode,
+                    customer_name: customerName,
+                    loan_amount: 0
+                }, { timeout: API_TIMEOUT_MS });
             }
 
-            if (response.data.success) {
-                console.log(`✅ [${callId}] Payment successful!`, response.data);
-
-                // ========== DEDUCT FROM ALLOCATED FUNDS (for all payment methods except Credit) ==========
-                if (paymentMethod !== 'Credit') {
-                    await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
-                    console.log(`💰 [${callId}] Deducted Rs. ${paymentAmount} from allocated funds for ${paymentMethod} payment`);
-                }
-
-                // ✅ CRITICAL FIX: Refresh data with the correct history parameters
-                // Use the current history state to ensure we refresh the right data
-                console.log(`🟢 [${callId}] Refreshing data with history params:`, {
-                    isViewingHistory,
-                    startDate: historyDateRange.startDate,
-                    endDate: historyDateRange.endDate
-                });
-
-                await fetchSupplierData(
-                    isViewingHistory,
-                    historyDateRange.startDate,
-                    historyDateRange.endDate,
-                    true  // silent refresh
+            // FAST PATH: bill already known → open ONLY the system print dialog now.
+            // Hidden iframe = no blank popup window, content is already written before print().
+            if (billNo) {
+                printInFlightRef.current = true;
+                printStartedAtRef.current = Date.now();
+                const receiptHtml = buildFullReceiptHTML(
+                    salesDataToValidate,
+                    billNo,
+                    customerName,
+                    mobile,
+                    currentLoan,
+                    billSize
                 );
-
-                // ⭐ CRITICAL FIX: Re-fetch the loan data to get the accurate total paid
-                const updatedLoanCheck = await findExistingLoanId(state.selectedSupplier, state.selectedBillNo);
-                const updatedTotalPaid = updatedLoanCheck.currentPaid;
-                const isNowFullySettled = updatedTotalPaid >= totalPayable;
-
-                console.log(`🟢 [${callId}] Updated settlement check:`, {
-                    updatedTotalPaid,
-                    totalPayable,
-                    isNowFullySettled
+                writeAndPrintBill(buildPrintDocumentShell('Print Bill', receiptHtml));
+                handlePrintAndClear(null, {
+                    salesToProcess: salesDataToValidate,
+                    billNo,
+                    markPrintedPromise: null,
+                    printAlreadyTriggered: true,
                 });
-
-                // ✅ Immediately move bill in local state if now fully settled, so the panel
-                // updates instantly regardless of whether the API refresh captured the new payment.
-                if (isNowFullySettled && !isCreditSettlementPayment) {
-                    const capturedSupplier = state.selectedSupplier;
-                    const capturedBillNo = state.selectedBillNo;
-                    setState(prev => {
-                        const billToMove = prev.pendingSuppliers.find(
-                            item => item.supplier_code === capturedSupplier &&
-                                item.supplier_bill_no === capturedBillNo
-                        );
-                        if (!billToMove) return prev;
-                        return {
-                            ...prev,
-                            pendingSuppliers: prev.pendingSuppliers.filter(
-                                item => !(item.supplier_code === capturedSupplier &&
-                                    item.supplier_bill_no === capturedBillNo)
-                            ),
-                            completedSuppliers: [
-                                ...prev.completedSuppliers,
-                                { ...billToMove, is_fully_settled: true, net_remaining: 0, loan_amount: totalPayable }
-                            ]
-                        };
-                    });
-                }
-
-                // Re-select the bill to update the UI
-                await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
-
-                // Show appropriate success message
-                let successMessage = `✓ Payment Added: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}`;
-
-                // Only show print modal if the bill is now FULLY SETTLED (total paid >= total bill)
-                if (isNowFullySettled && !isCreditSettlementPayment) {
-                    successMessage = `✅ Payment Complete!\nPayment: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}\nBill is now fully settled!`;
-
-                    // Only show print modal if bill is fully settled
-                    if (state.selectedBillNo && !state.isPrinting) {
-                        // Small delay to ensure data is refreshed
-                        runSafeTimeout(async () => {
-                            const billContent = await generateBillContent(state.selectedBillNo);
-                            setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
-                        }, 500);
-                    }
-                }
-
-                if (isCreditSettlementPayment && creditorUpdateSuccess && !isBillInNotSettled) {
-                    const updatedCreditor = await checkBillCreditorStatus(state.selectedBillNo, state.selectedSupplier);
-                    const remainingCredit = updatedCreditor?.remaining_amount || 0;
-                    const totalCreditAmount = updatedCreditor?.credit_amount || 0;
-                    const paidAmount = totalCreditAmount - remainingCredit;
-
-                    if (remainingCredit <= 0) {
-                        successMessage = `✅ CREDIT FULLY SETTLED!\n\nAmount: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}\nTotal Credit: Rs. ${formatDecimal(totalCreditAmount)}\nTotal Paid: Rs. ${formatDecimal(paidAmount)}`;
-                    } else {
-                        successMessage = `✓ CREDIT PAYMENT RECORDED!\n\nAmount: ${paymentMethod} - Rs. ${formatDecimal(paymentAmount)}\nRemaining Credit: Rs. ${formatDecimal(remainingCredit)}\nTotal Credit: Rs. ${formatDecimal(totalCreditAmount)}`;
-                    }
-                }
-
-                alert(successMessage);
-
-                setState(prev => ({
-                    ...prev,
-                    selectedSupplier: null,
-                    selectedBillNo: null,
-                    supplierDetails: [],
-                    paymentAmount: "",
-                    currentPaidAmount: 0,
-                    paymentBreakdown: [],
-                    showChequeModal: false,
-                    showBankToBankModal: false,
-                    showAdjustmentModal: false,
-                    isPrinting: false,
-                    currentBillTotal: 0,
-                }));
-                setSelectedBillCreditor(null);
-            }
-        } catch (error) {
-            console.error(`❌ [${callId}] Failed to record payment:`, error);
-            alert('Failed to record payment: ' + (error.response?.data?.message || error.message));
-            setState(prev => ({ ...prev, isPrinting: false }));
-        } finally {
-            // Clear all locks after 5 seconds
-            runSafeTimeout(() => {
-                console.log(`🟢 [${callId}] Resetting all processing flags`);
-                processingPaymentRef.current = false;
-                paymentLockRef.current = false;
-                setPaymentLock(false);
-                setIsProcessingPayment(false);
-
-                // Clear window flags
-                window.lastPaymentTime = null;
-                window.lastPaymentAmount = null;
-                window.lastIdempotencyKey = null;
-            }, 5000);
-        }
-    };
-    const processCreditSettlementPayment = async (paymentAmount, isCheque = false, chequeDetails = null, isBankTransfer = false, bankTransferDetails = null) => {
-        if (!state.selectedSupplier || !selectedBillCreditor) {
-            alert("No credit record found to settle");
-            return;
-        }
-
-        // CRITICAL: Only allow credit settlement when the bill is in Fully Settled section
-        if (!state.isUpdatingCompletedBill) {
-            alert("⚠️ Credit can only be settled when the bill is in the 'Fully Settled' section.\n\nPlease complete the bill payment first, then the credit will become available for settlement.");
-            return;
-        }
-
-        console.log('🟣 PROCESS CREDIT SETTLEMENT PAYMENT CALLED', {
-            paymentAmount,
-            selectedBillNo: state.selectedBillNo,
-            selectedSupplier: state.selectedSupplier,
-            remainingCredit: selectedBillCreditor.remaining_amount,
-            isUpdatingCompletedBill: state.isUpdatingCompletedBill
-        });
-
-        setState(prev => ({ ...prev, isPrinting: true }));
-
-        // Track bank name for allocation deduction
-        let bankNameForAllocation = null;
-        let paymentMethod = 'Cash';
-        let paymentMethodForCreditor = 'cash';
-
-        try {
-            if (isBankTransfer) {
-                paymentMethod = 'Bank Transfer';
-                paymentMethodForCreditor = 'bank_transfer';
-                bankNameForAllocation = bankTransferDetails?.bank_name || null;
-            } else if (isCheque) {
-                paymentMethod = 'Cheque';
-                paymentMethodForCreditor = 'cheque';
-                bankNameForAllocation = chequeDetails?.bank_name || null;
-            }
-
-            if (paymentAmount > selectedBillCreditor.remaining_amount) {
-                alert(`Amount exceeds remaining credit! Remaining: Rs. ${formatDecimal(selectedBillCreditor.remaining_amount)}`);
-                setState(prev => ({ ...prev, isPrinting: false }));
                 return;
             }
 
-            console.log('🟢 Calling creditor update payment API', {
-                bill_no: state.selectedBillNo,
-                payment_amount: paymentAmount,
-                payment_method: paymentMethodForCreditor
-            });
-
-            // ✅ Call the creditor update payment endpoint
-            const updateResponse = await api.put('/creditors/update-payment', {
-                bill_no: state.selectedBillNo,
-                payment_amount: paymentAmount,
-                payment_method: paymentMethodForCreditor
-            });
-
-            console.log('📦 Creditor update response:', updateResponse.data);
-
-            if (updateResponse.data.success) {
-                const updatedCreditor = updateResponse.data.data;
-                console.log('✅ Creditor updated successfully', updatedCreditor);
-
-                // Also record this payment in the loan record
-                const totalPayableAmt = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-                const currentPaid = state.currentPaidAmount;
-                const newTotalPaid = currentPaid + paymentAmount;
-                const newRemaining = Math.max(0, totalPayableAmt - newTotalPaid);
-
-                const paymentRecord = {
-                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    date: new Date().toISOString(),
-                    amount: paymentAmount,
-                    method: paymentMethod,
-                    running_balance: newRemaining,
-                    reference: `Credit Settlement - ${paymentMethod}`,
-                    details: {
-                        creditor_settlement: true,
-                        previous_credit_remaining: selectedBillCreditor.remaining_amount,
-                        new_credit_remaining: updatedCreditor.remaining_amount
+            // First print: wait for bill_no, then print immediately via iframe (still no blank window).
+            printInFlightRef.current = true;
+            printStartedAtRef.current = Date.now();
+            (async () => {
+                try {
+                    const printResponse = await markPrintedPromise;
+                    if (!printResponse || printResponse.data.status !== "success") {
+                        throw new Error("මුද්‍රණය අසාර්ථකයි");
                     }
-                };
-
-                const allPaymentDetails = [...state.paymentBreakdown, paymentRecord];
-                const payload = {
-                    code: state.selectedSupplier,
-                    bill_no: state.selectedBillNo,
-                    loan_amount: paymentAmount,
-                    total_amount: totalPayableAmt,
-                    type: paymentMethod,
-                    transaction_ids: state.supplierDetails.map(record => record.id),
-                    payment_details: allPaymentDetails,
-                    use_history: isViewingHistory
-                };
-
-                if (isCheque && chequeDetails) {
-                    payload.bank_name = chequeDetails.bank_name;
-                    payload.cheque_no = chequeDetails.cheq_no;
-                    payload.realized_date = chequeDetails.cheq_date;
-                    payload.bank_account_id = chequeDetails.bank_account_id;
-                } else if (isBankTransfer && bankTransferDetails) {
-                    payload.bank_account_id = bankTransferDetails.bank_account_id;
-                    payload.transfer_reference_no = bankTransferDetails.reference_no;
-                    payload.transfer_date = bankTransferDetails.transfer_date;
-                    payload.transfer_notes = bankTransferDetails.notes;
+                    const newBillNo = printResponse.data.customer_bill_no || "";
+                    if (!newBillNo) {
+                        alert("බිල්පත් අංකය උත්පාදනය කිරීමට නොහැකි විය");
+                        printInFlightRef.current = false;
+                        return;
+                    }
+                    const receiptHtml = buildFullReceiptHTML(
+                        salesDataToValidate,
+                        newBillNo,
+                        customerName,
+                        mobile,
+                        currentLoan,
+                        billSize
+                    );
+                    writeAndPrintBill(buildPrintDocumentShell('Print Bill', receiptHtml));
+                    handlePrintAndClear(null, {
+                        salesToProcess: salesDataToValidate,
+                        billNo: newBillNo,
+                        markPrintedPromise: Promise.resolve(printResponse),
+                        printAlreadyTriggered: true,
+                    });
+                } catch (error) {
+                    console.error("Printing error:", error);
+                    alert("මුද්‍රණය කිරීමේදී දෝෂයක් ඇති විය. Error: " + (error.message || error));
+                    printInFlightRef.current = false;
+                    updateState({ isPrinting: false });
                 }
-
-                console.log('🟢 Creating loan record for credit settlement');
-                const loanResponse = await api.post('/supplier-loan', payload);
-
-                if (loanResponse.data.success) {
-                    // ========== DEDUCT FROM ALLOCATED FUNDS ==========
-                    // For credit settlement payments, deduct from allocated funds
-                    await deductAllocatedFunds(paymentAmount, paymentMethod, bankNameForAllocation);
-                    console.log(`💰 Deducted Rs. ${paymentAmount} from allocated funds for credit settlement`);
-
-
-                    // ========== END OF DEDUCTION ==========
-
-                    // Refresh data
-                    await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-                    await handleSupplierClick(state.selectedSupplier, state.selectedBillNo);
-
-                    const message = updatedCreditor.remaining_amount <= 0
-                        ? `✅ CREDIT FULLY SETTLED!\nAmount: Rs. ${formatDecimal(paymentAmount)}\nPayment Method: ${paymentMethod}`
-                        : `✓ CREDIT PAYMENT RECORDED!\nAmount: Rs. ${formatDecimal(paymentAmount)}\nRemaining Credit: Rs. ${formatDecimal(updatedCreditor.remaining_amount)}`;
-
-                    alert(message);
-
-                    setState(prev => ({
-                        ...prev,
-                        selectedSupplier: null,
-                        selectedBillNo: null,
-                        supplierDetails: [],
-                        paymentAmount: "",
-                        currentPaidAmount: 0,
-                        paymentBreakdown: [],
-                        showChequeModal: false,
-                        showBankToBankModal: false,
-                        isPrinting: false,
-                        currentBillTotal: 0
-                    }));
-                    setSelectedBillCreditor(null);
-                } else {
-                    throw new Error('Failed to record loan payment');
-                }
-            } else {
-                throw new Error(updateResponse.data.message || 'Failed to update creditor payment');
-            }
-        } catch (error) {
-            console.error('❌ Failed to process credit payment:', error);
-            alert('Failed to process credit payment: ' + (error.response?.data?.message || error.message));
-            setState(prev => ({ ...prev, isPrinting: false }));
-        }
-    };
-    const handleCashPayment = async () => {
-        console.log('🔵 CASH PAYMENT BUTTON CLICKED at:', new Date().toISOString());
-        const amount = parseFloat(state.paymentAmount);
-        if (amount === 0 || isNaN(amount)) {
-            alert("Please enter an amount");
+            })();
             return;
         }
 
-        // CRITICAL: Use a window flag to prevent double clicks
-        if (window.cashPaymentProcessing) {
-            console.log('🔴 CASH PAYMENT ALREADY PROCESSING - BLOCKING DUPLICATE');
-            alert('Payment is already being processed. Please wait...');
+        if (selectedPrintedCustomer && e.key === "F5") {
+            e.preventDefault();
             return;
         }
 
-        window.cashPaymentProcessing = true;
-        console.log('🟢 CASH PAYMENT FLAG SET - Processing payment of Rs.', amount);
-
-        // Disable the button element directly
-        const cashButton = document.querySelector('button[data-payment-type="cash"]');
-        if (cashButton) {
-            cashButton.disabled = true;
-            cashButton.style.opacity = '0.5';
-            console.log('🔘 Cash button disabled');
+        // In the handleShortcut function, update the F5 handler:
+        if (e.key === "F5") {
+            e.preventDefault();
+            // Call the function directly without any delays
+            handleMarkAllProcessed();
+            return;
         }
+    });
 
-        try {
-            await processPayment(amount);
-            console.log('✅ Cash payment completed successfully');
-        } catch (error) {
-            console.error('❌ Cash payment failed:', error);
-        } finally {
-            // Re-enable after 5 seconds
-            runSafeTimeout(() => {
-                window.cashPaymentProcessing = false;
-                if (cashButton) {
-                    cashButton.disabled = false;
-                    cashButton.style.opacity = '1';
-                }
-                console.log('🔘 Cash button re-enabled after timeout');
-            }, 5000);
-        }
-    };
-    // Handle right-click on Funds Allocated button
-    const handleFundsAllocatedContextMenu = (e) => {
-        e.preventDefault();
-        setContextMenu({
-            visible: true,
-            x: e.clientX,
-            y: e.clientY
-        });
-    };
-
-    // Close context menu
-    const closeContextMenu = () => {
-        setContextMenu({ visible: false, x: 0, y: 0 });
-    };
-
-    // Reset funds allocated to zero
-    const handleResetFundsAllocated = () => {
-        if (window.confirm('Are you sure you want to reset the Funds Allocated amount to zero?')) {
-            setFundsAllocated(0);
-            localStorage.setItem('fundsAllocated', '0');
-            alert('✅ Funds Allocated has been reset to 0');
-        }
-        closeContextMenu();
-    };
-    // Function to deduct payment from fundsAllocated
-
-    const handleChequePayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingChequeAmount: amount, showChequeModal: true })); };
-    const handleChequeConfirm = async (details) => {
-        const amount = state.pendingChequeAmount;
-        // Always use processPayment - it will detect if credit settlement is needed
-        await processPayment(amount, true, details);
-        setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }));
-    };
-    const handleBankToBankPayment = async () => { const amount = parseFloat(state.paymentAmount); if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; } setState(prev => ({ ...prev, pendingBankToBankAmount: amount, showBankToBankModal: true })); };
-    const handleBankToBankConfirm = async (details) => {
-        const amount = state.pendingBankToBankAmount;
-        // Always use processPayment - it will detect if credit settlement is needed
-        await processPayment(amount, false, null, true, details);
-        setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }));
-    };
-
-    const handleCreditPayment = async () => {
-        let paymentAmount = parseFloat(state.paymentAmount);
-        if (isNaN(paymentAmount) || paymentAmount <= 0) { alert("Please enter a valid amount"); return; }
-        if (!state.selectedSupplier) { alert("Please select a supplier/bill first"); return; }
-        const remainingBillAmount = (state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0)) - state.currentPaidAmount;
-        if (paymentAmount > remainingBillAmount) { alert(`Amount exceeds remaining bill amount!\nRemaining: Rs. ${formatDecimal(remainingBillAmount)}`); return; }
-        if (!window.confirm(`⚠️ CREDIT PAYMENT CONFIRMATION\nSupplier: ${state.selectedSupplier}\nAmount: Rs. ${paymentAmount.toFixed(2)}\nThis will be recorded as PAYABLE to the supplier.`)) return;
-        await processCreditPayment(paymentAmount);
-    };
-    // Update payment amount when calculated adjustment amount changes
     useEffect(() => {
-        if (calculatedAdjustmentAmount > 0 && showAdjustmentModal) {
-            setState(prev => ({ ...prev, paymentAmount: calculatedAdjustmentAmount.toString() }));
+        window.addEventListener("keydown", handleShortcut);
+        return () => window.removeEventListener("keydown", handleShortcut);
+    }, [handleShortcut]);
+
+    //new function to save phone no 
+    const savePhoneNumber = async () => {
+        const phoneNumber = formData.telephone_no;
+        const customerCode = formData.customer_code || autoCustomerCode;
+
+        if (!phoneNumber || !customerCode) {
+            alert("Please enter both phone number and customer code");
+            return;
         }
-    }, [calculatedAdjustmentAmount, showAdjustmentModal]);
 
-    const processCreditPayment = async (paymentAmount) => {
-        if (!state.selectedSupplier || state.isPrinting) return;
-        setState(prev => ({ ...prev, isPrinting: true }));
         try {
-            const totalPayableAmt = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-            const currentPaid = state.currentPaidAmount;
-            const newTotalPaid = currentPaid + paymentAmount;
-            const isFullySettled = newTotalPaid >= totalPayableAmt;
-            const newRemaining = Math.max(0, totalPayableAmt - newTotalPaid);
+            const response = await api.post('/customers/check-or-create', {
+                short_name: customerCode,
+                telephone_no: phoneNumber
+            }, { timeout: API_TIMEOUT_MS });
 
-            const creditorResponse = await api.post('/creditors/create', { bill_no: state.selectedBillNo, supplier_code: state.selectedSupplier, credit_amount: parseFloat(paymentAmount) });
-            if (!creditorResponse.data.success) throw new Error('Failed to create credit record');
-
-            let remainingCreditAmount = parseFloat(paymentAmount), creditorStatus = 'pending';
-            if (creditorResponse.data.data?.remaining_amount !== undefined) { remainingCreditAmount = parseFloat(creditorResponse.data.data.remaining_amount); creditorStatus = creditorResponse.data.data.status || 'pending'; }
-
-            const paymentRecord = {
-                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                date: new Date().toISOString(),
-                amount: paymentAmount,
-                method: 'Credit',
-                running_balance: newRemaining,
-                reference: 'Credit Payment - Payable to Supplier',
-                details: { creditor_id: creditorResponse.data.data?.id, credit_amount: parseFloat(paymentAmount), remaining_credit: remainingCreditAmount, creditor_status: creditorStatus }
-            };
-
-            const allPaymentDetails = [...state.paymentBreakdown, paymentRecord];
-            const payload = {
-                code: state.selectedSupplier,
-                bill_no: state.selectedBillNo,
-                loan_amount: paymentAmount,
-                total_amount: totalPayableAmt,
-                type: 'Credit',
-                transaction_ids: state.supplierDetails.map(record => record.id),
-                payment_details: allPaymentDetails,
-                use_history: isViewingHistory
-            };
-
-            const response = await api.post('/supplier-loan', payload);
-            if (response.data.success) {
-                await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-                if (isFullySettled && state.selectedBillNo) {
-                    const billContent = await generateBillContent(state.selectedBillNo);
-                    setState(prev => ({ ...prev, printBillContent: billContent, showPrintModal: true }));
-                }
-                alert(isFullySettled ? `✅ Bill Fully Paid!` : `✓ Credit Added Successfully!\nRemaining Credit: Rs. ${formatDecimal(remainingCreditAmount)}`);
-                setState(prev => ({
+            if (response.data.customer) {
+                // Update the customer name if returned
+                setFormData(prev => ({
                     ...prev,
-                    selectedSupplier: null,
-                    selectedBillNo: null,
-                    supplierDetails: [],
-                    paymentAmount: "",
-                    currentPaidAmount: 0,
-                    paymentBreakdown: [],
-                    showChequeModal: false,
-                    showBankToBankModal: false,
-                    showAdjustmentModal: false,
-                    isPrinting: false,
-                    currentBillTotal: 0
+                    customer_name: response.data.customer.name || prev.customer_name
                 }));
-                setSelectedBillCreditor(null);
+                // Hide the save button after saving
+                updateState({ showSavePhoneButton: false });
+
+                // Focus on given_amount field after saving
+                setManagedTimeout(() => {
+                    if (refs.given_amount.current) {
+                        refs.given_amount.current.focus();
+                        refs.given_amount.current.select();
+                    }
+                }, 100);
             }
-        } catch (error) {
-            console.error('Failed to process credit payment:', error);
-            alert('Failed to process credit payment.');
-            setState(prev => ({ ...prev, isPrinting: false }));
+        } catch (err) {
+            console.error("Failed to save phone number:", err);
+            alert("Failed to save phone number. Please try again.");
         }
     };
 
-    const handleApplyAdjustment = async (adjustmentData) => {
-        let adjustmentAmount = 0;
-        const adjustmentType = adjustmentData.adjustment_type;
+    const hasData = allSales.length > 0 || customers.length > 0 || items.length > 0 || suppliers.length > 0;
 
-        if (adjustmentType === 'bag_to_box') {
-            adjustmentAmount = Math.abs((adjustmentData.bag_count * adjustmentData.bag_value) + (adjustmentData.box_count * adjustmentData.box_value));
-        } else if (adjustmentType === 'bill_to_bill') {
-            adjustmentAmount = parseFloat(adjustmentData.target_supplier_bill_value) || 0;
-        } else if (adjustmentType === 'bad_debt') {
-            adjustmentAmount = parseFloat(adjustmentData.bad_debt_amount) || 0;
-        }
+    // Stable props for the memoized sidebar lists; inline arrows here would defeat
+    // React.memo and re-render both full lists on every keystroke in the form.
+    const handlePrintedSearchChange = useStableCallback((value) => updateState({ searchQueries: { ...searchQueries, printed: value } }));
+    const handleUnprintedSearchChange = useStableCallback((value) => updateState({ searchQueries: { ...searchQueries, unprinted: value } }));
+    const toggleCashFilter = useStableCallback(() => updateState({ isCashFilterActive: !state.isCashFilterActive }));
 
-        if (adjustmentAmount === 0) {
-            alert("Adjustment amount is zero");
-            return;
-        }
+    // Option lists for the two react-selects. These were rebuilt (filter + sort + map over
+    // the whole catalog) inside JSX on every render, i.e. on every keystroke of any field.
+    const customerSelectOptions = useMemo(() => (
+        customers
+            .filter(c => !customerSearchInput || String(c.short_name).charAt(0).toUpperCase() === customerSearchInput.charAt(0).toUpperCase())
+            .map(c => ({ value: c.short_name, label: `${c.short_name}` }))
+    ), [customers, customerSearchInput]);
 
-        // Create adjustment details object with all needed fields
-        const adjustmentPayload = {
-            type: adjustmentType,
-            amount: adjustmentAmount,
-            ...adjustmentData
-        };
-
-        // Make sure the payment amount is set before processing
-        if (parseFloat(state.paymentAmount) !== adjustmentAmount) {
-            setState(prev => ({ ...prev, paymentAmount: adjustmentAmount.toString() }));
-            // Small delay to ensure state updates
-            runSafeTimeout(async () => {
-                await processPayment(adjustmentAmount, false, null, false, null, true, adjustmentPayload);
-            }, 100);
-        } else {
-            await processPayment(adjustmentAmount, false, null, false, null, true, adjustmentPayload);
-        }
-
-        setState(prev => ({ ...prev, showAdjustmentModal: false }));
-        setCalculatedAdjustmentAmount(0); // Reset after confirmation
-    };
-
-    const handleDeletePayment = async (supplierCode, billNo) => {
-        setState(prev => ({ ...prev, isPrinting: true }));
-        try {
-            const response = await api.post(routes.deleteSupplierLoan, {
-                code: supplierCode,
-                bill_no: billNo,
-                use_history: isViewingHistory
-            });
-            if (response.data.success) {
-                await fetchSupplierData(isViewingHistory, historyDateRange.startDate, historyDateRange.endDate);
-                if (state.selectedSupplier === supplierCode) setState(prev => ({ ...prev, selectedSupplier: null, selectedBillNo: null, supplierDetails: [], currentBillTotal: 0 }));
-                alert('Payment record deleted successfully!');
-            }
-        } catch (error) {
-            console.error('Failed to delete payment record:', error);
-            alert('Failed to delete payment record');
-        }
-        finally { setState(prev => ({ ...prev, isPrinting: false, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null })); }
-    };
-
-    const handleContextMenu = (e, supplierCode, billNo) => { e.preventDefault(); setState(prev => ({ ...prev, showDeleteModal: true, deleteSupplierCode: supplierCode, deleteBillNo: billNo })); };
-
-    const filterPendingSuppliers = useMemo(() => {
-        if (!state.searchPendingQuery) return state.pendingSuppliers;
-        const q = state.searchPendingQuery.toLowerCase();
-        return state.pendingSuppliers.filter(item => item.supplier_code?.toLowerCase().includes(q) || (item.supplier_bill_no && item.supplier_bill_no.toString().toLowerCase().includes(q)));
-    }, [state.pendingSuppliers, state.searchPendingQuery]);
-
-    const filterCompletedSuppliers = useMemo(() => {
-        if (!state.searchCompletedQuery) return state.completedSuppliers;
-        const q = state.searchCompletedQuery.toLowerCase();
-        return state.completedSuppliers.filter(item => item.supplier_code?.toLowerCase().includes(q) || (item.supplier_bill_no && item.supplier_bill_no.toString().toLowerCase().includes(q)));
-    }, [state.completedSuppliers, state.searchCompletedQuery]);
-
-    const stats = useMemo(() => {
-        const totalGiven = [...state.pendingSuppliers, ...state.completedSuppliers].reduce((sum, supplier) => {
-            const loanAmount = parseFloat(supplier.loan_amount) || 0;
-            return sum + loanAmount;
-        }, 0);
-
-        const totalAmount = [...state.pendingSuppliers, ...state.completedSuppliers].reduce((sum, supplier) => {
-            const totalAmt = parseFloat(supplier.total_amount) || 0;
-            return sum + totalAmt;
-        }, 0);
-
-        const totalCreditOutstanding = [...state.pendingSuppliers].reduce((sum, supplier) => {
-            const creditAmt = parseFloat(supplier.credit_amount) || 0;
-            return sum + creditAmt;
-        }, 0);
-
-        return {
-            totalPending: filterPendingSuppliers.length,
-            totalCompleted: filterCompletedSuppliers.length,
-            totalGiven: totalGiven,
-            totalAmount: totalAmount,
-            totalCreditOutstanding: totalCreditOutstanding
-        };
-    }, [filterPendingSuppliers, filterCompletedSuppliers, state.pendingSuppliers, state.completedSuppliers]);
-
-
-
-    const totalPayable = state.currentBillTotal || state.supplierDetails.reduce((sum, s) => sum + (parseFloat(s.SupplierTotal) || 0), 0);
-    const currentGiven = parseFloat(state.paymentAmount) || 0;
-    let remainingAfterPayment;
-    if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) remainingAfterPayment = Math.max(0, selectedBillCreditor.remaining_amount - currentGiven);
-    else remainingAfterPayment = Math.max(0, totalPayable - (state.currentPaidAmount + currentGiven));
-
-    useEffect(() => {
-        if (state.selectedSupplier) {
-            if (state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0) {
-                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) setState(prev => ({ ...prev, paymentAmount: selectedBillCreditor.remaining_amount.toString() }));
-            } else if (!state.isUpdatingCompletedBill && (state.supplierDetails.length > 0 || state.currentBillTotal > 0)) {
-                if (!state.paymentAmount || parseFloat(state.paymentAmount) === 0) setState(prev => ({ ...prev, paymentAmount: Math.max(0, totalPayable - state.currentPaidAmount).toString() }));
-            }
-        }
-    }, [state.selectedSupplier, totalPayable, state.supplierDetails, state.currentPaidAmount, selectedBillCreditor, state.isUpdatingCompletedBill, state.currentBillTotal]);
-
-    if (state.isLoading) return <LoadingSkeleton />;
-    const renderEditModal = () => {
-        if (!editingRecord) return null;
-        return (
-            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
-                <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-                    <h3 style={{ marginTop: 0, color: '#091d3d', borderBottom: '2px solid #007bff', paddingBottom: '10px' }}>ගනුදෙනුව වෙනස් කරන්න</h3>
-
-                    <div style={{ margin: '15px 0', fontSize: '0.9rem', color: '#666', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '4px' }}>
-                        <p style={{ margin: '2px 0' }}><strong>බිල් අං:</strong> {editingRecord.bill_no || selectedBillNo}</p>
-                        <p style={{ margin: '2px 0' }}><strong>අයිතමය:</strong> {editingRecord.item_name} | {editingRecord.weight} kg</p>
-                    </div>
-
-                    <div style={{ marginTop: '15px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගොවි කේතය (Supplier - Optional):</label>
-                        <input
-                            type="text"
-                            placeholder={editingRecord.supplier_code}
-                            value={newFarmerCode}
-                            onChange={(e) => setNewFarmerCode(e.target.value.toUpperCase())}
-                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                            autoFocus
-                        />
-                    </div>
-
-                    <div style={{ marginTop: '15px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#555' }}>නව ගැනුම්කරු (Customer - Optional):</label>
-                        <input
-                            type="text"
-                            placeholder={editingRecord.customer_code}
-                            value={newCustomerCode}
-                            onChange={(e) => setNewCustomerCode(e.target.value.toUpperCase())}
-                            style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }}
-                        />
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
-                        <button onClick={handleUpdateFarmer} style={{ flex: 1, padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>OK</button>
-                        <button onClick={() => { setEditingRecord(null); setNewFarmerCode(''); setNewCustomerCode(''); }} style={{ flex: 1, padding: '12px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
-                    </div>
-                </div>
-            </div>
-
-        );
-    };
+    const itemSelectOptions = useMemo(() => {
+        const input = (state.itemSearchInput || "").toUpperCase();
+        return items
+            .filter(item => !input || String(item.no).toUpperCase().startsWith(input))
+            .sort((a, b) => {
+                const isANumeric = !isNaN(a.no);
+                const isBNumeric = !isNaN(b.no);
+                if (isANumeric && !isBNumeric) return 1;
+                if (!isANumeric && isBNumeric) return -1;
+                return String(a.no).toUpperCase().localeCompare(String(b.no).toUpperCase());
+            })
+            .map(item => ({
+                value: item.no,
+                label: `${item.no} - ${item.type}`,
+                item,
+            }));
+    }, [items, state.itemSearchInput]);
 
     return (
-        <div style={styles.app}>
-            <div style={{ background: '#1e293b', padding: '12px 24px', display: 'flex', gap: '12px', alignItems: 'center', overflowX: 'auto', position: 'sticky', top: 0, zIndex: 1000 }}>
-                <button onClick={() => navigate('/supplierreport')} style={{ padding: '8px 20px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>📋 Supplier Report</button>
+        <Layout style={{ backgroundColor: '#99ff99' }} billSize={billSize} handleBillSizeChange={handleBillSizeChange}>
+            <div className="sales-layout" style={{ maxWidth: '1400px', margin: '0 auto' }}>
+                {isLoading && (<div className="fixed top-0 left-0 right-0 bg-blue-500 text-white py-1 text-center text-sm z-50">Refreshing data...</div>)}
+                {state.isPrinting && (<div className="fixed top-0 left-0 right-0 bg-yellow-500 text-black py-1 text-center text-sm z-50">Printing in progress... Please wait</div>)}
 
-                {/* Dropdown for the 4 buttons */}
-                <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
-                    <button
-                        ref={dropdownButtonRef}
-                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                        style={{
-                            padding: '10px 24px',
-                            background: isDropdownOpen ? '#4b5563' : '#6b7280',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            transition: 'all 0.2s ease',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                        }}
-                        onMouseEnter={(e) => {
-                            if (!isDropdownOpen) e.currentTarget.style.background = '#4b5563';
-                        }}
-                        onMouseLeave={(e) => {
-                            if (!isDropdownOpen) e.currentTarget.style.background = '#6b7280';
-                        }}
-                    >
-                        <span>📁</span> Reports & Actions
-                        <span style={{
-                            fontSize: '12px',
-                            transform: isDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.2s ease'
-                        }}>▼</span>
-                    </button>
+                {/* --- ADDED ADMIN MODAL --- */}
+                <AdminDataTableModal
+                    isOpen={isAdminModalOpen}
+                    onClose={() => updateState({ isAdminModalOpen: false })}
+                    title={modalTitle}
+                    sales={modalData}
+                    type={modalType}
+                    formatDecimal={formatDecimal}
+                />
 
-                    {isDropdownOpen && ReactDOM.createPortal(
-                        <div style={{
-                            position: 'fixed',
-                            top: dropdownPosition.y,
-                            left: dropdownPosition.x,
-                            background: 'white',
-                            borderRadius: '12px',
-                            boxShadow: '0 10px 40px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08)',
-                            minWidth: '240px',
-                            zIndex: 999999,
-                            overflow: 'hidden',
-                            animation: 'slideDown 0.2s ease-out',
-                            padding: '6px'
-                        }}>
-                            {/* Section Header */}
-                            <div style={{
-                                padding: '10px 16px 6px 16px',
-                                fontSize: '11px',
-                                fontWeight: '600',
-                                color: '#9ca3af',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.5px'
-                            }}>
-                                Reports
-                            </div>
+                <div className="three-column-layout" style={{ opacity: isLoading ? 0.7 : 1, display: 'grid', gridTemplateColumns: '200px 1fr 200px', gap: '16px', padding: '10px', marginTop: '-149px' }}>
+                    <div className="left-sidebar" style={{ backgroundColor: '#1ec139ff', borderRadius: '0.75rem', maxHeight: '80.5vh', overflowY: 'auto' }}>
 
-                            {/* Report Items */}
-                            {[
-                                { label: 'Supplier Profit', icon: '📊', color: '#3b82f6', hoverColor: '#2563eb', path: '/supplier-profit' },
-                                { label: 'DOB Report', icon: '📅', color: '#f59e0b', hoverColor: '#d97706', path: '/suppliers/dobreport' },
-                                { label: 'CD Report', icon: '💰', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/debtor-creditor-report' },
-                                { label: 'Bank Statement', icon: '🏦', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/bank-dashboard2' },
-                                { label: 'Transport Report', icon: '🚚', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/reports/transport' },
-                                { label: 'Loan Report', icon: '💳', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/sop2' },
-                                { label: 'Supplier Loan', icon: '🚚', color: '#8b5cf6', hoverColor: '#7c3aed', path: '/supplier-vikunum-report' },
-                            ].map((item, index) => (
-                                <button
-                                    key={index}
-                                    onClick={() => {
-                                        navigate(item.path);
-                                        setIsDropdownOpen(false);
-                                    }}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 16px',
-                                        background: 'transparent',
-                                        color: '#374151',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                        borderRadius: '8px',
-                                        transition: 'all 0.15s ease',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '10px',
-                                        fontSize: '14px',
-                                        fontWeight: '500'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = `${item.color}15`;
-                                        e.currentTarget.style.color = item.color;
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'transparent';
-                                        e.currentTarget.style.color = '#374151';
-                                    }}
-                                >
-                                    <span style={{ fontSize: '16px' }}>{item.icon}</span>
-                                    {item.label}
-                                </button>
-                            ))}
-
-                            {/* Divider */}
-                            <div style={{
-                                height: '1px',
-                                margin: '4px 16px',
-                                background: '#e5e7eb'
-                            }} />
-
-                            {/* Action Items */}
-                            <div style={{
-                                padding: '6px 16px 4px 16px',
-                                fontSize: '11px',
-                                fontWeight: '600',
-                                color: '#9ca3af',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.5px'
-                            }}>
-                                Actions
-                            </div>
-
-                            <button
-                                onClick={() => {
-                                    setShowFarmerModal(true);
-                                    setIsDropdownOpen(false);
-                                }}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px 16px',
-                                    background: 'transparent',
-                                    color: '#dc2626',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    borderRadius: '8px',
-                                    transition: 'all 0.15s ease',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    fontSize: '14px',
-                                    fontWeight: '500'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = '#fee2e2';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'transparent';
-                                }}
-                            >
-                                <span style={{ fontSize: '16px' }}>👨‍🌾</span>
-                                Farmer Selector
-                            </button>
-                        </div>,
-                        document.body
-                    )}
-                </div>
-
-                <button
-                    onClick={() => {
-                        // Open FundAllocationModal directly without showing IncomeSourcesModal
-                        setShowDirectFundAllocationModal(true);
-                    }}
-                    style={{
-                        padding: '8px 20px',
-                        background: 'linear-gradient(135deg, #10b981, #059669)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    💰 Allocate Funds
-                </button>
-                {/* Funds Allocated Button - Shows Cash and Bank Allocated separately */}
-                <div style={{ position: 'relative', display: 'inline-flex', gap: '4px' }}>
-                    <button
-                        onClick={() => setShowFundsAllocated(true)}
-                        onContextMenu={handleFundsAllocatedContextMenu}
-                        style={{
-                            padding: '8px 20px',
-                            background: (netAvailableAmount || 0) < 0
-                                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-                                : 'linear-gradient(135deg, #f59e0b, #d97706)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px 0 0 8px',
-                            cursor: isLoadingNetAvailable ? 'wait' : 'pointer',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            opacity: isLoadingNetAvailable ? 0.7 : 1
-                        }}
-                    >
-                        {isLoadingNetAvailable ? (
-                            <span>⏳ Calculating...</span>
+                        {hasData ? (
+                            <CustomerList type="printed" searchQuery={searchQueries.printed} onSearchChange={handlePrintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={allSales} isCashFilterActive={state.isCashFilterActive} toggleCashFilter={toggleCashFilter} />
                         ) : (
-                            <>
-                                {(netAvailableAmount || 0) < 0 ? '⚠️' : '💰'}
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: '1.2' }}>
-                                    <span>Net Available: {(netAvailableAmount || 0) < 0 ? '-' : ''}Rs. {formatDecimal(Math.abs(netAvailableAmount || 0))}</span>
-
+                            <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
+                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl">
+                                    <h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>
+                                        මුද්‍රණය කළ
+                                    </h2>
                                 </div>
-                                {(netAvailableAmount || 0) < 0 && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(Overspent)</span>}
-                            </>
+                                <div className="py-4">
+                                    <p className="text-gray-700">මුද්‍රණය කළ ගනුදෙනු දත්ත නොමැත.</p>
+                                </div>
+                            </div>
                         )}
-                    </button>
-
-                    {/* Dropdown indicator button */}
-                    <button
-                        onClick={() => setShowAllocatedBankModal(true)}
-                        style={{
-                            padding: '8px 12px',
-                            background: (allocatedBreakdown.total_allocated || 0) < 0
-                                ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
-                                : 'linear-gradient(135deg, #d97706, #b45309)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '0 8px 8px 0',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}
-                        title="View allocation details"
-                    >
-                        <span>📊</span>
-                        <span style={{ fontSize: '10px' }}>▼</span>
-                    </button>
-                </div>
-                {/* Context Menu for Funds Allocated */}
-                {contextMenu.visible && (
-                    <>
-                        <div
-                            style={{
-                                position: 'fixed',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                zIndex: 9998,
-                            }}
-                            onClick={closeContextMenu}
-                            onContextMenu={(e) => {
-                                e.preventDefault();
-                                closeContextMenu();
-                            }}
-                        />
-                        <div
-                            style={{
-                                position: 'fixed',
-                                top: contextMenu.y,
-                                left: contextMenu.x,
-                                backgroundColor: 'white',
-                                borderRadius: '8px',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                zIndex: 9999,
-                                minWidth: '150px',
-                                overflow: 'hidden',
-                                border: '1px solid #e2e8f0'
-                            }}
-                        >
-                            <button
-                                onClick={handleResetFundsAllocated}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px 16px',
-                                    textAlign: 'left',
-                                    border: 'none',
-                                    backgroundColor: 'white',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    transition: 'background 0.2s'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                            >
-                                🔄 Reset to Zero
-                            </button>
-                        </div>
-                    </>
-                )}
-
-                {!isViewingHistory ? (
-                    <button onClick={() => setShowOldBillsModal(true)} style={{ padding: '8px 20px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>📜 View Old Bills</button>
-                ) : (
-                    <button onClick={handleResetToCurrentBills} style={{ padding: '8px 20px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>🔄 Back to Current Bills</button>
-                )}
-
-                {isViewingHistory && historyDateRange.startDate && historyDateRange.endDate && (
-                    <span style={{ padding: '6px 12px', background: '#f59e0b', borderRadius: '20px', fontSize: '12px', color: 'white', whiteSpace: 'nowrap' }}>
-                        📅 History: {historyDateRange.startDate} to {historyDateRange.endDate}
-                    </span>
-                )}
-            </div>
-
-            <div style={styles.container}>
-                <div style={styles.threeColumns}>
-                    {/* LEFT PANEL - Not Settled */}
-                    <div style={styles.panel}>
-                        <div style={styles.panelHeader}>
-                            <h2 style={styles.panelTitle}>
-                                <span style={{ width: '10px', height: '10px', background: '#f59e0b', borderRadius: '50%' }}></span>
-                                Not Settled
-                            </h2>
-                        </div>
-                        <div style={{ padding: '12px 16px 0 16px' }}>
-                            <input
-                                type="text"
-                                placeholder="🔍 Search not settled..."
-                                value={state.searchPendingQuery}
-                                onChange={(e) => setState(prev => ({ ...prev, searchPendingQuery: e.target.value.toUpperCase() }))}
-                                style={styles.searchInput}
-                            />
-                        </div>
-                        <div style={styles.panelContent}>
-                            {filterPendingSuppliers.length === 0 ?
-                                <EmptyState message="No pending suppliers" /> :
-                                (() => {
-                                    // Group items by bill number
-                                    const groupedByBill = filterPendingSuppliers.reduce((groups, item) => {
-                                        const billNo = item.supplier_bill_no || 'Pending';
-                                        if (!groups[billNo]) {
-                                            groups[billNo] = [];
-                                        }
-                                        groups[billNo].push(item);
-                                        return groups;
-                                    }, {});
-
-                                    // Convert to array for rendering and SORT by bill number (ascending)
-                                    return Object.entries(groupedByBill)
-                                        .sort((a, b) => {
-                                            const billNoA = a[0];
-                                            const billNoB = b[0];
-
-                                            // Handle 'Pending' case - put at end
-                                            if (billNoA === 'Pending') return 1;
-                                            if (billNoB === 'Pending') return -1;
-
-                                            // Try to extract numeric values for proper sorting
-                                            const numA = parseInt(String(billNoA).replace(/[^0-9]/g, ''));
-                                            const numB = parseInt(String(billNoB).replace(/[^0-9]/g, ''));
-
-                                            // If both have valid numbers, sort numerically
-                                            if (!isNaN(numA) && !isNaN(numB)) {
-                                                return numA - numB;
-                                            }
-
-                                            // Fallback: compare as strings (case insensitive)
-                                            return String(billNoA).toLowerCase().localeCompare(String(billNoB).toLowerCase());
-                                        })
-                                        .map(([billNo, items]) => {
-                                            // Aggregate data from all items in this bill group
-                                            const firstItem = items[0];
-                                            const totalAmount = items.reduce((sum, item) => sum + (item.total_amount || 0), 0);
-                                            const totalLoanAmount = items.reduce((sum, item) => sum + (item.loan_amount || 0), 0);
-                                            const totalCreditAmount = items.reduce((sum, item) => sum + (item.credit_amount || 0), 0);
-                                            const totalNetRemaining = items.reduce((sum, item) => sum + (item.net_remaining || 0), 0);
-                                            const isHistory = items.some(item => item.is_history);
-
-                                            return (
-                                                <div key={billNo}
-                                                    style={{
-                                                        ...styles.billItem,
-                                                        ...styles.billPending,
-                                                        ...(state.selectedSupplier === firstItem.supplier_code && state.selectedBillNo === billNo ? styles.billSelected : {}),
-                                                        borderLeft: isHistory ? '4px solid #8b5cf6' : 'none'
-                                                    }}
-                                                    onClick={() => handleSupplierClick(firstItem.supplier_code, billNo)}
-                                                    onContextMenu={(e) => handleContextMenu(e, firstItem.supplier_code, billNo)}>
-                                                    <div style={styles.billRow}>
-                                                        <div style={styles.billLeft}>
-                                                            <div style={styles.billNo}>{firstItem.supplier_code}</div>
-                                                            <div style={styles.billCustomer}>Bill: {billNo}</div>
-                                                            {isHistory && <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>📜 History</div>}
-                                                        </div>
-                                                        <div style={styles.billRight}>
-                                                            <div style={styles.billTotal}>Rs. {formatDecimal(totalAmount)}</div>
-                                                            {totalLoanAmount > 0 && <div style={styles.billGiven}>Paid: {formatDecimal(totalLoanAmount)}</div>}
-                                                            {totalCreditAmount > 0 && (
-                                                                <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px', fontWeight: 'bold' }}>
-                                                                    💳 Credit: Rs. {formatDecimal(totalCreditAmount)}
-                                                                </div>
-                                                            )}
-                                                            {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount === 0 && (
-                                                                <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
-                                                                    ✅ Bill Covered by Credit
-                                                                </div>
-                                                            )}
-                                                            {totalCreditAmount >= (totalAmount - 0.01) && totalLoanAmount > 0 && (
-                                                                <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px', fontWeight: 'bold' }}>
-                                                                    ✅ Bill Fully Covered
-                                                                </div>
-                                                            )}
-                                                            {totalNetRemaining > 0 && (
-                                                                <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '2px' }}>
-                                                                    Remaining: Rs. {formatDecimal(totalNetRemaining)}
-                                                                </div>
-                                                            )}
-                                                            {items.some(item => item.advance_amount > 0) && (
-                                                                <div style={{ fontSize: '10px', color: '#8b5cf6', marginTop: '2px' }}>
-                                                                    💰 Advance: Rs. {formatDecimal(items.reduce((sum, item) => sum + (item.advance_amount || 0), 0))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        });
-                                })()
-                            }
-                        </div>
                     </div>
 
-                    {/* ENHANCED MIDDLE PANEL - Supplier Details */}
-                    <div style={{ background: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)', minHeight: '500px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', position: 'relative' }}>
-                        {/* Lock Overlay - Show when panel is locked AND a supplier is selected */}
-                        {isMiddlePanelLocked && state.selectedSupplier && (
-                            <div style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                backgroundColor: 'rgba(0, 0, 0, 0.85)',
-                                backdropFilter: 'blur(8px)',
-                                zIndex: 1000,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                borderRadius: '20px',
-                                pointerEvents: 'auto'
-                            }}>
-                                <div style={{
-                                    textAlign: 'center',
-                                    color: 'white',
-                                    padding: '30px',
-                                    background: 'rgba(0,0,0,0.7)',
-                                    borderRadius: '20px',
-                                    maxWidth: '80%'
-                                }}>
-                                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
-                                    <h3 style={{ color: 'white', marginBottom: '12px' }}>Panel Locked</h3>
-                                    <p style={{ color: '#cbd5e1', marginBottom: '20px', fontSize: '14px' }}>
-                                        Please select a mode below to unlock the panel and process payments.
-                                    </p>
-                                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                                        <button
-                                            onClick={() => handleModeChange('walking_seller')}
-                                            style={{
-                                                padding: '10px 24px',
-                                                background: 'linear-gradient(135deg, #10b981, #059669)',
-                                                color: 'white',
-                                                border: 'none',
-                                                borderRadius: '10px',
-                                                cursor: 'pointer',
-                                                fontWeight: '600',
-                                                fontSize: '14px'
-                                            }}
-                                        >
-                                            🚶 Walking Seller Mode
-                                        </button>
-                                        <button
-                                            onClick={() => handleModeChange('creditor')}
-                                            style={{
-                                                padding: '10px 24px',
-                                                background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
-                                                color: 'white',
-                                                border: 'none',
-                                                borderRadius: '10px',
-                                                cursor: 'pointer',
-                                                fontWeight: '600',
-                                                fontSize: '14px'
-                                            }}
-                                        >
-                                            💰 Creditor Mode
-                                        </button>
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            setState(prev => ({
-                                                ...prev,
-                                                selectedSupplier: null,
-                                                selectedBillNo: null,
-                                                supplierDetails: [],
-                                                paymentAmount: "",
-                                                currentPaidAmount: 0,
-                                                paymentBreakdown: [],
-                                                currentBillTotal: 0
-                                            }));
-                                            setSelectedBillCreditor(null);
-                                            setIsMiddlePanelLocked(true);
-                                        }}
-                                        style={{
-                                            padding: '10px 24px',
-                                            background: 'rgba(255,255,255,0.2)',
-                                            color: 'white',
-                                            border: '1px solid rgba(255,255,255,0.3)',
-                                            borderRadius: '10px',
-                                            cursor: 'pointer',
-                                            fontWeight: '600',
-                                            fontSize: '14px',
-                                            marginTop: '16px'
-                                        }}
+
+                    <div className="center-form flex flex-col" style={{ backgroundColor: '#111439ff', padding: '20px', borderRadius: '0.75rem', color: 'white', minHeight: '100vh', height: 'auto', boxSizing: 'border-box', gridColumnStart: 2, gridColumnEnd: 3 }}>
+                        {currentUser?.role === 'Admin' ? (
+                            <div className="admin-farmer-view h-full flex flex-col">
+                                <div className="flex flex-row overflow-hidden" style={{ minHeight: "60vh", width: "100%", display: "flex", flexDirection: "row", justifyContent: "center", gap: "20px" }}>
+                                    {/* --- Left Column: Printed Farmers --- */}
+                                    <div
+                                        style={{ width: "300px", height: "850px", flexShrink: 0 }}
+                                        className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
                                     >
-                                        ✕ Clear Selection
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderBottom: '1px solid rgba(255,255,255,0.2)', borderRadius: '20px 20px 0 0' }}>
-                            {/* Mode buttons - Always visible */}
-                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                                <button
-                                    onClick={() => handleModeChange('walking_seller')}
-                                    style={{
-                                        padding: '4px 10px',
-                                        fontSize: '11px',
-                                        borderRadius: '20px',
-                                        border: '1px solid rgba(255,255,255,0.3)',
-                                        background: state.selectedMode === 'walking_seller' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
-                                        color: 'white',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    🚶 Walking Seller
-                                </button>
-                                <button
-                                    onClick={() => handleModeChange('creditor')}
-                                    style={{
-                                        padding: '4px 10px',
-                                        fontSize: '11px',
-                                        borderRadius: '20px',
-                                        border: '1px solid rgba(255,255,255,0.3)',
-                                        background: state.selectedMode === 'creditor' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
-                                        color: 'white',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    💰 Creditor Mode
-                                </button>
-                            </div>
-
-                            {/* Lock indicator when panel is locked */}
-                            {isMiddlePanelLocked && state.selectedSupplier && (
-                                <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    marginBottom: '12px',
-                                    padding: '6px 12px',
-                                    background: 'rgba(0,0,0,0.3)',
-                                    borderRadius: '20px',
-                                    width: 'fit-content'
-                                }}>
-                                    <span style={{ fontSize: '12px' }}>🔒</span>
-                                    <span style={{ fontSize: '11px', color: '#e2e8f0' }}>Select a mode above to unlock</span>
-                                </div>
-                            )}
-
-                            <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'white', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ width: '10px', height: '10px', background: '#fbbf24', borderRadius: '50%', boxShadow: '0 0 8px #fbbf24' }}></span>
-                                Supplier Details
-                                {state.selectedSupplier && (
-                                    <button style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', cursor: 'pointer', fontSize: '12px', padding: '4px 12px', borderRadius: '20px', marginLeft: 'auto' }}
-                                        onClick={() => {
-                                            setState(prev => ({
-                                                ...prev,
-                                                selectedSupplier: null,
-                                                selectedBillNo: null,
-                                                supplierDetails: [],
-                                                paymentAmount: "",
-                                                currentPaidAmount: 0,
-                                                paymentBreakdown: [],
-                                                currentBillTotal: 0
-                                            }));
-                                            setSelectedBillCreditor(null);
-                                            setIsMiddlePanelLocked(true);
-                                        }}>
-                                        ✕ Clear
-                                    </button>
-                                )}
-                            </h2>
-                        </div>
-
-                        <div style={{
-                            flex: 1,
-                            overflowY: 'auto',
-                            padding: '20px',
-                            background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-                            opacity: isMiddlePanelLocked && state.selectedSupplier ? 0.3 : 1,
-                            pointerEvents: isMiddlePanelLocked && state.selectedSupplier ? 'none' : 'auto',
-                            transition: 'opacity 0.3s ease'
-                        }}>
-                            {state.selectedSupplier ? (
-                                <>
-                                    {/* Enhanced Supplier Info Card */}
-                                    <div style={{ padding: '20px', background: 'white', borderRadius: '16px', marginBottom: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
-                                            <div>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>👨‍🌾 Supplier Code</div>
-                                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>{state.selectedSupplier}</div>
-                                            </div>
-                                            {state.selectedBillNo && (
-                                                <div>
-                                                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>📄 Bill Number</div>
-                                                    <div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a', fontFamily: 'monospace' }}>{state.selectedBillNo}</div>
-                                                </div>
-                                            )}
-                                            <div>
-                                                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>📊 Status</div>
-                                                <span style={{ display: 'inline-block', padding: '4px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '600', background: state.isUpdatingCompletedBill ? '#10b981' : '#f59e0b', color: 'white' }}>
-                                                    {state.isUpdatingCompletedBill ? '✓ FULLY PAID' : '⏳ PENDING'}
-                                                </span>
-                                            </div>
+                                        <div className="bg-green-800 p-2 text-center font-bold">
+                                            මුද්‍රණය කළ ගොවීන්
                                         </div>
 
-                                        {/* Financial Summary Card with Credit Amount */}
-                                        <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: selectedBillCreditor && selectedBillCreditor.credit_amount > 0 ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: '12px', padding: '12px', background: '#f8fafc', borderRadius: '12px' }}>
-                                            <div style={{ textAlign: 'center' }}>
-                                                <div style={{ fontSize: '10px', color: '#64748b' }}>💰 Total Bill</div>
-                                                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#dc2626' }}>
-                                                    Rs. {formatDecimal(totalPayable)}
-                                                </div>
-                                                {totalAdvanceAmount > 0 && (
-                                                    <div style={{ fontSize: '9px', color: '#8b5cf6' }}>
-                                                        (Advance: Rs. {formatDecimal(totalAdvanceAmount)})
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div style={{ textAlign: 'center' }}>
-                                                <div style={{ fontSize: '10px', color: '#64748b' }}>✅ Total Paid</div>
-                                                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>Rs. {formatDecimal(state.currentPaidAmount)}</div>
-                                            </div>
-                                            <div style={{ textAlign: 'center' }}>
-                                                <div style={{ fontSize: '10px', color: '#64748b' }}>⏳ Remaining</div>
-                                                <div style={{ fontSize: '18px', fontWeight: 'bold', color: state.isUpdatingCompletedBill ? '#10b981' : '#f59e0b' }}>
-                                                    Rs. {formatDecimal(Math.max(0, totalPayable - state.currentPaidAmount))}
-                                                </div>
-                                            </div>
-                                            {selectedBillCreditor && selectedBillCreditor.credit_amount > 0 && (
-                                                <div style={{ textAlign: 'center' }}>
-                                                    <div style={{ fontSize: '10px', color: '#64748b' }}>⚠️ Credit Payable</div>
-                                                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: selectedBillCreditor.remaining_amount > 0 ? '#dc2626' : '#10b981' }}>
-                                                        Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
-                                                    </div>
-                                                    {selectedBillCreditor.remaining_amount === 0 && (
-                                                        <div style={{ fontSize: '9px', color: '#10b981' }}>✓ Settled</div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {isViewingHistory && (
-                                            <div style={{ marginTop: '12px', padding: '8px', background: '#ede9fe', borderRadius: '8px', fontSize: '11px', color: '#6d28d9' }}>
-                                                📜 Viewing historical record from {historyDateRange.startDate} to {historyDateRange.endDate}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Items Table with improved styling */}
-                                    <div style={{ padding: '20px', background: 'white', borderRadius: '16px', marginBottom: '16px' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span>📋</span> Item Details
-                                            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'normal' }}>({state.supplierDetails.length} items)</span>
-                                        </div>
-                                        <div style={{ marginTop: '20px', overflowX: 'auto' }}>
-                                            <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
-                                                <thead style={{ position: 'sticky', top: 0, background: 'white' }}>
-                                                    <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Customer</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>Wt (kg)</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>ගනුදෙ මිල</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>සැපයුම් මිල	</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>ගනුදෙ එක</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>සැපයුම් එක</th>
-                                                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>කොමි</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {state.supplierDetails.map((sale, idx) => (
-                                                        <tr
-                                                            key={idx}
-                                                            style={{
-                                                                borderBottom: '1px solid #f1f5f9',
-                                                                cursor: 'pointer',
-                                                                transition: 'background-color 0.2s ease'
-                                                            }}
-                                                            onClick={() => setEditingRecord(sale)}
-                                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e3f2fd'}
-                                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                        <div
+                                            className="p-2 flex-grow"
+                                            style={{ height: "calc(100% - 48px)", overflowY: "auto" }}
+                                        >
+                                            <input type="text" placeholder="සොයන්න..." className="w-full p-2 mb-2 rounded bg-white text-black text-sm" style={{ textTransform: "uppercase" }} value={searchQueries.farmerPrinted || ""} onChange={e => updateState({ searchQueries: { ...searchQueries, farmerPrinted: e.target.value.toUpperCase() } })} />
+                                            {printedFarmers.length > 0 ? (
+                                                printedFarmers
+                                                    .filter((f) => !searchQueries.farmerPrinted || f.supplier_code.includes(searchQueries.farmerPrinted))
+                                                    .map((f) => (
+                                                        <div
+                                                            key={f.supplier_code}
+                                                            onClick={() =>
+                                                                updateState({
+                                                                    isAdminModalOpen: true,
+                                                                    modalType: "farmer",
+                                                                    modalTitle: `ගොවියා: ${f.supplier_code}`,
+                                                                    modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed === "Y"),
+                                                                })
+                                                            }
+                                                            className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-green-500 shadow hover:bg-gray-100 cursor-pointer"
                                                         >
-                                                            <td style={{ padding: '10px 8px', fontWeight: '500' }}>{sale.customer_code || 'N/A'}</td>
-                                                            <td style={{ padding: '10px 8px' }}>{sale.item_name || 'N/A'}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.weight)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.price_per_kg)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.SupplierPricePerKg)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.total)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', color: '#059669', fontFamily: 'monospace' }}>{formatDecimal(sale.SupplierTotal)}</td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'monospace' }}>{formatDecimal(sale.commission_amount)}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                                <tfoot>
-                                                    <tr style={{ background: '#f8fafc', fontWeight: 'bold', borderTop: '2px solid #e2e8f0' }}>
-                                                        <td colSpan="4" style={{ padding: '12px 8px', textAlign: 'right' }}>Total:</td>
-                                                        <td style={{ padding: '12px 8px', textAlign: 'right', color: '#dc2626' }}>{formatDecimal(totalPayable)}</td>
-                                                    </tr>
-                                                </tfoot>
-                                            </table>
+                                                            Code: {f.supplier_code}
+                                                        </div>
+                                                    ))
+                                            ) : (
+                                                <p className="text-center text-gray-400 mt-4">No data found</p>
+                                            )}
                                         </div>
                                     </div>
-                                    {/* Bag Amount Input - Add this BEFORE the payment amount input */}
-                                    <div style={{ marginBottom: '16px' }}>
-                                        <label style={{
-                                            fontSize: '13px',
-                                            fontWeight: '600',
-                                            color: '#334155',
-                                            display: 'block',
-                                            marginBottom: '6px'
-                                        }}>
-                                            📦 Bag Amount (Rs.)
-                                            <span style={{ fontSize: '11px', color: '#64748b' }}>(Optional - for this bill)</span>
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={bagAmount}
-                                            onChange={(e) => setBagAmount(e.target.value)}
-                                            placeholder="Enter bag amount"
-                                            style={{
-                                                width: '100%',
-                                                padding: '12px 14px',
-                                                border: '2px solid #e2e8f0',
-                                                borderRadius: '12px',
-                                                fontSize: '14px',
-                                                outline: 'none',
-                                                fontFamily: 'monospace'
-                                            }}
-                                            onFocus={(e) => e.target.style.borderColor = '#f59e0b'}
-                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                            step="0.01"
-                                        />
-                                    </div>
 
-                                    {/* Payment Input Section */}
-                                    {(state.selectedSupplier && (!state.isUpdatingCompletedBill || (selectedBillCreditor && selectedBillCreditor.remaining_amount > 0))) && (
-                                        <div style={styles.paymentBox}>
-                                            <div style={{ fontSize: '14px', fontWeight: '700', color: '#92400e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span>💰</span>
-                                                {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0
-                                                    ? 'Settle Credit (Payable to Supplier)'
-                                                    : 'Enter Payment Amount'}
-                                                {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
-                                                    <span style={{ fontSize: '11px', marginLeft: '8px', color: '#d97706', background: '#fef3c7', padding: '2px 8px', borderRadius: '20px' }}>
-                                                        Remaining Credit: Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
-                                                    </span>
-                                                )}
-                                                {/* Display net payable after advance */}
-                                                {totalAdvanceAmount > 0 && !state.isUpdatingCompletedBill && (
-                                                    <span style={{ fontSize: '11px', marginLeft: '8px', color: '#8b5cf6', background: '#ede9fe', padding: '2px 8px', borderRadius: '20px' }}>
-                                                        💰 Advance: Rs. {formatDecimal(totalAdvanceAmount)}
-                                                    </span>
-                                                )}
-                                            </div>
+                                    {/* --- Right Column: Unprinted Farmers --- */}
+                                    <div
+                                        style={{ width: "300px", height: "850px", flexShrink: 0 }}
+                                        className="flex flex-col bg-gray-800 rounded-xl border border-gray-600 overflow-hidden"
+                                    >
+                                        <div className="bg-red-800 p-2 text-center font-bold">
+                                            මුද්‍රණය නොකළ ගොවීන්
+                                        </div>
 
-                                            {/* Show net payable amount */}
-                                            {totalAdvanceAmount > 0 && !state.isUpdatingCompletedBill && (
-                                                <div style={{
-                                                    fontSize: '13px',
-                                                    color: '#64748b',
-                                                    marginBottom: '8px',
-                                                    padding: '8px 12px',
-                                                    background: '#f8fafc',
-                                                    borderRadius: '8px',
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between'
-                                                }}>
-                                                    <span>Net Payable (Total - Advance):</span>
-                                                    <span style={{ fontWeight: 'bold', color: '#1e293b' }}>
-                                                        Rs. {formatDecimal(Math.max(0, totalPayable - totalAdvanceAmount - state.currentPaidAmount))}
-                                                    </span>
-                                                </div>
-                                            )}
-
+                                        <div
+                                            className="p-2 flex-grow"
+                                            style={{ height: "calc(100% - 48px)", overflowY: "scroll" }}
+                                        >
                                             <input
-                                                type="number"
-                                                value={state.paymentAmount}
+                                                type="text"
+                                                placeholder="සොයන්න..."
+                                                className="w-full p-2 mb-2 rounded bg-white text-black text-sm"
+                                                style={{ textTransform: "uppercase" }}
+                                                value={searchQueries.farmerUnprinted || ""}
                                                 onChange={(e) => {
-                                                    let val = e.target.value;
-                                                    if (val === "") {
-                                                        setState(prev => ({ ...prev, paymentAmount: "" }));
-                                                        return;
-                                                    }
-                                                    let num = parseFloat(val);
-                                                    // For fully settled bills with credit, max is remaining credit amount
-                                                    // For not settled bills, max is remaining bill amount after advance
-                                                    const maxAmount = (state.isUpdatingCompletedBill && selectedBillCreditor?.remaining_amount > 0)
-                                                        ? selectedBillCreditor.remaining_amount
-                                                        : Math.max(0, totalPayable - totalAdvanceAmount - state.currentPaidAmount);
-                                                    if (num > maxAmount && maxAmount > 0) {
-                                                        alert(`Maximum payment amount is Rs. ${formatDecimal(maxAmount)}`);
-                                                        return;
-                                                    }
-                                                    setState(prev => ({ ...prev, paymentAmount: val }));
+                                                    const upper = e.target.value.toUpperCase();
+                                                    updateState({
+                                                        searchQueries: {
+                                                            ...searchQueries,
+                                                            farmerUnprinted: upper,
+                                                        },
+                                                    });
                                                 }}
-                                                placeholder="0.00"
-                                                disabled={state.isPrinting}
-                                                style={{ width: '100%', padding: '16px', border: '2px solid #fbbf24', borderRadius: '14px', fontSize: '20px', fontWeight: '700', textAlign: 'center', background: 'white', fontFamily: 'monospace' }}
                                             />
 
-                                            {/* Payment Buttons - Cash, Cheque, Bank Transfer, Credit */}
-                                            <div style={{
-                                                display: 'flex',
-                                                gap: '8px',
-                                                width: '100%',
-                                                marginTop: '12px'
-                                            }}>
-                                                {/* CASH */}
-                                                <button
-                                                    data-payment-type="cash"
-                                                    onClick={async () => {
-                                                        const amount = parseFloat(state.paymentAmount);
-                                                        if (amount === 0 || isNaN(amount)) {
-                                                            alert("Please enter an amount");
-                                                            return;
-                                                        }
-                                                        // Always use processPayment - it will detect if credit settlement is needed
-                                                        await processPayment(amount);
-                                                    }}
-                                                    disabled={
-                                                        state.isPrinting ||
-                                                        !state.paymentAmount ||
-                                                        parseFloat(state.paymentAmount) === 0 ||
-                                                        window.cashPaymentProcessing
-                                                    }
-                                                    style={{
-                                                        ...styles.cashPaymentBtn,
-                                                        flex: 1,
-                                                        opacity: (
-                                                            state.isPrinting ||
-                                                            !state.paymentAmount ||
-                                                            parseFloat(state.paymentAmount) === 0 ||
-                                                            window.cashPaymentProcessing
-                                                        ) ? 0.5 : 1
-                                                    }}
-                                                >
-                                                    💵 Cash
-                                                </button>
-
-                                                {/* CHEQUE - Always uses processPayment via handleChequeConfirm */}
-                                                {/* CHEQUE */}
-                                                <button
-                                                    onClick={async () => {
-                                                        const amount = parseFloat(state.paymentAmount);
-                                                        if (amount === 0 || isNaN(amount)) {
-                                                            alert("Please enter an amount");
-                                                            return;
-                                                        }
-                                                        setState(prev => ({
-                                                            ...prev,
-                                                            pendingChequeAmount: amount,
-                                                            showChequeModal: true
-                                                        }));
-                                                    }}
-                                                    disabled={
-                                                        state.isPrinting ||
-                                                        !state.paymentAmount ||
-                                                        parseFloat(state.paymentAmount) === 0
-                                                    }
-                                                    style={{
-                                                        ...styles.chequePaymentBtn,
-                                                        flex: 1,
-                                                        opacity: (!state.paymentAmount ||
-                                                            parseFloat(state.paymentAmount) === 0) ? 0.5 : 1
-                                                    }}
-                                                >
-                                                    💳 Cheque
-                                                </button>
-
-                                                {/* BANK TRANSFER - Always uses processPayment via handleBankToBankConfirm */}
-                                                {/* BANK TRANSFER */}
-                                                <button
-                                                    onClick={async () => {
-                                                        const amount = parseFloat(state.paymentAmount);
-                                                        if (amount === 0 || isNaN(amount)) {
-                                                            alert("Please enter an amount");
-                                                            return;
-                                                        }
-                                                        setState(prev => ({
-                                                            ...prev,
-                                                            pendingBankToBankAmount: amount,
-                                                            showBankToBankModal: true
-                                                        }));
-                                                    }}
-                                                    disabled={
-                                                        state.isPrinting ||
-                                                        !state.paymentAmount ||
-                                                        parseFloat(state.paymentAmount) === 0
-                                                    }
-                                                    style={{
-                                                        ...styles.bankToBankPaymentBtn,
-                                                        flex: 1,
-                                                        opacity: (!state.paymentAmount ||
-                                                            parseFloat(state.paymentAmount) === 0) ? 0.5 : 1
-                                                    }}
-                                                >
-                                                    🏦 Transfer
-                                                </button>
-
-                                                {/* CREDIT - Only for not fully settled bills */}
-                                                {!state.isUpdatingCompletedBill && (
-                                                    <button
-                                                        onClick={handleCreditPayment}
-                                                        disabled={
-                                                            state.isPrinting ||
-                                                            !state.paymentAmount ||
-                                                            parseFloat(state.paymentAmount) === 0
-                                                        }
-                                                        style={{
-                                                            flex: 1,
-                                                            padding: '12px',
-                                                            background: '#f59e0b',
-                                                            color: 'white',
-                                                            border: 'none',
-                                                            borderRadius: '12px',
-                                                            fontWeight: '600',
-                                                            fontSize: '13px',
-                                                            cursor: (!state.paymentAmount ||
-                                                                parseFloat(state.paymentAmount) === 0)
-                                                                ? 'not-allowed'
-                                                                : 'pointer',
-                                                            opacity: (!state.paymentAmount ||
-                                                                parseFloat(state.paymentAmount) === 0)
-                                                                ? 0.5
-                                                                : 1,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            gap: '6px'
-                                                        }}
-                                                    >
-                                                        💳 Credit
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {/* Three Adjustment Buttons - All use processPayment which handles credit settlement */}
-                                            <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
-                                                <button
-                                                    onClick={() => {
-                                                        // REMOVED: const amount = parseFloat(state.paymentAmount);
-                                                        // REMOVED: if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; }
-                                                        setSelectedAdjustmentType('bag_to_box');
-                                                        setShowAdjustmentModal(true);
-                                                    }}
-                                                    disabled={state.isPrinting}
-                                                    style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                                    <span>📦</span> Bag to Box
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        // REMOVED: const amount = parseFloat(state.paymentAmount);
-                                                        // REMOVED: if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; }
-                                                        setSelectedAdjustmentType('bill_to_bill');
-                                                        setShowAdjustmentModal(true);
-                                                    }}
-                                                    disabled={state.isPrinting}
-                                                    style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                                    <span>📄</span> Bill to Bill
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        // REMOVED: const amount = parseFloat(state.paymentAmount);
-                                                        // REMOVED: if (amount === 0 || isNaN(amount)) { alert("Please enter an amount"); return; }
-                                                        setSelectedAdjustmentType('bad_debt');
-                                                        setShowAdjustmentModal(true);
-                                                    }}
-                                                    disabled={state.isPrinting}
-                                                    style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg, #ef4444, #dc2626)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '13px', cursor: state.isPrinting ? 'not-allowed' : 'pointer', opacity: state.isPrinting ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                                    <span>⚠️</span> Bad Debt
-                                                </button>
-                                            </div>
-                                            {/* Credit Info Message - Only show when bill is fully settled and has credit */}
-                                            {state.isUpdatingCompletedBill && selectedBillCreditor && selectedBillCreditor.remaining_amount > 0 && (
-                                                <div style={{
-                                                    marginTop: '12px',
-                                                    padding: '10px',
-                                                    background: '#dbeafe',
-                                                    borderRadius: '8px',
-                                                    fontSize: '12px',
-                                                    color: '#1e40af',
-                                                    textAlign: 'center'
-                                                }}>
-                                                    💡 This bill is fully paid. Use Cash/Cheque/Bank Transfer or Adjustment methods above to settle credit payable to supplier.
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Credit Information Section - Shows for any bill with credit amount */}
-                                    {selectedBillCreditor && selectedBillCreditor.credit_amount > 0 && (
-                                        <div style={{ marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', borderRadius: '14px', borderLeft: '4px solid #f59e0b' }}>
-                                            <div style={{ fontSize: '13px', fontWeight: '700', color: '#92400e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span>⚠️</span> Credit Information (Payable to Supplier)
-                                            </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', fontSize: '12px' }}>
-                                                <div>
-                                                    <div style={{ color: '#78350f' }}>Total Credit Taken:</div>
-                                                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#dc2626' }}>Rs. {formatDecimal(selectedBillCreditor.credit_amount)}</div>
-                                                </div>
-                                                <div>
-                                                    <div style={{ color: '#78350f' }}>Amount Paid:</div>
-                                                    <div style={{ fontWeight: 'bold', color: '#10b981' }}>Rs. {formatDecimal(selectedBillCreditor.paid_amount)}</div>
-                                                </div>
-                                                <div>
-                                                    <div style={{ color: '#78350f' }}>Remaining Payable:</div>
-                                                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: selectedBillCreditor.remaining_amount > 0 ? '#dc2626' : '#10b981' }}>
-                                                        Rs. {formatDecimal(selectedBillCreditor.remaining_amount)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div style={{ color: '#78350f' }}>Status:</div>
-                                                    <span style={{
-                                                        display: 'inline-block',
-                                                        padding: '4px 10px',
-                                                        borderRadius: '20px',
-                                                        fontSize: '11px',
-                                                        fontWeight: '600',
-                                                        background: selectedBillCreditor.status === 'paid' ? '#10b981' : (selectedBillCreditor.status === 'partial' ? '#f59e0b' : '#ef4444'),
-                                                        color: 'white'
-                                                    }}>
-                                                        {selectedBillCreditor.status === 'paid' ? '✓ FULLY PAID' : (selectedBillCreditor.status === 'partial' ? '⏳ PARTIAL' : '⚠️ PENDING')}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            {selectedBillCreditor.remaining_amount > 0 && (
-                                                <div style={{ fontSize: '11px', marginTop: '12px', padding: '8px', background: '#fef3c7', borderRadius: '8px', color: '#92400e' }}>
-                                                    ⚠️ This amount is payable TO the supplier! Use the payment options above to settle.
-                                                </div>
-                                            )}
-                                            {selectedBillCreditor.remaining_amount === 0 && selectedBillCreditor.credit_amount > 0 && (
-                                                <div style={{ fontSize: '11px', marginTop: '12px', padding: '8px', background: '#d1fae5', borderRadius: '8px', color: '#065f46' }}>
-                                                    ✅ Credit fully settled! No amount payable to supplier.
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Action Buttons */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
-                                        <button onClick={() => fetchPaymentHistory(state.selectedSupplier, state.selectedBillNo)} style={{ width: '100%', padding: '14px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                            📜 View Full Payment History
-                                        </button>
-                                    </div>
-                                    {/* Advance Entry Form - Add this after the Action Buttons section */}
-                                    {/* Enhanced Advance Entry Form - Stores in NEW table */}
-                                    {(state.selectedSupplier && (
-                                        <div style={{
-                                            marginTop: '20px',
-                                            padding: '20px',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '16px',
-                                            backgroundColor: 'white',
-                                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-                                        }}>
-                                            <div style={{
-                                                fontSize: '14px',
-                                                fontWeight: '700',
-                                                color: '#f59e0b',
-                                                marginBottom: '16px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                flexWrap: 'wrap',
-                                                gap: '10px'
-                                            }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <span>💰</span> අත්තිකාරම් ඇතුලත් කරන්න (Advance Entry)
-                                                </div>
-                                                {totalAdvanceAmount > 0 && (
-                                                    <span style={{
-                                                        fontSize: '12px',
-                                                        color: '#10b981',
-                                                        background: '#d1fae5',
-                                                        padding: '4px 12px',
-                                                        borderRadius: '20px',
-                                                        fontWeight: '600'
-                                                    }}>
-                                                        Total Advance: Rs. {formatDecimal(totalAdvanceAmount)}
-                                                    </span>
-                                                )}
-                                                {supplierAdvances.length > 0 && (
-                                                    <button
-                                                        onClick={() => setShowAdvanceHistory(!showAdvanceHistory)}
-                                                        style={{
-                                                            padding: '4px 12px',
-                                                            fontSize: '11px',
-                                                            background: '#6366f1',
-                                                            color: 'white',
-                                                            border: 'none',
-                                                            borderRadius: '20px',
-                                                            cursor: 'pointer'
-                                                        }}
-                                                    >
-                                                        {showAdvanceHistory ? 'Hide History' : `View History (${supplierAdvances.length})`}
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            <form onSubmit={handleAdvanceSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                                                    {/* Traveler/Trader Code */}
-                                                    <div style={{ flex: 1, minWidth: '150px' }}>
-                                                        <label style={{
-                                                            fontSize: '11px',
-                                                            fontWeight: '600',
-                                                            color: '#64748b',
-                                                            display: 'block',
-                                                            marginBottom: '5px'
-                                                        }}>
-                                                            Traveler/Trader Code <span style={{ color: '#ef4444' }}>*</span>
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            name="traveler_code"
-                                                            value={advancePayload.traveler_code}
-                                                            onChange={(e) => setAdvancePayload({ ...advancePayload, traveler_code: e.target.value.toUpperCase() })}
-                                                            style={{
-                                                                width: '100%',
-                                                                padding: '10px 12px',
-                                                                borderRadius: '10px',
-                                                                border: '1px solid #e2e8f0',
-                                                                fontSize: '13px',
-                                                                outline: 'none'
-                                                            }}
-                                                            placeholder="Enter traveler/trader code"
-                                                            required
-                                                            autoFocus
-                                                        />
-                                                    </div>
-
-                                                    {/* Advance Amount */}
-                                                    <div style={{ flex: 1, minWidth: '150px' }}>
-                                                        <label style={{
-                                                            fontSize: '11px',
-                                                            fontWeight: '600',
-                                                            color: '#64748b',
-                                                            display: 'block',
-                                                            marginBottom: '5px'
-                                                        }}>
-                                                            Advance Amount (Rs.) <span style={{ color: '#ef4444' }}>*</span>
-                                                        </label>
-                                                        <input
-                                                            type="number"
-                                                            name="advance_amount"
-                                                            value={advancePayload.advance_amount}
-                                                            onChange={(e) => setAdvancePayload({ ...advancePayload, advance_amount: e.target.value })}
-                                                            style={{
-                                                                width: '100%',
-                                                                padding: '10px 12px',
-                                                                borderRadius: '10px',
-                                                                border: '1px solid #e2e8f0',
-                                                                fontSize: '14px',
-                                                                outline: 'none',
-                                                                fontFamily: 'monospace'
-                                                            }}
-                                                            placeholder="0.00"
-                                                            required
-                                                            step="0.01"
-                                                            min="0.01"
-                                                        />
-                                                    </div>
-
-                                                    {/* Submit Button */}
-                                                    <div>
-                                                        <button
-                                                            type="submit"
-                                                            disabled={advanceLoading}
-                                                            style={{
-                                                                padding: '10px 24px',
-                                                                backgroundColor: advanceLoading ? '#9ca3af' : '#f59e0b',
-                                                                color: 'white',
-                                                                border: 'none',
-                                                                borderRadius: '10px',
-                                                                cursor: advanceLoading ? 'not-allowed' : 'pointer',
-                                                                fontWeight: '600',
-                                                                fontSize: '13px',
-                                                                height: '42px',
-                                                                transition: 'background 0.2s',
-                                                                opacity: advanceLoading ? 0.6 : 1
-                                                            }}
-                                                            onMouseEnter={(e) => {
-                                                                if (!advanceLoading) {
-                                                                    e.currentTarget.style.backgroundColor = '#d97706';
-                                                                }
-                                                            }}
-                                                            onMouseLeave={(e) => {
-                                                                if (!advanceLoading) {
-                                                                    e.currentTarget.style.backgroundColor = '#f59e0b';
-                                                                }
-                                                            }}
+                                            {unprintedFarmers.length > 0 ? (
+                                                unprintedFarmers
+                                                    .filter((f) => !searchQueries.farmerUnprinted || f.supplier_code.includes(searchQueries.farmerUnprinted))
+                                                    .map((f) => (
+                                                        <div
+                                                            key={f.supplier_code}
+                                                            onClick={() =>
+                                                                updateState({
+                                                                    isAdminModalOpen: true,
+                                                                    modalType: "farmer",
+                                                                    modalTitle: `ගොවියා: ${f.supplier_code}`,
+                                                                    modalData: allSales.filter(s => s.supplier_code === f.supplier_code && s.supplier_bill_printed !== "Y"),
+                                                                })
+                                                            }
+                                                            className="p-1 mb-2 bg-white text-black font-bold rounded-lg border-l-4 border-red-500 shadow hover:bg-gray-100 cursor-pointer"
                                                         >
-                                                            {advanceLoading ? 'Saving...' : 'Record Advance'}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </form>
-
-                                            {advanceStatus.text && (
-                                                <p style={{
-                                                    color: advanceStatus.type === 'success' ? '#10b981' : '#ef4444',
-                                                    marginTop: '12px',
-                                                    fontWeight: '600',
-                                                    fontSize: '12px',
-                                                    padding: '8px',
-                                                    backgroundColor: advanceStatus.type === 'success' ? '#f0fdf4' : '#fef2f2',
-                                                    borderRadius: '8px'
-                                                }}>
-                                                    {advanceStatus.text}
-                                                </p>
+                                                            Code: {f.supplier_code}
+                                                        </div>
+                                                    ))
+                                            ) : (
+                                                <p className="text-center text-gray-400 mt-4">No data found</p>
                                             )}
-
-                                            {/* Advance History from NEW table */}
-                                            {showAdvanceHistory && supplierAdvances.length > 0 && (
-                                                <div style={{
-                                                    marginTop: '16px',
-                                                    borderTop: '1px solid #e2e8f0',
-                                                    paddingTop: '16px'
-                                                }}>
-                                                    <div style={{
-                                                        fontSize: '12px',
-                                                        fontWeight: '600',
-                                                        color: '#334155',
-                                                        marginBottom: '12px'
-                                                    }}>
-                                                        📋 Advance History (from new table)
-                                                    </div>
-                                                    <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                                                        {supplierAdvances.map((advance) => (
-                                                            <div key={advance.id} style={{
-                                                                padding: '10px',
-                                                                marginBottom: '8px',
-                                                                background: '#f8fafc',
-                                                                borderRadius: '8px',
-                                                                borderLeft: '3px solid #f59e0b'
-                                                            }}>
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                                                                    <div>
-                                                                        <div><strong>Traveler:</strong> {advance.traveler_code}</div>
-                                                                        <div><strong>Date:</strong> {new Date(advance.created_at).toLocaleDateString()}</div>
-                                                                        {advance.supplier_bill_no && (
-                                                                            <div><strong>Bill No:</strong> {advance.supplier_bill_no}</div>
-                                                                        )}
-                                                                    </div>
-                                                                    <div style={{ textAlign: 'right' }}>
-                                                                        <div><strong>Amount:</strong> Rs. {formatDecimal(advance.advance_amount)}</div>
-                                                                        <div><strong>Recorded by:</strong> {advance.created_by || 'System'}</div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Info note */}
-                                            <div style={{
-                                                marginTop: '12px',
-                                                padding: '8px',
-                                                background: '#fef3c7',
-                                                borderRadius: '8px',
-                                                fontSize: '11px',
-                                                color: '#92400e',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '8px'
-                                            }}>
-                                                <span>💡</span>
-                                                <span>Advances are stored in a separate table. Traveler code is required for tracking.</span>
-                                            </div>
                                         </div>
-                                    ))}
-                                </>
-                            ) : (
-                                <div style={{ textAlign: 'center', padding: '80px 20px', color: '#94a3b8' }}>
-                                    <div style={{ fontSize: '64px', marginBottom: '16px' }}>📋</div>
-                                    <p style={{ fontSize: '16px', fontWeight: '500' }}>Click on any supplier to view details and process payment</p>
-                                    <p style={{ fontSize: '12px', marginTop: '8px' }}>Select a bill from Not Settled or Fully Settled sections</p>
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-                    </div>
+                            </div>
+                        ) : (
+                            <div className="pos-sales-view flex flex-col h-full">
+                                <div className="flex-shrink-0">
+                                    <form onSubmit={(e) => { e.preventDefault(); }} className="space-y-4">
+                                        <div className="w-full flex justify-between items-center">
+                                            {/* --- TEXT SECTION (Moved Up Independently) --- */}
+                                            <div style={{ position: 'relative', top: '-20px', display: 'flex', alignItems: 'center', zIndex: 20 }}>
+                                                <div className="font-bold text-lg" style={{ color: 'red', fontSize: '1.35rem' }}>
+                                                    බිල් අං: {currentBillNo}
+                                                </div>
+                                                <div className="font-bold text-xl whitespace-nowrap" style={{ color: 'red', marginLeft: '100px', fontSize: '1.15rem' }}>
 
-                    {/* RIGHT PANEL - Fully Settled */}
-                    <div style={styles.panel}>
-                        <div style={styles.panelHeader}>
-                            <h2 style={styles.panelTitle}>
-                                <span style={{ width: '10px', height: '10px', background: '#10b981', borderRadius: '50%' }}></span>
-                                Fully Settled
-                            </h2>
-                        </div>
-                        <div style={{ padding: '12px 16px 0 16px' }}>
-                            <input
-                                type="text"
-                                placeholder="🔍 Search settled..."
-                                value={state.searchCompletedQuery}
-                                onChange={(e) => setState(prev => ({ ...prev, searchCompletedQuery: e.target.value.toUpperCase() }))}
-                                style={styles.searchInput}
-                            />
-                        </div>
-                        <div style={styles.panelContent}>
-                            {filterCompletedSuppliers.length === 0 ?
-                                <EmptyState message="No settled payments" /> :
-                                (() => {
-                                    // Group items by bill number
-                                    const groupedByBill = filterCompletedSuppliers.reduce((groups, item) => {
-                                        const billNo = item.supplier_bill_no || 'N/A';
-                                        if (!groups[billNo]) {
-                                            groups[billNo] = [];
-                                        }
-                                        groups[billNo].push(item);
-                                        return groups;
-                                    }, {});
-
-                                    // Convert to array for rendering and SORT by bill number (ascending)
-                                    return Object.entries(groupedByBill)
-                                        .sort((a, b) => {
-                                            const billNoA = a[0];
-                                            const billNoB = b[0];
-
-                                            // Handle 'N/A' case - put at end
-                                            if (billNoA === 'N/A') return 1;
-                                            if (billNoB === 'N/A') return -1;
-
-                                            // Try to extract numeric values for proper sorting
-                                            const numA = parseInt(String(billNoA).replace(/[^0-9]/g, ''));
-                                            const numB = parseInt(String(billNoB).replace(/[^0-9]/g, ''));
-
-                                            // If both have valid numbers, sort numerically
-                                            if (!isNaN(numA) && !isNaN(numB)) {
-                                                return numA - numB;
-                                            }
-
-                                            // Fallback: compare as strings (case insensitive)
-                                            return String(billNoA).toLowerCase().localeCompare(String(billNoB).toLowerCase());
-                                        })
-                                        .map(([billNo, items]) => {
-                                            const firstItem = items[0];
-                                            const isHistory = items.some(item => item.is_history);
-                                            const remainingCreditAmount = items.reduce((sum, item) => sum + (item.credit_remaining_amount || 0), 0);
-                                            const hasRemainingCredit = remainingCreditAmount > 0;
-                                            const isCreditFullySettled = items.some(item => item.credit_amount > 0 && item.credit_remaining_amount === 0);
-
-                                            return (
-                                                <div key={billNo}
-                                                    style={{
-                                                        ...styles.billItem,
-                                                        ...styles.billApplied,
-                                                        ...(state.selectedSupplier === firstItem.supplier_code && state.selectedBillNo === billNo ? styles.billSelected : {}),
-                                                        borderLeft: isHistory ? '4px solid #8b5cf6' : 'none',
-                                                        ...(hasRemainingCredit ? { borderRight: '3px solid #f59e0b' } : {})
-                                                    }}
-                                                    onClick={() => handleSupplierClick(firstItem.supplier_code, firstItem.supplier_bill_no)}
-                                                    onContextMenu={(e) => handleContextMenu(e, firstItem.supplier_code, firstItem.supplier_bill_no)}>
-                                                    <div style={styles.billRow}>
-                                                        <div style={styles.billLeft}>
-                                                            <div style={styles.billNo}>
-                                                                {firstItem.supplier_code} - Bill: {firstItem.supplier_bill_no || 'N/A'}
-                                                            </div>
-
-                                                            {hasRemainingCredit && (
-                                                                <div style={{
-                                                                    fontSize: '11px',
-                                                                    color: '#dc2626',
-                                                                    marginTop: '4px',
-                                                                    fontWeight: '600',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '4px'
-                                                                }}>
-                                                                    <span>⚠️</span>
-                                                                    <span>Credit: Rs. {formatDecimal(remainingCreditAmount)}</span>
-                                                                </div>
-                                                            )}
-
-                                                            {isCreditFullySettled && (
-                                                                <div style={{
-                                                                    fontSize: '10px',
-                                                                    color: '#10b981',
-                                                                    marginTop: '2px',
-                                                                    fontWeight: 'bold',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '4px'
-                                                                }}>
-                                                                    <span>✅</span>
-                                                                    <span>Credit Fully Settled</span>
-                                                                </div>
-                                                            )}
+                                                    මුළු විකුණුම්: Rs. {formatDecimal(totalSalesValue)}
+                                                </div>
+                                            </div>
+                                            {/* --- PHOTO SECTION (Stays in original position) --- */}
+                                            <div className="flex gap-10 items-center justify-start mt-4 mb-4 relative" style={{ minHeight: '150px' }}>
+                                                {/* CUSTOMER PHOTO */}
+                                                {state.customerProfilePic && (
+                                                    <div onClick={() => handleImageClick('customer')}
+                                                        className="cursor-pointer hover:scale-105 transition-transform"
+                                                        style={{ position: 'absolute', left: '805px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', zIndex: 10 }}>
+                                                        <span className="text-xs text-gray-400">ගැ</span>
+                                                        <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #1ec139', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                            <img src={state.customerProfilePic} alt="Customer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                         </div>
                                                     </div>
+                                                )}
+
+                                                {/* SUPPLIER PHOTO */}
+                                                {state.supplierProfilePic && (
+                                                    <div onClick={() => handleImageClick('supplier')}
+                                                        className="cursor-pointer hover:scale-105 transition-transform"
+                                                        style={{ position: 'absolute', left: '940px', top: '100px', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                                                        <span className="text-xs text-gray-400">සැ</span>
+                                                        <div style={{ width: '100px', height: '100px', backgroundColor: 'white', border: '5px solid #3b82f6', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 20px rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                            <img src={state.supplierProfilePic} alt="Supplier Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <ImagePreviewModal
+                                                    isOpen={state.isImageModalOpen}
+                                                    onClose={() => updateState({ isImageModalOpen: false })}
+                                                    data={state.selectedImageData}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div
+                                            className="flex items-end gap-3 w-full"
+                                            style={{ marginTop: '-160px' }} // Adjust this number until it looks perfect
+                                        >
+                                            {/* STACK TELEPHONE + CUSTOMER CODE VERTICALLY */}
+                                            <div className="flex flex-col gap-2 w-full">
+                                                {/* TELEPHONE NUMBER FIELD - Moved up independently using relative positioning */}
+                                                <div className="flex-1 min-w-0" style={{ position: 'relative', top: '-50px' }}>
+                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                        <input
+                                                            id="telephone_no"
+                                                            ref={refs.telephone_no}
+                                                            name="telephone_no"
+                                                            value={formData.telephone_no || ""}
+                                                            type="text"
+                                                            placeholder="දුරකථන අංකය"
+                                                            disabled={true}
+                                                            className="px-2 py-1 font-bold text-sm w-full border rounded text-black placeholder-gray-500"
+                                                        />
+                                                        {state.showSavePhoneButton && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={savePhoneNumber}
+                                                                style={{
+                                                                    backgroundColor: '#4CAF50',
+                                                                    color: 'white',
+                                                                    border: 'none',
+                                                                    padding: '8px 16px',
+                                                                    borderRadius: '0.5rem',
+                                                                    cursor: 'pointer',
+                                                                    fontWeight: 'bold',
+                                                                    fontSize: '0.9rem',
+                                                                    whiteSpace: 'nowrap',
+                                                                    height: '36px'
+                                                                }}
+                                                                onMouseEnter={(e) => e.target.style.backgroundColor = '#45a049'}
+                                                                onMouseLeave={(e) => e.target.style.backgroundColor = '#4CAF50'}
+                                                            >
+                                                                Save
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            );
-                                        });
-                                })()
-                            }
-                        </div>
-                    </div>
-                </div>
+                                                {/* CUSTOMER CODE FIELD - Stays in its original position */}
+                                                <div className="flex-1 min-w-0" style={{ marginTop: '-40px' }}>
+                                                    <input id="customer_code_input" ref={refs.customer_code_input} name="customer_code" value={formData.customer_code || (!isManualClear ? autoCustomerCode : "")} onChange={(e) => handleInputChange("customer_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "customer_code_input")} type="text" placeholder="පාරිභෝගික කේතය" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
+                                                </div>
+                                            </div>
+                                            <div style={{ flex: '0 0 150px', minWidth: '120px', marginLeft: '-100px' }}>
+                                                <Select id="customer_code_select" ref={refs.customer_code_select} value={formData.customer_code ? { value: formData.customer_code, label: `${formData.customer_code}` } : null} onChange={handleCustomerSelect} options={customerSelectOptions} onInputChange={(v, { action }) => action === "input-change" && updateState({ customerSearchInput: v.toUpperCase() })} inputValue={customerSearchInput} placeholder="පාරිභෝගිකයා තෝරන්න" isClearable isSearchable styles={{ control: b => ({ ...b, minHeight: "36px", height: "36px", fontSize: "25px", backgroundColor: "white", borderColor: "#4a5568", borderRadius: "0.5rem" }), valueContainer: b => ({ ...b, padding: "0 6px", height: "36px" }), placeholder: b => ({ ...b, fontSize: "12px", color: "#a0aec0" }), input: b => ({ ...b, fontSize: "12px", color: "black", fontWeight: "bold" }), singleValue: b => ({ ...b, color: "black", fontSize: "12px", fontWeight: "bold" }), option: (b, s) => ({ ...b, color: "black", fontWeight: "bold", fontSize: "12px", backgroundColor: s.isFocused ? "#e5e7eb" : "white", cursor: "pointer" }) }} />
+                                            </div>
+                                            <div style={{ flex: '0 0 60px', minWidth: '120px' }}>
+                                                <input id="price_per_kg" ref={refs.price_per_kg} name="price_per_kg" type="text" value={formData.price_per_kg} onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && handleInputChange('price_per_kg', e.target.value)} onKeyDown={(e) => handleKeyDown(e, "price_per_kg")} placeholder="එකවර මිල" className="px-2 py-1 uppercase font-bold text-sm w-full border rounded bg-white text-black placeholder-gray-500" style={{ backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '36px', fontSize: '1rem', padding: '0 0.75rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="rounded-lg border relative bg-white flex items-center justify-start pl-2 pt-2.5" style={{ flex: "0 0 100px", marginLeft: "5px", height: "36px" }}>
+                                                    <span className="absolute left-2 top-1 text-gray-400 text-[10px] pointer-events-none">
+                                                        Loan Amount
+                                                    </span>
+                                                    <span className="text-black font-bold text-sm">
+                                                        Rs. {loanAmount < 0 ? formatDecimal(Math.abs(loanAmount)) : formatDecimal(loanAmount)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="w-full" style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", columnGap: "8px", alignItems: "end", marginTop: "8px" }}>
+                                            <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
+                                                <input id="supplier_code" ref={refs.supplier_code} name="supplier_code" value={formData.supplier_code} onChange={(e) => handleInputChange("supplier_code", e.target.value.toUpperCase())} onKeyDown={(e) => handleKeyDown(e, "supplier_code")} type="text" placeholder="සැපයුම්කරු" className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 w-full" style={{ width: "150px", backgroundColor: '#0d0d4d', border: '1px solid #4a5568', color: 'white', height: '44px', fontSize: '1.25rem', padding: '0 1rem', borderRadius: '0.5rem', boxSizing: 'border-box' }} />
+                                            </div>
+                                            <div style={{ gridColumnStart: 5, gridColumnEnd: 7, marginLeft: "-120px", marginRight: "-2px" }}>
+                                                {(() => {
+                                                    const currentFilteredOptions = itemSelectOptions;
 
-                {/* Stats Row */}
-                <div style={styles.statsRow}>
-                    <div style={styles.statBox}>
-                        <div style={styles.statLabel}>Not Settled</div>
-                        <div style={styles.statNumber}>{stats.totalPending}</div>
-                        <div style={styles.statSub}>bills awaiting payment</div>
-                    </div>
-                    <div style={styles.statBox}>
-                        <div style={styles.statLabel}>Fully Settled</div>
-                        <div style={styles.statNumber}>{stats.totalCompleted}</div>
-                        <div style={styles.statSub}>bills paid in full</div>
-                    </div>
-                    <div style={styles.statBox}>
-                        <div style={styles.statLabel}>Total Sales</div>
-                        <div style={styles.statNumber}>Rs. {formatDecimal(stats.totalAmount)}</div>
-                        <div style={styles.statSub}>all bills total</div>
+                                                    const commitItemOption = (optionToSelect) => {
+                                                        if (!optionToSelect) return;
+                                                        handleItemSelect(optionToSelect);
+                                                        updateState({ itemSearchInput: "" });
+                                                        const select = refs.item_code_select.current;
+                                                        // Prefer public API over internal setState (setState can desync controlled inputValue).
+                                                        if (select && typeof select.blurInput === 'function') {
+                                                            try { select.blurInput(); } catch (_) { /* ignore */ }
+                                                        }
+                                                        if (select && typeof select.onMenuClose === 'function') {
+                                                            try { select.onMenuClose(); } catch (_) { /* ignore */ }
+                                                        } else if (select && typeof select.setState === 'function') {
+                                                            try { select.setState({ menuIsOpen: false }); } catch (_) { /* ignore */ }
+                                                        }
+                                                        setManagedTimeout(() => {
+                                                            refs.weight.current?.focus();
+                                                            refs.weight.current?.select();
+                                                        }, 50);
+                                                    };
+
+                                                    const resolveEnterOption = (select) => {
+                                                        const typed = String(state.itemSearchInput || '').trim().toUpperCase();
+                                                        // Exact code match first — operators type item codes then Enter.
+                                                        if (typed) {
+                                                            const exact = currentFilteredOptions.find(
+                                                                (opt) => String(opt.value || '').toUpperCase() === typed
+                                                            );
+                                                            if (exact) return exact;
+                                                            const prefix = currentFilteredOptions.find(
+                                                                (opt) => String(opt.value || '').toUpperCase().startsWith(typed)
+                                                            );
+                                                            if (prefix) return prefix;
+                                                            if (currentFilteredOptions.length === 1) return currentFilteredOptions[0];
+                                                        }
+
+                                                        let idx = select?.state?.highlightedIndex;
+                                                        if (idx === undefined || idx === -1) {
+                                                            const focusedOption = select?.state?.focusedOption || select?.state?.highlightedOption;
+                                                            if (focusedOption && typeof focusedOption === 'object') {
+                                                                idx = currentFilteredOptions.findIndex(
+                                                                    (opt) => opt.value === focusedOption.value
+                                                                );
+                                                            }
+                                                        }
+                                                        if ((idx === undefined || idx === -1) && currentFilteredOptions.length === 1) {
+                                                            idx = 0;
+                                                        }
+                                                        if (idx !== undefined && idx !== -1 && idx < currentFilteredOptions.length) {
+                                                            return currentFilteredOptions[idx];
+                                                        }
+                                                        return null;
+                                                    };
+
+                                                    return (
+                                                        <div
+                                                            onKeyDown={(e) => {
+                                                                if (e.key !== "Enter") return;
+                                                                // Always stop Enter here so the form cannot implicitly
+                                                                // activate another control or drop table scope mid-select.
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                if (typeof e.nativeEvent?.stopImmediatePropagation === 'function') {
+                                                                    e.nativeEvent.stopImmediatePropagation();
+                                                                }
+
+                                                                if (state.itemSearchInput === "+") return;
+
+                                                                const select = refs.item_code_select.current;
+                                                                const optionToSelect = resolveEnterOption(select);
+                                                                if (optionToSelect) commitItemOption(optionToSelect);
+                                                            }}
+                                                        >
+                                                            <Select
+                                                                ref={refs.item_code_select}
+                                                                openMenuOnFocus
+                                                                isSearchable
+                                                                tabSelectsValue={false}
+                                                                closeMenuOnSelect
+                                                                blurInputOnSelect={false}
+                                                                // Options are already filtered — disable react-select's
+                                                                // second filter so highlightedIndex matches our list.
+                                                                filterOption={() => true}
+                                                                inputValue={state.itemSearchInput}
+                                                                options={currentFilteredOptions}
+                                                                placeholder="භාණ්ඩය"
+
+                                                                value={
+                                                                    formData.item_code
+                                                                        ? {
+                                                                            value: formData.item_code,
+                                                                            label: `${formData.item_code} - ${formData.item_name}`,
+                                                                        }
+                                                                        : null
+                                                                }
+
+                                                                onInputChange={(value, meta) => {
+                                                                    if (meta.action === "input-change") {
+                                                                        updateState({ itemSearchInput: value.toUpperCase() });
+                                                                    }
+                                                                    // Ignore "menu-close" / "set-value" / "input-blur" —
+                                                                    // those must not wipe typing or customer table scope.
+                                                                }}
+
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === "Enter" && state.itemSearchInput === "+") {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+
+                                                                        // 1. Filter out temporary rows and sort strictly by latest ID / Timestamp
+                                                                        const validSales = displayedSales.filter(
+                                                                            s => s && s.id && !String(s.id).startsWith('tmp-')
+                                                                        );
+
+                                                                        const latestSale = validSales.sort((a, b) => {
+                                                                            const timeA = new Date(a.created_at || a.updated_at || a.timestamp || 0).getTime() || Number(a.id) || 0;
+                                                                            const timeB = new Date(b.created_at || b.updated_at || b.timestamp || 0).getTime() || Number(b.id) || 0;
+                                                                            return timeB - timeA;
+                                                                        })[0];
+
+                                                                        if (latestSale && latestSale.item_code) {
+                                                                            // 2. Fetch strictly the item_code and item_name
+                                                                            const targetItemCode = latestSale.item_code;
+                                                                            const targetItemName = latestSale.item_name || "";
+
+                                                                            setFormData(prev => {
+                                                                                const keptCustomer = String(
+                                                                                    prev.customer_code ||
+                                                                                    selectedUnprintedCustomer ||
+                                                                                    tableCustomerScopeRef.current ||
+                                                                                    ''
+                                                                                ).trim().toUpperCase();
+
+                                                                                if (keptCustomer) tableCustomerScopeRef.current = keptCustomer;
+
+                                                                                return {
+                                                                                    ...prev,
+                                                                                    customer_code: keptCustomer || prev.customer_code,
+                                                                                    item_code: targetItemCode,
+                                                                                    item_name: targetItemName,
+                                                                                    // Keep existing weight/price/packs empty or untouched
+                                                                                    weight: "",
+                                                                                    price_per_kg: "",
+                                                                                    packs: "",
+                                                                                    total: ""
+                                                                                };
+                                                                            });
+
+                                                                            // 3. Clear the '+' input and focus the weight input immediately
+                                                                            updateState({
+                                                                                itemSearchInput: "",
+                                                                                isManualClear: false,
+                                                                            });
+
+                                                                            setManagedTimeout(() => {
+                                                                                refs.weight.current?.focus();
+                                                                                refs.weight.current?.select();
+                                                                            }, 50);
+                                                                        }
+                                                                        return;
+                                                                    }
+
+                                                                    if (e.key === "Enter") {
+                                                                        e.preventDefault();
+                                                                    }
+                                                                }}
+                                                                className="react-select-container font-bold text-sm w-full"
+
+                                                                styles={{
+                                                                    control: base => ({
+                                                                        ...base,
+                                                                        height: "44px",
+                                                                        minHeight: "44px",
+                                                                        fontSize: "1.25rem",
+                                                                        backgroundColor: "white",
+                                                                        borderColor: "#4a5568",
+                                                                        borderRadius: "0.5rem",
+                                                                    }),
+                                                                    valueContainer: base => ({
+                                                                        ...base,
+                                                                        padding: "0 1rem",
+                                                                        height: "44px"
+                                                                    }),
+                                                                    input: base => ({
+                                                                        ...base,
+                                                                        color: "black",
+                                                                        fontSize: "1.25rem"
+                                                                    }),
+                                                                    singleValue: base => ({
+                                                                        ...base,
+                                                                        color: "black",
+                                                                        fontWeight: "bold",
+                                                                        fontSize: "1.25rem",
+                                                                    }),
+                                                                    option: (base, state) => ({
+                                                                        ...base,
+                                                                        fontWeight: "bold",
+                                                                        color: "black",
+                                                                        backgroundColor: state.isFocused ? "#e5e7eb" : "white",
+                                                                        fontSize: "1rem",
+                                                                    }),
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+
+                                            {[{ id: 'weight', placeholder: "බර", fieldRef: refs.weight },
+                                            { id: 'price_per_kg_grid_item', placeholder: "මිල", fieldRef: refs.price_per_kg_grid_item },
+                                            { id: 'packs', placeholder: "අසුරුම්", fieldRef: refs.packs },
+                                            { id: 'total', placeholder: "TOTAL", fieldRef: refs.total, isReadOnly: true }].map(({ id, placeholder, fieldRef, isReadOnly = false }) => (
+                                                <div key={id} style={{ ...(id === 'weight' && { gridColumnStart: 8, gridColumnEnd: 9, marginLeft: "-70px", width: "100px" }), ...(id === 'price_per_kg_grid_item' && { gridColumnStart: 9, gridColumnEnd: 10, marginLeft: "-30px", width: "105px" }), ...(id === 'packs' && { gridColumnStart: 10, gridColumnEnd: 11 }), ...(id === 'total' && { gridColumnStart: 11, gridColumnEnd: 14, marginLeft: "10px" }) }}>
+                                                    <input id={id} ref={fieldRef} name={id} type="text" value={id === 'price_per_kg_grid_item' ? gridPricePerKg : formData[id]} onChange={(e) => id === 'price_per_kg_grid_item' ? handleInputChange(id, e.target.value) : (/^\d*\.?\d*$/.test(e.target.value) && handleInputChange(id, e.target.value))} onKeyDown={(e) => handleKeyDown(e, id)} placeholder={placeholder} readOnly={isReadOnly} className="px-2 py-1 uppercase font-bold text-xs border rounded bg-white text-black placeholder-gray-500 text-center" style={{ backgroundColor: isReadOnly ? '#e2e8f0' : 'white', borderRadius: '0.5rem', textAlign: 'right', fontSize: '1.125rem', height: '40px', boxSizing: 'border-box', width: '100%' }} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button type="button" tabIndex={-1} style={{ display: "none" }} aria-hidden="true"></button>
+                                    </form>
+                                    {errors.form && <div className="mt-6 p-3 bg-red-100 text-red-700 rounded-xl">{errors.form}</div>}
+                                </div>
+                                <div className="flex-grow overflow-y-auto mt-1">
+                                    {displayedSales.length === 0 ? (<div className="text-center py-8 text-gray-500 border rounded-lg bg-gray-50">විකුණුම් වාර්තා කිසිවක් හමු නොවීය.</div>) : (
+                                        <table className="min-w-full border-gray-200 rounded-xl" style={{ backgroundColor: '#000000', color: 'white', borderCollapse: 'collapse', margin: '0px 0', width: '100%', fontSize: '12px' }}>
+                                            <thead>
+                                                <tr style={{ backgroundColor: '#000000' }}>
+                                                    {['Sup code', 'කේතය', 'අයිතමය', 'බර(kg)', 'මිල', 'අගය', 'මලු', 'Actions'].map((header, index) => (
+                                                        <th key={index} className="border" style={{ backgroundColor: '#f5fafb', color: '#000000', padding: '6px 8px', fontSize: '11px', fontWeight: 'bold' }}>{header}</th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            {displayedSales.length === 0 ? (
+                                                <tbody>
+                                                    <tr>
+                                                        <td colSpan="8" className="border text-center" style={{ padding: '12px', color: '#9ca3af', fontSize: '12px' }}>
+                                                            {(formData.customer_code || selectedUnprintedCustomer || selectedPrintedCustomer)
+                                                                ? 'මෙම පාරිභෝගිකයාට වාර්තා නොමැත'
+                                                                : 'පාරිභෝගික කේතය ඇතුළත් කරන්න'}
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            ) : (
+                                                <tbody>
+                                                    {displayedSales.map((s, idx) => {
+                                                        const isZeroPrice = parseFloat(s.price_per_kg) === 1;
+                                                        const cellStyle = {
+                                                            padding: '6px 8px',
+                                                            fontSize: '12px',
+                                                            color: isZeroPrice ? '#FF0000' : 'white',
+                                                            // Remove backgroundColor or set it to transparent
+                                                            backgroundColor: 'transparent'
+                                                        };
+                                                        return (
+                                                            <tr key={s.id || `${s.customer_code || 'sale'}-${s.item_code || 'item'}-${idx}`}
+                                                                tabIndex={0}
+                                                                className="text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                                onClick={() => handleEditClick(s)}
+                                                                onKeyDown={(e) => handleTableRowKeyDown(e, s)}>
+                                                                <td className="border" style={cellStyle}>{s.supplier_code}</td>
+                                                                <td className="border" style={cellStyle}>{s.item_code}</td>
+                                                                <td className="border" style={{ padding: '6px 8px', fontSize: '16px', fontFamily: 'inherit', fontWeight: 'normal', color: isZeroPrice ? '#FF0000' : '#FFFFFF', textTransform: 'none', backgroundColor: 'transparent' }}>{s.item_name}</td>
+                                                                <td className="border" style={cellStyle}>{formatDecimal(s.weight)}</td>
+                                                                <td className="border" style={cellStyle}>{formatDecimal(s.price_per_kg)}</td>
+                                                                <td className="border" style={cellStyle}>{formatDecimal((parseFloat(s.weight) || 0) * (parseFloat(s.price_per_kg) || 0) + (parseFloat(s.packs) || 0) * (parseFloat(s.pack_due) || 0))}</td>
+                                                                <td className="border" style={cellStyle}>{s.packs}</td>
+                                                                <td className="border text-center" style={{ padding: '6px 8px', backgroundColor: 'transparent' }}>
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteRecord(s.id); }} className="text-black font-bold rounded-full bg-white hover:bg-gray-200" style={{ padding: '2px 6px', fontSize: '11px' }}>
+                                                                        🗑️
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            )}
+                                        </table>
+                                    )}
+                                    {displayedSales.length > 0 && (<SalesSummaryFooter sales={displayedSales} formatDecimal={formatDecimal} />)}
+                                    <div
+                                        className="flex items-center space-x-3 overflow-x-auto whitespace-nowrap"
+                                        style={{ marginTop: "-75px" }}  // adjust value as needed
+                                    >
+                                        <div style={{ marginLeft: '660px', marginTop: '-2px', display: "none" }}>
+                                            <input id="given_amount" ref={refs.given_amount} name="given_amount_field" type="tel" inputMode="numeric" autoComplete="new-password" value={formData.given_amount ? Number(formData.given_amount).toLocaleString() : ""} onChange={(e) => handleInputChange("given_amount", e.target.value.replace(/,/g, ""))} onKeyDown={(e) => handleKeyDown(e, "given_amount")} placeholder="දුන් මුදල" className="px-4 py-2 border rounded-xl text-right bg-white text-black" style={{ width: "180px", fontWeight: "bold", fontSize: "1.1rem" }} />
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-4 items-start"><ItemSummary sales={displayedSales} formatDecimal={formatDecimal} /><BreakdownDisplay sale={selectedSaleForBreakdown} formatDecimal={formatDecimal} /></div>
+                                    <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
+                                        {/* Red Total Text */}
+                                        <div className="flex items-center justify-between mb-4" style={{ marginTop: "35px" }}>
+                                            {/* Red Total Text - Only show when displayedSales has records */}
+                                            {displayedSales.length > 0 && (
+                                                <div className="text-2xl font-bold" style={{ color: 'red' }}>
+                                                    (විකුණුම්: Rs. {formatDecimal(salesTotal)} + මල්ලක අගය: Rs. {formatDecimal(packCostTotal)} )
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
-                    <div
-                        style={{ ...styles.statBox, cursor: 'pointer' }}
-                        onClick={() => {
-                            calculatePaymentTotals();
-                            setShowAdjustmentSummary(true);
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
-                        }}
-                    >
-                        <div style={styles.statLabel}>
-                            Total Received
-                            <span style={{ fontSize: '10px', marginLeft: '4px', color: '#64748b' }}>(Excl. Credit) 📊</span>
-                        </div>
-                        <div style={styles.statNumber}>Rs. {formatDecimal(stats.totalGiven)}</div>
-                        <div style={styles.statSub}>amount received (click for summary)</div>
+                    <div className="right-sidebar" style={{ backgroundColor: '#1ec139ff', borderRadius: '0.75rem', maxHeight: '80.5vh', overflowY: 'auto', gridColumnStart: 3, gridColumnEnd: 4 }}>
+                        {hasData ? (<CustomerList type="unprinted" searchQuery={searchQueries.unprinted} onSearchChange={handleUnprintedSearchChange} selectedPrintedCustomer={selectedPrintedCustomer} selectedUnprintedCustomer={selectedUnprintedCustomer} handleCustomerClick={handleCustomerClick} allSales={allSales} />) : (
+                            <div className="w-full shadow-xl rounded-xl overflow-y-auto border border-black p-4 text-center" style={{ backgroundColor: "#1ec139ff", maxHeight: "80.5vh" }}>
+                                <div style={{ backgroundColor: "#006400" }} className="p-1 rounded-t-xl"><h2 className="font-bold text-white mb-1 whitespace-nowrap text-center" style={{ fontSize: '14px' }}>මුද්‍රණය නොකළ</h2></div><div className="py-4"><p className="text-gray-700">මුද්‍රණය නොකළ විකුණුම් කිසිවක් සොයාගත නොහැක</p></div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
-
-            {/* Modals */}
-            <ViewOldBillsModal isOpen={showOldBillsModal} onClose={() => setShowOldBillsModal(false)} onViewBills={handleViewOldBills} isLoading={isLoadingHistory} />
-            <CreditorFormModal isOpen={showCreditorForm} onClose={() => setShowCreditorForm(false)} onSave={handleCreditorSave} supplierCode={pendingCreditorBill?.supplierCode || ''} billNo={pendingCreditorBill?.billNo || null} />
-            {/* <PrintBillModal 
-    isOpen={state.showPrintModal} 
-    onClose={() => setState(prev => ({ ...prev, showPrintModal: false }))} 
-    billContent={state.printBillContent} 
-    billSize={state.billSize} 
-    setBillSize={(size) => setState(prev => ({ ...prev, billSize: size }))} 
-    onPrint={() => setState(prev => ({ ...prev, showPrintModal: false }))} 
-/> */}
-            <ChequeModal isOpen={state.showChequeModal} onClose={() => setState(prev => ({ ...prev, showChequeModal: false, pendingChequeAmount: 0 }))} onConfirm={handleChequeConfirm} amount={state.pendingChequeAmount} />
-            <BankToBankModal isOpen={state.showBankToBankModal} onClose={() => setState(prev => ({ ...prev, showBankToBankModal: false, pendingBankToBankAmount: 0 }))} onConfirm={handleBankToBankConfirm} amount={state.pendingBankToBankAmount} supplierCode={state.selectedSupplier} />
-            <PaymentAdjustmentModal
-                isOpen={showAdjustmentModal}
-                onClose={() => {
-                    setShowAdjustmentModal(false);
-                    setCalculatedAdjustmentAmount(0);
-                }}
-                onConfirm={handleApplyAdjustment}
-                billNo={state.selectedBillNo}
-                supplierCode={state.selectedSupplier}
-                originalBillTotal={totalPayable}
-                adjustmentType={selectedAdjustmentType}
-                onAmountCalculated={handleAdjustmentAmountCalculated}
-                maxAllowedAmount={state.isUpdatingCompletedBill && selectedBillCreditor?.remaining_amount > 0
-                    ? selectedBillCreditor.remaining_amount
-                    : Math.max(0, totalPayable - state.currentPaidAmount)}
-            />
-            <PaymentHistoryModal
-                isOpen={state.showPaymentHistoryModal}
-                onClose={() => setState(prev => ({ ...prev, showPaymentHistoryModal: false }))}
-                payments={state.currentPayments}
-                totalPaid={state.paymentHistoryTotalPaid}
-                totalBill={state.paymentHistoryTotalBill}
-                remaining={state.paymentHistoryRemaining}
-            />
-            {/* Income Sources Modal */}
-
-            <IncomeSourcesModal
-                isOpen={showIncomeSourcesModal}
-                onClose={() => setShowIncomeSourcesModal(false)}
-                totals={incomeTotals}
-                isLoading={isLoadingIncome}
-                onRefresh={fetchIncomeSources}
-                onAllocateFunds={(amount) => {
-                    setFundsAllocated(prev => prev + amount);
-                }}
-            />
-            {/* Funds Allocated Modal */}
-            <FundsAllocatedModal
-                isOpen={showFundsAllocated}
-                onClose={() => setShowFundsAllocated(false)}
-                fundsAllocated={fundsAllocated}
-            />
-            <DeleteConfirmationModal isOpen={state.showDeleteModal} onClose={() => setState(prev => ({ ...prev, showDeleteModal: false, deleteSupplierCode: null, deleteBillNo: null }))} onConfirm={handleDeletePayment} supplierCode={state.deleteSupplierCode} billNo={state.deleteBillNo} />
-            <DetailedReportModal isOpen={showDetailedReport} onClose={() => setShowDetailedReport(false)} data={detailedReportData} supplierCode={selectedReportSupplier} isLoading={isLoadingReport} />
-            {showCreditorModal && (
-                <CreditorModal
-                    isOpen={showCreditorModal}
-                    onClose={() => {
-                        setShowCreditorModal(false);
-                        setSelectedBillForCreditor({ supplierCode: '', billNo: null });
-                        setState(prev => ({ ...prev, selectedMode: 'walking_seller' }));
-                        // ✅ Keep the panel unlocked even if cancelled, or re-lock if needed
-                        // setIsMiddlePanelLocked(true); // Uncomment if you want to lock on cancel
-                    }}
-                    onConfirm={handleCreditorConfirm}
-                    supplierCode={selectedBillForCreditor.supplierCode}
-                    billNo={selectedBillForCreditor.billNo}
-                />
-            )}
-
-            {/* Adjustment Summary Modal */}
-            <AdjustmentSummaryModal
-                isOpen={showAdjustmentSummary}
-                onClose={() => setShowAdjustmentSummary(false)}
-                totals={adjustmentTotals}
-            />
-
-            {/* Bank Allocation Modal */}
-            {/* Bank Allocation Modal - Now fetches its own data */}
-            <BankAllocationModal
-                isOpen={showAllocatedBankModal}
-                onClose={() => setShowAllocatedBankModal(false)}
-            />
-            <FundAllocationModal
-                isOpen={showDirectFundAllocationModal}
-                onClose={() => setShowDirectFundAllocationModal(false)}
-                onAllocate={(result) => {
-                    console.log('Funds allocated:', result);
-                    // Optionally update any local state here
-                    alert(`✅ ${result.message || 'Funds allocated successfully!'}\n\nAllocated Amount: Rs. ${result.allocated_amount.toFixed(2)}\nCashier: ${result.cashier_name}`);
-                }}
-                selectedAmount={null}
-                maxAmount={null}
-            />
-
-            {/* Farmer Selector Modal */}
-            {showFarmerModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 20002 }} onClick={() => { setShowFarmerModal(false); setFarmerSearchQuery(''); }}>
-                    <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '700px', maxWidth: '90%', padding: '24px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ margin: 0 }}>👨‍🌾 Farmer / Supplier Selector</h3>
-                            <button onClick={() => { setShowFarmerModal(false); setFarmerSearchQuery(''); }} style={{ background: '#f1f5f9', border: 'none', fontSize: '20px', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%' }}>×</button>
-                        </div>
-                        <input
-                            type="text"
-                            placeholder="🔍 Search by code, name, or bill number..."
-                            value={farmerSearchQuery}
-                            onChange={(e) => setFarmerSearchQuery(e.target.value.toUpperCase())}
-                            style={{ width: '100%', padding: '12px 16px', border: '2px solid #e2e8f0', borderRadius: '12px', fontSize: '14px', marginBottom: '16px' }}
-                            autoFocus
-                        />
-                        {isLoadingFarmers ? (
-                            <div style={{ textAlign: 'center', padding: '40px' }}>Loading farmers...</div>
-                        ) : (
-                            <div style={{ overflowY: 'auto', flex: 1 }}>
-                                {groupedFarmers.suppliers.length > 0 && (
-                                    <div style={{ marginBottom: '20px' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '10px', borderBottom: '2px solid #e2e8f0' }}>
-                                            🏪 Registered Suppliers ({groupedFarmers.suppliers.length})
-                                        </div>
-                                        {groupedFarmers.suppliers.map((supplier, idx) => (
-                                            <div key={`supplier-${idx}`}
-                                                onClick={() => { fetchDetailedReport(supplier.code); setShowFarmerModal(false); setFarmerSearchQuery(''); }}
-                                                style={{ padding: '10px 14px', marginBottom: '6px', background: '#f8fafc', borderRadius: '10px', cursor: 'pointer', border: '1px solid #e2e8f0' }}>
-                                                <div style={{ fontWeight: '700' }}>{supplier.code}</div>
-                                                <div style={{ fontSize: '12px', color: '#64748b' }}>
-                                                    {supplier.name || 'No name registered'}{supplier.telephone && ` • 📞 ${supplier.telephone}`}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {groupedFarmers.pending.length > 0 && (
-                                    <div style={{ marginBottom: '20px' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#f59e0b', marginBottom: '10px', borderBottom: '2px solid #fef3c7' }}>
-                                            ⏳ Pending Bills ({groupedFarmers.pending.length})
-                                        </div>
-                                        {groupedFarmers.pending.map((item, idx) => (
-                                            <div key={`pending-${idx}`}
-                                                onClick={() => { fetchDetailedReport(item.code); setShowFarmerModal(false); setFarmerSearchQuery(''); }}
-                                                style={{ padding: '10px 14px', marginBottom: '6px', background: '#fffbeb', borderRadius: '10px', cursor: 'pointer', border: '1px solid #fde68a' }}>
-                                                <div style={{ fontWeight: '700', color: '#92400e' }}>{item.code} {item.billNo && `- Bill: ${item.billNo}`}</div>
-                                                <div style={{ fontSize: '12px', color: '#b45309' }}>Due Amount: Rs. {formatDecimal(item.amount || 0)}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {groupedFarmers.printed.length > 0 && (
-                                    <div style={{ marginBottom: '20px' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#3b82f6', marginBottom: '10px', borderBottom: '2px solid #dbeafe' }}>
-                                            📄 Printed Bills ({groupedFarmers.printed.length})
-                                        </div>
-                                        {groupedFarmers.printed.map((item, idx) => (
-                                            <div key={`printed-${idx}`}
-                                                onClick={() => { fetchDetailedReport(item.code); setShowFarmerModal(false); setFarmerSearchQuery(''); }}
-                                                style={{ padding: '10px 14px', marginBottom: '6px', background: '#eff6ff', borderRadius: '10px', cursor: 'pointer', border: '1px solid #bfdbfe' }}>
-                                                <div style={{ fontWeight: '700', color: '#1e40af' }}>{item.code} - Bill: {item.billNo || 'N/A'}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {groupedFarmers.completed.length > 0 && (
-                                    <div style={{ marginBottom: '20px' }}>
-                                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#10b981', marginBottom: '10px', borderBottom: '2px solid #d1fae5' }}>
-                                            ✅ Settled Bills ({groupedFarmers.completed.length})
-                                        </div>
-                                        {groupedFarmers.completed.map((item, idx) => (
-                                            <div key={`completed-${idx}`}
-                                                onClick={() => { fetchDetailedReport(item.code); setShowFarmerModal(false); setFarmerSearchQuery(''); }}
-                                                style={{ padding: '10px 14px', marginBottom: '6px', background: '#ecfdf5', borderRadius: '10px', cursor: 'pointer', border: '1px solid #a7f3d0' }}>
-                                                <div style={{ fontWeight: '700', color: '#065f46' }}>{item.code} - Bill: {item.billNo}</div>
-                                                <div style={{ fontSize: '12px', color: '#047857' }}>✓ Fully Settled</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {filteredFarmerOptions.length === 0 && (
-                                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>No farmers or suppliers found</div>
-                                )}
-                            </div>
-                        )}
-                        <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
-                            <button onClick={() => { setShowFarmerModal(false); setFarmerSearchQuery(''); }} style={{ padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {renderEditModal()}
-        </div>
+        </Layout>
     );
 }
